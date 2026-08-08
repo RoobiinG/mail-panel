@@ -2,6 +2,35 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [1.1.0.0] - 2026-08-08 (Build 2) — *Panel-Grundgerüst*
+
+### Features
+
+- **Mail-Panel** (`panel/`): Express-Backend (Port 3002) mit JWT-Auth, Erststart-Setup-Flow
+  (erster Aufruf legt das Admin-Konto an, danach gesperrt), Login-Rate-Limit und
+  SQLite-Datenbank (Schema: accounts, quarantine_log, lists, newsletter_senders, settings).
+- **Interne n8n-Endpunkte** unter `/api/internal/*` (Shared-Secret-Header `X-Panel-Secret`,
+  timing-sicherer Vergleich): `GET /config` liefert Schwellwerte/Listen an die Workflows,
+  `POST /log` nimmt Triage-Ergebnisse entgegen und zählt Newsletter-Absender mit.
+- **React-Frontend** (Vite, Tailwind, dark-only im Design des Überwachungs-Panels):
+  Login/Setup, Sidebar-Navigation für alle acht Bereiche, Einstellungen-Seite mit
+  Spam-Schwellwert, DNSBL-Listen-Editor und Verbindungstests (n8n, Mailcow, ClamAV, unbound).
+- **Neue Compose-Services**: `panel` (ghcr-Image), `clamav` (clamd für Anhang-Scans ab
+  Etappe 4) und `unbound` (eigener Resolver für DNSBL-Abfragen ab Etappe 3).
+- **CI**: GitHub Action baut das Panel-Image nach ghcr.io (Pfadfilter auf `panel/`),
+  wöchentlicher npm-audit-Lauf für Backend und Frontend.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **Neue Pflicht-Env-Variablen** (Stack startet der Panel-Container sonst bewusst nicht):
+  `JWT_SECRET`, `PANEL_SECRET`; dazu `PANEL_DB_KEY`, `N8N_API_KEY`, `MAILCOW_URL`,
+  `MAILCOW_API_KEY`, `SAFEBROWSING_API_KEY` (siehe `.env.example`).
+- **Neue Volumes** `panel_data` (SQLite) und `clamav_db` (Signaturen); ClamAV braucht
+  ~1,5 GB RAM zusätzlich.
+- **Keine Änderungen an den n8n-Workflows** — die Workflow-Erweiterungen folgen ab Etappe 3.
+- SQLite-Schema wird beim ersten Start automatisch angelegt; keine Migrationen nötig.
+- Node-Basis ist 24 (better-sqlite3 v12 mit vorgebauten Binaries).
+
 ## [1.0.0.0] - 2026-08-08 (Build 1) — *Grundstein*
 
 ### Features

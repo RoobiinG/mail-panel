@@ -115,6 +115,40 @@ Jeder Workflow hat eine gelbe Notiz mit seinen Konfigurationsschritten. Zusammen
 5. Eine Woche beobachten; die Quarantäne-Liste im Digest zeigt False Positives.
    Bei Bedarf den Klassifizierungs-Prompt in den „Normalisieren"-Nodes nachschärfen.
 
+## Mail-Panel (Verwaltungsoberfläche)
+
+Eigenes Web-Panel (Express + React, Container `mail-panel`) als Fernbedienung für die
+Automatisierung: Konten-Verwaltung mit n8n-Onboarding, Quarantäne, White-/Blacklists,
+Newsletter-Abbestellen, Rspamd-Tuning und Prüfdienste (DNSBL via unbound, ClamAV, Safe Browsing).
+
+### Einrichtung
+
+1. **DNS + NPM:** A-Record `panel.deine-domain.de` → VPS-IP; NPM-Proxy-Host auf `panel:3002`
+   (Websockets nicht nötig), Let's-Encrypt-Zertifikat.
+2. **Secrets:** In der `.env` die Panel-Variablen füllen (siehe `.env.example`):
+   `JWT_SECRET`, `PANEL_SECRET`, `PANEL_DB_KEY` (je `openssl rand -hex 32`),
+   `N8N_API_KEY` (n8n → Settings → n8n API), `MAILCOW_URL` + `MAILCOW_API_KEY`,
+   optional `SAFEBROWSING_API_KEY`.
+3. **Stack aktualisieren:** `docker compose pull && docker compose up -d` — startet
+   zusätzlich `clamav` (~1,5 GB RAM, Signatur-Updates automatisch) und `unbound`
+   (DNS-Resolver für DNSBL-Abfragen; öffentliche Resolver werden von Spamhaus geblockt).
+4. **Erststart:** `https://panel.deine-domain.de` öffnen → Setup-Flow legt das Admin-Konto an.
+5. **Verbindungstests:** Unter Einstellungen die vier Tests ausführen (n8n, Mailcow, ClamAV,
+   unbound) — alle müssen grün sein, bevor die weiteren Etappen eingerichtet werden.
+
+### Entwicklung (lokal)
+
+```bash
+cd panel/backend && npm install && npm run dev
+```
+
+```bash
+cd panel/frontend && npm install && npm run dev
+```
+
+Frontend-Dev-Server läuft auf Vite-Standardport und proxyt `/api` an `localhost:3002`.
+Fürs Backend lokal eine `panel/backend/.env` mit `JWT_SECRET` und `PANEL_SECRET` anlegen.
+
 ## Betrieb & Kosten
 
 - **Updates:** In Dockhand das n8n-Image aktualisieren (Volumes bleiben erhalten).

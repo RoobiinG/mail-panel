@@ -58,6 +58,55 @@ services:
     ports:
       - "5678:5678"
 
+  # ─── Mail-Panel: Verwaltungsoberfläche + Prüfdienste-Backend ───────────────
+  # NPM-Proxy-Host: panel.<domain> -> http://panel:3002 (Websockets nicht nötig)
+  panel:
+    image: ghcr.io/roobiing/mail-panel:latest
+    # Zum lokalen Bauen statt Registry-Image:
+    # build: ./panel
+    container_name: mail-panel
+    restart: unless-stopped
+    environment:
+      - JWT_SECRET=${JWT_SECRET}
+      - PANEL_SECRET=${PANEL_SECRET}
+      - PANEL_DB_KEY=${PANEL_DB_KEY}
+      - N8N_URL=http://n8n:5678
+      - N8N_API_KEY=${N8N_API_KEY}
+      - MAILCOW_URL=${MAILCOW_URL}
+      - MAILCOW_API_KEY=${MAILCOW_API_KEY}
+      - SAFEBROWSING_API_KEY=${SAFEBROWSING_API_KEY}
+      - CLAMD_HOST=clamav
+      - UNBOUND_HOST=unbound
+      - TZ=${TZ:-Europe/Berlin}
+    volumes:
+      - panel_data:/app/data
+    networks:
+      - internal
+      - proxy
+    depends_on:
+      - n8n
+
+  # ─── ClamAV: Virenscan für Mail-Anhänge (clamd, TCP 3310, nur intern) ──────
+  # Braucht ~1,5 GB RAM; die Signaturen landen im Volume und werden von
+  # freshclam im Container automatisch aktuell gehalten.
+  clamav:
+    image: clamav/clamav:latest
+    container_name: clamav
+    restart: unless-stopped
+    volumes:
+      - clamav_db:/var/lib/clamav
+    networks:
+      - internal
+
+  # ─── unbound: eigener DNS-Resolver für DNSBL-Abfragen (nur intern) ─────────
+  # Nötig, weil Spamhaus & Co. Abfragen über öffentliche Resolver blocken.
+  unbound:
+    image: mvance/unbound:latest
+    container_name: unbound
+    restart: unless-stopped
+    networks:
+      - internal
+
 networks:
   internal:
   proxy:
@@ -69,3 +118,5 @@ networks:
 volumes:
   n8n_data:
   n8n_db_data:
+  panel_data:
+  clamav_db:

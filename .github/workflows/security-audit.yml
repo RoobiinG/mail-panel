@@ -1,0 +1,77 @@
+name: Abhängigkeiten prüfen
+
+# Läuft bewusst getrennt vom Image-Build: Eine neu veröffentlichte Schwachstelle soll das
+# Deployment nicht blockieren, aber sichtbar werden. Ergebnis steht in der Job-Zusammenfassung.
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'panel/backend/package.json'
+      - 'panel/frontend/package.json'
+      - '.github/workflows/security-audit.yml'
+  schedule:
+    # Jeden Montag um 06:00 UTC — fängt Schwachstellen auf, die ohne Codeänderung bekannt werden
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        projekt: [panel/backend, panel/frontend]
+
+    steps:
+      - name: Code auschecken
+        uses: actions/checkout@v7
+
+      - name: Node einrichten
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+
+      # Das Projekt führt keine package-lock.json mit. Für die Prüfung wird der Abhängigkeitsbaum
+      # deshalb einmalig aufgelöst, ohne etwas zu installieren.
+      - name: Abhängigkeitsbaum auflösen
+        working-directory: ${{ matrix.projekt }}
+        run: npm install --package-lock-only --no-audit --no-fund
+
+      - name: npm audit
+        id: audit
+        working-directory: ${{ matrix.projekt }}
+        continue-on-error: true
+        run: |
+          npm audit --json > audit.json || true
+          npm audit || true
+
+      - name: Ergebnis zusammenfassen
+        working-directory: ${{ matrix.projekt }}
+        run: |
+          KRIT=$(jq -r '.metadata.vulnerabilities.critical // 0' audit.json)
+          HOCH=$(jq -r '.metadata.vulnerabilities.high     // 0' audit.json)
+          MITT=$(jq -r '.metadata.vulnerabilities.moderate // 0' audit.json)
+          NIED=$(jq -r '.metadata.vulnerabilities.low      // 0' audit.json)
+
+          {
+            echo "## ${{ matrix.projekt }}"
+            echo ""
+            echo "| Schwere | Anzahl |"
+            echo "|---|---|"
+            echo "| Kritisch | $KRIT |"
+            echo "| Hoch | $HOCH |"
+            echo "| Mittel | $MITT |"
+            echo "| Niedrig | $NIED |"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$KRIT" -gt 0 ] || [ "$HOCH" -gt 0 ]; then
+            echo "Betroffene Pakete (kritisch/hoch):" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            jq -r '.vulnerabilities | to_entries[] | select(.value.severity=="critical" or .value.severity=="high") | "\(.value.severity)\t\(.key)\t\(.value.via[0].title // "siehe npm audit")"' audit.json >> "$GITHUB_STEP_SUMMARY" || true
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo ""
+            echo "::warning::${{ matrix.projekt }}: $KRIT kritische und $HOCH hohe Schwachstellen gefunden"
+          else
+            echo "Keine kritischen oder hohen Schwachstellen." >> "$GITHUB_STEP_SUMMARY"
+          fi
