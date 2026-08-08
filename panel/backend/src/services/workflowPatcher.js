@@ -4,6 +4,7 @@
 // werden bei jedem Sync neu erzeugt. Wer sie in n8n von Hand ändert, verliert die
 // Änderung beim nächsten Konto-Sync — alles andere im Workflow bleibt unangetastet.
 const n8n = require('./n8n');
+const db  = require('../db');
 
 const PRAEFIX = 'panel-';
 // Ankerpunkte in den Workflow-Vorlagen, an die das Panel andockt
@@ -29,7 +30,15 @@ const istPanelKnoten = (knoten) => String(knoten.id || '').startsWith(PRAEFIX);
 
 function triggerKnoten(konto, position) {
   return {
-    parameters: { mailbox: 'INBOX', postProcessAction: 'read', options: {} },
+    parameters: {
+      mailbox: 'INBOX',
+      postProcessAction: 'read',
+      // "resolved" liefert die vollständigen Kopfzeilen (nötig für die
+      // Absender-IP der DNSBL-Prüfung) und legt Anhänge als Binärdaten ab
+      // (nötig für den Virenscan).
+      format: 'resolved',
+      options: {},
+    },
     id: `${PRAEFIX}${konto.id}-trigger`,
     name: `${konto.name} (IMAP)`,
     type: 'n8n-nodes-base.emailReadImap',
@@ -126,7 +135,9 @@ function bestandKnoten(konto, position) {
       operation: 'getEmailsList',
       mailboxPath: postfach('INBOX'),
       limit: 100,
-      includeParts: ['textContent'],
+      // headers wird für die Absender-IP der DNSBL-Prüfung gebraucht
+      includeParts: ['textContent', 'headers'],
+      includeAllHeaders: true,
     },
     id: `${PRAEFIX}${konto.id}-bestand`,
     name: `Bestand: ${konto.name}`,
@@ -168,6 +179,34 @@ function verbinde(workflow, von, nach, ausgang = 0) {
   main[ausgang].push({ node: nach, type: 'main', index: 0 });
 }
 
+// Das Credential, mit dem die Workflows die Prüfdienste des Panels aufrufen.
+// Wird beim ersten Sync in n8n angelegt, danach nur noch wiederverwendet —
+// so muss niemand das Panel-Secret von Hand übertragen.
+const PANEL_CREDENTIAL_NAME = 'Mail-Panel: Prüfdienste';
+
+async function panelCredentialId() {
+  const zeile = db.prepare("SELECT value FROM settings WHERE key = 'n8n_panel_credential_id'").get();
+  if (zeile?.value) return zeile.value;
+  const id = await n8n.headerCredentialAnlegen(
+    PANEL_CREDENTIAL_NAME, 'X-Panel-Secret', process.env.PANEL_SECRET,
+  );
+  db.prepare(`
+    INSERT INTO settings (key, value, updated_at) VALUES ('n8n_panel_credential_id', ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+  `).run(id);
+  return id;
+}
+
+// Hängt das Panel-Credential an den Prüf-Knoten der Vorlage
+function pruefKnotenVerdrahten(workflow, credentialId) {
+  const knoten = workflow.nodes.find((k) => k.name === 'Panel-Prüfung');
+  if (!knoten) return false;
+  knoten.credentials = {
+    httpHeaderAuth: { id: String(credentialId), name: PANEL_CREDENTIAL_NAME },
+  };
+  return true;
+}
+
 async function workflowSuchen(praefix) {
   const alle = await n8n.workflowsAuflisten();
   const treffer = alle.find((w) => String(w.name).trim().startsWith(praefix));
@@ -177,10 +216,11 @@ async function workflowSuchen(praefix) {
 
 // ─── Workflow 01: Trigger + Konto-Kennzeichnung je Konto ─────────────────────
 
-async function triageSynchronisieren(konten) {
+async function triageSynchronisieren(konten, credentialId) {
   const info = await workflowSuchen(ANKER.triage.workflowPraefix);
   const workflow = await n8n.workflowHolen(info.id);
   panelKnotenEntfernen(workflow);
+  if (credentialId) pruefKnotenVerdrahten(workflow, credentialId);
 
   for (const name of [ANKER.triage.ziel, ANKER.triage.weiche, ANKER.triage.gmailZiel]) {
     if (!workflow.nodes.some((k) => k.name === name)) {
@@ -226,10 +266,11 @@ function quellenEintragen(code, konten) {
   );
 }
 
-async function bestandSynchronisieren(konten) {
+async function bestandSynchronisieren(konten, credentialId) {
   const info = await workflowSuchen(ANKER.bestand.workflowPraefix);
   const workflow = await n8n.workflowHolen(info.id);
   panelKnotenEntfernen(workflow);
+  if (credentialId) pruefKnotenVerdrahten(workflow, credentialId);
 
   const sammler = workflow.nodes.find((k) => k.name === ANKER.bestand.ziel);
   const kopf    = workflow.nodes.find((k) => k.name === ANKER.bestand.kopf);
@@ -271,9 +312,15 @@ async function bestandSynchronisieren(konten) {
 
 // Beide Workflows auf den aktuellen Kontenstand bringen
 async function alleSynchronisieren(konten) {
+  // Fehlt das Credential, laufen die Workflows trotzdem — der Prüf-Knoten
+  // meldet dann nur einen Fehler und die Mail läuft ungeprüft weiter.
+  let credentialId = null;
+  try { credentialId = await panelCredentialId(); }
+  catch (err) { console.warn('Panel-Credential konnte nicht angelegt werden:', err.message); }
+
   const ergebnisse = [];
-  ergebnisse.push(await triageSynchronisieren(konten));
-  ergebnisse.push(await bestandSynchronisieren(konten));
+  ergebnisse.push(await triageSynchronisieren(konten, credentialId));
+  ergebnisse.push(await bestandSynchronisieren(konten, credentialId));
   return ergebnisse;
 }
 

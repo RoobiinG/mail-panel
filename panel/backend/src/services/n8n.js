@@ -95,6 +95,21 @@ async function credentialAnlegen({ name, host, port, username, passwort, tlsUnsi
   }
 }
 
+// Header-Auth-Credential, mit dem die Workflows die Prüfdienste des Panels
+// aufrufen. Wird einmalig angelegt; die ID merkt sich das Panel.
+async function headerCredentialAnlegen(name, headerName, headerWert) {
+  try {
+    const { data } = await client().post('/credentials', {
+      name,
+      type: 'httpHeaderAuth',
+      data: { name: headerName, value: headerWert },
+    });
+    return data.id;
+  } catch (err) {
+    throw fehler(err, 'Panel-Credential konnte nicht in n8n angelegt werden');
+  }
+}
+
 async function credentialLoeschen(id) {
   if (!id) return;
   try {
@@ -116,5 +131,6 @@ async function executionsAuflisten(limit = 20) {
 
 module.exports = {
   client, testVerbindung, workflowsAuflisten, workflowHolen, workflowSpeichern,
-  workflowAktivieren, credentialAnlegen, credentialLoeschen, executionsAuflisten,
+  workflowAktivieren, credentialAnlegen, headerCredentialAnlegen, credentialLoeschen,
+  executionsAuflisten,
 };

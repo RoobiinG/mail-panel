@@ -22,6 +22,7 @@ app.use(express.json({ limit: '1mb' }));
 // ─── Routen ──────────────────────────────────────────────────────────────────
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/konten', auth, require('./routes/konten'));
+app.use('/api/listen', auth, require('./routes/listen'));
 app.use('/api/einstellungen', auth, require('./routes/einstellungen'));
 // Interne Endpunkte fuer n8n — eigener Shared-Secret-Schutz statt JWT
 app.use('/api/internal', internalAuth, require('./routes/internal'));

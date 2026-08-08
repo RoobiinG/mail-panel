@@ -1,21 +1,74 @@
 // Endpunkte fuer die n8n-Workflows (Header X-Panel-Secret, siehe middleware/internalAuth).
-// Etappe 1: config + log. Die Check-/Scan-Endpunkte kommen in Etappe 3/4.
 const express = require('express');
 const db      = require('../db');
+const listen  = require('../services/listen');
+const dnsbl   = require('../services/dnsbl');
 
 const router = express.Router();
 
+const einstellung = (key, fallback) => {
+  const zeile = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+  return zeile ? zeile.value : fallback;
+};
+
+// Ein Aufruf prüft alles, was das Panel über eine Mail sagen kann.
+// Reihenfolge ist bewusst: Whitelist gewinnt immer, dann Blacklist, dann DNSBL.
+router.post('/check', async (req, res) => {
+  const { von = '', ip = null } = req.body || {};
+  const ergebnis = {
+    entscheidung: 'weiter',   // weiter | freigeben | quarantaene
+    score_aufschlag: 0,
+    // Der Workflow soll den im Panel eingestellten Schwellwert benutzen
+    spam_schwellwert: Number(einstellung('spam_schwellwert', '0.8')),
+    gruende: [],
+    dnsbl_treffer: [],
+  };
+
+  try {
+    const weiss = listen.pruefe(von, 'whitelist');
+    if (weiss) {
+      ergebnis.entscheidung = 'freigeben';
+      ergebnis.gruende.push(`Whitelist: ${weiss}`);
+      return res.json(ergebnis);
+    }
+
+    const schwarz = listen.pruefe(von, 'blacklist');
+    if (schwarz) {
+      ergebnis.entscheidung = 'quarantaene';
+      ergebnis.score_aufschlag = 1;
+      ergebnis.gruende.push(`Blacklist: ${schwarz}`);
+      return res.json(ergebnis);
+    }
+
+    if (ip) {
+      const listenNamen = JSON.parse(einstellung('dnsbl_listen', '[]'));
+      const { treffer, nichtNutzbar } = await dnsbl.pruefeIp(ip, listenNamen);
+      if (treffer.length > 0) {
+        ergebnis.dnsbl_treffer = treffer;
+        // Ein Treffer allein reicht nicht für die Quarantäne — er erhöht den
+        // Score, den finale Bewertung trifft weiterhin die KI. Zwei oder mehr
+        // Treffer sind ein deutliches Signal.
+        ergebnis.score_aufschlag = treffer.length >= 2 ? 0.6 : 0.3;
+        ergebnis.gruende.push(`DNSBL-Treffer (${ip}): ${treffer.join(', ')}`);
+      }
+      if (nichtNutzbar.length > 0) {
+        ergebnis.hinweis = `Nicht abfragbar: ${nichtNutzbar.map((n) => `${n.liste} (${n.code})`).join(', ')}`;
+      }
+    }
+    res.json(ergebnis);
+  } catch (err) {
+    // Eine gescheiterte Prüfung darf die Mail-Verarbeitung nicht aufhalten
+    res.json({ ...ergebnis, fehler: err.message });
+  }
+});
+
 // Konfiguration fuer die Workflows (Schwellwerte, Listen)
 router.get('/config', (req, res) => {
-  const hole = (key, fallback) => {
-    const zeile = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-    return zeile ? zeile.value : fallback;
-  };
   res.json({
-    spam_schwellwert: Number(hole('spam_schwellwert', '0.8')),
-    dnsbl_listen: JSON.parse(hole('dnsbl_listen', '[]')),
-    clamav_aktiv: hole('clamav_aktiv', '1') === '1',
-    safebrowsing_aktiv: hole('safebrowsing_aktiv', '0') === '1',
+    spam_schwellwert: Number(einstellung('spam_schwellwert', '0.8')),
+    dnsbl_listen: JSON.parse(einstellung('dnsbl_listen', '[]')),
+    clamav_aktiv: einstellung('clamav_aktiv', '1') === '1',
+    safebrowsing_aktiv: einstellung('safebrowsing_aktiv', '0') === '1',
   });
 });
 

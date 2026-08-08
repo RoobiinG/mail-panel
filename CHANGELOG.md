@@ -2,6 +2,54 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [1.3.0.0] - 2026-08-09 (Build 6) — *Blocklisten und eigene Listen*
+
+### Features
+
+- **Eigene White- und Blacklist** (neue Panel-Seite „White- / Blacklist"): Einträge als
+  vollständige Adresse oder als Domain, wobei eine Domain auch alle Unterdomains abdeckt.
+  Ein Absender kann nie auf beiden Listen stehen — beim Eintragen wandert er automatisch
+  von der einen auf die andere.
+- **DNSBL-Prüfung** der Absender-IP über den eigenen unbound-Resolver. Ein Treffer erhöht
+  den Spam-Score um 0,3, mehrere um 0,6 — die endgültige Bewertung trifft weiterhin die KI.
+  Listen, die den Server ablehnen, werden als solche erkannt und nicht als Treffer gewertet.
+- **Prüf-Endpunkt `/api/internal/check`**: ein Aufruf beantwortet alles auf einmal.
+  Reihenfolge: Whitelist gewinnt immer und beendet die Prüfung, Blacklist bedeutet direkt
+  Quarantäne, sonst entscheidet die DNSBL-Abfrage über den Score-Aufschlag.
+- **Prüfschritt in den Workflows 01 und 04**: Nach der Normalisierung fragt ein
+  HTTP-Knoten das Panel, ein Code-Knoten führt das Ergebnis mit der Mail zusammen.
+  Blacklist-Mails gehen über einen eigenen Zweig direkt in die Quarantäne — **ohne
+  KI-Abfrage**, was Gemini-Kontingent spart.
+- **Das Panel legt sein eigenes n8n-Credential an.** Beim ersten Konto-Sync entsteht in
+  n8n automatisch ein Header-Auth-Credential mit dem Panel-Secret und wird an den
+  Prüf-Knoten gehängt — niemand muss das Secret von Hand übertragen.
+- **Die Normalisierung liest jetzt mehr aus der Mail**: die Absender-IP aus der obersten
+  Received-Kopfzeile (private und reservierte Netze werden übersprungen), alle Links im
+  Text sowie den `List-Unsubscribe`-Header für die spätere Newsletter-Verwaltung.
+  Der IMAP-Trigger holt dafür das Format „resolved", der IMAP-Knoten zusätzlich die Kopfzeilen.
+- Der eingestellte **Spam-Schwellwert** wird nun tatsächlich von den Workflows benutzt
+  (kam vorher aus einem festen Wert im Code).
+
+### Bugfixes
+
+- Knoten ohne Zugangsdaten (etwa Gmail, wenn es nicht eingerichtet ist) lieferten ein
+  leeres Platzhalter-Item, das als Mail ohne Absender weiterlief. Solche Items werden
+  jetzt aussortiert.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **Workflows 01 und 04 müssen neu importiert werden** (vier neue Knoten, geänderte
+  Normalisierung). Danach einmal „Workflows synchronisieren" im Panel klicken — das
+  verdrahtet die Konten und das Panel-Credential neu.
+- **Neue Einstellung** `n8n_panel_credential_id` in der Panel-Datenbank; keine Migration nötig.
+- **Der IMAP-Trigger läuft jetzt im Format „resolved"** und legt Anhänge als Binärdaten ab.
+  Das erhöht den Speicherbedarf je Ausführung etwas, ist aber Voraussetzung für den
+  Virenscan in der nächsten Etappe.
+- Ist das Panel nicht erreichbar, läuft die Mail ungeprüft weiter statt hängen zu bleiben.
+- Auf dem Testserver verifiziert: 13 Prüfungen für Endpunkt und Listen, dazu ein
+  Durchlauf von Workflow 04 mit echten Mails (IP-Erkennung, Blacklist-Zweig ohne
+  KI-Abfrage, tatsächliches Verschieben in die Quarantäne).
+
 ## [1.2.1.0] - 2026-08-09 (Build 5) — *Praxistest auf echtem Server*
 
 Alle Punkte dieser Version stammen aus einem vollständigen Testlauf auf einem echten

@@ -161,6 +161,22 @@ Newsletter-Abbestellen, Rspamd-Tuning und Prüfdienste (DNSBL via unbound, ClamA
 gehören dem Panel und werden bei jedem Konto-Sync neu erzeugt. Änderungen daran gehen
 verloren — der Rest des Workflows bleibt unangetastet und kann frei angepasst werden.
 
+### Spam-Prüfung: White-/Blacklist und DNSBL
+
+Unter *White- / Blacklist* pflegst du eigene Absenderlisten, die für alle Konten gelten.
+Ein Eintrag ist entweder eine vollständige Adresse (`info@example.org`) oder eine Domain
+(`example.org`, gilt dann auch für alle Unterdomains).
+
+Die Workflows fragen vor der KI-Klassifizierung beim Panel nach. Die Reihenfolge:
+
+1. **Whitelist** gewinnt immer — diese Mails landen nie in der Quarantäne.
+2. **Blacklist** bedeutet direkt Quarantäne, ohne KI-Abfrage (spart Gemini-Kontingent).
+3. Sonst wird die Absender-IP gegen die **DNSBL-Listen** geprüft; Treffer erhöhen den
+   Spam-Score, entscheiden aber nicht allein.
+
+Das Credential, mit dem die Workflows das Panel erreichen, legt das Panel beim ersten
+Konto-Sync selbst in n8n an — du musst dafür nichts eintragen.
+
 ### Entwicklung (lokal)
 
 ```bash

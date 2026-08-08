@@ -3,6 +3,7 @@ import Layout from './components/Layout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Konten from './pages/Konten';
+import Listen from './pages/Listen';
 import Einstellungen from './pages/Einstellungen';
 import Platzhalter from './pages/Platzhalter';
 
@@ -27,7 +28,7 @@ export default function App() {
         <Route index element={<Dashboard />} />
         <Route path="konten" element={<Konten />} />
         <Route path="quarantaene" element={<Platzhalter titel="Quarantäne" etappe="5" />} />
-        <Route path="listen" element={<Platzhalter titel="White- / Blacklist" etappe="3" />} />
+        <Route path="listen" element={<Listen />} />
         <Route path="newsletter" element={<Platzhalter titel="Newsletter" etappe="7" />} />
         <Route path="rspamd" element={<Platzhalter titel="Rspamd" etappe="6" />} />
         <Route path="workflows" element={<Platzhalter titel="Workflows" etappe="7" />} />
