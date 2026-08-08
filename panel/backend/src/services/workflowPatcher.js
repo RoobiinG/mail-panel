@@ -58,21 +58,33 @@ function setKnoten(konto, position) {
   };
 }
 
+// Postfach-Felder des Community-Nodes sind resourceLocator — im Modus "path"
+// nehmen sie auch Ausdrücke entgegen.
+const postfach = (wert) => ({ __rl: true, mode: 'path', value: wert });
+
+// Der Community-Node kann das eingebaute imap-Credential mitbenutzen —
+// dafür muss authentication auf "coreImapAccount" stehen (Standard wäre ein
+// eigenes imapApi-Credential).
+const imapCredential = (konto) => ({
+  imap: { id: String(konto.n8n_credential_id), name: `Mail-Panel: ${konto.name}` },
+});
+
 function verschiebeKnoten(konto, position) {
   return {
     parameters: {
+      authentication: 'coreImapAccount',
       resource: 'email',
-      operation: 'move',
-      mailboxPath: 'INBOX',
+      operation: 'moveEmail',
+      sourceMailbox: postfach('INBOX'),
       emailUid: '={{ $json.uid }}',
-      destinationMailboxPath: '={{ $json.zielordner }}',
+      destinationMailbox: postfach('={{ $json.zielordner }}'),
     },
     id: `${PRAEFIX}${konto.id}-move`,
     name: `Verschieben: ${konto.name}`,
     type: 'n8n-nodes-imap.imap',
     typeVersion: 1,
     position,
-    credentials: { imap: { id: String(konto.n8n_credential_id), name: `Mail-Panel: ${konto.name}` } },
+    credentials: imapCredential(konto),
   };
 }
 
@@ -108,7 +120,14 @@ function weichenKnoten(konten, position) {
 
 function bestandKnoten(konto, position) {
   return {
-    parameters: { resource: 'email', operation: 'getMany', mailboxPath: 'INBOX', limit: 100, options: {} },
+    parameters: {
+      authentication: 'coreImapAccount',
+      resource: 'email',
+      operation: 'getEmailsList',
+      mailboxPath: postfach('INBOX'),
+      limit: 100,
+      includeParts: ['textContent'],
+    },
     id: `${PRAEFIX}${konto.id}-bestand`,
     name: `Bestand: ${konto.name}`,
     type: 'n8n-nodes-imap.imap',
@@ -117,7 +136,7 @@ function bestandKnoten(konto, position) {
     executeOnce: true,
     alwaysOutputData: true,
     onError: 'continueRegularOutput',
-    credentials: { imap: { id: String(konto.n8n_credential_id), name: `Mail-Panel: ${konto.name}` } },
+    credentials: imapCredential(konto),
   };
 }
 

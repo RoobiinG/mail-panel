@@ -34,6 +34,29 @@ services:
     networks:
       - internal
 
+  # ─── Community-Node vorinstallieren ─────────────────────────────────────────
+  # n8n braucht das Paket n8n-nodes-imap zum Verschieben und Suchen per IMAP.
+  # Dieser Einmal-Container legt es ins n8n-Volume, bevor n8n startet — so muss
+  # man es nicht von Hand über die Oberfläche nachinstallieren.
+  n8n-nodes-init:
+    image: node:24-alpine
+    container_name: n8n-nodes-init
+    user: "1000:1000"
+    working_dir: /nodes
+    volumes:
+      - n8n_data:/home/node/.n8n
+    command:
+      - sh
+      - -c
+      - |
+        mkdir -p /home/node/.n8n/nodes && cd /home/node/.n8n/nodes
+        [ -f package.json ] || echo '{"name":"installed-nodes","private":true}' > package.json
+        npm list n8n-nodes-imap >/dev/null 2>&1 && echo "n8n-nodes-imap ist bereits installiert" && exit 0
+        npm install n8n-nodes-imap --omit=dev --no-audit --no-fund
+    restart: "no"
+    networks:
+      - internal
+
   # ─── n8n: Workflow-Engine ───────────────────────────────────────────────────
   n8n:
     image: docker.n8n.io/n8nio/n8n:latest
@@ -42,6 +65,8 @@ services:
     depends_on:
       n8n-db:
         condition: service_healthy
+      n8n-nodes-init:
+        condition: service_completed_successfully
     environment:
       # Erreichbarkeit: hinter einem Reverse Proxy N8N_PUBLIC_URL in der .env setzen,
       # sonst genügt die Server-Adresse mit Port.
@@ -72,9 +97,8 @@ services:
   # ─── Mail-Panel: Verwaltungsoberfläche + Prüfdienste ────────────────────────
   panel:
     image: ghcr.io/roobiing/mail-panel:latest
-    # Statt des fertigen Images selbst bauen? Zeile oben auskommentieren und
-    # stattdessen `build: ./panel` aktivieren:
-    # build: ./panel
+    # Ist das fertige Image nicht verfügbar, baut Compose es aus dem Ordner panel/.
+    build: ./panel
     container_name: mail-panel
     restart: unless-stopped
     environment:

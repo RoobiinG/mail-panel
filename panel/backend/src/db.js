@@ -79,7 +79,8 @@ db.exec(`
 
 // ─── Migrationen: neue Spalten kommen als try/catch-ALTER dazu ───────────────
 const migrations = [
-  // Beispiel: "ALTER TABLE accounts ADD COLUMN xyz TEXT"
+  // Eigene Mailserver laufen oft mit selbstsigniertem Zertifikat
+  'ALTER TABLE accounts ADD COLUMN tls_unsicher INTEGER NOT NULL DEFAULT 0',
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch { /* Spalte existiert schon */ }

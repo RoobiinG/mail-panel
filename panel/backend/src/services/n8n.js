@@ -72,8 +72,10 @@ async function workflowAktivieren(id, aktiv) {
   }
 }
 
-// IMAP-Credential in n8n anlegen; liefert die neue Credential-ID
-async function credentialAnlegen({ name, host, port, username, passwort }) {
+// Ein einziges Credential vom eingebauten Typ "imap" reicht für alles: den
+// Email-Trigger von n8n selbst und — über die Einstellung
+// authentication = coreImapAccount — auch den Community-Node n8n-nodes-imap.
+async function credentialAnlegen({ name, host, port, username, passwort, tlsUnsicher = false }) {
   try {
     const { data } = await client().post('/credentials', {
       name,
@@ -84,7 +86,7 @@ async function credentialAnlegen({ name, host, port, username, passwort }) {
         user: username,
         password: passwort,
         secure: Number(port) === 993,
-        allowUnauthorizedCerts: false,
+        allowUnauthorizedCerts: Boolean(tlsUnsicher),
       },
     });
     return data.id;

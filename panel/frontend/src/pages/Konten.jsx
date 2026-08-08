@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Plus, Trash2, Pencil, RefreshCw, CheckCircle2, XCircle, Loader2, X } from 'lucide-react';
 import api from '../api';
 
-const LEER = { name: '', host: '', port: 993, username: '', passwort: '' };
+const LEER = { name: '', host: '', port: 993, username: '', passwort: '', tlsUnsicher: false };
 
 // Bekannte Anbieter — spart dem Nutzer das Nachschlagen der Serverdaten
 const VORLAGEN = [
@@ -189,6 +189,18 @@ export default function Konten() {
                 </span>
                 <input type="password" value={formular.passwort} onChange={(e) => setFormular({ ...formular, passwort: e.target.value })} autoComplete="new-password" />
               </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="w-auto"
+                  checked={Boolean(formular.tlsUnsicher)}
+                  onChange={(e) => setFormular({ ...formular, tlsUnsicher: e.target.checked })}
+                />
+                <span className="text-panel-muted">
+                  Selbstsigniertes Zertifikat akzeptieren
+                  <span className="block text-xs">Nur nötig bei eigenen Mailservern ohne offizielles Zertifikat</span>
+                </span>
+              </label>
             </div>
 
             <div className="flex items-center gap-2 text-sm">
@@ -197,6 +209,11 @@ export default function Konten() {
               {test?.ok && (
                 <span className="flex items-center gap-1 text-panel-green">
                   <CheckCircle2 size={16} /> Verbunden ({test.nachrichten} Mails in der Inbox)
+                  {test.fehlendeOrdner?.length > 0 && (
+                    <span className="text-panel-orange">
+                      — fehlende Ordner: {test.fehlendeOrdner.join(', ')}
+                    </span>
+                  )}
                 </span>
               )}
               {test?.error && (

@@ -12,6 +12,9 @@ es ersetzt sie nicht. Und: **Es wird nie gelöscht, nur verschoben.**
 ## Voraussetzungen
 
 - Ein Server (VPS, NAS, Homeserver, ...) mit **Docker + Docker Compose**
+- **RAM:** 4 GB empfohlen, 2 GB Minimum. Gemessener Bedarf im Leerlauf: ClamAV 933 MB,
+  n8n 322 MB, PostgreSQL 48 MB, Panel 27 MB, unbound 15 MB (zusammen ~1,35 GB).
+  Ohne Virenscan (ClamAV-Dienst weglassen) genügt 1 GB.
 - Für HTTPS: eine Domain und ein beliebiger Reverse Proxy (Nginx Proxy Manager,
   Traefik, Caddy, ...) — optional, die Dienste laufen auch direkt über ihre Ports
 - Ein Google-Konto für den kostenlosen Gemini-API-Key; für Gmail-Anbindung zusätzlich
@@ -41,10 +44,9 @@ es ersetzt sie nicht. Und: **Es wird nie gelöscht, nur verschoben.**
 2. `.env` aus `.env.example` erstellen und füllen.
    `N8N_ENCRYPTION_KEY` einmal generieren (`openssl rand -hex 24`) und **nie mehr ändern**.
 3. `docker compose up -d` — danach ist n8n auf Port `5678` und das Panel auf
-   Port `3002` erreichbar.
+   Port `3002` erreichbar. Der Community-Node `n8n-nodes-imap` (nötig fürs Verschieben
+   und Suchen per IMAP) wird dabei automatisch mitinstalliert.
 4. n8n öffnen und den Owner-Account anlegen.
-5. **Community-Node installieren:** Settings → Community Nodes → `n8n-nodes-imap`
-   (wird für das Verschieben/Suchen per IMAP gebraucht — der eingebaute IMAP-Trigger kann nur lesen).
 
 ## 2. HTTPS / Reverse Proxy (empfohlen, optional)
 
@@ -187,7 +189,9 @@ Fürs Backend lokal eine `panel/backend/.env` mit `JWT_SECRET` und `PANEL_SECRET
 | Gmail-Verbindung bricht nach 7 Tagen ab | OAuth-App in der Google Console auf „In Produktion" stellen |
 | Web.de-Login schlägt fehl | IMAP in den Web.de-Einstellungen aktivieren (standardmäßig aus) |
 | Gemini-Fehler 429 | Free-Tier-Limit erreicht — Drosselung erhöhen (batchInterval) oder später weitermachen |
-| IMAP-Node zeigt „node not found" | Community-Node `n8n-nodes-imap` unter Settings → Community Nodes installieren |
+| IMAP-Node zeigt „node not found" | `docker compose up -d` erneut ausführen — der Init-Container installiert `n8n-nodes-imap` ins n8n-Volume |
+| DNSBL-Test meldet `zen.spamhaus.org (127.255.255.254)` | Spamhaus lehnt Abfragen aus vielen Rechenzentrums-Netzen ab. Entweder die Liste in den Einstellungen entfernen oder einen kostenlosen Spamhaus-DQS-Zugang nutzen; SpamCop und Barracuda funktionieren weiterhin. |
+| IMAP-Verbindung scheitert mit „self-signed certificate" | Beim Konto das Häkchen „Selbstsigniertes Zertifikat akzeptieren" setzen |
 
 ## Spätere Erweiterungen (bewusst noch nicht drin)
 

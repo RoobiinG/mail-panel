@@ -2,6 +2,55 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [1.2.1.0] - 2026-08-09 (Build 5) — *Praxistest auf echtem Server*
+
+Alle Punkte dieser Version stammen aus einem vollständigen Testlauf auf einem echten
+Server (Debian 12, Docker, echtes n8n, echter Dovecot-IMAP-Server) — die Mock-Tests
+hatten sie nicht zeigen können.
+
+### Bugfixes
+
+- **DNSBL: falsche Treffer verhindert.** Antworten aus `127.255.255.0/24` sind keine
+  Treffer, sondern Fehlercodes der Liste („Abfrage abgelehnt", „Kontingent erschöpft").
+  Spamhaus liefert das z.B. für Anfragen aus Rechenzentrums-Netzen ohne eigenen
+  Zugangsschlüssel. Bisher hätte das jede Mail in die Quarantäne befördert.
+  Der Verbindungstest zeigt jetzt an, welche Listen nutzbar sind und welche ablehnen.
+- **DNSBL: Resolver wurde nie erreicht.** `dns.Resolver.setServers()` akzeptiert nur
+  IP-Adressen — der Containername `unbound` führte zu „Invalid IP address". Der Name
+  wird jetzt vorher aufgelöst.
+- **Betreff und Absender blieben leer.** Der IMAP-Node liefert die Kopfdaten unter
+  `envelope.subject` / `envelope.from[].address` und den Text als `textContent`, während
+  der Trigger `subject` / `from` / `textPlain` verwendet. Die Normalisierung in den
+  Workflows 01 und 04 versteht jetzt beide Formate — sonst wäre jede Bestandsmail als
+  „(kein Betreff)" ohne Absender in die KI-Klassifizierung gegangen.
+- **Falscher Credential-Typ und falsche Operationen.** Der Community-Node erwartet
+  `moveEmail` / `getEmailsList` (nicht `move` / `getMany`), Postfach-Felder als
+  resourceLocator und heißt seine Felder `sourceMailbox` / `destinationMailbox`.
+  Statt eines zweiten Credential-Typs nutzt er über `authentication: coreImapAccount`
+  jetzt dasselbe `imap`-Credential wie der Trigger — ein Credential pro Konto genügt.
+
+### Verbesserungen
+
+- **Community-Node wird automatisch installiert.** Ein Einmal-Container legt
+  `n8n-nodes-imap` vor dem n8n-Start ins Volume; die manuelle Installation über die
+  Oberfläche entfällt.
+- **Selbstsignierte Zertifikate:** Konten können sie per Häkchen akzeptieren — üblich bei
+  eigenen Mailservern. Die Einstellung wird an das n8n-Credential durchgereicht.
+- **Der Verbindungstest meldet fehlende Zielordner** (Quarantaene, Rechnungen,
+  Bestellungen, Newsletter), damit man sie vor dem ersten Lauf anlegen kann.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **Workflows 01 und 04 neu importieren** — die Normalisierung ist geändert.
+- **DB-Migration** (läuft automatisch): neue Spalte `tls_unsicher` in `accounts`.
+- **Bestehende Konten neu speichern**, damit die n8n-Knoten die korrigierten Operationen
+  bekommen — oder einmal auf „Workflows synchronisieren" klicken.
+- Der Init-Container `n8n-nodes-init` läuft bei jedem `up -d` kurz an und beendet sich
+  wieder; ist das Paket schon da, tut er nichts.
+- **Gemessener RAM-Bedarf** (Leerlauf, echter Server): ClamAV 933 MB, n8n 322 MB,
+  PostgreSQL 48 MB, Panel 27 MB, unbound 15 MB — zusammen rund 1,35 GB.
+  Empfehlung: 4 GB, Minimum 2 GB.
+
 ## [1.2.0.0] - 2026-08-08 (Build 4) — *Konten aus dem Panel*
 
 ### Features
