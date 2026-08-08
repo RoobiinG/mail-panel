@@ -1,0 +1,395 @@
+{
+  "name": "01 - Inbox-Triage (Spam + Sortierung)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Inbox-Triage\n\n**Vor dem Aktivieren:**\n1. Credentials zuordnen: Gmail (OAuth2), Web.de (IMAP), Mailcow (IMAP), Gemini (Header Auth `x-goog-api-key`)\n2. Ordner in den Postfächern anlegen: `Quarantaene`, `Rechnungen`, `Bestellungen`, `Newsletter` (bei Gmail: Labels)\n3. Im Node **Antwort parsen** die Gmail-Label-IDs eintragen (IDs holen: Gmail-Node → Label → Get Many)\n4. **Trockentest:** Erst 1-2 Tage nur klassifizieren lassen — dazu die Verbindung nach dem Node **Verschieben?** trennen und Ergebnisse in den Executions prüfen. Erst dann Verschieben aktivieren.\n\nEs wird NIE gelöscht, nur verschoben.",
+        "height": 340,
+        "width": 420
+      },
+      "id": "sticky-info",
+      "name": "Hinweise",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-60, -340]
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyX",
+              "value": 2,
+              "unit": "minutes"
+            }
+          ]
+        },
+        "simple": true,
+        "filters": {},
+        "options": {}
+      },
+      "id": "trigger-gmail",
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "mailbox": "INBOX",
+        "postProcessAction": "read",
+        "options": {}
+      },
+      "id": "trigger-webde",
+      "name": "Web.de Trigger",
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2,
+      "position": [0, 200]
+    },
+    {
+      "parameters": {
+        "mailbox": "INBOX",
+        "postProcessAction": "read",
+        "options": {}
+      },
+      "id": "trigger-mailcow",
+      "name": "Mailcow Trigger",
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2,
+      "position": [0, 400]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "konto-1",
+              "name": "konto",
+              "value": "gmail",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "set-gmail",
+      "name": "Konto: Gmail",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "konto-2",
+              "name": "konto",
+              "value": "webde",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "set-webde",
+      "name": "Konto: Web.de",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [220, 200]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "konto-3",
+              "name": "konto",
+              "value": "mailcow",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "set-mailcow",
+      "name": "Konto: Mailcow",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [220, 400]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Felder der verschiedenen Trigger (Gmail vs. IMAP) vereinheitlichen\nconst j = $json;\n\nconst von = (j.from && j.from.value && j.from.value[0] && j.from.value[0].address)\n  || (j.from && j.from.text)\n  || j.From\n  || (typeof j.from === 'string' ? j.from : '')\n  || '';\n\nconst betreff = j.subject || j.Subject || '(kein Betreff)';\n\nlet text = j.textPlain || j.text || j.snippet || j.textHtml || '';\nif (typeof text !== 'string') text = JSON.stringify(text);\ntext = text.replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim().slice(0, 1500);\n\nconst promptText = `Du bist ein E-Mail-Klassifizierer. Analysiere die folgende E-Mail und antworte NUR mit einem JSON-Objekt in exakt diesem Format:\\n{\"kategorie\": \"spam|rechnung|bestellung|newsletter|persoenlich|sonstiges\", \"spam_score\": 0.0, \"kurzfassung\": \"Ein Satz Zusammenfassung auf Deutsch\"}\\n\\nRegeln:\\n- spam_score: 0.0 (sicher kein Spam) bis 1.0 (sicher Spam). Phishing, Betrugsversuche, unserioese Werbung = hoher Score.\\n- kategorie \"rechnung\": Rechnungen, Zahlungsaufforderungen, Kontoauszuege, Vertraege.\\n- kategorie \"bestellung\": Bestell-/Versandbestaetigungen, Lieferstatus.\\n- kategorie \"newsletter\": Newsletter und Marketing serioeser Absender.\\n- kategorie \"persoenlich\": Mails von echten Menschen (privat oder geschaeftlich).\\n- Alles andere: \"sonstiges\".\\n\\nE-Mail:\\nVon: ${von}\\nBetreff: ${betreff}\\nText: ${text}`;\n\nreturn {\n  json: {\n    konto: j.konto,\n    uid: j.uid ?? null,\n    id: j.id ?? null,\n    von,\n    betreff,\n    promptText,\n  },\n};"
+      },
+      "id": "code-normalize",
+      "name": "Normalisieren",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ contents: [{ parts: [{ text: $json.promptText }] }], generationConfig: { responseMimeType: 'application/json', temperature: 0.1 } }) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 4000
+            }
+          }
+        }
+      },
+      "id": "http-gemini",
+      "name": "Gemini klassifizieren",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 200]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Gemini-Antwort parsen und Zielordner bestimmen\nconst mail = $('Normalisieren').item.json;\n\nlet raw = '';\ntry { raw = $json.candidates[0].content.parts[0].text; } catch (e) { /* leer lassen */ }\nraw = String(raw).replace(/```json|```/g, '').trim();\n\nlet k = { kategorie: 'sonstiges', spam_score: 0, kurzfassung: '' };\ntry { k = { ...k, ...JSON.parse(raw) }; } catch (e) { /* Fallback: sonstiges */ }\n\n// >>> HIER die eigenen Gmail-Label-IDs eintragen (Gmail-Node: Label -> Get Many) <<<\nconst GMAIL_LABELS = {\n  Quarantaene: 'LABEL_ID_EINTRAGEN',\n  Rechnungen: 'LABEL_ID_EINTRAGEN',\n  Bestellungen: 'LABEL_ID_EINTRAGEN',\n  Newsletter: 'LABEL_ID_EINTRAGEN',\n};\n\nlet zielordner = null;\nif (Number(k.spam_score) > 0.8) zielordner = 'Quarantaene';\nelse if (k.kategorie === 'rechnung') zielordner = 'Rechnungen';\nelse if (k.kategorie === 'bestellung') zielordner = 'Bestellungen';\nelse if (k.kategorie === 'newsletter') zielordner = 'Newsletter';\n\nreturn {\n  json: {\n    ...mail,\n    kategorie: k.kategorie,\n    spam_score: Number(k.spam_score) || 0,\n    kurzfassung: k.kurzfassung,\n    zielordner,\n    gmailLabelId: zielordner ? GMAIL_LABELS[zielordner] : null,\n  },\n};"
+      },
+      "id": "code-parse",
+      "name": "Antwort parsen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-ziel",
+              "leftValue": "={{ $json.zielordner }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-move",
+      "name": "Verschieben?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1100, 200]
+    },
+    {
+      "parameters": {},
+      "id": "noop-inbox",
+      "name": "Bleibt in der Inbox",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1340, 380]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "sw-gmail",
+                    "leftValue": "={{ $json.konto }}",
+                    "rightValue": "gmail",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "gmail"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "sw-webde",
+                    "leftValue": "={{ $json.konto }}",
+                    "rightValue": "webde",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "webde"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "sw-mailcow",
+                    "leftValue": "={{ $json.konto }}",
+                    "rightValue": "mailcow",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "mailcow"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "switch-konto",
+      "name": "Nach Konto",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [1340, 120]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "addLabels",
+        "messageId": "={{ $json.id }}",
+        "labelIds": "={{ [$json.gmailLabelId] }}"
+      },
+      "id": "gmail-label",
+      "name": "Gmail: Label setzen",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1600, 0]
+    },
+    {
+      "parameters": {
+        "resource": "email",
+        "operation": "move",
+        "mailboxPath": "INBOX",
+        "emailUid": "={{ $json.uid }}",
+        "destinationMailboxPath": "={{ $json.zielordner }}"
+      },
+      "id": "imap-move-webde",
+      "name": "Web.de: Verschieben",
+      "type": "n8n-nodes-imap.imap",
+      "typeVersion": 1,
+      "position": [1600, 160]
+    },
+    {
+      "parameters": {
+        "resource": "email",
+        "operation": "move",
+        "mailboxPath": "INBOX",
+        "emailUid": "={{ $json.uid }}",
+        "destinationMailboxPath": "={{ $json.zielordner }}"
+      },
+      "id": "imap-move-mailcow",
+      "name": "Mailcow: Verschieben",
+      "type": "n8n-nodes-imap.imap",
+      "typeVersion": 1,
+      "position": [1600, 320]
+    },
+    {
+      "parameters": {
+        "content": "**Verschiebe-Nodes:** Der Community-Node `n8n-nodes-imap` muss installiert sein (Settings → Community Nodes). Nach der Installation die beiden IMAP-Verschieben-Nodes einmal öffnen und Operation **Email → Move** samt Zielordner-Ausdruck prüfen/neu auswählen — je nach Node-Version heißen die Felder leicht anders.\n\n**Gmail:** `addLabels` heftet nur das Label an. Wer Spam zusätzlich aus der Inbox haben will, hängt einen zweiten Gmail-Node mit `removeLabels` → `INBOX` an den Spam-Fall.",
+        "height": 260,
+        "width": 380
+      },
+      "id": "sticky-move",
+      "name": "Hinweis Verschieben",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1560, -300]
+    }
+  ],
+  "connections": {
+    "Gmail Trigger": {
+      "main": [[{ "node": "Konto: Gmail", "type": "main", "index": 0 }]]
+    },
+    "Web.de Trigger": {
+      "main": [[{ "node": "Konto: Web.de", "type": "main", "index": 0 }]]
+    },
+    "Mailcow Trigger": {
+      "main": [[{ "node": "Konto: Mailcow", "type": "main", "index": 0 }]]
+    },
+    "Konto: Gmail": {
+      "main": [[{ "node": "Normalisieren", "type": "main", "index": 0 }]]
+    },
+    "Konto: Web.de": {
+      "main": [[{ "node": "Normalisieren", "type": "main", "index": 0 }]]
+    },
+    "Konto: Mailcow": {
+      "main": [[{ "node": "Normalisieren", "type": "main", "index": 0 }]]
+    },
+    "Normalisieren": {
+      "main": [[{ "node": "Gemini klassifizieren", "type": "main", "index": 0 }]]
+    },
+    "Gemini klassifizieren": {
+      "main": [[{ "node": "Antwort parsen", "type": "main", "index": 0 }]]
+    },
+    "Antwort parsen": {
+      "main": [[{ "node": "Verschieben?", "type": "main", "index": 0 }]]
+    },
+    "Verschieben?": {
+      "main": [
+        [{ "node": "Nach Konto", "type": "main", "index": 0 }],
+        [{ "node": "Bleibt in der Inbox", "type": "main", "index": 0 }]
+      ]
+    },
+    "Nach Konto": {
+      "main": [
+        [{ "node": "Gmail: Label setzen", "type": "main", "index": 0 }],
+        [{ "node": "Web.de: Verschieben", "type": "main", "index": 0 }],
+        [{ "node": "Mailcow: Verschieben", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

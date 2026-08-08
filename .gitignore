@@ -1,0 +1,24 @@
+node_modules/
+dist/
+.env
+*.db
+*.db-shm
+*.db-wal
+npm-debug.log*
+
+# Produktions-Config mit echten Secrets/Domains — nie auf GitHub!
+docker-compose.prod.yml
+
+# IDE, KI-Werkzeuge & lokale Arbeitsdaten — gehören nicht ins Repo
+.idea/
+.vscode/
+.claude/
+.artifacts/
+.agents/
+*.local.json
+
+# Agenten-Regelwerk & Planung — bleiben rein lokal (Projektordner liegt in einer
+# Nextcloud und ist darüber gesichert). Nicht mit -f einchecken!
+AGENTS.md
+CLAUDE.md
+ROADMAP.md

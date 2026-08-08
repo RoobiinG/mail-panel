@@ -1,0 +1,165 @@
+{
+  "name": "03 - Newsletter-Cleanup (wöchentlich)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Newsletter-Cleanup\n\nVerschiebt Newsletter, die älter als 30 Tage sind, in den Ordner `Archiv` (bzw. hängt bei Gmail das Archiv-Label um). **Es wird nichts gelöscht.**\n\n**Vor dem Aktivieren:**\n1. Ordner `Archiv` in Web.de- und Mailcow-Postfach anlegen, Label `Archiv` in Gmail\n2. Credentials zuordnen\n3. Im Node **Gmail: Archiv-Label** und **Gmail: Newsletter-Label entfernen** die Label-IDs eintragen\n4. IMAP-Nodes öffnen und Operation **Get Many** (Ordner `Newsletter`, Kriterium `BEFORE` vor 30 Tagen) bzw. **Move** prüfen\n\nLäuft sonntags um 3:00 Uhr.",
+        "height": 340,
+        "width": 420
+      },
+      "id": "sticky-cleanup",
+      "name": "Hinweise",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-60, -360]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 3 * * 0"
+            }
+          ]
+        }
+      },
+      "id": "schedule-cleanup",
+      "name": "Sonntags 3:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 200]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "getAll",
+        "returnAll": true,
+        "simple": true,
+        "filters": {
+          "q": "label:Newsletter older_than:30d"
+        }
+      },
+      "id": "gmail-old-newsletter",
+      "name": "Gmail: alte Newsletter",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [260, 0],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "addLabels",
+        "messageId": "={{ $json.id }}",
+        "labelIds": "={{ ['ARCHIV_LABEL_ID_EINTRAGEN'] }}"
+      },
+      "id": "gmail-add-archive",
+      "name": "Gmail: Archiv-Label",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [500, 0]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "removeLabels",
+        "messageId": "={{ $json.id }}",
+        "labelIds": "={{ ['NEWSLETTER_LABEL_ID_EINTRAGEN'] }}"
+      },
+      "id": "gmail-remove-newsletter",
+      "name": "Gmail: Newsletter-Label entfernen",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [740, 0]
+    },
+    {
+      "parameters": {
+        "resource": "email",
+        "operation": "getMany",
+        "mailboxPath": "Newsletter",
+        "searchCriteria": "={{ 'BEFORE ' + $now.minus({ days: 30 }).toFormat('dd-MMM-yyyy') }}",
+        "options": {}
+      },
+      "id": "webde-old-newsletter",
+      "name": "Web.de: alte Newsletter",
+      "type": "n8n-nodes-imap.imap",
+      "typeVersion": 1,
+      "position": [260, 200],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "resource": "email",
+        "operation": "move",
+        "mailboxPath": "Newsletter",
+        "emailUid": "={{ $json.uid }}",
+        "destinationMailboxPath": "Archiv"
+      },
+      "id": "webde-move-archive",
+      "name": "Web.de: ins Archiv",
+      "type": "n8n-nodes-imap.imap",
+      "typeVersion": 1,
+      "position": [500, 200]
+    },
+    {
+      "parameters": {
+        "resource": "email",
+        "operation": "getMany",
+        "mailboxPath": "Newsletter",
+        "searchCriteria": "={{ 'BEFORE ' + $now.minus({ days: 30 }).toFormat('dd-MMM-yyyy') }}",
+        "options": {}
+      },
+      "id": "mailcow-old-newsletter",
+      "name": "Mailcow: alte Newsletter",
+      "type": "n8n-nodes-imap.imap",
+      "typeVersion": 1,
+      "position": [260, 400],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "resource": "email",
+        "operation": "move",
+        "mailboxPath": "Newsletter",
+        "emailUid": "={{ $json.uid }}",
+        "destinationMailboxPath": "Archiv"
+      },
+      "id": "mailcow-move-archive",
+      "name": "Mailcow: ins Archiv",
+      "type": "n8n-nodes-imap.imap",
+      "typeVersion": 1,
+      "position": [500, 400]
+    }
+  ],
+  "connections": {
+    "Sonntags 3:00": {
+      "main": [
+        [
+          { "node": "Gmail: alte Newsletter", "type": "main", "index": 0 },
+          { "node": "Web.de: alte Newsletter", "type": "main", "index": 0 },
+          { "node": "Mailcow: alte Newsletter", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Gmail: alte Newsletter": {
+      "main": [[{ "node": "Gmail: Archiv-Label", "type": "main", "index": 0 }]]
+    },
+    "Gmail: Archiv-Label": {
+      "main": [[{ "node": "Gmail: Newsletter-Label entfernen", "type": "main", "index": 0 }]]
+    },
+    "Web.de: alte Newsletter": {
+      "main": [[{ "node": "Web.de: ins Archiv", "type": "main", "index": 0 }]]
+    },
+    "Mailcow: alte Newsletter": {
+      "main": [[{ "node": "Mailcow: ins Archiv", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

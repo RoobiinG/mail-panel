@@ -1,0 +1,331 @@
+{
+  "name": "04 - Bestands-Triage (vorhandene Mails)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Bestands-Triage — für Mails, die SCHON im Postfach liegen\n\nWorkflow 01 reagiert nur auf neu eintreffende Mails. Dieser Workflow hier arbeitet den vorhandenen Bestand auf: gleiche Klassifizierung, gleiche Ordner-Logik.\n\n**Benutzung:**\n1. Credentials + Gmail-Label-IDs eintragen (wie in Workflow 01, Node **Antwort parsen**)\n2. Manuell starten (Button „Execute Workflow\") — pro Lauf werden je Konto max. 100 Mails verarbeitet\n3. So oft wiederholen, bis die Inbox durch ist\n\n**Wichtig:**\n- Die Gemini-Aufrufe sind auf 1 Anfrage alle 4 Sekunden gedrosselt (Free-Tier-Limit). 300 Mails ≈ 20 Minuten Laufzeit — das ist normal.\n- Free Tier hat auch ein Tageslimit; bei sehr vollen Postfächern den Bestand über mehrere Tage abarbeiten.\n- Erst mit wenigen Mails testen: in den Fetch-Nodes das Limit auf z.B. 10 stellen.",
+        "height": 420,
+        "width": 460
+      },
+      "id": "sticky-bestand",
+      "name": "Hinweise",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-60, -440]
+    },
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manuell starten",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 100]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "getAll",
+        "returnAll": false,
+        "limit": 100,
+        "simple": true,
+        "filters": {
+          "q": "in:inbox"
+        }
+      },
+      "id": "gmail-bestand",
+      "name": "Gmail Bestand",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [220, 100],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "resource": "email",
+        "operation": "getMany",
+        "mailboxPath": "INBOX",
+        "limit": 100,
+        "options": {}
+      },
+      "id": "webde-bestand",
+      "name": "Web.de Bestand",
+      "type": "n8n-nodes-imap.imap",
+      "typeVersion": 1,
+      "position": [440, 100],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "resource": "email",
+        "operation": "getMany",
+        "mailboxPath": "INBOX",
+        "limit": 100,
+        "options": {}
+      },
+      "id": "mailcow-bestand",
+      "name": "Mailcow Bestand",
+      "type": "n8n-nodes-imap.imap",
+      "typeVersion": 1,
+      "position": [660, 100],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Mails aller drei Konten einsammeln, Konto-Herkunft taggen und Prompt bauen\nfunction safeAll(name) {\n  try { return $(name).all().filter(i => i.json && Object.keys(i.json).length > 0); }\n  catch (e) { return []; }\n}\n\nfunction normalisieren(j, konto) {\n  const von = (j.from && j.from.value && j.from.value[0] && j.from.value[0].address)\n    || (j.from && j.from.text)\n    || j.From\n    || (typeof j.from === 'string' ? j.from : '')\n    || '';\n  const betreff = j.subject || j.Subject || '(kein Betreff)';\n  let text = j.textPlain || j.text || j.snippet || j.textHtml || '';\n  if (typeof text !== 'string') text = JSON.stringify(text);\n  text = text.replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim().slice(0, 1500);\n\n  const promptText = `Du bist ein E-Mail-Klassifizierer. Analysiere die folgende E-Mail und antworte NUR mit einem JSON-Objekt in exakt diesem Format:\\n{\"kategorie\": \"spam|rechnung|bestellung|newsletter|persoenlich|sonstiges\", \"spam_score\": 0.0, \"kurzfassung\": \"Ein Satz Zusammenfassung auf Deutsch\"}\\n\\nRegeln:\\n- spam_score: 0.0 (sicher kein Spam) bis 1.0 (sicher Spam). Phishing, Betrugsversuche, unserioese Werbung = hoher Score.\\n- kategorie \"rechnung\": Rechnungen, Zahlungsaufforderungen, Kontoauszuege, Vertraege.\\n- kategorie \"bestellung\": Bestell-/Versandbestaetigungen, Lieferstatus.\\n- kategorie \"newsletter\": Newsletter und Marketing serioeser Absender.\\n- kategorie \"persoenlich\": Mails von echten Menschen (privat oder geschaeftlich).\\n- Alles andere: \"sonstiges\".\\n\\nE-Mail:\\nVon: ${von}\\nBetreff: ${betreff}\\nText: ${text}`;\n\n  return { konto, uid: j.uid ?? null, id: j.id ?? null, von, betreff, promptText };\n}\n\nconst quellen = [\n  ['gmail', 'Gmail Bestand'],\n  ['webde', 'Web.de Bestand'],\n  ['mailcow', 'Mailcow Bestand'],\n];\n\nconst out = [];\nfor (const [konto, nodeName] of quellen) {\n  for (const item of safeAll(nodeName)) {\n    out.push({ json: normalisieren(item.json, konto) });\n  }\n}\n\nif (out.length === 0) {\n  return [{ json: { hinweis: 'Keine Mails im Bestand gefunden — nichts zu tun.' } }];\n}\nreturn out;"
+      },
+      "id": "code-collect-bestand",
+      "name": "Sammeln + Normalisieren",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ contents: [{ parts: [{ text: $json.promptText }] }], generationConfig: { responseMimeType: 'application/json', temperature: 0.1 } }) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 4000
+            }
+          }
+        }
+      },
+      "id": "http-gemini-bestand",
+      "name": "Gemini klassifizieren",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 100]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Gemini-Antwort parsen und Zielordner bestimmen\nconst mail = $('Sammeln + Normalisieren').item.json;\n\nlet raw = '';\ntry { raw = $json.candidates[0].content.parts[0].text; } catch (e) { /* leer lassen */ }\nraw = String(raw).replace(/```json|```/g, '').trim();\n\nlet k = { kategorie: 'sonstiges', spam_score: 0, kurzfassung: '' };\ntry { k = { ...k, ...JSON.parse(raw) }; } catch (e) { /* Fallback: sonstiges */ }\n\n// >>> HIER die eigenen Gmail-Label-IDs eintragen (gleiche wie in Workflow 01) <<<\nconst GMAIL_LABELS = {\n  Quarantaene: 'LABEL_ID_EINTRAGEN',\n  Rechnungen: 'LABEL_ID_EINTRAGEN',\n  Bestellungen: 'LABEL_ID_EINTRAGEN',\n  Newsletter: 'LABEL_ID_EINTRAGEN',\n};\n\nlet zielordner = null;\nif (Number(k.spam_score) > 0.8) zielordner = 'Quarantaene';\nelse if (k.kategorie === 'rechnung') zielordner = 'Rechnungen';\nelse if (k.kategorie === 'bestellung') zielordner = 'Bestellungen';\nelse if (k.kategorie === 'newsletter') zielordner = 'Newsletter';\n\nreturn {\n  json: {\n    ...mail,\n    kategorie: k.kategorie,\n    spam_score: Number(k.spam_score) || 0,\n    kurzfassung: k.kurzfassung,\n    zielordner,\n    gmailLabelId: zielordner ? GMAIL_LABELS[zielordner] : null,\n  },\n};"
+      },
+      "id": "code-parse-bestand",
+      "name": "Antwort parsen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1320, 100]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-ziel-bestand",
+              "leftValue": "={{ $json.zielordner }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-move-bestand",
+      "name": "Verschieben?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1540, 100]
+    },
+    {
+      "parameters": {},
+      "id": "noop-bestand",
+      "name": "Bleibt in der Inbox",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1780, 280]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "swb-gmail",
+                    "leftValue": "={{ $json.konto }}",
+                    "rightValue": "gmail",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "gmail"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "swb-webde",
+                    "leftValue": "={{ $json.konto }}",
+                    "rightValue": "webde",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "webde"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "swb-mailcow",
+                    "leftValue": "={{ $json.konto }}",
+                    "rightValue": "mailcow",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "mailcow"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "switch-konto-bestand",
+      "name": "Nach Konto",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [1780, 20]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "addLabels",
+        "messageId": "={{ $json.id }}",
+        "labelIds": "={{ [$json.gmailLabelId] }}"
+      },
+      "id": "gmail-label-bestand",
+      "name": "Gmail: Label setzen",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [2040, -100]
+    },
+    {
+      "parameters": {
+        "resource": "email",
+        "operation": "move",
+        "mailboxPath": "INBOX",
+        "emailUid": "={{ $json.uid }}",
+        "destinationMailboxPath": "={{ $json.zielordner }}"
+      },
+      "id": "imap-move-webde-bestand",
+      "name": "Web.de: Verschieben",
+      "type": "n8n-nodes-imap.imap",
+      "typeVersion": 1,
+      "position": [2040, 60]
+    },
+    {
+      "parameters": {
+        "resource": "email",
+        "operation": "move",
+        "mailboxPath": "INBOX",
+        "emailUid": "={{ $json.uid }}",
+        "destinationMailboxPath": "={{ $json.zielordner }}"
+      },
+      "id": "imap-move-mailcow-bestand",
+      "name": "Mailcow: Verschieben",
+      "type": "n8n-nodes-imap.imap",
+      "typeVersion": 1,
+      "position": [2040, 220]
+    }
+  ],
+  "connections": {
+    "Manuell starten": {
+      "main": [[{ "node": "Gmail Bestand", "type": "main", "index": 0 }]]
+    },
+    "Gmail Bestand": {
+      "main": [[{ "node": "Web.de Bestand", "type": "main", "index": 0 }]]
+    },
+    "Web.de Bestand": {
+      "main": [[{ "node": "Mailcow Bestand", "type": "main", "index": 0 }]]
+    },
+    "Mailcow Bestand": {
+      "main": [[{ "node": "Sammeln + Normalisieren", "type": "main", "index": 0 }]]
+    },
+    "Sammeln + Normalisieren": {
+      "main": [[{ "node": "Gemini klassifizieren", "type": "main", "index": 0 }]]
+    },
+    "Gemini klassifizieren": {
+      "main": [[{ "node": "Antwort parsen", "type": "main", "index": 0 }]]
+    },
+    "Antwort parsen": {
+      "main": [[{ "node": "Verschieben?", "type": "main", "index": 0 }]]
+    },
+    "Verschieben?": {
+      "main": [
+        [{ "node": "Nach Konto", "type": "main", "index": 0 }],
+        [{ "node": "Bleibt in der Inbox", "type": "main", "index": 0 }]
+      ]
+    },
+    "Nach Konto": {
+      "main": [
+        [{ "node": "Gmail: Label setzen", "type": "main", "index": 0 }],
+        [{ "node": "Web.de: Verschieben", "type": "main", "index": 0 }],
+        [{ "node": "Mailcow: Verschieben", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

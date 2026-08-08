@@ -1,0 +1,56 @@
+name: Docker Image bauen & pushen
+
+# Baut nur, wenn sich am Panel etwas ändert — solange panel/ noch nicht existiert
+# (Etappe 0), läuft dieser Workflow schlicht nie an.
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'panel/**'
+      - '.github/workflows/docker-build.yml'
+  workflow_dispatch:
+
+# Immer nur ein Image-Build gleichzeitig pro Branch. Zwei parallele Läufe schieben sonst
+# denselben `latest`-Tag zeitgleich zu ghcr.io, was dort zu "ERROR: unknown blob" führen kann.
+# cancel-in-progress bleibt aus: Der laufende Build soll fertig werden, der neue wartet.
+concurrency:
+  group: docker-build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Code auschecken
+        uses: actions/checkout@v7
+
+      - name: Bei GitHub Container Registry einloggen
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker Metadata (Tags)
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/roobiing/mail-panel
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=,format=short
+
+      - name: Docker Image bauen und pushen
+        uses: docker/build-push-action@v7
+        with:
+          context: ./panel
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          # Ohne Provenance-Attestierung entsteht ein einfacher Image-Index statt eines
+          # zusätzlichen Attestation-Manifests — weniger Blob-Uploads, weniger Angriffsfläche
+          # für den sporadischen "unknown blob"-Fehler von ghcr.io. Wird nirgends genutzt.
+          provenance: false
