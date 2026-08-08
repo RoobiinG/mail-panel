@@ -2,6 +2,29 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [1.1.1.0] - 2026-08-08 (Build 3) — *Für alle installierbar*
+
+### Verbesserungen
+
+- **Stack läuft jetzt ohne Vorbedingungen auf jedem Docker-Host:** Das externe
+  Proxy-Netz ist keine Pflicht mehr — `docker compose up -d` genügt, n8n (5678) und
+  Panel (3002) sind direkt über ihre Ports erreichbar. Wer einen containerisierten
+  Reverse Proxy nutzt, hängt die Dienste über das neue Override
+  `docker-compose.proxy.example.yml` ins Proxy-Netz (Env-Variable `PROXY_NETWORK`
+  ersetzt `NPM_NETWORK`).
+- **README verallgemeinert:** Voraussetzungen-Abschnitt, Reverse Proxy und
+  Docker-Panels (NPM, Dockhand, Portainer) nur noch als Beispiele, Mailcow-Teile
+  ausdrücklich optional.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **Bestehende Installationen mit Proxy-Netz** müssen auf das Override-Muster wechseln
+  (`docker-compose.proxy.yml` anlegen, `PROXY_NETWORK` statt `NPM_NETWORK` in der `.env`),
+  sonst verlieren die Container beim nächsten `up -d` die Anbindung ans Proxy-Netz.
+- Panel-Port 3002 ist jetzt standardmäßig veröffentlicht — wer das nicht will,
+  beschränkt ihn auf `127.0.0.1:3002:3002` oder entfernt ihn im Override.
+- Keine Änderungen an Workflows, Datenbank oder Panel-Code.
+
 ## [1.1.0.0] - 2026-08-08 (Build 2) — *Panel-Grundgerüst*
 
 ### Features

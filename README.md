@@ -1,45 +1,62 @@
-# E-Mail-Automatisierung mit n8n
+# Mail-Panel — E-Mail-Automatisierung mit n8n
 
-Zentrale Automatisierung für **Gmail**, **Web.de** und **Mailcow** (eigener Server):
+Zentrale Automatisierung für mehrere E-Mail-Konten (Gmail per OAuth, beliebige
+IMAP-Postfächer wie Web.de/GMX, optional ein eigener Mailcow-Server):
 Spam-Triage, automatische Sortierung, täglicher Telegram-Digest und Newsletter-Cleanup.
 KI-Klassifizierung kostenlos über die **Gemini-API** (Google AI Studio Free Tier).
+Installierbar auf jedem Server mit Docker.
 
 **Grundsatz:** n8n ergänzt die vorhandenen Spamfilter (Gmail-Filter, Rspamd in Mailcow),
 es ersetzt sie nicht. Und: **Es wird nie gelöscht, nur verschoben.**
+
+## Voraussetzungen
+
+- Ein Server (VPS, NAS, Homeserver, ...) mit **Docker + Docker Compose**
+- Für HTTPS: eine Domain und ein beliebiger Reverse Proxy (Nginx Proxy Manager,
+  Traefik, Caddy, ...) — optional, die Dienste laufen auch direkt über ihre Ports
+- Ein Google-Konto für den kostenlosen Gemini-API-Key; für Gmail-Anbindung zusätzlich
+  ein Google-Cloud-Projekt (kostenlos)
+- Die Mailcow-Teile (Rspamd-Quarantäne im Digest, Rspamd-Tuning) sind **optional**
+  und werden nur mit eigenem Mailcow-Server aktiv
 
 ## Inhalt
 
 | Datei | Zweck |
 |---|---|
-| `docker-compose.yml` | n8n + PostgreSQL (Deployment über Dockhand) |
+| `docker-compose.yml` | Kompletter Stack: n8n, PostgreSQL, Panel, ClamAV, unbound |
+| `docker-compose.proxy.example.yml` | Optionales Override für Container-Reverse-Proxys |
 | `.env.example` | Vorlage für die Stack-Variablen |
-| `workflows/01-inbox-triage.json` | Neue Mails klassifizieren + einsortieren (alle 3 Konten) |
+| `panel/` | Web-Panel (Verwaltungsoberfläche + Prüfdienste-Backend) |
+| `workflows/01-inbox-triage.json` | Neue Mails klassifizieren + einsortieren (alle Konten) |
 | `workflows/02-daily-digest.json` | Täglich 7:30 Uhr Zusammenfassung per Telegram (inkl. Rspamd-Quarantäne) |
 | `workflows/03-newsletter-cleanup.json` | Sonntags: Newsletter älter 30 Tage → Archiv |
 | `workflows/04-bestand-triage.json` | Manuell: bereits vorhandene Mails im Bestand aufarbeiten |
 
 ---
 
-## 1. DNS + Nginx Proxy Manager
+## 1. Stack deployen
 
-1. A-Record anlegen: `n8n.deine-domain.de` → VPS-IP.
-2. Im NPM einen **Proxy Host** anlegen:
-   - Domain: `n8n.deine-domain.de`
-   - Forward: `n8n` / Port `5678` (Container-Name, gleiches Docker-Netz)
-   - SSL: Let's-Encrypt-Zertifikat anfordern, „Force SSL"
-   - **Wichtig: „Websockets Support" aktivieren** — sonst lädt der n8n-Editor nicht.
-
-## 2. Stack über Dockhand deployen
-
-1. Docker-Netz des NPM herausfinden: `docker network ls` (oder in Dockhand unter Networks).
-2. In Dockhand einen neuen **Compose-Stack** anlegen und den Inhalt von
-   `docker-compose.yml` einfügen (oder Dockhands Git-Integration auf dieses
-   Verzeichnis zeigen lassen).
-3. Env-Variablen gemäß `.env.example` im Stack hinterlegen.
+1. Repository auf den Server klonen (oder die Dateien in ein Compose-fähiges
+   Docker-Panel wie Dockhand/Portainer einfügen).
+2. `.env` aus `.env.example` erstellen und füllen.
    `N8N_ENCRYPTION_KEY` einmal generieren (`openssl rand -hex 24`) und **nie mehr ändern**.
-4. Stack starten, dann `https://n8n.deine-domain.de` öffnen und den Owner-Account anlegen.
+3. `docker compose up -d` — danach ist n8n auf Port `5678` und das Panel auf
+   Port `3002` erreichbar.
+4. n8n öffnen und den Owner-Account anlegen.
 5. **Community-Node installieren:** Settings → Community Nodes → `n8n-nodes-imap`
    (wird für das Verschieben/Suchen per IMAP gebraucht — der eingebaute IMAP-Trigger kann nur lesen).
+
+## 2. HTTPS / Reverse Proxy (empfohlen, optional)
+
+- DNS: A-Records für z.B. `n8n.example.org` und `panel.example.org` auf die Server-IP.
+- Beliebigen Reverse Proxy auf `http://<server>:5678` bzw. `:3002` zeigen lassen —
+  **für n8n Websocket-Unterstützung aktivieren** (im Nginx Proxy Manager das Häkchen
+  „Websockets Support"), sonst lädt der Editor nicht.
+- Läuft der Proxy selbst als Container, stattdessen `docker-compose.proxy.example.yml`
+  verwenden (Anleitung steht in der Datei) — dann geht der Traffic über das interne
+  Docker-Netz und die Ports können auf localhost beschränkt oder entfernt werden.
+- In der `.env` `N8N_HOST` auf die n8n-Domain setzen, damit OAuth-Redirects und
+  Webhook-URLs stimmen.
 
 ## 3. Konten anbinden (Credentials in n8n)
 
@@ -123,18 +140,18 @@ Newsletter-Abbestellen, Rspamd-Tuning und Prüfdienste (DNSBL via unbound, ClamA
 
 ### Einrichtung
 
-1. **DNS + NPM:** A-Record `panel.deine-domain.de` → VPS-IP; NPM-Proxy-Host auf `panel:3002`
-   (Websockets nicht nötig), Let's-Encrypt-Zertifikat.
-2. **Secrets:** In der `.env` die Panel-Variablen füllen (siehe `.env.example`):
+1. **Secrets:** In der `.env` die Panel-Variablen füllen (siehe `.env.example`):
    `JWT_SECRET`, `PANEL_SECRET`, `PANEL_DB_KEY` (je `openssl rand -hex 32`),
-   `N8N_API_KEY` (n8n → Settings → n8n API), `MAILCOW_URL` + `MAILCOW_API_KEY`,
-   optional `SAFEBROWSING_API_KEY`.
-3. **Stack aktualisieren:** `docker compose pull && docker compose up -d` — startet
+   `N8N_API_KEY` (n8n → Settings → n8n API), optional `MAILCOW_URL` + `MAILCOW_API_KEY`
+   und `SAFEBROWSING_API_KEY`.
+2. **Stack aktualisieren:** `docker compose pull && docker compose up -d` — startet
    zusätzlich `clamav` (~1,5 GB RAM, Signatur-Updates automatisch) und `unbound`
    (DNS-Resolver für DNSBL-Abfragen; öffentliche Resolver werden von Spamhaus geblockt).
-4. **Erststart:** `https://panel.deine-domain.de` öffnen → Setup-Flow legt das Admin-Konto an.
-5. **Verbindungstests:** Unter Einstellungen die vier Tests ausführen (n8n, Mailcow, ClamAV,
-   unbound) — alle müssen grün sein, bevor die weiteren Etappen eingerichtet werden.
+3. **Erststart:** Panel öffnen (`http://<server>:3002` bzw. die Panel-Domain hinter dem
+   Reverse Proxy) → Setup-Flow legt das Admin-Konto an.
+4. **Verbindungstests:** Unter Einstellungen die Tests ausführen (n8n, Mailcow, ClamAV,
+   unbound) — alle genutzten Dienste müssen grün sein, bevor es weitergeht
+   (Mailcow darf rot bleiben, wenn kein Mailcow eingebunden wird).
 
 ### Entwicklung (lokal)
 

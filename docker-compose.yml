@@ -1,6 +1,11 @@
-# n8n + PostgreSQL — Deployment über Dockhand (Compose-Stack)
-# SSL/Reverse-Proxy: vorhandener Nginx Proxy Manager (NPM)
-# NPM-Proxy-Host: n8n.<domain> -> http://n8n:5678  (Websockets Support aktivieren!)
+# Mail-Panel-Stack: n8n + PostgreSQL + Panel + ClamAV + unbound
+#
+# Läuft auf jedem Server mit Docker: `docker compose up -d` genügt, die Dienste
+# sind danach über die veröffentlichten Ports erreichbar (n8n: 5678, Panel: 3002).
+# Für HTTPS einen beliebigen Reverse Proxy davorschalten (Nginx Proxy Manager,
+# Traefik, Caddy, ...). Läuft der Proxy selbst als Container, siehe
+# docker-compose.proxy.example.yml — dann können die Ports entfallen.
+# n8n hinter dem Proxy braucht Websocket-Unterstützung!
 
 services:
   n8n-db:
@@ -54,12 +59,10 @@ services:
       - n8n_data:/home/node/.n8n
     networks:
       - internal
-      - proxy
     ports:
       - "5678:5678"
 
   # ─── Mail-Panel: Verwaltungsoberfläche + Prüfdienste-Backend ───────────────
-  # NPM-Proxy-Host: panel.<domain> -> http://panel:3002 (Websockets nicht nötig)
   panel:
     image: ghcr.io/roobiing/mail-panel:latest
     # Zum lokalen Bauen statt Registry-Image:
@@ -82,7 +85,8 @@ services:
       - panel_data:/app/data
     networks:
       - internal
-      - proxy
+    ports:
+      - "3002:3002"
     depends_on:
       - n8n
 
@@ -109,11 +113,6 @@ services:
 
 networks:
   internal:
-  proxy:
-    external: true
-    # Name des Docker-Netzes, in dem der Nginx Proxy Manager hängt.
-    # Herausfinden mit: docker network ls  (bzw. in Dockhand unter Networks)
-    name: ${NPM_NETWORK:-npm_default}
 
 volumes:
   n8n_data:
