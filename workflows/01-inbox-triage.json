@@ -3,15 +3,28 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Inbox-Triage\n\n**Vor dem Aktivieren:**\n1. Credentials zuordnen: Gmail (OAuth2), Web.de (IMAP), Mailcow (IMAP), Gemini (Header Auth `x-goog-api-key`)\n2. Ordner in den Postfächern anlegen: `Quarantaene`, `Rechnungen`, `Bestellungen`, `Newsletter` (bei Gmail: Labels)\n3. Im Node **Antwort parsen** die Gmail-Label-IDs eintragen (IDs holen: Gmail-Node → Label → Get Many)\n4. **Trockentest:** Erst 1-2 Tage nur klassifizieren lassen — dazu die Verbindung nach dem Node **Verschieben?** trennen und Ergebnisse in den Executions prüfen. Erst dann Verschieben aktivieren.\n\nEs wird NIE gelöscht, nur verschoben.",
-        "height": 340,
-        "width": 420
+        "content": "## Inbox-Triage\n\n**Einrichtung:**\n1. Credentials zuordnen: Gmail (OAuth2) und Gemini (Header Auth `x-goog-api-key`)\n2. Ordner in den Postfächern anlegen: `Quarantaene`, `Rechnungen`, `Bestellungen`, `Newsletter` (bei Gmail: Labels)\n3. Im Node **Antwort parsen** die Gmail-Label-IDs eintragen (IDs holen: Gmail-Node → Label → Get Many)\n4. **IMAP-Konten nicht hier anlegen** — die kommen aus dem Mail-Panel (Seite „Konten\"). Das Panel baut dafür Trigger, Weiche und Verschiebe-Knoten automatisch ein.\n\n**Trockentest:** Erst 1-2 Tage nur klassifizieren lassen — dazu die Verbindung nach **Verschieben?** trennen und die Ergebnisse in den Executions prüfen.\n\nEs wird NIE gelöscht, nur verschoben.",
+        "height": 360,
+        "width": 440
       },
       "id": "sticky-info",
       "name": "Hinweise",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [-60, -340]
+      "position": [-60, -400]
+    },
+    {
+      "parameters": {
+        "content": "### Vom Mail-Panel verwaltet\n\nAlle Knoten, die das Panel anlegt (Konto-Trigger links, Weiche und Verschiebe-Knoten rechts), werden beim nächsten Konto-Sync **neu erzeugt**. Änderungen daran gehen dabei verloren — alles andere im Workflow bleibt unangetastet.",
+        "height": 200,
+        "width": 360,
+        "color": 3
+      },
+      "id": "sticky-panel",
+      "name": "Panel-Bereich",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1320, -260]
     },
     {
       "parameters": {
@@ -36,30 +49,6 @@
     },
     {
       "parameters": {
-        "mailbox": "INBOX",
-        "postProcessAction": "read",
-        "options": {}
-      },
-      "id": "trigger-webde",
-      "name": "Web.de Trigger",
-      "type": "n8n-nodes-base.emailReadImap",
-      "typeVersion": 2,
-      "position": [0, 200]
-    },
-    {
-      "parameters": {
-        "mailbox": "INBOX",
-        "postProcessAction": "read",
-        "options": {}
-      },
-      "id": "trigger-mailcow",
-      "name": "Mailcow Trigger",
-      "type": "n8n-nodes-base.emailReadImap",
-      "typeVersion": 2,
-      "position": [0, 400]
-    },
-    {
-      "parameters": {
         "assignments": {
           "assignments": [
             {
@@ -78,48 +67,6 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [220, 0]
-    },
-    {
-      "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "konto-2",
-              "name": "konto",
-              "value": "webde",
-              "type": "string"
-            }
-          ]
-        },
-        "includeOtherFields": true,
-        "options": {}
-      },
-      "id": "set-webde",
-      "name": "Konto: Web.de",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
-      "position": [220, 200]
-    },
-    {
-      "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "konto-3",
-              "name": "konto",
-              "value": "mailcow",
-              "type": "string"
-            }
-          ]
-        },
-        "includeOtherFields": true,
-        "options": {}
-      },
-      "id": "set-mailcow",
-      "name": "Konto: Mailcow",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
-      "position": [220, 400]
     },
     {
       "parameters": {
@@ -233,60 +180,12 @@
               },
               "renameOutput": true,
               "outputKey": "gmail"
-            },
-            {
-              "conditions": {
-                "options": {
-                  "caseSensitive": true,
-                  "leftValue": "",
-                  "typeValidation": "strict",
-                  "version": 2
-                },
-                "conditions": [
-                  {
-                    "id": "sw-webde",
-                    "leftValue": "={{ $json.konto }}",
-                    "rightValue": "webde",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    }
-                  }
-                ],
-                "combinator": "and"
-              },
-              "renameOutput": true,
-              "outputKey": "webde"
-            },
-            {
-              "conditions": {
-                "options": {
-                  "caseSensitive": true,
-                  "leftValue": "",
-                  "typeValidation": "strict",
-                  "version": 2
-                },
-                "conditions": [
-                  {
-                    "id": "sw-mailcow",
-                    "leftValue": "={{ $json.konto }}",
-                    "rightValue": "mailcow",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    }
-                  }
-                ],
-                "combinator": "and"
-              },
-              "renameOutput": true,
-              "outputKey": "mailcow"
             }
           ]
         },
         "options": {}
       },
-      "id": "switch-konto",
+      "id": "panel-weiche",
       "name": "Nach Konto",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
@@ -304,65 +203,13 @@
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.1,
       "position": [1600, 0]
-    },
-    {
-      "parameters": {
-        "resource": "email",
-        "operation": "move",
-        "mailboxPath": "INBOX",
-        "emailUid": "={{ $json.uid }}",
-        "destinationMailboxPath": "={{ $json.zielordner }}"
-      },
-      "id": "imap-move-webde",
-      "name": "Web.de: Verschieben",
-      "type": "n8n-nodes-imap.imap",
-      "typeVersion": 1,
-      "position": [1600, 160]
-    },
-    {
-      "parameters": {
-        "resource": "email",
-        "operation": "move",
-        "mailboxPath": "INBOX",
-        "emailUid": "={{ $json.uid }}",
-        "destinationMailboxPath": "={{ $json.zielordner }}"
-      },
-      "id": "imap-move-mailcow",
-      "name": "Mailcow: Verschieben",
-      "type": "n8n-nodes-imap.imap",
-      "typeVersion": 1,
-      "position": [1600, 320]
-    },
-    {
-      "parameters": {
-        "content": "**Verschiebe-Nodes:** Der Community-Node `n8n-nodes-imap` muss installiert sein (Settings → Community Nodes). Nach der Installation die beiden IMAP-Verschieben-Nodes einmal öffnen und Operation **Email → Move** samt Zielordner-Ausdruck prüfen/neu auswählen — je nach Node-Version heißen die Felder leicht anders.\n\n**Gmail:** `addLabels` heftet nur das Label an. Wer Spam zusätzlich aus der Inbox haben will, hängt einen zweiten Gmail-Node mit `removeLabels` → `INBOX` an den Spam-Fall.",
-        "height": 260,
-        "width": 380
-      },
-      "id": "sticky-move",
-      "name": "Hinweis Verschieben",
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [1560, -300]
     }
   ],
   "connections": {
     "Gmail Trigger": {
       "main": [[{ "node": "Konto: Gmail", "type": "main", "index": 0 }]]
     },
-    "Web.de Trigger": {
-      "main": [[{ "node": "Konto: Web.de", "type": "main", "index": 0 }]]
-    },
-    "Mailcow Trigger": {
-      "main": [[{ "node": "Konto: Mailcow", "type": "main", "index": 0 }]]
-    },
     "Konto: Gmail": {
-      "main": [[{ "node": "Normalisieren", "type": "main", "index": 0 }]]
-    },
-    "Konto: Web.de": {
-      "main": [[{ "node": "Normalisieren", "type": "main", "index": 0 }]]
-    },
-    "Konto: Mailcow": {
       "main": [[{ "node": "Normalisieren", "type": "main", "index": 0 }]]
     },
     "Normalisieren": {
@@ -381,11 +228,7 @@
       ]
     },
     "Nach Konto": {
-      "main": [
-        [{ "node": "Gmail: Label setzen", "type": "main", "index": 0 }],
-        [{ "node": "Web.de: Verschieben", "type": "main", "index": 0 }],
-        [{ "node": "Mailcow: Verschieben", "type": "main", "index": 0 }]
-      ]
+      "main": [[{ "node": "Gmail: Label setzen", "type": "main", "index": 0 }]]
     }
   },
   "settings": {

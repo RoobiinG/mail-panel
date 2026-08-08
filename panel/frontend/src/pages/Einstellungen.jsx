@@ -52,9 +52,56 @@ export default function Einstellungen() {
 
   if (!settings) return <p className="text-panel-muted">Lade…</p>;
 
+  // Zugangsdaten-Feld: per Env gesetzte Werte sind nur lesbar
+  const zugangsFeld = (key, label, platzhalter, typ = 'text') => (
+    <label className="block text-sm space-y-1">
+      <span className="text-panel-muted">
+        {label}
+        {settings[`${key}_per_env`] && <span className="ml-2 text-xs">(per Umgebungsvariable gesetzt)</span>}
+      </span>
+      <input
+        type={typ}
+        value={settings[key] || ''}
+        placeholder={platzhalter}
+        disabled={settings[`${key}_per_env`]}
+        onChange={(e) => setSettings({ ...settings, [key]: e.target.value })}
+      />
+    </label>
+  );
+
   return (
     <div className="space-y-6 max-w-3xl">
       <h1 className="text-2xl font-semibold">Einstellungen</h1>
+
+      <div className="card space-y-4">
+        <h2 className="font-medium">Verbindungen</h2>
+        <p className="text-sm text-panel-muted">
+          Zugangsdaten werden verschlüsselt im Panel gespeichert. Der n8n-API-Key wird für die
+          Konten-Verwaltung gebraucht (in n8n unter Einstellungen → n8n API erzeugen);
+          Mailcow und Safe Browsing sind optional.
+        </p>
+        {zugangsFeld('n8n_url', 'n8n-Adresse', 'http://n8n:5678')}
+        {zugangsFeld('n8n_api_key', 'n8n-API-Key', 'n8n_api_…', 'password')}
+        {zugangsFeld('mailcow_url', 'Mailcow-Adresse (optional)', 'https://mail.example.org')}
+        {zugangsFeld('mailcow_api_key', 'Mailcow-API-Key (optional)', '', 'password')}
+        {zugangsFeld('safebrowsing_api_key', 'Google-Safe-Browsing-Key (optional)', '', 'password')}
+        <div className="flex items-center gap-3">
+          <button onClick={speichern} className="btn-primary">Speichern</button>
+          {meldung && <span className="text-sm text-panel-muted">{meldung}</span>}
+        </div>
+      </div>
+
+      <div className="card space-y-2">
+        <h2 className="font-medium">Panel-Secret für die n8n-Workflows</h2>
+        <p className="text-sm text-panel-muted">
+          Die Workflows rufen die Prüfdienste des Panels mit diesem Schlüssel auf. In n8n als
+          Header-Auth-Credential anlegen: Name <code className="text-panel-text">X-Panel-Secret</code>,
+          Wert:
+        </p>
+        <code className="block bg-panel-card border border-panel-border rounded-md p-2 text-xs font-mono break-all">
+          {settings.panel_secret}
+        </code>
+      </div>
 
       <div className="card space-y-4">
         <h2 className="font-medium">Spam-Prüfung</h2>

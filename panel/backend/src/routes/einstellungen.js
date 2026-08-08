@@ -1,28 +1,47 @@
-const express = require('express');
-const db      = require('../db');
-const n8n     = require('../services/n8n');
-const mailcow = require('../services/mailcow');
-const clamav  = require('../services/clamav');
-const dnsbl   = require('../services/dnsbl');
+const express  = require('express');
+const db       = require('../db');
+const settings = require('../services/settings');
+const n8n      = require('../services/n8n');
+const mailcow  = require('../services/mailcow');
+const clamav   = require('../services/clamav');
+const dnsbl    = require('../services/dnsbl');
 
 const router = express.Router();
 
-// Nur diese Schluessel sind ueber die API les-/schreibbar
-const ERLAUBTE_KEYS = ['dnsbl_listen', 'spam_schwellwert', 'clamav_aktiv', 'safebrowsing_aktiv'];
+// Einfache Schalter/Werte (unverschlüsselt, direkt in settings)
+const EINFACHE_KEYS = ['dnsbl_listen', 'spam_schwellwert', 'clamav_aktiv', 'safebrowsing_aktiv'];
 
 router.get('/', (req, res) => {
-  const zeilen = db.prepare(`SELECT key, value FROM settings WHERE key IN (${ERLAUBTE_KEYS.map(() => '?').join(',')})`).all(...ERLAUBTE_KEYS);
-  const settings = Object.fromEntries(zeilen.map((z) => [z.key, z.value]));
-  res.json(settings);
+  const zeilen = db.prepare(
+    `SELECT key, value FROM settings WHERE key IN (${EINFACHE_KEYS.map(() => '?').join(',')})`,
+  ).all(...EINFACHE_KEYS);
+  res.json({
+    ...Object.fromEntries(zeilen.map((z) => [z.key, z.value])),
+    ...settings.fuerUi(),
+    // Damit der Nutzer das Secret in die n8n-Workflows kopieren kann
+    panel_secret: process.env.PANEL_SECRET,
+  });
 });
 
 router.put('/', (req, res) => {
-  const update = db.prepare('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP');
+  const update = db.prepare(`
+    INSERT INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+  `);
   const geaendert = [];
+
   for (const [key, value] of Object.entries(req.body || {})) {
-    if (!ERLAUBTE_KEYS.includes(key)) continue;
+    // Zugangsdaten laufen über den Settings-Service (verschlüsselt)
+    if (settings.FELDER[key]) {
+      // Maskierte Anzeige nicht zurückspeichern
+      if (String(value).startsWith('••')) continue;
+      settings.setze(key, value);
+      geaendert.push(key);
+      continue;
+    }
+    if (!EINFACHE_KEYS.includes(key)) continue;
+
     if (key === 'dnsbl_listen') {
-      // Muss ein JSON-Array aus Hostnamen sein
       let listen;
       try { listen = JSON.parse(value); } catch { return res.status(400).json({ error: 'dnsbl_listen: kein gültiges JSON-Array' }); }
       if (!Array.isArray(listen) || listen.some((l) => typeof l !== 'string' || !/^[a-z0-9.-]+$/i.test(l))) {
@@ -38,7 +57,7 @@ router.put('/', (req, res) => {
   res.json({ ok: true, geaendert });
 });
 
-// Verbindungstests fuer die Einstellungen-Seite
+// Verbindungstests für die Einstellungen-Seite
 router.post('/test/:dienst', async (req, res) => {
   const { dienst } = req.params;
   try {

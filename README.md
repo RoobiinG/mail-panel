@@ -69,17 +69,20 @@ es ersetzt sie nicht. Und: **Es wird nie gelöscht, nur verschoben.**
    (unverifiziert reicht für den Eigengebrauch). Im Status „Testen" läuft der
    Refresh-Token nach 7 Tagen ab und die Verbindung bricht ständig ab.
 
-### Web.de (IMAP)
-1. Web.de-Webmail → Einstellungen → POP3/IMAP → **IMAP aktivieren**.
-2. Credential in n8n (für IMAP-Trigger **und** den Community-IMAP-Node):
-   Host `imap.web.de`, Port `993`, SSL, normale Zugangsdaten.
+### IMAP-Konten (Web.de, GMX, Mailcow, beliebige andere)
+**Nicht in n8n anlegen — das macht das Panel.** Unter *Konten → IMAP-Konto hinzufügen*
+Server, Port und Zugangsdaten eintragen; das Panel testet die Verbindung, legt das
+Credential in n8n an und baut Trigger und Verschiebe-Knoten in die Workflows 01 und 04 ein.
+Voraussetzung: Der n8n-API-Key ist im Panel hinterlegt (siehe Panel-Kapitel).
 
-### Mailcow (IMAP + API)
-1. IMAP-Credential: Host `mail.deine-domain.de`, Port `993`, SSL, Postfach-Zugangsdaten.
-2. **API-Key** für die Rspamd-Quarantäne im Digest: Mailcow-Admin-UI → Zugang → API →
-   Read-Write-Key erzeugen, Zugriff auf die VPS-IP beschränken.
-   In n8n als **Header-Auth-Credential** anlegen: Name `X-API-Key`, Wert = der Key.
-   (Die Mailcow-API ist eine Verwaltungs-API — Mails lesen/verschieben läuft weiter über IMAP.)
+Hinweise: Bei Web.de/GMX muss IMAP erst in den Weboberflächen-Einstellungen freigeschaltet
+werden. Bei Anbietern mit Zwei-Faktor-Authentifizierung ein App-Passwort verwenden.
+
+### Mailcow-API (optional)
+Für die Rspamd-Quarantäne im Digest: Mailcow-Admin-UI → Zugang → API → Read-Write-Key
+erzeugen und den Zugriff auf die Server-IP beschränken. Key im Panel unter *Einstellungen*
+eintragen. (Die Mailcow-API ist eine Verwaltungs-API — Mails lesen und verschieben läuft
+weiterhin über IMAP.)
 
 ### Gemini (kostenlos)
 1. [aistudio.google.com](https://aistudio.google.com) → API-Key erzeugen
@@ -140,18 +143,21 @@ Newsletter-Abbestellen, Rspamd-Tuning und Prüfdienste (DNSBL via unbound, ClamA
 
 ### Einrichtung
 
-1. **Secrets:** In der `.env` die Panel-Variablen füllen (siehe `.env.example`):
-   `JWT_SECRET`, `PANEL_SECRET`, `PANEL_DB_KEY` (je `openssl rand -hex 32`),
-   `N8N_API_KEY` (n8n → Settings → n8n API), optional `MAILCOW_URL` + `MAILCOW_API_KEY`
-   und `SAFEBROWSING_API_KEY`.
-2. **Stack aktualisieren:** `docker compose pull && docker compose up -d` — startet
-   zusätzlich `clamav` (~1,5 GB RAM, Signatur-Updates automatisch) und `unbound`
-   (DNS-Resolver für DNSBL-Abfragen; öffentliche Resolver werden von Spamhaus geblockt).
-3. **Erststart:** Panel öffnen (`http://<server>:3002` bzw. die Panel-Domain hinter dem
-   Reverse Proxy) → Setup-Flow legt das Admin-Konto an.
-4. **Verbindungstests:** Unter Einstellungen die Tests ausführen (n8n, Mailcow, ClamAV,
-   unbound) — alle genutzten Dienste müssen grün sein, bevor es weitergeht
-   (Mailcow darf rot bleiben, wenn kein Mailcow eingebunden wird).
+1. **Erststart:** Panel öffnen (`http://<server>:3002` bzw. die Panel-Domain hinter dem
+   Reverse Proxy) → der Setup-Flow legt das Admin-Konto an. Schlüssel erzeugt das Panel
+   selbst; eine `.env` ist nicht nötig.
+2. **n8n verbinden:** In n8n unter *Einstellungen → n8n API* einen Key erzeugen und im
+   Panel unter *Einstellungen → Verbindungen* eintragen. Optional dort auch Mailcow-URL
+   samt API-Key und den Safe-Browsing-Key hinterlegen.
+3. **Verbindungstests:** Unter Einstellungen die Tests ausführen (n8n, Mailcow, ClamAV,
+   unbound) — die genutzten Dienste müssen grün sein (Mailcow darf rot bleiben, wenn
+   kein Mailcow eingebunden wird).
+4. **Konten anlegen:** Unter *Konten* die IMAP-Postfächer hinzufügen — das Panel testet
+   die Verbindung, legt die Credentials in n8n an und verdrahtet die Workflows 01 und 04.
+
+**Gut zu wissen:** Alle Knoten in den Workflows 01/04, deren ID mit `panel-` beginnt,
+gehören dem Panel und werden bei jedem Konto-Sync neu erzeugt. Änderungen daran gehen
+verloren — der Rest des Workflows bleibt unangetastet und kann frei angepasst werden.
 
 ### Entwicklung (lokal)
 

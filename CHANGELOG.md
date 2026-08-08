@@ -2,6 +2,51 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [1.2.0.0] - 2026-08-08 (Build 4) — *Konten aus dem Panel*
+
+### Features
+
+- **Konten-Verwaltung im Panel:** IMAP-Konten anlegen, bearbeiten, entfernen — mit
+  Vorlagen für gängige Anbieter und einem Verbindungstest, der vor dem Speichern einen
+  echten IMAP-Handshake macht (`imapflow`). Passwörter liegen AES-256-GCM-verschlüsselt
+  in der Panel-Datenbank und werden nie an die Oberfläche zurückgegeben.
+- **Automatisches n8n-Onboarding:** Beim Speichern legt das Panel das IMAP-Credential
+  über die n8n-API an und verdrahtet das Konto in den Workflows 01 und 04 — Trigger,
+  Konto-Kennzeichnung, Konto-Weiche und Verschiebe-Knoten. Beim Entfernen wird alles
+  wieder sauber zurückgebaut, inklusive Credential. Der Sync ist idempotent und lässt
+  sich über „Workflows synchronisieren" jederzeit wiederholen.
+- **Installation ohne Konfiguration:** `docker compose up -d` genügt jetzt. Das Panel
+  erzeugt `JWT_SECRET`, `PANEL_SECRET` und `PANEL_DB_KEY` beim ersten Start selbst und
+  legt sie im Datenvolume ab; n8n erzeugt seinen Encryption-Key ohnehin selbst. Die
+  Zugangsdaten zu n8n, Mailcow und Safe Browsing pflegt man in der Oberfläche statt in
+  Umgebungsvariablen — Env-Variablen bleiben als Vorrang möglich.
+- **Panel-Secret in der Oberfläche** sichtbar, damit es sich in die n8n-Workflows
+  übernehmen lässt.
+
+### Änderungen
+
+- **Nur noch eine Compose-Datei.** Das Override `docker-compose.proxy.example.yml`
+  entfällt; n8n (5678) und Panel (3002) veröffentlichen ihre Ports, ein Reverse Proxy
+  wird einfach davorgehängt. `.env` ist jetzt komplett optional.
+- **Workflows 01 und 04 umgebaut:** Die fest verdrahteten Web.de-/Mailcow-Knoten sind
+  raus — diese Bereiche verwaltet jetzt das Panel. Gmail bleibt unverändert fest im
+  Workflow. Der Sammel-Knoten in Workflow 04 bekommt seine Quellenliste vom Panel
+  eingesetzt (Marker `PANEL:QUELLEN`).
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **Workflows 01 und 04 müssen neu importiert werden** — die alten Vorlagen haben die
+  Andockpunkte für den Patcher nicht. Bestehende Gmail-Credentials und Label-IDs müssen
+  danach erneut zugeordnet werden. Workflows 02 und 03 sind unverändert.
+- **Wer bisher ein Proxy-Netz genutzt hat**, hängt den Reverse Proxy jetzt auf
+  `<server>:5678` bzw. `:3002`; `NPM_NETWORK` und `PROXY_NETWORK` entfallen.
+- **Knoten mit ID-Präfix `panel-`** gehören dem Sync und werden bei jedem Konto-Sync
+  neu erzeugt — Handarbeit an diesen Knoten geht verloren (im Workflow als Notiz vermerkt).
+- Keine DB-Migration nötig; die Tabelle `accounts` existiert seit v1.1.0.0.
+- Neue Backend-Abhängigkeit `imapflow`.
+- Der n8n-API-Key muss einmalig im Panel hinterlegt werden (n8n → Einstellungen → n8n API),
+  sonst schlägt die Konten-Verwaltung mit einer entsprechenden Meldung fehl.
+
 ## [1.1.1.0] - 2026-08-08 (Build 3) — *Für alle installierbar*
 
 ### Verbesserungen

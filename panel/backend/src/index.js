@@ -1,20 +1,14 @@
 require('dotenv').config();
+// Schlüssel bereitstellen, bevor irgendetwas sie liest (erzeugt sie beim
+// Erststart selbst, damit die Installation ohne .env auskommt)
+require('./secrets').laden();
+
 const express     = require('express');
 const cors        = require('cors');
 const compression = require('compression');
 const path        = require('path');
 const auth         = require('./middleware/auth');
 const internalAuth = require('./middleware/internalAuth');
-
-// ─── Startup-Sicherheitscheck (Muster: Überwachungs-Panel) ───────────────────
-for (const [name, minLaenge] of [['JWT_SECRET', 32], ['PANEL_SECRET', 32]]) {
-  const wert = process.env[name];
-  if (!wert || wert.length < minLaenge || wert.includes('EINTRAGEN')) {
-    console.error(`❌ FATAL: ${name} ist nicht gesetzt oder zu unsicher (mindestens ${minLaenge} Zeichen).`);
-    console.error(`   Generieren mit: openssl rand -hex 32`);
-    process.exit(1);
-  }
-}
 
 const app = express();
 // Reverse Proxy (Nginx Proxy Manager) fuer korrekte Client-IPs und express-rate-limit vertrauen
@@ -27,6 +21,7 @@ app.use(express.json({ limit: '1mb' }));
 
 // ─── Routen ──────────────────────────────────────────────────────────────────
 app.use('/api/auth', require('./routes/auth'));
+app.use('/api/konten', auth, require('./routes/konten'));
 app.use('/api/einstellungen', auth, require('./routes/einstellungen'));
 // Interne Endpunkte fuer n8n — eigener Shared-Secret-Schutz statt JWT
 app.use('/api/internal', internalAuth, require('./routes/internal'));

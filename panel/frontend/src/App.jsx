@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
+import Konten from './pages/Konten';
 import Einstellungen from './pages/Einstellungen';
 import Platzhalter from './pages/Platzhalter';
 
@@ -24,7 +25,7 @@ export default function App() {
         }
       >
         <Route index element={<Dashboard />} />
-        <Route path="konten" element={<Platzhalter titel="Konten" etappe="2" />} />
+        <Route path="konten" element={<Konten />} />
         <Route path="quarantaene" element={<Platzhalter titel="Quarantäne" etappe="5" />} />
         <Route path="listen" element={<Platzhalter titel="White- / Blacklist" etappe="3" />} />
         <Route path="newsletter" element={<Platzhalter titel="Newsletter" etappe="7" />} />

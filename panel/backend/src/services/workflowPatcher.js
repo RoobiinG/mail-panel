@@ -1,0 +1,265 @@
+// Verdrahtet die im Panel gepflegten IMAP-Konten in die n8n-Workflows.
+//
+// Spielregel: Alle Knoten, deren ID mit "panel-" beginnt, gehören dem Panel und
+// werden bei jedem Sync neu erzeugt. Wer sie in n8n von Hand ändert, verliert die
+// Änderung beim nächsten Konto-Sync — alles andere im Workflow bleibt unangetastet.
+const n8n = require('./n8n');
+
+const PRAEFIX = 'panel-';
+// Ankerpunkte in den Workflow-Vorlagen, an die das Panel andockt
+const ANKER = {
+  triage: {
+    workflowPraefix: '01',
+    ziel: 'Normalisieren',      // dorthin laufen die Konto-Trigger
+    weiche: 'Verschieben?',     // davor sitzt die Konto-Weiche
+    gmailZiel: 'Gmail: Label setzen',
+  },
+  bestand: {
+    workflowPraefix: '04',
+    kopf: 'Gmail Bestand',          // Kopf der Abrufkette
+    ziel: 'Sammeln + Normalisieren',
+    weiche: 'Verschieben?',
+    gmailZiel: 'Gmail: Label setzen',
+  },
+};
+
+const istPanelKnoten = (knoten) => String(knoten.id || '').startsWith(PRAEFIX);
+
+// ─── Knoten-Bausteine ────────────────────────────────────────────────────────
+
+function triggerKnoten(konto, position) {
+  return {
+    parameters: { mailbox: 'INBOX', postProcessAction: 'read', options: {} },
+    id: `${PRAEFIX}${konto.id}-trigger`,
+    name: `${konto.name} (IMAP)`,
+    type: 'n8n-nodes-base.emailReadImap',
+    typeVersion: 2,
+    position,
+    credentials: { imap: { id: String(konto.n8n_credential_id), name: `Mail-Panel: ${konto.name}` } },
+  };
+}
+
+function setKnoten(konto, position) {
+  return {
+    parameters: {
+      assignments: {
+        assignments: [
+          { id: `konto-${konto.id}`, name: 'konto', value: konto.name, type: 'string' },
+        ],
+      },
+      includeOtherFields: true,
+      options: {},
+    },
+    id: `${PRAEFIX}${konto.id}-set`,
+    name: `Konto: ${konto.name}`,
+    type: 'n8n-nodes-base.set',
+    typeVersion: 3.4,
+    position,
+  };
+}
+
+function verschiebeKnoten(konto, position) {
+  return {
+    parameters: {
+      resource: 'email',
+      operation: 'move',
+      mailboxPath: 'INBOX',
+      emailUid: '={{ $json.uid }}',
+      destinationMailboxPath: '={{ $json.zielordner }}',
+    },
+    id: `${PRAEFIX}${konto.id}-move`,
+    name: `Verschieben: ${konto.name}`,
+    type: 'n8n-nodes-imap.imap',
+    typeVersion: 1,
+    position,
+    credentials: { imap: { id: String(konto.n8n_credential_id), name: `Mail-Panel: ${konto.name}` } },
+  };
+}
+
+// Weiche, die nach dem Feld "konto" auf die passende Verschiebe-Aktion verzweigt.
+// Ausgang 0 ist immer Gmail, danach folgen die Panel-Konten in Reihenfolge.
+function weichenKnoten(konten, position) {
+  const regel = (wert) => ({
+    conditions: {
+      options: { caseSensitive: true, leftValue: '', typeValidation: 'strict', version: 2 },
+      conditions: [{
+        id: `sw-${wert}`,
+        leftValue: '={{ $json.konto }}',
+        rightValue: wert,
+        operator: { type: 'string', operation: 'equals' },
+      }],
+      combinator: 'and',
+    },
+    renameOutput: true,
+    outputKey: wert,
+  });
+  return {
+    parameters: {
+      rules: { values: [regel('gmail'), ...konten.map((k) => regel(k.name))] },
+      options: {},
+    },
+    id: `${PRAEFIX}weiche`,
+    name: 'Nach Konto',
+    type: 'n8n-nodes-base.switch',
+    typeVersion: 3.2,
+    position,
+  };
+}
+
+function bestandKnoten(konto, position) {
+  return {
+    parameters: { resource: 'email', operation: 'getMany', mailboxPath: 'INBOX', limit: 100, options: {} },
+    id: `${PRAEFIX}${konto.id}-bestand`,
+    name: `Bestand: ${konto.name}`,
+    type: 'n8n-nodes-imap.imap',
+    typeVersion: 1,
+    position,
+    executeOnce: true,
+    alwaysOutputData: true,
+    onError: 'continueRegularOutput',
+    credentials: { imap: { id: String(konto.n8n_credential_id), name: `Mail-Panel: ${konto.name}` } },
+  };
+}
+
+// ─── Gemeinsame Helfer ───────────────────────────────────────────────────────
+
+// Entfernt alle Panel-Knoten und die Verbindungen, die auf sie zeigen
+function panelKnotenEntfernen(workflow) {
+  const entfernteNamen = new Set(workflow.nodes.filter(istPanelKnoten).map((k) => k.name));
+  workflow.nodes = workflow.nodes.filter((k) => !istPanelKnoten(k));
+
+  const verbindungen = {};
+  for (const [quelle, wert] of Object.entries(workflow.connections || {})) {
+    if (entfernteNamen.has(quelle)) continue;
+    verbindungen[quelle] = {
+      ...wert,
+      main: (wert.main || []).map((ausgang) =>
+        (ausgang || []).filter((ziel) => !entfernteNamen.has(ziel.node))),
+    };
+  }
+  workflow.connections = verbindungen;
+  return workflow;
+}
+
+function verbinde(workflow, von, nach, ausgang = 0) {
+  workflow.connections[von] = workflow.connections[von] || { main: [] };
+  const main = workflow.connections[von].main;
+  while (main.length <= ausgang) main.push([]);
+  main[ausgang] = main[ausgang] || [];
+  main[ausgang].push({ node: nach, type: 'main', index: 0 });
+}
+
+async function workflowSuchen(praefix) {
+  const alle = await n8n.workflowsAuflisten();
+  const treffer = alle.find((w) => String(w.name).trim().startsWith(praefix));
+  if (!treffer) throw new Error(`Workflow "${praefix} - ..." nicht in n8n gefunden — bitte zuerst importieren.`);
+  return treffer;
+}
+
+// ─── Workflow 01: Trigger + Konto-Kennzeichnung je Konto ─────────────────────
+
+async function triageSynchronisieren(konten) {
+  const info = await workflowSuchen(ANKER.triage.workflowPraefix);
+  const workflow = await n8n.workflowHolen(info.id);
+  panelKnotenEntfernen(workflow);
+
+  for (const name of [ANKER.triage.ziel, ANKER.triage.weiche, ANKER.triage.gmailZiel]) {
+    if (!workflow.nodes.some((k) => k.name === name)) {
+      throw new Error(`Knoten "${name}" fehlt im Workflow 01 — bitte die mitgelieferte Vorlage importieren.`);
+    }
+  }
+
+  // Eingang: je Konto ein IMAP-Trigger, der die Mail mit dem Kontonamen versieht
+  konten.forEach((konto, i) => {
+    const y = 400 + i * 200; // unterhalb der fest eingebauten Gmail-Knoten
+    const trigger = triggerKnoten(konto, [0, y]);
+    const set     = setKnoten(konto, [220, y]);
+    workflow.nodes.push(trigger, set);
+    verbinde(workflow, trigger.name, set.name);
+    verbinde(workflow, set.name, ANKER.triage.ziel);
+  });
+
+  // Ausgang: Weiche + je Konto ein Verschiebe-Knoten (Ausgang 0 bleibt Gmail)
+  const weiche = weichenKnoten(konten, [1340, 120]);
+  workflow.nodes.push(weiche);
+  verbinde(workflow, ANKER.triage.weiche, weiche.name, 0);
+  verbinde(workflow, weiche.name, ANKER.triage.gmailZiel, 0);
+  konten.forEach((konto, i) => {
+    const move = verschiebeKnoten(konto, [1600, 160 + i * 160]);
+    workflow.nodes.push(move);
+    verbinde(workflow, weiche.name, move.name, i + 1);
+  });
+
+  await n8n.workflowSpeichern(info.id, workflow);
+  // Nach dem Speichern deaktiviert n8n den Workflow — vorherigen Zustand wiederherstellen
+  if (info.active) await n8n.workflowAktivieren(info.id, true);
+  return { workflow: info.name, konten: konten.length };
+}
+
+// ─── Workflow 04: Abrufkette für den Bestand ─────────────────────────────────
+
+// Der Sammel-Knoten bekommt die Liste seiner Quellen vom Panel eingesetzt.
+function quellenEintragen(code, konten) {
+  const liste = konten.map((k) => `  ['${k.name.replace(/'/g, "\\'")}', 'Bestand: ${k.name.replace(/'/g, "\\'")}'],`).join('\n');
+  return code.replace(
+    /(\/\/ PANEL:QUELLEN-START)[\s\S]*?(\/\/ PANEL:QUELLEN-ENDE)/,
+    `$1\n${liste}\n$2`,
+  );
+}
+
+async function bestandSynchronisieren(konten) {
+  const info = await workflowSuchen(ANKER.bestand.workflowPraefix);
+  const workflow = await n8n.workflowHolen(info.id);
+  panelKnotenEntfernen(workflow);
+
+  const sammler = workflow.nodes.find((k) => k.name === ANKER.bestand.ziel);
+  const kopf    = workflow.nodes.find((k) => k.name === ANKER.bestand.kopf);
+  if (!sammler || !kopf) {
+    throw new Error(`Workflow 04 passt nicht zur Vorlage (Knoten "${ANKER.bestand.kopf}"/"${ANKER.bestand.ziel}" fehlen).`);
+  }
+
+  // Abrufkette: Gmail Bestand -> Bestand: A -> Bestand: B -> ... -> Sammler
+  // (nacheinander, damit der Sammel-Knoten nur einmal läuft)
+  let vorheriger = kopf.name;
+  konten.forEach((konto, i) => {
+    const knoten = bestandKnoten(konto, [440 + i * 220, 100]);
+    workflow.nodes.push(knoten);
+    workflow.connections[vorheriger] = { main: [[{ node: knoten.name, type: 'main', index: 0 }]] };
+    vorheriger = knoten.name;
+  });
+  workflow.connections[vorheriger] = { main: [[{ node: sammler.name, type: 'main', index: 0 }]] };
+
+  // Quellenliste im Sammel-Knoten aktualisieren
+  if (sammler.parameters?.jsCode) {
+    sammler.parameters.jsCode = quellenEintragen(sammler.parameters.jsCode, konten);
+  }
+
+  // Ausgang: Weiche + Verschiebe-Knoten wie in Workflow 01
+  const weiche = weichenKnoten(konten, [1780, 20]);
+  workflow.nodes.push(weiche);
+  verbinde(workflow, ANKER.bestand.weiche, weiche.name, 0);
+  verbinde(workflow, weiche.name, ANKER.bestand.gmailZiel, 0);
+  konten.forEach((konto, i) => {
+    const move = verschiebeKnoten(konto, [2040, 60 + i * 160]);
+    workflow.nodes.push(move);
+    verbinde(workflow, weiche.name, move.name, i + 1);
+  });
+
+  await n8n.workflowSpeichern(info.id, workflow);
+  if (info.active) await n8n.workflowAktivieren(info.id, true);
+  return { workflow: info.name, konten: konten.length };
+}
+
+// Beide Workflows auf den aktuellen Kontenstand bringen
+async function alleSynchronisieren(konten) {
+  const ergebnisse = [];
+  ergebnisse.push(await triageSynchronisieren(konten));
+  ergebnisse.push(await bestandSynchronisieren(konten));
+  return ergebnisse;
+}
+
+module.exports = {
+  alleSynchronisieren, triageSynchronisieren, bestandSynchronisieren,
+  // für Tests
+  panelKnotenEntfernen, quellenEintragen, triggerKnoten, setKnoten, bestandKnoten,
+};
