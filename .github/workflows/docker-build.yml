@@ -47,7 +47,8 @@ jobs:
       - name: Docker Image bauen und pushen
         uses: docker/build-push-action@v7
         with:
-          context: ./panel
+          context: .
+          file: panel/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           # Ohne Provenance-Attestierung entsteht ein einfacher Image-Index statt eines

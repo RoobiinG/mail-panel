@@ -2,6 +2,20 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [1.6.1.0] - 2026-08-09 (Build 10) — *Wartung & UI*
+
+### Features / Bugfixes
+
+- **Deployment (Fix):** Alpine-Build-Tools (`python3`, `make`, `g++`) zum `panel/Dockerfile` hinzugefügt, um native `better-sqlite3` Kompilierungsfehler unter Node 24 zu beheben.
+- **Docker-Volumes (Fix):** Berechtigungen für das `n8n_data`-Volume gefixt. Das `n8n-nodes-init` Skript läuft nun als Root zur fehlerfreien Modul-Installation und übernimmt anschließend den `chown` für den n8n-Benutzer.
+- **UI (Änderung):** Anzeige der aktuellen Version und Build-Nummer im Frontend direkt unter dem Abmelden-Button (integriert über Vite `define` und Anpassung des Docker Build Contexts).
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migration:** Keine.
+- **n8n-Workflow-Kompatibilität:** Keine Änderungen an den Workflows.
+- **Neustart-/Session-Verhalten:** Bei einem Pull des neuen Images über Docker Compose startet der Stack fehlerfrei und stabil. Keine Session-Auswirkungen.
+
 ## [1.6.0.0] - 2026-08-09 (Build 9) — *Newsletter & Dashboard (Etappe 7)*
 
 ### Features

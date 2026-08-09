@@ -1,0 +1,16 @@
+**/node_modules
+**/dist
+**/data
+**/.env
+**/*.db
+**/*.db-shm
+**/*.db-wal
+
+.git
+*.tar
+*.tar.gz
+mailcow
+workflows
+.github
+.agents
+

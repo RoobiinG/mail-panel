@@ -47,13 +47,18 @@ export default function Layout() {
             </NavLink>
           ))}
         </nav>
-        <button
-          onClick={abmelden}
-          className="flex items-center gap-3 px-5 py-4 text-sm text-panel-muted hover:text-panel-red border-t border-panel-border"
-        >
-          <LogOut size={17} />
-          Abmelden
-        </button>
+        <div className="mt-auto border-t border-panel-border">
+          <button
+            onClick={abmelden}
+            className="flex w-full items-center gap-3 px-5 py-4 text-sm text-panel-muted hover:text-panel-red transition-colors"
+          >
+            <LogOut size={17} />
+            Abmelden
+          </button>
+          <div className="px-5 pb-4 text-[10px] text-panel-muted/40 font-mono tracking-wider">
+            v{__APP_VERSION__} ({__APP_BUILD__})
+          </div>
+        </div>
       </aside>
       <main className="flex-1 p-8 overflow-x-hidden">
         <Outlet />

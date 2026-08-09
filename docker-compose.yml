@@ -41,7 +41,6 @@ services:
   n8n-nodes-init:
     image: node:24-alpine
     container_name: n8n-nodes-init
-    user: "1000:1000"
     working_dir: /nodes
     volumes:
       - n8n_data:/home/node/.n8n
@@ -51,8 +50,10 @@ services:
       - |
         mkdir -p /home/node/.n8n/nodes && cd /home/node/.n8n/nodes
         [ -f package.json ] || echo '{"name":"installed-nodes","private":true}' > package.json
-        npm list n8n-nodes-imap >/dev/null 2>&1 && echo "n8n-nodes-imap ist bereits installiert" && exit 0
-        npm install n8n-nodes-imap --omit=dev --no-audit --no-fund
+        if ! npm list n8n-nodes-imap >/dev/null 2>&1; then
+          npm install n8n-nodes-imap --omit=dev --no-audit --no-fund
+        fi
+        chown -R 1000:1000 /home/node/.n8n
     restart: "no"
     networks:
       - internal
@@ -98,7 +99,9 @@ services:
   panel:
     image: ghcr.io/roobiing/mail-panel:latest
     # Ist das fertige Image nicht verfügbar, baut Compose es aus dem Ordner panel/.
-    build: ./panel
+    build:
+      context: .
+      dockerfile: panel/Dockerfile
     container_name: mail-panel
     restart: unless-stopped
     environment:
