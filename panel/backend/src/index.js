@@ -28,6 +28,8 @@ app.use('/api/einstellungen', auth, require('./routes/einstellungen'));
 app.use('/api/passkeys', auth, passkeysRoutes);
 app.use('/api/quarantaene', auth, require('./routes/quarantaene'));
 app.use('/api/rspamd', auth, require('./routes/rspamd'));
+app.use('/api/newsletter', auth, require('./routes/newsletter'));
+app.use('/api/dashboard', auth, require('./routes/dashboard'));
 // Interne Endpunkte fuer n8n — eigener Shared-Secret-Schutz statt JWT
 app.use('/api/internal', internalAuth, require('./routes/internal'));
 

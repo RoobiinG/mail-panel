@@ -1,0 +1,66 @@
+{
+  "name": "06 - Newsletter Abbestellen (Mailto)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Newsletter Abbestellen via Mailto\n\n**WICHTIG: Vor dem Aktivieren**\n1. Im Node **Send Email** musst du ein SMTP-Credential hinterlegen (z.B. von deiner Mailcow oder Gmail), damit n8n die Abmelde-E-Mail versenden kann.\n2. In den Einstellungen des Panels muss die URL zu n8n (inkl. Port 5678) korrekt hinterlegt sein, sonst erreicht das Panel diesen Webhook nicht.",
+        "height": 200,
+        "width": 380
+      },
+      "id": "sticky-unsub",
+      "name": "Hinweise",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-60, -220]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "panel-unsubscribe",
+        "options": {}
+      },
+      "id": "webhook-unsub",
+      "name": "Webhook (Panel-Unsubscribe)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [0, 100],
+      "webhookId": "panel-unsubscribe"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const body = $input.first().json.body || {};\nconst mailto = body.mailto || '';\nconst absender = body.absender || '';\n\n// mailto:unsubscribe@example.com?subject=Unsubscribe\nlet targetEmail = '';\nlet subject = 'Unsubscribe';\nlet text = 'Unsubscribe';\n\ntry {\n  const withoutPrefix = mailto.replace(/^mailto:/i, '');\n  const parts = withoutPrefix.split('?');\n  targetEmail = parts[0];\n  \n  if (parts[1]) {\n    const query = new URLSearchParams(parts[1]);\n    if (query.get('subject')) subject = query.get('subject');\n    if (query.get('body')) text = query.get('body');\n  }\n} catch(e) {}\n\nif (!targetEmail) {\n  throw new Error('Keine gueltige E-Mail Adresse im mailto-Link gefunden');\n}\n\nreturn [{ json: { targetEmail, subject, text, absender } }];"
+      },
+      "id": "code-parse",
+      "name": "Mailto Parsen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 100]
+    },
+    {
+      "parameters": {
+        "fromEmail": "deine-email@domain.de",
+        "toEmail": "={{ $json.targetEmail }}",
+        "subject": "={{ $json.subject }}",
+        "text": "={{ $json.text }}",
+        "options": {}
+      },
+      "id": "send-email",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [440, 100]
+    }
+  ],
+  "connections": {
+    "Webhook (Panel-Unsubscribe)": {
+      "main": [[{ "node": "Mailto Parsen", "type": "main", "index": 0 }]]
+    },
+    "Mailto Parsen": {
+      "main": [[{ "node": "Send Email", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

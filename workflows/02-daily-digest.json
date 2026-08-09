@@ -3,9 +3,9 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Täglicher Digest\n\n**Vor dem Aktivieren:**\n1. Credentials zuordnen: Gmail, Web.de/Mailcow (IMAP via Community-Node), Gemini (Header Auth), Mailcow-API (Header Auth `X-API-Key`), Telegram\n2. Im Node **Rspamd-Quarantäne** die URL auf deine Mailcow-Domain anpassen\n3. Im Node **Telegram senden** deine Chat-ID eintragen\n4. Die beiden IMAP-Nodes einmal öffnen: Operation **Email → Get Many**, Postfach `INBOX`, Suchkriterium `SINCE` gestern einstellen (Felder je nach Node-Version)\n\nLäuft täglich um 7:30 Uhr (Zeitzone aus GENERIC_TIMEZONE).",
-        "height": 320,
-        "width": 420
+        "content": "## Täglicher Digest\n\n**Vor dem Aktivieren:**\n1. Credentials zuordnen: Gemini (Header Auth), Telegram\n2. Im Node **Panel-API** sicherstellen, dass X-Panel-Secret stimmt\n3. Im Node **Telegram senden** deine Chat-ID eintragen\n\nLäuft täglich um 7:30 Uhr (Zeitzone aus GENERIC_TIMEZONE).",
+        "height": 260,
+        "width": 380
       },
       "id": "sticky-digest",
       "name": "Hinweise",
@@ -32,83 +32,29 @@
     },
     {
       "parameters": {
-        "resource": "message",
-        "operation": "getAll",
-        "returnAll": true,
-        "simple": true,
-        "filters": {
-          "q": "in:inbox newer_than:1d"
-        }
-      },
-      "id": "gmail-24h",
-      "name": "Gmail (letzte 24h)",
-      "type": "n8n-nodes-base.gmail",
-      "typeVersion": 2.1,
-      "position": [220, 100],
-      "executeOnce": true,
-      "alwaysOutputData": true,
-      "onError": "continueRegularOutput"
-    },
-    {
-      "parameters": {
-        "resource": "email",
-        "operation": "getMany",
-        "mailboxPath": "INBOX",
-        "searchCriteria": "={{ 'SINCE ' + $now.minus({ days: 1 }).toFormat('dd-MMM-yyyy') }}",
-        "options": {}
-      },
-      "id": "webde-24h",
-      "name": "Web.de (letzte 24h)",
-      "type": "n8n-nodes-imap.imap",
-      "typeVersion": 1,
-      "position": [440, 100],
-      "executeOnce": true,
-      "alwaysOutputData": true,
-      "onError": "continueRegularOutput"
-    },
-    {
-      "parameters": {
-        "resource": "email",
-        "operation": "getMany",
-        "mailboxPath": "INBOX",
-        "searchCriteria": "={{ 'SINCE ' + $now.minus({ days: 1 }).toFormat('dd-MMM-yyyy') }}",
-        "options": {}
-      },
-      "id": "mailcow-24h",
-      "name": "Mailcow (letzte 24h)",
-      "type": "n8n-nodes-imap.imap",
-      "typeVersion": 1,
-      "position": [660, 100],
-      "executeOnce": true,
-      "alwaysOutputData": true,
-      "onError": "continueRegularOutput"
-    },
-    {
-      "parameters": {
-        "url": "https://mail.DEINE-DOMAIN.de/api/v1/get/quarantine/all",
+        "url": "http://panel:3002/api/internal/digest",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": {}
       },
-      "id": "mailcow-quarantine",
-      "name": "Rspamd-Quarantäne",
+      "id": "panel-digest",
+      "name": "Daten vom Panel holen",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [880, 100],
+      "position": [220, 100],
       "executeOnce": true,
-      "alwaysOutputData": true,
-      "onError": "continueRegularOutput"
+      "alwaysOutputData": true
     },
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Daten aller Quellen einsammeln und Prompt für die Zusammenfassung bauen\nfunction safeAll(name) {\n  try { return $(name).all().filter(i => i.json && Object.keys(i.json).length > 0); }\n  catch (e) { return []; }\n}\n\nfunction absender(j) {\n  return (j.from && j.from.value && j.from.value[0] && j.from.value[0].address)\n    || (j.from && j.from.text)\n    || j.From\n    || (typeof j.from === 'string' ? j.from : '')\n    || 'unbekannt';\n}\n\nconst quellen = [\n  ['Gmail', 'Gmail (letzte 24h)'],\n  ['Web.de', 'Web.de (letzte 24h)'],\n  ['Mailcow', 'Mailcow (letzte 24h)'],\n];\n\nconst zeilen = [];\nfor (const [label, nodeName] of quellen) {\n  for (const item of safeAll(nodeName)) {\n    const j = item.json;\n    const betreff = j.subject || j.Subject || '(kein Betreff)';\n    zeilen.push(`[${label}] ${absender(j)} — ${betreff}`);\n  }\n}\n\nconst quarantaene = [];\nfor (const item of safeAll('Rspamd-Quarantäne')) {\n  const j = item.json;\n  if (j.subject !== undefined || j.sender !== undefined) {\n    quarantaene.push(`${j.sender || '?'} — ${j.subject || '(kein Betreff)'} (Score ${j.score ?? '?'})`);\n  }\n}\n\nconst heute = $now.toFormat('dd.MM.yyyy');\nconst promptText = `Erstelle aus den folgenden E-Mail-Daten eine kompakte taegliche Zusammenfassung auf Deutsch fuer eine Telegram-Nachricht (max. 3000 Zeichen, kein Markdown, klare Absaetze).\\n\\nAufbau:\\n1. Ueberschrift mit Datum ${heute}\\n2. Wichtige Mails zuerst (persoenliche Mails, Rechnungen, Fristen) mit Absender und Betreff\\n3. Kurze Zaehler-Zeile (z.B. \"12 Mails gesamt: 3 wichtig, 5 Newsletter, ...\")\\n4. Abschnitt \"Rspamd-Quarantaene\" mit der Liste unten (falls leer: \"keine Eintraege\")\\n\\nMails der letzten 24 Stunden (${zeilen.length} Stueck):\\n${zeilen.join('\\n') || '(keine)'}\\n\\nRspamd-Quarantaene (${quarantaene.length} Eintraege):\\n${quarantaene.join('\\n') || '(keine)'}`;\n\nreturn [{ json: { promptText, anzahlMails: zeilen.length, anzahlQuarantaene: quarantaene.length } }];"
+        "jsCode": "const j = $input.first().json;\n\nfunction formatList(arr) {\n  if (!arr || arr.length === 0) return '(keine)';\n  return arr.map(row => `${row.von} — ${row.betreff || '(kein Betreff)'}`).join('\\n');\n}\n\nfunction formatQ(arr) {\n  if (!arr || arr.length === 0) return '(keine)';\n  return arr.map(row => `${row.von} — ${row.betreff || '?'} (Score ${row.spam_score ?? '?'}) ${row.virus_name ? '[VIRUS: '+row.virus_name+']' : ''}`).join('\\n');\n}\n\nconst heute = $now.toFormat('dd.MM.yyyy');\nconst promptText = `Erstelle aus den folgenden E-Mail-Daten eine kompakte taegliche Zusammenfassung auf Deutsch fuer eine Telegram-Nachricht (max. 3000 Zeichen, kein Markdown, klare Absaetze).\\n\\nAufbau:\\n1. Ueberschrift mit Datum ${heute}\\n2. Wichtige Mails zuerst (Clean/Sonstiges), dann Newsletter\\n3. Kurze Zaehler-Zeile (z.B. \"12 Mails gesamt: 3 sauber, 5 Newsletter, ...\")\\n4. Abschnitt \"Quarantaene / Spam\" mit der Liste unten (falls leer: \"keine Eintraege\")\\n\\nRegulaere Mails (${(j.sonstiges || []).length} Stueck):\\n${formatList(j.sonstiges)}\\n\\nNewsletter (${(j.newsletter || []).length} Stueck):\\n${formatList(j.newsletter)}\\n\\nSpam/Quarantaene (${(j.quarantaene || []).length + (j.spam || []).length} Eintraege):\\n${formatQ([...(j.quarantaene || []), ...(j.spam || [])])}`;\n\nreturn [{ json: { promptText, anzahlMails: j.total } }];"
       },
       "id": "code-collect",
       "name": "Digest zusammenstellen",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1100, 100]
+      "position": [440, 100]
     },
     {
       "parameters": {
@@ -125,7 +71,7 @@
       "name": "Gemini zusammenfassen",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1320, 100]
+      "position": [660, 100]
     },
     {
       "parameters": {
@@ -136,7 +82,7 @@
       "name": "Text extrahieren",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1540, 100]
+      "position": [880, 100]
     },
     {
       "parameters": {
@@ -172,23 +118,14 @@
       "name": "Telegram senden",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [1760, 100]
+      "position": [1100, 100]
     }
   ],
   "connections": {
     "Täglich 7:30": {
-      "main": [[{ "node": "Gmail (letzte 24h)", "type": "main", "index": 0 }]]
+      "main": [[{ "node": "Daten vom Panel holen", "type": "main", "index": 0 }]]
     },
-    "Gmail (letzte 24h)": {
-      "main": [[{ "node": "Web.de (letzte 24h)", "type": "main", "index": 0 }]]
-    },
-    "Web.de (letzte 24h)": {
-      "main": [[{ "node": "Mailcow (letzte 24h)", "type": "main", "index": 0 }]]
-    },
-    "Mailcow (letzte 24h)": {
-      "main": [[{ "node": "Rspamd-Quarantäne", "type": "main", "index": 0 }]]
-    },
-    "Rspamd-Quarantäne": {
+    "Daten vom Panel holen": {
       "main": [[{ "node": "Digest zusammenstellen", "type": "main", "index": 0 }]]
     },
     "Digest zusammenstellen": {
@@ -203,6 +140,5 @@
   },
   "settings": {
     "executionOrder": "v1"
-  },
-  "pinData": {}
+  }
 }

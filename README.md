@@ -209,8 +209,7 @@ Fürs Backend lokal eine `panel/backend/.env` mit `JWT_SECRET` und `PANEL_SECRET
 | DNSBL-Test meldet `zen.spamhaus.org (127.255.255.254)` | Spamhaus lehnt Abfragen aus vielen Rechenzentrums-Netzen ab. Entweder die Liste in den Einstellungen entfernen oder einen kostenlosen Spamhaus-DQS-Zugang nutzen; SpamCop und Barracuda funktionieren weiterhin. |
 | IMAP-Verbindung scheitert mit „self-signed certificate" | Beim Konto das Häkchen „Selbstsigniertes Zertifikat akzeptieren" setzen |
 
-## Spätere Erweiterungen (bewusst noch nicht drin)
+## Spätere Erweiterungen (Ideen)
 
-- Quarantäne-Freigabe per Telegram-Button (Mailcow-API kann Quarantäne-Items freigeben/löschen)
-- Automatisches Newsletter-Abbestellen (List-Unsubscribe ist fehleranfällig)
-- Rspamd-Tuning in Mailcow (lohnt sich, ist aber ein Thema auf dem Mailserver selbst)
+- **Lokale KI (Ollama):** Optionaler Wechsel von der Gemini-Cloud auf ein lokales LLM. Die Workflows sind so gestaltet, dass in diesem Fall nur der HTTP-Request-Knoten angepasst werden muss.
+- **Mehrbenutzer-Betrieb:** Rollensystem im Panel, falls mehrere Nutzer ihre eigenen Konten und Einstellungen verwalten sollen.

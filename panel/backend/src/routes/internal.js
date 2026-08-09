@@ -128,4 +128,54 @@ router.post('/scan', express.raw({ type: '*/*', limit: '50mb' }), async (req, re
   }
 });
 
+// Liefert die Log-Daten der letzten 24 Stunden, gruppiert nach Kategorie, für Workflow 02
+router.get('/digest', (req, res) => {
+  try {
+    const logs = db.prepare(`
+      SELECT konto, von, betreff, kategorie, spam_score, zielordner, kurzfassung, virus_name 
+      FROM quarantine_log 
+      WHERE created_at >= datetime('now', '-1 day')
+      ORDER BY created_at DESC
+    `).all();
+
+    const zusammenfassung = {
+      spam: [],
+      phishing: [],
+      newsletter: [],
+      sonstiges: [],
+      quarantaene: [],
+    };
+
+    let total = 0;
+    for (const row of logs) {
+      total++;
+      if (row.virus_name) {
+        zusammenfassung.quarantaene.push(row);
+      } else if (row.kategorie === 'spam') {
+        zusammenfassung.spam.push(row);
+      } else if (row.kategorie === 'phishing') {
+        zusammenfassung.phishing.push(row);
+      } else if (row.kategorie === 'newsletter') {
+        zusammenfassung.newsletter.push(row);
+      } else if (row.zielordner === 'Quarantine' || row.zielordner === 'Junk') {
+        zusammenfassung.quarantaene.push(row);
+      } else {
+        zusammenfassung.sonstiges.push(row);
+      }
+    }
+
+    res.json({ 
+      ok: true, 
+      total, 
+      spam: zusammenfassung.spam, 
+      phishing: zusammenfassung.phishing, 
+      newsletter: zusammenfassung.newsletter, 
+      quarantaene: zusammenfassung.quarantaene,
+      sonstiges: zusammenfassung.sonstiges
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 module.exports = router;

@@ -2,6 +2,20 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [1.6.0.0] - 2026-08-09 (Build 9) — *Newsletter & Dashboard (Etappe 7)*
+
+### Features
+
+- **Newsletter-Verwaltung:** Neue Seite im Frontend, die alle von der KI erkannten Newsletter-Absender auflistet und One-Click-Abbestellen (RFC-8058) direkt aus dem Panel ermöglicht. Für reine `mailto:`-Abmeldungen wird ein n8n-Webhook getriggert.
+- **Dashboard & Statistiken:** Startseite des Panels zeigt nun KPI-Karten (Mails, Spam, Phishing, Viren) und Diagramme (`recharts`) über die letzten 30 Tage. Außerdem wird der Verbindungsstatus zur n8n-Engine geprüft und angezeigt.
+- **n8n Workflow Update:** Der Workflow 02 (Täglicher Digest) nutzt nun die bereinigten SQLite-Daten des Panels (`/api/internal/digest`) anstelle von teuren IMAP-Suchen. Neu hinzugekommen ist Workflow 06 für den Mailto-Newsletter-Versand.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migration:** Keine neuen Tabellen erforderlich; die bestehende `newsletter_senders` wird nun aktiv befüllt.
+- **n8n-Workflow-Kompatibilität:** Workflow 02 (`02-daily-digest.json`) muss zwingend neu importiert werden, da die Architektur von IMAP auf REST-API umgestellt wurde. Zudem sollte Workflow 06 (`06-newsletter-unsubscribe.json`) neu importiert und mit einem SMTP-Credential versehen werden.
+- **Neustart-/Session-Verhalten:** Keine Auswirkungen.
+
 ## [1.5.0.0] - 2026-08-09 (Build 8) — *Passkeys, Quarantäne & Rspamd (Etappe 5 & 6)*
 
 ### Features
