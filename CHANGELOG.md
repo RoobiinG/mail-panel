@@ -2,6 +2,18 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [1.7.0.1] - 2026-08-10 (Build 13) — *Hotfix: Docker Build*
+
+### Features / Bugfixes
+
+- **Fix:** Der Ordner `workflows/` wurde aus der `.dockerignore` entfernt, da er ansonsten beim Docker Build-Prozess nicht gefunden werden konnte, was zum Absturz der GitHub Action führte.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migration:** Keine.
+- **n8n-Workflow-Kompatibilität:** Keine.
+- **Neustart-/Session-Verhalten:** Keine Auswirkungen.
+
 ## [1.7.0.0] - 2026-08-10 (Build 12) — *Auto-Setup*
 
 ### Features / Bugfixes

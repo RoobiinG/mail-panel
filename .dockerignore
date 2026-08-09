@@ -10,7 +10,6 @@
 *.tar
 *.tar.gz
 mailcow
-workflows
 .github
 .agents
 
