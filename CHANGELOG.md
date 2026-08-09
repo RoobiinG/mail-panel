@@ -2,6 +2,18 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [1.7.0.2] - 2026-08-10 (Build 14) — *Pride*
+
+### Features / Bugfixes
+
+- **Feature:** Rainbow-Flag-Design für den Footer-Bereich (Abmelden-Button & Version) in der Seitenleiste implementiert. Passt sich an die aus dem Überwachungs-Panel bekannte Einstellung `show_pride_flag` an.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migration:** Keine.
+- **n8n-Workflow-Kompatibilität:** Keine.
+- **Neustart-/Session-Verhalten:** Keine Auswirkungen.
+
 ## [1.7.0.1] - 2026-08-10 (Build 13) — *Hotfix: Docker Build*
 
 ### Features / Bugfixes

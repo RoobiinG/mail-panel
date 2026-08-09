@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Mail, ShieldAlert, ListChecks,
@@ -21,6 +22,20 @@ export default function Layout() {
     localStorage.removeItem('token');
     navigate('/login');
   };
+
+  const [showPrideFlag, setShowPrideFlag] = useState(() => localStorage.getItem('show_pride_flag') !== 'false');
+
+  useEffect(() => {
+    const handleStorage = () => {
+      setShowPrideFlag(localStorage.getItem('show_pride_flag') !== 'false');
+    };
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('pride_flag_change', handleStorage);
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('pride_flag_change', handleStorage);
+    };
+  }, []);
 
   return (
     <div className="flex min-h-screen">
@@ -47,15 +62,32 @@ export default function Layout() {
             </NavLink>
           ))}
         </nav>
-        <div className="mt-auto border-t border-panel-border">
+        <div 
+          className={`mt-auto border-t border-panel-border relative transition-all duration-300 overflow-hidden ${
+            showPrideFlag ? 'text-white shadow-inner' : ''
+          }`}
+          style={
+            showPrideFlag
+              ? {
+                  background:
+                    'linear-gradient(rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.18)), linear-gradient(135deg, #E40303 0%, #FF8C00 14%, #FFED00 28%, #008026 42%, #004DFF 56%, #750787 70%, #5BCEFA 85%, #F5A9B8 100%)',
+                  textShadow: '0 1px 3px rgba(0, 0, 0, 0.95), 0 1px 2px rgba(0, 0, 0, 0.85)',
+                }
+              : {}
+          }
+        >
           <button
             onClick={abmelden}
-            className="flex w-full items-center gap-3 px-5 py-4 text-sm text-panel-muted hover:text-panel-red transition-colors"
+            className={`flex w-full items-center gap-3 px-5 py-4 text-sm transition-colors ${
+              showPrideFlag ? 'text-white hover:text-white/80' : 'text-panel-muted hover:text-panel-red'
+            }`}
           >
             <LogOut size={17} />
             Abmelden
           </button>
-          <div className="px-5 pb-4 text-[10px] text-panel-muted/40 font-mono tracking-wider">
+          <div className={`px-5 pb-4 text-[10px] font-mono tracking-wider ${
+            showPrideFlag ? 'text-white/80' : 'text-panel-muted/40'
+          }`}>
             v{__APP_VERSION__} ({__APP_BUILD__})
           </div>
         </div>
