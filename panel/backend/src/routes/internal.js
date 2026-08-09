@@ -3,6 +3,8 @@ const express = require('express');
 const db      = require('../db');
 const listen  = require('../services/listen');
 const dnsbl   = require('../services/dnsbl');
+const safebrowsing = require('../services/safebrowsing');
+const clamav  = require('../services/clamav');
 
 const router = express.Router();
 
@@ -14,7 +16,7 @@ const einstellung = (key, fallback) => {
 // Ein Aufruf prüft alles, was das Panel über eine Mail sagen kann.
 // Reihenfolge ist bewusst: Whitelist gewinnt immer, dann Blacklist, dann DNSBL.
 router.post('/check', async (req, res) => {
-  const { von = '', ip = null } = req.body || {};
+  const { von = '', ip = null, links = [] } = req.body || {};
   const ergebnis = {
     entscheidung: 'weiter',   // weiter | freigeben | quarantaene
     score_aufschlag: 0,
@@ -48,13 +50,23 @@ router.post('/check', async (req, res) => {
         // Ein Treffer allein reicht nicht für die Quarantäne — er erhöht den
         // Score, den finale Bewertung trifft weiterhin die KI. Zwei oder mehr
         // Treffer sind ein deutliches Signal.
-        ergebnis.score_aufschlag = treffer.length >= 2 ? 0.6 : 0.3;
+        ergebnis.score_aufschlag += treffer.length >= 2 ? 0.6 : 0.3;
         ergebnis.gruende.push(`DNSBL-Treffer (${ip}): ${treffer.join(', ')}`);
       }
       if (nichtNutzbar.length > 0) {
         ergebnis.hinweis = `Nicht abfragbar: ${nichtNutzbar.map((n) => `${n.liste} (${n.code})`).join(', ')}`;
       }
     }
+    
+    const safebrowsingAktiv = einstellung('safebrowsing_aktiv', '0') === '1';
+    if (safebrowsingAktiv && links && links.length > 0) {
+      const sbResult = await safebrowsing.pruefeLinks(links);
+      if (!sbResult.clean) {
+        ergebnis.score_aufschlag += 0.8;
+        ergebnis.gruende.push(`Safe Browsing: Schädliche Links gefunden (${sbResult.treffer.join(', ')})`);
+      }
+    }
+
     res.json(ergebnis);
   } catch (err) {
     // Eine gescheiterte Prüfung darf die Mail-Verarbeitung nicht aufhalten
@@ -98,6 +110,22 @@ router.post('/log', (req, res) => {
     `).run(String(b.von), b.list_unsubscribe ?? null);
   }
   res.json({ ok: true });
+});
+
+// Anhang an ClamAV senden
+router.post('/scan', express.raw({ type: '*/*', limit: '50mb' }), async (req, res) => {
+  try {
+    if (!req.body || !Buffer.isBuffer(req.body) || req.body.length === 0) {
+      return res.status(400).json({ clean: true, fehler: 'Keine Datei gesendet' });
+    }
+    
+    const ergebnis = await clamav.scan(req.body);
+    res.json(ergebnis);
+  } catch (err) {
+    console.error('ClamAV Scan Fehler:', err.message);
+    // Bei Fehlern (wie Timeout) lassen wir die Mail durch, um keine Mails zu blockieren
+    res.json({ clean: true, fehler: err.message });
+  }
 });
 
 module.exports = router;

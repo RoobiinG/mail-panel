@@ -2,6 +2,22 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [1.4.0.0] - 2026-08-09 (Build 7) — *ClamAV & Safe Browsing (Etappe 4)*
+
+### Features
+
+- **ClamAV-Integration:** Anhang-Scanner über das INSTREAM-Protokoll an clamd. E-Mails mit schädlichen Anhängen werden direkt und ohne KI-Abfrage aussortiert.
+- **Safe-Browsing-Integration:** Die in der E-Mail gefundenen Links werden gegen die Google Safe Browsing API v4 geprüft (falls in den Einstellungen aktiviert). Schädliche Links fließen stark in den Spam-Score ein.
+- **Workflows aktualisiert (01 & 04):** Vor der Gemini-Klassifizierung prüft ein neuer Knoten auf Anhänge. Sind welche vorhanden, fragt der Workflow den neuen Panel-Endpunkt `/api/internal/scan` ab. Bei Fund wird sofort eine Warnung per Telegram verschickt und die Mail in die Quarantäne verschoben.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **n8n-Workflow-Kompatibilität:** Da die Workflows 01 (`01-inbox-triage.json`) und 04 (`04-bestand-triage.json`) um die ClamAV-Scan-Schritte und den neuen Telegram-Warnungs-Knoten erweitert wurden, müssen bestehende Installationen diese Workflows neu importieren. Danach ist im Panel ein Klick auf „Workflows synchronisieren“ nötig, damit der Workflow-Patcher die Konto-spezifischen Trigger und Verschiebungen wieder einbaut.
+- **Telegram-Warnung:** Im neu hinzugefügten Telegram-Knoten (`Virus Warnung (Telegram)`) muss der Benutzer ein gültiges Telegram-Credential auswählen und seine `chatId` eintragen, damit die sofortigen Benachrichtigungen bei Malware-Funden funktionieren.
+- **Abhängigkeiten:** Keine neuen Datenbank-Migrationen erforderlich. Die `package.json` bleibt unverändert, da für den Safe-Browsing-Aufruf die native `fetch`-API genutzt wird.
+
+---
+
 ## [1.3.0.0] - 2026-08-09 (Build 6) — *Blocklisten und eigene Listen*
 
 ### Features

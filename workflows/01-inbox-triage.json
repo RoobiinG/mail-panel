@@ -320,6 +320,109 @@
         1100,
         400
       ]
+    },
+    {
+      "id": "check-attachment",
+      "name": "Hat Anhang?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1320,
+        200
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {},
+          "conditions": [
+            {
+              "id": "cond-has-binary",
+              "leftValue": "={{ $binary ? Object.keys($binary).length : 0 }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "larger"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "scan-attachment",
+      "name": "ClamAV Scan",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        50
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://panel:3002/api/internal/scan",
+        "sendBody": true,
+        "specifyBody": "binary",
+        "inputDataFieldName": "={{ Object.keys($binary)[0] }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "check-virus",
+      "name": "Virus gefunden?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1760,
+        50
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {},
+          "conditions": [
+            {
+              "id": "cond-virus",
+              "leftValue": "={{ $json.clean }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "virus-telegram",
+      "name": "Virus Warnung (Telegram)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1980,
+        -100
+      ],
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "BITTE_EINTRAGEN",
+        "text": "={{ '⚠️ *VIRUS GEFUNDEN* ⚠️\\n\\nVon: ' + $('Normalisieren').item.json.von + '\\nBetreff: ' + $('Normalisieren').item.json.betreff + '\\nVirus: ' + $json.virus }}",
+        "additionalFields": {}
+      }
+    },
+    {
+      "id": "virus-quarantaene",
+      "name": "Virus: Quarantäne",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        50
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const m = $('Normalisieren').item.json;\nreturn { json: { ...m, kategorie: 'spam', spam_score: 1, virus_name: $json.virus || 'Unbekannt', kurzfassung: 'Malware-Anhang entfernt', zielordner: 'Quarantaene' } };"
+      }
     }
   ],
   "connections": {
@@ -440,7 +543,7 @@
         ],
         [
           {
-            "node": "Gemini klassifizieren",
+            "node": "Hat Anhang?",
             "type": "main",
             "index": 0
           }
@@ -448,6 +551,75 @@
       ]
     },
     "Blacklist: Quarantäne": {
+      "main": [
+        [
+          {
+            "node": "Verschieben?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hat Anhang?": {
+      "main": [
+        [
+          {
+            "node": "ClamAV Scan",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Gemini klassifizieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ClamAV Scan": {
+      "main": [
+        [
+          {
+            "node": "Virus gefunden?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Virus gefunden?": {
+      "main": [
+        [
+          {
+            "node": "Virus Warnung (Telegram)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Gemini klassifizieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Virus Warnung (Telegram)": {
+      "main": [
+        [
+          {
+            "node": "Virus: Quarantäne",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Virus: Quarantäne": {
       "main": [
         [
           {
