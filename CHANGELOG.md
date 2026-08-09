@@ -2,6 +2,18 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [1.7.0.0] - 2026-08-10 (Build 12) — *Auto-Setup*
+
+### Features / Bugfixes
+
+- **Feature:** Automatischer Import der Basis-Workflows. Bei einer Neuinstallation (oder wenn Workflows in n8n fehlen) installiert das Panel diese nun selbstständig. Dies passiert im Hintergrund, sobald in den Einstellungen ein erfolgreicher n8n-Verbindungstest durchgeführt wird, oder wenn ein E-Mail-Konto gespeichert wird. Die `.json`-Vorlagen werden dafür direkt im Docker-Image mitgeliefert.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migration:** Keine.
+- **n8n-Workflow-Kompatibilität:** Keine Änderungen an den Workflows selbst.
+- **Neustart-/Session-Verhalten:** Keine Auswirkungen.
+
 ## [1.6.2.0] - 2026-08-09 (Build 11) — *Wartung*
 
 ### Features / Bugfixes

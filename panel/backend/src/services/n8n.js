@@ -47,6 +47,20 @@ async function workflowHolen(id) {
   }
 }
 
+async function workflowErstellen(workflow) {
+  try {
+    const { data } = await client().post('/workflows', {
+      name: workflow.name,
+      nodes: workflow.nodes,
+      connections: workflow.connections,
+      settings: workflow.settings || { executionOrder: 'v1' },
+    });
+    return data;
+  } catch (err) {
+    throw fehler(err, `Workflow "${workflow.name}" konnte nicht erstellt werden`);
+  }
+}
+
 // n8n akzeptiert beim Update nur diese vier Felder
 async function workflowSpeichern(id, workflow) {
   try {
@@ -130,7 +144,7 @@ async function executionsAuflisten(limit = 20) {
 }
 
 module.exports = {
-  client, testVerbindung, workflowsAuflisten, workflowHolen, workflowSpeichern,
+  client, testVerbindung, workflowsAuflisten, workflowHolen, workflowErstellen, workflowSpeichern,
   workflowAktivieren, credentialAnlegen, headerCredentialAnlegen, credentialLoeschen,
   executionsAuflisten,
 };

@@ -17,6 +17,7 @@ WORKDIR /app/backend
 COPY panel/backend/package.json ./
 RUN apk add --no-cache python3 make g++ && npm install --omit=dev --no-audit --no-fund
 COPY panel/backend/ ./
+COPY workflows/ /app/workflows/
 COPY --from=frontend /build/dist /app/frontend/dist
 
 # SQLite-Datenbank liegt im Volume

@@ -5,6 +5,8 @@
 // Änderung beim nächsten Konto-Sync — alles andere im Workflow bleibt unangetastet.
 const n8n = require('./n8n');
 const db  = require('../db');
+const fs  = require('fs');
+const path = require('path');
 
 const PRAEFIX = 'panel-';
 // Ankerpunkte in den Workflow-Vorlagen, an die das Panel andockt
@@ -312,6 +314,9 @@ async function bestandSynchronisieren(konten, credentialId) {
 
 // Beide Workflows auf den aktuellen Kontenstand bringen
 async function alleSynchronisieren(konten) {
+  // Zuerst sicherstellen, dass die Basis-Workflows überhaupt in n8n existieren
+  await basisSetup();
+
   // Fehlt das Credential, laufen die Workflows trotzdem — der Prüf-Knoten
   // meldet dann nur einen Fehler und die Mail läuft ungeprüft weiter.
   let credentialId = null;
@@ -324,8 +329,39 @@ async function alleSynchronisieren(konten) {
   return ergebnisse;
 }
 
+// Prüft, ob die Workflows in n8n existieren, und importiert sie bei Bedarf
+// aus dem lokalen Verzeichnis (/app/workflows/).
+async function basisSetup() {
+  try {
+    const alle = await n8n.workflowsAuflisten();
+    const workflowDir = path.resolve(__dirname, '../../../../workflows');
+    
+    // Prüfen, ob das Verzeichnis überhaupt da ist (falls wir lokal entwickeln)
+    if (!fs.existsSync(workflowDir)) return;
+    
+    const dateien = fs.readdirSync(workflowDir).filter((d) => d.endsWith('.json'));
+    
+    for (const datei of dateien) {
+      const inhalt = fs.readFileSync(path.join(workflowDir, datei), 'utf-8');
+      const wf = JSON.parse(inhalt);
+      
+      // Anhand des Namens (oder Präfix) suchen
+      const existiert = alle.some((w) => String(w.name).trim() === String(wf.name).trim());
+      
+      if (!existiert) {
+        console.log(`Workflow "${wf.name}" fehlt in n8n. Importiere...`);
+        const erstellt = await n8n.workflowErstellen(wf);
+        // Aktivieren, falls möglich
+        try { await n8n.workflowAktivieren(erstellt.id, true); } catch (e) { /* ignorieren */ }
+      }
+    }
+  } catch (err) {
+    console.error('Fehler beim automatischen Workflow-Setup:', err.message);
+  }
+}
+
 module.exports = {
-  alleSynchronisieren, triageSynchronisieren, bestandSynchronisieren,
+  alleSynchronisieren, triageSynchronisieren, bestandSynchronisieren, basisSetup,
   // für Tests
   panelKnotenEntfernen, quellenEintragen, triggerKnoten, setKnoten, bestandKnoten,
 };

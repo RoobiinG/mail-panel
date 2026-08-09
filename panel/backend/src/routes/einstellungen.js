@@ -62,7 +62,14 @@ router.post('/test/:dienst', async (req, res) => {
   const { dienst } = req.params;
   try {
     let ergebnis;
-    if (dienst === 'n8n') ergebnis = await n8n.testVerbindung();
+    if (dienst === 'n8n') {
+      ergebnis = await n8n.testVerbindung();
+      if (ergebnis.ok) {
+        const patcher = require('../services/workflowPatcher');
+        // Im Hintergrund die Basis-Workflows installieren, falls sie fehlen
+        patcher.basisSetup().catch(() => {});
+      }
+    }
     else if (dienst === 'mailcow') ergebnis = await mailcow.testVerbindung();
     else if (dienst === 'clamav') ergebnis = await clamav.ping();
     else if (dienst === 'unbound') ergebnis = await dnsbl.testVerbindung();
