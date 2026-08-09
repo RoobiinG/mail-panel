@@ -2,6 +2,18 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [1.6.2.0] - 2026-08-09 (Build 11) — *Wartung*
+
+### Features / Bugfixes
+
+- **Doku (Änderung):** In der `.env.example` wurden die Kommentarzeichen (`#`) vor den Variablen entfernt. Die Datei kann nun direkt als `.env` kopiert und verwendet werden, ohne dass Nutzer die Rauten manuell löschen müssen.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migration:** Keine.
+- **n8n-Workflow-Kompatibilität:** Keine.
+- **Neustart-/Session-Verhalten:** Keine Auswirkungen auf bestehende Installationen.
+
 ## [1.6.1.0] - 2026-08-09 (Build 10) — *Wartung & UI*
 
 ### Features / Bugfixes
