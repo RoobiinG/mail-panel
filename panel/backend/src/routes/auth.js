@@ -3,6 +3,7 @@ const bcrypt    = require('bcryptjs');
 const jwt       = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
 const db        = require('../db');
+const { loginStart, loginFinish } = require('./passkeys');
 
 const router = express.Router();
 
@@ -50,5 +51,8 @@ router.post('/login', loginLimiter, (req, res) => {
   const token = jwt.sign({ id: user.id, username: user.username }, process.env.JWT_SECRET, { expiresIn: '12h' });
   res.json({ token, username: user.username });
 });
+
+router.get('/webauthn/generate-authentication-options', loginLimiter, loginStart);
+router.post('/webauthn/verify-authentication', loginLimiter, loginFinish);
 
 module.exports = router;

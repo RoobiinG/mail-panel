@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle2, XCircle, Loader2, PlugZap } from 'lucide-react';
+import { CheckCircle2, XCircle, Loader2, PlugZap, ShieldCheck, KeyRound, Trash2 } from 'lucide-react';
 import api from '../api';
 
 const DIENSTE = [
@@ -15,7 +15,23 @@ export default function Einstellungen() {
   const [meldung, setMeldung] = useState('');
   const [tests, setTests] = useState({}); // { dienst: 'laeuft' | 'ok' | Fehlertext }
 
+  // Passkeys
+  const [passkeys, setPasskeys] = useState([]);
+  const [passkeyName, setPasskeyName] = useState('');
+  const [pkLaedt, setPkLaedt] = useState(false);
+  const [pkMeldung, setPkMeldung] = useState('');
+
+  const loadPasskeys = async () => {
+    try {
+      const { data } = await api.get('/passkeys');
+      setPasskeys(data);
+    } catch {
+      // Fehler ignorieren
+    }
+  };
+
   useEffect(() => {
+    loadPasskeys();
     api.get('/einstellungen').then((res) => {
       setSettings(res.data);
       try {
@@ -47,6 +63,39 @@ export default function Einstellungen() {
       setTests((t) => ({ ...t, [dienst]: 'ok' }));
     } catch (err) {
       setTests((t) => ({ ...t, [dienst]: err.response?.data?.error || 'Fehler' }));
+    }
+  };
+
+  const registerPasskey = async () => {
+    setPkMeldung('');
+    setPkLaedt(true);
+    try {
+      const { startRegistration } = await import('@simplewebauthn/browser');
+      const optRes = await api.get('/passkeys/register/start');
+      const attResp = await startRegistration({ optionsJSON: optRes.data });
+      const name = passkeyName.trim() || 'Passkey';
+      await api.post('/passkeys/register/finish', { registration: attResp, name });
+      setPasskeyName('');
+      await loadPasskeys();
+      setPkMeldung(`Passkey "${name}" erfolgreich registriert`);
+    } catch (err) {
+      const msg = err.name === 'NotAllowedError'
+        ? 'Dialog abgebrochen.'
+        : err.response?.data?.error || err.message;
+      setPkMeldung('Fehler: ' + msg);
+    } finally {
+      setPkLaedt(false);
+    }
+  };
+
+  const deletePasskey = async (id) => {
+    if (!confirm('Passkey wirklich löschen?')) return;
+    try {
+      await api.delete(`/passkeys/${id}`);
+      await loadPasskeys();
+      setPkMeldung('Passkey gelöscht');
+    } catch {
+      setPkMeldung('Fehler beim Löschen');
     }
   };
 
@@ -101,6 +150,46 @@ export default function Einstellungen() {
         <code className="block bg-panel-card border border-panel-border rounded-md p-2 text-xs font-mono break-all">
           {settings.panel_secret}
         </code>
+      </div>
+
+      <div className="card space-y-4">
+        <h2 className="font-medium flex items-center gap-2"><ShieldCheck size={18} /> Passkeys (WebAuthn)</h2>
+        <p className="text-sm text-panel-muted">
+          Passkeys ermöglichen passwortlosen Login per Fingerabdruck, Face ID, Hardware-Key oder Passwort-Manager.
+        </p>
+        
+        {passkeys.length > 0 && (
+          <div className="space-y-2 mb-4">
+            <p className="text-xs font-medium text-panel-text">Registrierte Passkeys ({passkeys.length})</p>
+            <div className="grid gap-2">
+              {passkeys.map(pk => (
+                <div key={pk.id} className="flex items-center justify-between p-2 rounded border border-panel-border bg-panel-surface">
+                  <div>
+                    <p className="text-sm font-medium">{pk.name || pk.device_type}</p>
+                    <p className="text-xs text-panel-muted">Hinzugefügt am {new Date(pk.created_at).toLocaleDateString()}</p>
+                  </div>
+                  <button onClick={() => deletePasskey(pk.id)} className="p-1.5 text-panel-red hover:bg-panel-red/10 rounded transition-colors">
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="flex gap-2 mt-2">
+          <input
+            type="text"
+            placeholder="Name (z.B. YubiKey)"
+            value={passkeyName}
+            onChange={e => setPasskeyName(e.target.value)}
+            className="flex-1 max-w-[200px]"
+          />
+          <button onClick={registerPasskey} disabled={pkLaedt} className="btn-primary">
+            {pkLaedt ? '…' : '+ Passkey registrieren'}
+          </button>
+        </div>
+        {pkMeldung && <p className="text-sm text-panel-muted mt-2">{pkMeldung}</p>}
       </div>
 
       <div className="card space-y-4">

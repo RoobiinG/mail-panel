@@ -2,6 +2,24 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [1.5.0.0] - 2026-08-09 (Build 8) — *Passkeys, Quarantäne & Rspamd (Etappe 5 & 6)*
+
+### Features
+
+- **Passkeys (WebAuthn):** Unterstützung für passwortlose Anmeldung via Fingerabdruck, Face ID, Hardware-Key etc. (aus Überwachungs-Panel portiert). Backend nutzt `@simplewebauthn/server`, Frontend `@simplewebauthn/browser`.
+- **Mailcow-Quarantäne (Etappe 5):** Neues Panel-Modul `Quarantäne` mit zwei Tabs. Der erste Tab zeigt KI-Klassifizierungs-Logs an, der zweite Tab listet über die Mailcow-API in Rspamd zurückgehaltene E-Mails auf. Diese können direkt gelöscht oder zugestellt werden.
+- **Telegram Digest & Callback (Etappe 5):** Der tägliche Digest-Workflow in n8n (02) enthält nun Inline-Knöpfe (`Panel öffnen`, `Alle freigeben`). Zudem gibt es einen neuen Beispiel-Workflow (05), um Telegram Callbacks zu verarbeiten.
+- **Rspamd-Feinschliff (Etappe 6):** Neues Panel-Modul `Rspamd`. Listet die globalen Whitelists, Blacklists und die konfigurierten Spam-Scores von Mailcow auf. Enthält außerdem einen Sync-Button, um die im Panel gepflegten Whitelists (die KI-basiert gepflegt werden) direkt als `wl_domain` / `wl_sender` in die globale Mailcow-Richtlinie zu übernehmen.
+- **Rspamd Overrides (Etappe 6):** Ordner `mailcow/rspamd-override` mit Basisdatei `options.inc` hinzugefügt, um globale Spam-Schwellwerte von Mailcow zu überschreiben.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migration:** Es wurde die Tabelle `passkeys` in der Datenbank eingeführt (automatisch via `db.js` `CREATE TABLE IF NOT EXISTS`). Bestehende Setups laufen nach dem Pull problemlos weiter.
+- **n8n-Workflow-Kompatibilität:** Workflow 02 (`02-daily-digest.json`) wurde um Inline-Knöpfe erweitert und sollte in n8n neu importiert werden. Für Telegram Callbacks existiert nun Workflow 05, der bei Bedarf (optional) aktiviert werden kann.
+- **Neustart-/Session-Verhalten:** Login via Passkeys nutzt den regulären JWT-Flow; Sitzungen bleiben wie bisher erhalten. Für Rspamd-Änderungen in `mailcow/rspamd-override/` muss der `rspamd-mailcow` Container manuell neugestartet werden.
+
+---
+
 ## [1.4.0.0] - 2026-08-09 (Build 7) — *ClamAV & Safe Browsing (Etappe 4)*
 
 ### Features

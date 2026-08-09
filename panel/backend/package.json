@@ -8,6 +8,7 @@
     "dev": "nodemon src/index.js"
   },
   "dependencies": {
+    "@simplewebauthn/server": "^13.3.2",
     "axios": "^1.7.9",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^12.2.0",

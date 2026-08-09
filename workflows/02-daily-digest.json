@@ -142,7 +142,31 @@
       "parameters": {
         "chatId": "DEINE_CHAT_ID",
         "text": "={{ $json.digest }}",
-        "additionalFields": {}
+        "additionalFields": {
+          "replyMarkup": "inlineKeyboard",
+          "inlineKeyboard": {
+            "rows": [
+              {
+                "row": {
+                  "buttons": [
+                    {
+                      "text": "📬 Panel öffnen",
+                      "additionalFields": {
+                        "url": "https://dein-panel-url/"
+                      }
+                    },
+                    {
+                      "text": "✅ Alle freigeben",
+                      "additionalFields": {
+                        "callbackData": "q_deliver_all"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
       },
       "id": "telegram-send",
       "name": "Telegram senden",

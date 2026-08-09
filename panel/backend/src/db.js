@@ -27,6 +27,19 @@ db.exec(`
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
+  CREATE TABLE IF NOT EXISTS passkeys (
+    credential_id TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    public_key BLOB NOT NULL,
+    counter INTEGER NOT NULL,
+    device_type TEXT NOT NULL,
+    backed_up INTEGER NOT NULL,
+    transports TEXT,
+    name TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
   -- IMAP-Konten, die das Panel in n8n verdrahtet (Gmail bleibt fest in n8n)
   CREATE TABLE IF NOT EXISTS accounts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

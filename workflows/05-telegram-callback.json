@@ -1,0 +1,114 @@
+{
+  "name": "05 - Telegram Callback Handler",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "callback_query"
+        ]
+      },
+      "id": "telegram-trigger",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.message.data }}",
+              "value2": "q_deliver_all"
+            }
+          ]
+        }
+      },
+      "id": "switch-action",
+      "name": "Aktion prüfen",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [
+        420,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://mail-panel:3002/api/internal/quarantaene/deliver-all",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{}",
+        "options": {}
+      },
+      "id": "panel-api",
+      "name": "Panel benachrichtigen (Beispiel)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        640,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.message.message.chat.id }}",
+        "text": "✅ Alle Quarantäne-Einträge wurden zur Zustellung markiert.",
+        "additionalFields": {}
+      },
+      "id": "telegram-send",
+      "name": "Bestätigung senden",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        860,
+        280
+      ]
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Aktion prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aktion prüfen": {
+      "main": [
+        [
+          {
+            "node": "Panel benachrichtigen (Beispiel)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Panel benachrichtigen (Beispiel)": {
+      "main": [
+        [
+          {
+            "node": "Bestätigung senden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
