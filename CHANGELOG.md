@@ -2,6 +2,18 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [1.7.0.3] - 2026-08-10 (Build 15) — *Hotfix: Black Screen of Death*
+
+### Features / Bugfixes
+
+- **Fix:** Es wurde ein Fehler behoben, bei dem das Dashboard nach dem Einloggen komplett abstürzte (schwarzer Bildschirm), wenn die Datenbank oder API noch keine gültigen Statistiken (null) zurückliefern konnte. Der Zustand wird nun korrekt abgefangen und eine hilfreiche Fehlermeldung eingeblendet.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migration:** Keine.
+- **n8n-Workflow-Kompatibilität:** Keine.
+- **Neustart-/Session-Verhalten:** Keine Auswirkungen.
+
 ## [1.7.0.2] - 2026-08-10 (Build 14) — *Pride*
 
 ### Features / Bugfixes

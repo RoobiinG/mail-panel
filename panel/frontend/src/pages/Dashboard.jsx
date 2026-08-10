@@ -32,6 +32,7 @@ export default function Dashboard() {
   useEffect(() => { laden(); }, []);
 
   if (loading) return <div className="p-6 text-panel-muted">Lade Dashboard...</div>;
+  if (!stats || !stats.summen) return <div className="p-6 text-panel-red">Fehler beim Laden der Dashboard-Statistiken. Bitte überprüfe die Verbindung zur Datenbank oder die Logs.</div>;
 
   const pieData = [
     { name: 'Spam', value: stats.summen.spam },
