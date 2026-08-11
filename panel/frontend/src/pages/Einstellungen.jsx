@@ -150,6 +150,21 @@ export default function Einstellungen() {
         </div>
       </div>
 
+      <div className="card space-y-4">
+        <h2 className="font-medium">KI & Benachrichtigungen</h2>
+        <p className="text-sm text-panel-muted">
+          Konfiguration für die E-Mail-Klassifizierung (Gemini) und Benachrichtigungen (Telegram).
+          Die Werte werden bei der Synchronisierung an die n8n-Workflows verteilt.
+        </p>
+        {zugangsFeld('gemini_api_key', 'Gemini API-Key', '', 'password')}
+        {zugangsFeld('telegram_token', 'Telegram Bot-Token', '123456:ABC-DEF1234ghIkl-zyx...', 'password')}
+        {zugangsFeld('telegram_chat_id', 'Telegram Chat-ID', '123456789')}
+        <div className="flex items-center gap-3">
+          <button onClick={speichern} className="btn-primary">Speichern</button>
+          {meldung && <span className="text-sm text-panel-muted">{meldung}</span>}
+        </div>
+      </div>
+
       <div className="card space-y-2">
         <h2 className="font-medium">Panel-Secret für die n8n-Workflows</h2>
         <p className="text-sm text-panel-muted">

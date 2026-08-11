@@ -89,16 +89,16 @@ weiterhin über IMAP.)
 ### Gemini (kostenlos)
 1. [aistudio.google.com](https://aistudio.google.com) → API-Key erzeugen
    (unabhängig vom Gemini-Pro-Abo; der Free Tier steht jedem Google-Konto zur Verfügung).
-2. In n8n als **Header-Auth-Credential** anlegen: Name `x-goog-api-key`, Wert = der Key.
+2. Den API-Key direkt im **Mail-Panel unter Einstellungen → KI & Benachrichtigungen** eintragen. Das Panel kümmert sich automatisch um die Einrichtung in n8n.
 3. Hinweis: Im Free Tier darf Google Eingaben zur Produktverbesserung nutzen.
    Falls das bei Mail-Inhalten stört: später auf Paid Tier (Centbeträge) oder
    lokales Ollama wechseln — die Workflows bleiben gleich, nur der HTTP-Node ändert sich.
 
 ### Telegram
 1. In Telegram mit **@BotFather** chatten → `/newbot` → Token kopieren.
-2. Token in n8n als Telegram-Credential speichern.
-3. Chat-ID ermitteln: dem eigenen Bot eine Nachricht schicken, dann
+2. Chat-ID ermitteln: dem eigenen Bot eine Nachricht schicken, dann
    `https://api.telegram.org/bot<TOKEN>/getUpdates` aufrufen → `chat.id` ablesen.
+3. Bot-Token und Chat-ID ebenfalls im **Mail-Panel unter Einstellungen → KI & Benachrichtigungen** eintragen. Auch hier übernimmt das Panel die Verknüpfung mit den n8n-Workflows.
 
 ## 4. Ordner anlegen
 
@@ -114,14 +114,14 @@ Quarantaene   Rechnungen   Bestellungen   Newsletter   Archiv
 Import: n8n → Workflows → „Import from File" für alle vier Dateien aus `workflows/`.
 Jeder Workflow hat eine gelbe Notiz mit seinen Konfigurationsschritten. Zusammengefasst:
 
-1. **Credentials zuordnen** — jeden Node mit rotem Warndreieck öffnen und das passende Credential wählen.
-2. **Gmail-Label-IDs eintragen** — einmalig die IDs holen (Gmail-Node: Label → Get Many)
+1. **Gmail-Label-IDs eintragen** — einmalig die IDs holen (Gmail-Node: Label → Get Many)
    und in den „Antwort parsen"-Nodes von Workflow 01 + 04 sowie den Label-Nodes
    von Workflow 03 eintragen.
-3. **IMAP-Nodes prüfen** — die Nodes des Community-Pakets (`Verschieben`, `Get Many`)
+2. **IMAP-Nodes prüfen** — die Nodes des Community-Pakets (`Verschieben`, `Get Many`)
    einmal öffnen und Operation/Felder bestätigen; je nach Paketversion heißen die
    Parameter leicht anders, dann einfach im UI neu auswählen (Ziel steht in der Notiz).
-4. **Digest** — Mailcow-URL im Node „Rspamd-Quarantäne" und die Telegram-Chat-ID eintragen.
+3. **Digest** — Mailcow-URL im Node „Rspamd-Quarantäne" eintragen.
+4. **Auto-Konfiguration aktivieren** — Gehe in das Panel auf die Seite "Konten" und klicke auf "Workflows synchronisieren" (oder füge ein neues Konto hinzu), damit Gemini, Telegram und deine Mail-Konten vollautomatisch in allen Workflows verdrahtet werden!
 
 ## 6. Trockentest, dann scharf schalten
 

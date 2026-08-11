@@ -2,6 +2,20 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [1.9.2.0] - 2026-08-11 (Build 19) — *Auto-Config für KI & Telegram*
+
+### Features / Bugfixes
+
+- **Feature:** Konfiguration für Gemini (API-Key) und Telegram (Bot-Token, Chat-ID) direkt in die Panel-Einstellungen integriert.
+- **Feature:** Der n8n-Workflow-Patcher überträgt die KI- und Benachrichtigungs-Zugangsdaten (sowie Parameter wie `chatId`) nun bei jedem "Workflows synchronisieren" automatisch in alle Workflows. Manuelles Bearbeiten der Knoten in n8n entfällt damit komplett.
+- **Doku:** README.md aktualisiert, um die neue Auto-Konfiguration zu erklären.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migration:** Keine (Werte landen als einfache Keys in der `settings`-Tabelle).
+- **n8n-Workflow-Kompatibilität:** Workflows müssen über das Panel synchronisiert werden, damit die neuen Keys ankommen. Keine Änderungen an der Logik.
+- **Neustart-/Session-Verhalten:** Keine Auswirkungen.
+
 ## [1.9.1.0] - 2026-08-11 (Build 18) — *Pride Flag Toggle*
 
 ### Features / Bugfixes

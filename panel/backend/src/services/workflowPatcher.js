@@ -7,6 +7,7 @@ const n8n = require('./n8n');
 const db  = require('../db');
 const fs  = require('fs');
 const path = require('path');
+const settings = require('./settings');
 
 const PRAEFIX = 'panel-';
 // Ankerpunkte in den Workflow-Vorlagen, an die das Panel andockt
@@ -312,10 +313,86 @@ async function bestandSynchronisieren(konten, credentialId) {
   return { workflow: info.name, konten: konten.length };
 }
 
+// Synchronisiert die KI- und Telegram-Einstellungen in die Workflows
+async function kiUndBenachrichtigungenSynchronisieren() {
+  const geminiKey = settings.hole('gemini_api_key');
+  const telegramToken = settings.hole('telegram_token');
+  const telegramChatId = settings.hole('telegram_chat_id');
+
+  let geminiCredId = null;
+  let telegramCredId = null;
+
+  if (geminiKey) {
+    try {
+      const dbGemini = db.prepare("SELECT value FROM settings WHERE key = 'n8n_gemini_credential_id'").get();
+      if (dbGemini?.value) {
+        geminiCredId = dbGemini.value;
+        await n8n.credentialLoeschen(geminiCredId);
+      }
+      geminiCredId = await n8n.headerCredentialAnlegen('Gemini API', 'x-goog-api-key', geminiKey);
+      db.prepare(`
+        INSERT INTO settings (key, value, updated_at) VALUES ('n8n_gemini_credential_id', ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+      `).run(geminiCredId);
+    } catch (err) { console.warn('Gemini-Credential Fehler:', err.message); }
+  }
+
+  if (telegramToken) {
+    try {
+      const dbTg = db.prepare("SELECT value FROM settings WHERE key = 'n8n_telegram_credential_id'").get();
+      if (dbTg?.value) {
+        telegramCredId = dbTg.value;
+        await n8n.credentialLoeschen(telegramCredId);
+      }
+      telegramCredId = await n8n.telegramCredentialAnlegen('Telegram Bot', telegramToken);
+      db.prepare(`
+        INSERT INTO settings (key, value, updated_at) VALUES ('n8n_telegram_credential_id', ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+      `).run(telegramCredId);
+    } catch (err) { console.warn('Telegram-Credential Fehler:', err.message); }
+  }
+
+  // Alle Workflows durchsuchen und anpassen
+  try {
+    const alle = await n8n.workflowsAuflisten();
+    for (const wfInfo of alle) {
+      let geaendert = false;
+      const workflow = await n8n.workflowHolen(wfInfo.id);
+
+      for (const knoten of workflow.nodes) {
+        if (['Gemini klassifizieren', 'Gemini zusammenfassen'].includes(knoten.name) && geminiCredId) {
+          knoten.credentials = { httpHeaderAuth: { id: String(geminiCredId), name: 'Gemini API' } };
+          geaendert = true;
+        }
+        if (['Telegram senden', 'Virus Warnung (Telegram)', 'Telegram Trigger'].includes(knoten.name)) {
+          if (telegramCredId) {
+            knoten.credentials = { telegramApi: { id: String(telegramCredId), name: 'Telegram Bot' } };
+            geaendert = true;
+          }
+          if (telegramChatId && knoten.type === 'n8n-nodes-base.telegram') {
+            knoten.parameters = knoten.parameters || {};
+            knoten.parameters.chatId = telegramChatId;
+            geaendert = true;
+          }
+        }
+      }
+
+      if (geaendert) {
+        await n8n.workflowSpeichern(wfInfo.id, workflow);
+      }
+    }
+  } catch (err) {
+    console.warn('Fehler beim Patchen der Workflows (KI/Telegram):', err.message);
+  }
+}
+
 // Beide Workflows auf den aktuellen Kontenstand bringen
 async function alleSynchronisieren(konten) {
   // Zuerst sicherstellen, dass die Basis-Workflows überhaupt in n8n existieren
   await basisSetup();
+
+  // KI- und Telegram-Einstellungen in alle Workflows pushen
+  await kiUndBenachrichtigungenSynchronisieren();
 
   // Fehlt das Credential, laufen die Workflows trotzdem — der Prüf-Knoten
   // meldet dann nur einen Fehler und die Mail läuft ungeprüft weiter.

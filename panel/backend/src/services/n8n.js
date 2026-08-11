@@ -134,6 +134,19 @@ async function credentialLoeschen(id) {
   }
 }
 
+async function telegramCredentialAnlegen(name, accessToken) {
+  try {
+    const { data } = await client().post('/credentials', {
+      name,
+      type: 'telegramApi',
+      data: { accessToken },
+    });
+    return data.id;
+  } catch (err) {
+    throw fehler(err, 'Telegram-Credential konnte nicht in n8n angelegt werden');
+  }
+}
+
 async function executionsAuflisten(limit = 20) {
   try {
     const { data } = await client().get('/executions', { params: { limit } });
@@ -145,6 +158,6 @@ async function executionsAuflisten(limit = 20) {
 
 module.exports = {
   client, testVerbindung, workflowsAuflisten, workflowHolen, workflowErstellen, workflowSpeichern,
-  workflowAktivieren, credentialAnlegen, headerCredentialAnlegen, credentialLoeschen,
+  workflowAktivieren, credentialAnlegen, headerCredentialAnlegen, telegramCredentialAnlegen, credentialLoeschen,
   executionsAuflisten,
 };
