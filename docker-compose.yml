@@ -88,6 +88,7 @@ services:
       # gespeicherten Zugangsdaten unbrauchbar.
       - N8N_RUNNERS_ENABLED=true
       - N8N_COMMUNITY_PACKAGES_ALLOW_TOOL_USAGE=true
+      - N8N_SECURE_COOKIE=false
     volumes:
       - n8n_data:/home/node/.n8n
     ports:
