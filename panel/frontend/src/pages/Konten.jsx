@@ -185,8 +185,9 @@ export default function Konten() {
                 <input value={formular.username} onChange={(e) => setFormular({ ...formular, username: e.target.value })} autoComplete="off" />
               </label>
               <label className="text-sm space-y-1">
-                <span className="text-panel-muted">
-                  Passwort {formular.id && <span className="text-xs">(leer lassen = unverändert)</span>}
+                <span className="text-panel-muted flex flex-col">
+                  <span>Passwort {formular.id && <span className="text-xs text-panel-text">(leer lassen = unverändert)</span>}</span>
+                  <span className="text-xs text-panel-orange mt-0.5">Wichtig: Bei aktiver Zwei-Faktor-Authentifizierung (2FA) musst du hier ein spezielles App-Passwort deines Anbieters eintragen!</span>
                 </span>
                 <input type="password" value={formular.passwort} onChange={(e) => setFormular({ ...formular, passwort: e.target.value })} autoComplete="new-password" />
               </label>
