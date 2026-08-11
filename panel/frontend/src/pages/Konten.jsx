@@ -6,11 +6,11 @@ const LEER = { name: '', host: '', port: 993, username: '', passwort: '', tlsUns
 
 // Bekannte Anbieter — spart dem Nutzer das Nachschlagen der Serverdaten
 const VORLAGEN = [
-  { label: 'Gmail (IMAP)', host: 'imap.gmail.com', port: 993 },
-  { label: 'Web.de', host: 'imap.web.de', port: 993 },
-  { label: 'GMX', host: 'imap.gmx.net', port: 993 },
-  { label: 'Mailbox.org', host: 'imap.mailbox.org', port: 993 },
-  { label: 'Mailcow / eigener Server', host: '', port: 993 },
+  { label: 'Gmail (IMAP)', defaultName: 'Gmail', host: 'imap.gmail.com', port: 993 },
+  { label: 'Web.de', defaultName: 'Web.de', host: 'imap.web.de', port: 993 },
+  { label: 'GMX', defaultName: 'GMX', host: 'imap.gmx.net', port: 993 },
+  { label: 'Mailbox.org', defaultName: 'Mailbox', host: 'imap.mailbox.org', port: 993 },
+  { label: 'Mailcow / eigener Server', defaultName: 'Mailcow', host: '', port: 993 },
 ];
 
 export default function Konten() {
@@ -156,7 +156,7 @@ export default function Konten() {
                 {VORLAGEN.map((v) => (
                   <button
                     key={v.label}
-                    onClick={() => setFormular((f) => ({ ...f, name: f.name || v.label, host: v.host, port: v.port }))}
+                    onClick={() => setFormular((f) => ({ ...f, name: f.name || v.defaultName, host: v.host, port: v.port }))}
                     className="btn-ghost !py-1 !px-2 text-xs"
                   >
                     {v.label}
