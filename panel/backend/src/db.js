@@ -161,6 +161,11 @@ const migrations = [
   'ALTER TABLE accounts ADD COLUMN tls_unsicher INTEGER NOT NULL DEFAULT 0',
   // Mehrbenutzer: Rollenzuweisung
   'ALTER TABLE users ADD COLUMN rolle_id INTEGER DEFAULT NULL',
+  // Eigene IMAP-Ordnernamen pro Konto
+  'ALTER TABLE accounts ADD COLUMN folder_spam TEXT',
+  'ALTER TABLE accounts ADD COLUMN folder_invoices TEXT',
+  'ALTER TABLE accounts ADD COLUMN folder_orders TEXT',
+  'ALTER TABLE accounts ADD COLUMN folder_newsletter TEXT',
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch { /* Spalte existiert schon */ }

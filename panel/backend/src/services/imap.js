@@ -1,7 +1,7 @@
 // Verbindungstest für IMAP-Konten, bevor sie in n8n angelegt werden.
 const { ImapFlow } = require('imapflow');
 
-async function testVerbindung({ host, port, username, passwort, tlsUnsicher = false }) {
+async function testVerbindung({ host, port, username, passwort, tlsUnsicher = false, folder_spam, folder_invoices, folder_orders, folder_newsletter }) {
   const client = new ImapFlow({
     host,
     port: Number(port),
@@ -25,8 +25,12 @@ async function testVerbindung({ host, port, username, passwort, tlsUnsicher = fa
       nachrichten: postfach.exists,
       ordner: ordner.map((o) => o.path),
       // Damit die Oberfläche warnen kann, wenn Zielordner fehlen
-      fehlendeOrdner: ['Quarantaene', 'Rechnungen', 'Bestellungen', 'Newsletter']
-        .filter((soll) => !ordner.some((o) => o.path === soll)),
+      fehlendeOrdner: [
+        folder_spam || 'Quarantaene',
+        folder_invoices || 'Rechnungen',
+        folder_orders || 'Bestellungen',
+        folder_newsletter || 'Newsletter'
+      ].filter((soll) => !ordner.some((o) => o.path === soll)),
     };
   } finally {
     try { await client.logout(); } catch { /* Verbindung war schon zu */ }

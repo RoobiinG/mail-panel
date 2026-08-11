@@ -12,6 +12,8 @@ const router = express.Router();
 const oeffentlich = (k) => ({
   id: k.id, name: k.name, host: k.host, port: k.port,
   username: k.username, aktiv: Boolean(k.aktiv), tlsUnsicher: Boolean(k.tls_unsicher),
+  folder_spam: k.folder_spam, folder_invoices: k.folder_invoices,
+  folder_orders: k.folder_orders, folder_newsletter: k.folder_newsletter,
   verdrahtet: Boolean(k.n8n_credential_id), created_at: k.created_at,
 });
 
@@ -35,7 +37,7 @@ router.get('/', (req, res) => {
 
 // Verbindung testen, ohne etwas zu speichern
 router.post('/test', async (req, res) => {
-  const { host, port, username, passwort, id, tlsUnsicher } = req.body || {};
+  const { host, port, username, passwort, id, tlsUnsicher, folder_spam, folder_invoices, folder_orders, folder_newsletter } = req.body || {};
   // Beim Bearbeiten darf das Passwort leer bleiben — dann das gespeicherte nehmen
   let pw = passwort;
   if (!pw && id) {
@@ -45,14 +47,14 @@ router.post('/test', async (req, res) => {
   const fehler = pruefe({ name: 'Test', host, port, username, passwort: pw });
   if (fehler) return res.status(400).json({ error: fehler });
   try {
-    res.json(await imap.testVerbindung({ host, port, username, passwort: pw, tlsUnsicher }));
+    res.json(await imap.testVerbindung({ host, port, username, passwort: pw, tlsUnsicher, folder_spam, folder_invoices, folder_orders, folder_newsletter }));
   } catch (err) {
     res.status(502).json({ ok: false, error: err.message });
   }
 });
 
 router.post('/', async (req, res) => {
-  const { name, host, port, username, passwort, tlsUnsicher } = req.body || {};
+  const { name, host, port, username, passwort, tlsUnsicher, folder_spam, folder_invoices, folder_orders, folder_newsletter } = req.body || {};
   const fehler = pruefe(req.body || {});
   if (fehler) return res.status(400).json({ error: fehler });
   if (db.prepare('SELECT 1 FROM accounts WHERE name = ?').get(name)) {
@@ -62,15 +64,15 @@ router.post('/', async (req, res) => {
   let credentialId = null;
   try {
     // Erst prüfen, ob die Zugangsdaten überhaupt stimmen
-    await imap.testVerbindung({ host, port, username, passwort, tlsUnsicher });
+    await imap.testVerbindung({ host, port, username, passwort, tlsUnsicher, folder_spam, folder_invoices, folder_orders, folder_newsletter });
     credentialId = await n8n.credentialAnlegen({
       name: `Mail-Panel: ${name}`, host, port, username, passwort, tlsUnsicher,
     });
 
     const info = db.prepare(`
-      INSERT INTO accounts (name, host, port, username, password_enc, n8n_credential_id, tls_unsicher)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(name, host, Number(port), username, verschluesseln(passwort), credentialId, tlsUnsicher ? 1 : 0);
+      INSERT INTO accounts (name, host, port, username, password_enc, n8n_credential_id, tls_unsicher, folder_spam, folder_invoices, folder_orders, folder_newsletter)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(name, host, Number(port), username, verschluesseln(passwort), credentialId, tlsUnsicher ? 1 : 0, folder_spam || null, folder_invoices || null, folder_orders || null, folder_newsletter || null);
 
     const sync = await patcher.alleSynchronisieren(alleAktiven());
     res.json({ ok: true, id: info.lastInsertRowid, sync });
@@ -88,13 +90,13 @@ router.put('/:id', async (req, res) => {
   const konto = db.prepare('SELECT * FROM accounts WHERE id = ?').get(req.params.id);
   if (!konto) return res.status(404).json({ error: 'Konto nicht gefunden.' });
 
-  const { name, host, port, username, passwort, aktiv, tlsUnsicher } = req.body || {};
+  const { name, host, port, username, passwort, aktiv, tlsUnsicher, folder_spam, folder_invoices, folder_orders, folder_newsletter } = req.body || {};
   const fehler = pruefe({ name, host, port, username, passwort }, false);
   if (fehler) return res.status(400).json({ error: fehler });
 
   const neuesPasswort = passwort || entschluesseln(konto.password_enc);
   try {
-    await imap.testVerbindung({ host, port, username, passwort: neuesPasswort, tlsUnsicher });
+    await imap.testVerbindung({ host, port, username, passwort: neuesPasswort, tlsUnsicher, folder_spam, folder_invoices, folder_orders, folder_newsletter });
 
     // n8n kennt kein Aktualisieren per Public API — altes Credential ersetzen
     const neueCredentialId = await n8n.credentialAnlegen({
@@ -103,10 +105,13 @@ router.put('/:id', async (req, res) => {
 
     db.prepare(`
       UPDATE accounts SET name = ?, host = ?, port = ?, username = ?, password_enc = ?,
-                          n8n_credential_id = ?, aktiv = ?, tls_unsicher = ?
+                          n8n_credential_id = ?, aktiv = ?, tls_unsicher = ?,
+                          folder_spam = ?, folder_invoices = ?, folder_orders = ?, folder_newsletter = ?
       WHERE id = ?
     `).run(name, host, Number(port), username, verschluesseln(neuesPasswort),
-           neueCredentialId, aktiv === false ? 0 : 1, tlsUnsicher ? 1 : 0, konto.id);
+           neueCredentialId, aktiv === false ? 0 : 1, tlsUnsicher ? 1 : 0,
+           folder_spam || null, folder_invoices || null, folder_orders || null, folder_newsletter || null,
+           konto.id);
 
     const sync = await patcher.alleSynchronisieren(alleAktiven());
     // Erst nach erfolgreichem Sync entfernen — sonst zeigen die Knoten ins Leere

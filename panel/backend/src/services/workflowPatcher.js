@@ -57,6 +57,10 @@ function setKnoten(konto, position) {
       assignments: {
         assignments: [
           { id: `konto-${konto.id}`, name: 'konto', value: konto.name, type: 'string' },
+          { id: `f1-${konto.id}`, name: 'folder_spam', value: konto.folder_spam || '', type: 'string' },
+          { id: `f2-${konto.id}`, name: 'folder_invoices', value: konto.folder_invoices || '', type: 'string' },
+          { id: `f3-${konto.id}`, name: 'folder_orders', value: konto.folder_orders || '', type: 'string' },
+          { id: `f4-${konto.id}`, name: 'folder_newsletter', value: konto.folder_newsletter || '', type: 'string' },
         ],
       },
       includeOtherFields: true,
@@ -210,6 +214,20 @@ function pruefKnotenVerdrahten(workflow, credentialId) {
   return true;
 }
 
+// Ersetzt den harten Ordnernamen-Code im "Antwort parsen" Knoten durch die dynamischen Variablen
+function patchAntwortParsen(workflow) {
+  const knoten = workflow.nodes.find((k) => k.name === 'Antwort parsen');
+  if (!knoten || !knoten.parameters || !knoten.parameters.jsCode) return;
+  
+  let code = knoten.parameters.jsCode;
+  code = code.replace(/zielordner = 'Quarantaene';/g, "zielordner = mail.folder_spam || 'Quarantaene';");
+  code = code.replace(/zielordner = 'Rechnungen';/g, "zielordner = mail.folder_invoices || 'Rechnungen';");
+  code = code.replace(/zielordner = 'Bestellungen';/g, "zielordner = mail.folder_orders || 'Bestellungen';");
+  code = code.replace(/zielordner = 'Newsletter';/g, "zielordner = mail.folder_newsletter || 'Newsletter';");
+  
+  knoten.parameters.jsCode = code;
+}
+
 async function workflowSuchen(praefix) {
   const alle = await n8n.workflowsAuflisten();
   const treffer = alle.find((w) => String(w.name).trim().startsWith(praefix));
@@ -224,6 +242,7 @@ async function triageSynchronisieren(konten, credentialId) {
   const workflow = await n8n.workflowHolen(info.id);
   panelKnotenEntfernen(workflow);
   if (credentialId) pruefKnotenVerdrahten(workflow, credentialId);
+  patchAntwortParsen(workflow);
 
   for (const name of [ANKER.triage.ziel, ANKER.triage.weiche, ANKER.triage.gmailZiel]) {
     if (!workflow.nodes.some((k) => k.name === name)) {
@@ -274,6 +293,7 @@ async function bestandSynchronisieren(konten, credentialId) {
   const workflow = await n8n.workflowHolen(info.id);
   panelKnotenEntfernen(workflow);
   if (credentialId) pruefKnotenVerdrahten(workflow, credentialId);
+  patchAntwortParsen(workflow);
 
   const sammler = workflow.nodes.find((k) => k.name === ANKER.bestand.ziel);
   const kopf    = workflow.nodes.find((k) => k.name === ANKER.bestand.kopf);

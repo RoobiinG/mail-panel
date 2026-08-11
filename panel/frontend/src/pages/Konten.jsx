@@ -19,6 +19,7 @@ export default function Konten() {
   const [test, setTest] = useState(null);         // null | 'laeuft' | {ok} | {error}
   const [meldung, setMeldung] = useState('');
   const [laedt, setLaedt] = useState(false);
+  const [zeigeOrdner, setZeigeOrdner] = useState(false);
 
   const laden = () => api.get('/konten').then((res) => setKonten(res.data));
   useEffect(() => { laden(); }, []);
@@ -26,6 +27,7 @@ export default function Konten() {
   const oeffnen = (konto) => {
     setTest(null);
     setMeldung('');
+    setZeigeOrdner(false);
     setFormular(konto ? { ...konto, passwort: '' } : { ...LEER });
   };
 
@@ -203,6 +205,40 @@ export default function Konten() {
                   <span className="block text-xs">Nur nötig bei eigenen Mailservern ohne offizielles Zertifikat</span>
                 </span>
               </label>
+
+              <div className="pt-2 border-t border-panel-border mt-2">
+                <button
+                  type="button"
+                  onClick={() => setZeigeOrdner(!zeigeOrdner)}
+                  className="text-xs text-panel-muted hover:text-panel-text flex items-center gap-1"
+                >
+                  {zeigeOrdner ? 'Erweiterte Ordner-Einstellungen ausblenden' : 'Erweiterte Optionen: Eigene IMAP-Ordnernamen festlegen'}
+                </button>
+                
+                {zeigeOrdner && (
+                  <div className="grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-panel-border/50">
+                    <label className="text-sm space-y-1">
+                      <span className="text-panel-muted">Spam/Quarantäne</span>
+                      <input value={formular.folder_spam || ''} onChange={(e) => setFormular({ ...formular, folder_spam: e.target.value })} placeholder="Quarantaene" className="text-xs py-1.5" />
+                    </label>
+                    <label className="text-sm space-y-1">
+                      <span className="text-panel-muted">Rechnungen</span>
+                      <input value={formular.folder_invoices || ''} onChange={(e) => setFormular({ ...formular, folder_invoices: e.target.value })} placeholder="Rechnungen" className="text-xs py-1.5" />
+                    </label>
+                    <label className="text-sm space-y-1">
+                      <span className="text-panel-muted">Bestellungen</span>
+                      <input value={formular.folder_orders || ''} onChange={(e) => setFormular({ ...formular, folder_orders: e.target.value })} placeholder="Bestellungen" className="text-xs py-1.5" />
+                    </label>
+                    <label className="text-sm space-y-1">
+                      <span className="text-panel-muted">Newsletter</span>
+                      <input value={formular.folder_newsletter || ''} onChange={(e) => setFormular({ ...formular, folder_newsletter: e.target.value })} placeholder="Newsletter" className="text-xs py-1.5" />
+                    </label>
+                    <p className="col-span-2 text-xs text-panel-muted mt-1">
+                      Bleiben Felder leer, werden die Standard-Ordnernamen (im Platzhalter angezeigt) verwendet.
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="flex items-center gap-2 text-sm">
@@ -212,8 +248,8 @@ export default function Konten() {
                 <span className="flex items-center gap-1 text-panel-green">
                   <CheckCircle2 size={16} /> Verbunden ({test.nachrichten} Mails in der Inbox)
                   {test.fehlendeOrdner?.length > 0 && (
-                    <span className="text-panel-orange">
-                      — fehlende Ordner: {test.fehlendeOrdner.join(', ')}
+                    <span className="text-panel-orange" title="Wenn du eine eigene Ordnerstruktur nutzt, kannst du dies ignorieren.">
+                      — fehlende Ordner (optional): {test.fehlendeOrdner.join(', ')}
                     </span>
                   )}
                 </span>
