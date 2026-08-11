@@ -99,6 +99,9 @@ export default function Layout() {
         }`}>
           v{__APP_VERSION__} ({__APP_BUILD__})
         </div>
+        {showPrideFlag && (
+          <div className="h-1.5 w-full bg-[linear-gradient(90deg,#e40303_16.6%,#ff8c00_16.6%,#ff8c00_33.3%,#ffed00_33.3%,#ffed00_50%,#008026_50%,#008026_66.6%,#24408e_66.6%,#24408e_83.3%,#732982_83.3%)]" />
+        )}
       </aside>
       <main className="flex-1 p-8 overflow-x-hidden">
         <Outlet />

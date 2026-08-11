@@ -2,6 +2,18 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [1.9.1.0] - 2026-08-11 (Build 18) — *Pride Flag Toggle*
+
+### Features / Bugfixes
+
+- **Feature:** Option zum Ein- und Ausblenden der Pride Flag (im Version-Bereich der Seitenleiste) direkt in den Panel-Einstellungen unter „Oberfläche" hinzugefügt (analog zum Überwachungs-Panel).
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migration:** Keine. Wird lokal im Browser (localStorage) gespeichert.
+- **n8n-Workflow-Kompatibilität:** Keine Auswirkungen.
+- **Neustart-/Session-Verhalten:** Keine Auswirkungen.
+
 ## [1.9.0.0] - 2026-08-11 (Build 17) — *Mehrbenutzer & Rollen*
 
 ### Features / Bugfixes

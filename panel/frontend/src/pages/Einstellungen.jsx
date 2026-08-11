@@ -21,6 +21,16 @@ export default function Einstellungen() {
   const [pkLaedt, setPkLaedt] = useState(false);
   const [pkMeldung, setPkMeldung] = useState('');
 
+  // Oberfläche
+  const [showPrideFlag, setShowPrideFlag] = useState(() => localStorage.getItem('show_pride_flag') !== 'false');
+
+  const togglePrideFlag = (e) => {
+    const val = e.target.checked;
+    setShowPrideFlag(val);
+    localStorage.setItem('show_pride_flag', val);
+    window.dispatchEvent(new Event('pride_flag_change'));
+  };
+
   const loadPasskeys = async () => {
     try {
       const { data } = await api.get('/passkeys');
@@ -261,6 +271,19 @@ export default function Einstellungen() {
         {Object.entries(tests).filter(([, v]) => v && v !== 'laeuft' && v !== 'ok').map(([k, v]) => (
           <p key={k} className="text-xs text-panel-red font-mono">{k}: {v}</p>
         ))}
+      </div>
+
+      <div className="card space-y-4">
+        <h2 className="font-medium">Oberfläche</h2>
+        <label className="flex items-center gap-2 text-sm cursor-pointer">
+          <input
+            type="checkbox"
+            className="w-auto"
+            checked={showPrideFlag}
+            onChange={togglePrideFlag}
+          />
+          Pride Flag im Menü anzeigen
+        </label>
       </div>
     </div>
   );
