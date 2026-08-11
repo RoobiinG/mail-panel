@@ -126,6 +126,33 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_authlog_created ON auth_log(created_at);
   CREATE INDEX IF NOT EXISTS idx_authlog_user ON auth_log(user_id);
+
+  -- Sortier-Regeln pro Konto
+  CREATE TABLE IF NOT EXISTS sort_rules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    konto_id INTEGER NOT NULL,
+    typ TEXT NOT NULL CHECK(typ IN ('absender','betreff','domain')),
+    muster TEXT NOT NULL,
+    zielordner TEXT NOT NULL,
+    treffer INTEGER NOT NULL DEFAULT 0,
+    erstellt_von INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(konto_id) REFERENCES accounts(id) ON DELETE CASCADE
+  );
+
+  -- Sortier-Inbox fuer unbekannte Mails
+  CREATE TABLE IF NOT EXISTS sort_inbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    konto TEXT NOT NULL,
+    konto_id INTEGER,
+    von TEXT NOT NULL,
+    betreff TEXT,
+    uid TEXT,
+    vorschlag TEXT,
+    status TEXT NOT NULL DEFAULT 'offen' CHECK(status IN ('offen','zugeordnet','ignoriert')),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_sortinbox_status ON sort_inbox(status);
 `);
 
 // ─── Migrationen: neue Spalten kommen als try/catch-ALTER dazu ───────────────

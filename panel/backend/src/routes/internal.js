@@ -5,6 +5,7 @@ const listen  = require('../services/listen');
 const dnsbl   = require('../services/dnsbl');
 const safebrowsing = require('../services/safebrowsing');
 const clamav  = require('../services/clamav');
+const sortierung = require('../services/sortierung');
 
 const router = express.Router();
 
@@ -12,6 +13,31 @@ const einstellung = (key, fallback) => {
   const zeile = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
   return zeile ? zeile.value : fallback;
 };
+
+// ─── SORTIERUNG (VOR GEMINI) ─────────────────────────────────────────────────
+router.post('/sort', (req, res) => {
+  const { konto, von, betreff, uid } = req.body || {};
+  if (!konto || !von) return res.status(400).json({ error: 'konto und von sind Pflicht' });
+
+  try {
+    // Finde konto_id
+    const account = db.prepare('SELECT id FROM accounts WHERE name = ?').get(konto);
+    if (account) {
+      const match = sortierung.pruefeRegeln(account.id, von, betreff);
+      if (match) {
+        return res.json({ aktion: 'verschieben', ordner: match.ordner });
+      }
+      // Kein Match -> ab in die Sortier-Inbox
+      db.prepare(`
+        INSERT INTO sort_inbox (konto, konto_id, von, betreff, uid)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(konto, account.id, von, betreff || null, uid || null);
+    }
+    res.json({ aktion: 'inbox' });
+  } catch (err) {
+    res.json({ aktion: 'inbox', fehler: err.message }); // Fehler blockieren den Mail-Fluss nicht
+  }
+});
 
 // Ein Aufruf prüft alles, was das Panel über eine Mail sagen kann.
 // Reihenfolge ist bewusst: Whitelist gewinnt immer, dann Blacklist, dann DNSBL.

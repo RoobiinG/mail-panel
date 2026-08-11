@@ -35,6 +35,7 @@ app.use('/api/newsletter', auth, rechtErforderlich('newsletter'), require('./rou
 app.use('/api/dashboard', auth, rechtErforderlich('dashboard'), require('./routes/dashboard'));
 app.use('/api/benutzer', auth, rechtErforderlich('benutzer'), require('./routes/benutzer'));
 app.use('/api/rollen', auth, rechtErforderlich('benutzer'), require('./routes/rollen'));
+app.use('/api/sortierung', auth, rechtErforderlich('sortierung'), require('./routes/sortierung'));
 
 // Panel-Logs
 app.post('/api/logs/client', express.json(), clientError); // ohne Auth
