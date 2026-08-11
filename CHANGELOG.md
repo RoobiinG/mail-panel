@@ -2,6 +2,21 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [2.0.0.0] - 2026-08-11 (Build 20) — *Custom Folders & 2FA Hint*
+
+### Features / Bugfixes
+
+- **Feature:** Eigene IMAP-Ordnernamen! Unterhalb der Kontodaten im Panel kann nun definiert werden, in welche Ordner Spam, Rechnungen, Bestellungen und Newsletter verschoben werden sollen, falls man die Standardnamen nicht mag. Bleiben Felder leer, werden die Standardnamen (z. B. "Quarantaene") verwendet.
+- **Feature:** Der n8n-Patcher wurde erweitert: Klickt man auf "Workflows synchronisieren", sucht er nun automatisch in den laufenden Workflows (01 und 04) den "Antwort parsen"-Knoten und rüstet den JS-Code so um, dass er die eigenen Ordnernamen unterstützt. (Ein manuelles Neuimportieren der Vorlagen ist damit nicht nötig).
+- **Feature:** Das Panel-Frontend hilft Nutzern, die Gmail-Verbindungsprobleme haben, indem es explizit auf die Notwendigkeit eines speziellen App-Passworts hinweist, sobald das Passwort-Feld fokussiert oder ausgefüllt wird, falls 2FA im Google-Konto aktiv ist.
+- **Fix:** Die Preset-Auswahl (z. B. "Gmail (IMAP)") setzt den Kontonamen nun auf "Gmail" anstatt den in Klammern gesetzten String zu verwenden. Das Backend lehnte Klammern aus Sicherheitsgründen zuvor beim Speichern ab.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migration:** Tabelle `accounts` wurde um die Spalten `folder_spam`, `folder_invoices`, `folder_orders`, und `folder_newsletter` erweitert (via `ALTER TABLE`).
+- **n8n-Workflow-Kompatibilität:** 100% kompatibel. Der Patcher passt bestehende Workflows dynamisch an. Die mitgelieferten Vorlagen `01-inbox-triage.json` und `04-bestand-triage.json` wurden im Codebase geupdatet.
+- **Neustart-/Session-Verhalten:** Keine Auswirkungen auf aktive Sessions.
+
 ## [1.9.2.0] - 2026-08-11 (Build 19) — *Auto-Config für KI & Telegram*
 
 ### Features / Bugfixes
