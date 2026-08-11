@@ -6,6 +6,7 @@ const LEER = { name: '', host: '', port: 993, username: '', passwort: '', tlsUns
 
 // Bekannte Anbieter — spart dem Nutzer das Nachschlagen der Serverdaten
 const VORLAGEN = [
+  { label: 'Gmail (IMAP)', host: 'imap.gmail.com', port: 993 },
   { label: 'Web.de', host: 'imap.web.de', port: 993 },
   { label: 'GMX', host: 'imap.gmx.net', port: 993 },
   { label: 'Mailbox.org', host: 'imap.mailbox.org', port: 993 },
