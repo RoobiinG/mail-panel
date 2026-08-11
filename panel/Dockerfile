@@ -1,7 +1,7 @@
 # Mail-Panel — Multi-Stage-Build (Muster: Überwachungs-Panel)
 
 # ─── Stufe 1: Frontend bauen ─────────────────────────────────────────────────
-FROM node:24-alpine AS frontend
+FROM node:22-alpine AS frontend
 WORKDIR /build
 COPY panel/frontend/package.json ./
 RUN npm install --no-audit --no-fund
@@ -10,7 +10,7 @@ COPY version.json ./
 RUN npm run build
 
 # ─── Stufe 2: Backend + fertiges Frontend ────────────────────────────────────
-FROM node:24-alpine
+FROM node:22-alpine
 ENV NODE_ENV=production \
     DATA_DIR=/app/data
 WORKDIR /app/backend
