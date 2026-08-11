@@ -334,9 +334,11 @@ async function alleSynchronisieren(konten) {
 async function basisSetup() {
   try {
     const alle = await n8n.workflowsAuflisten();
-    const workflowDir = path.resolve(__dirname, '../../../../workflows');
+    const lokal = path.resolve(__dirname, '../../../../workflows');
+    const docker = path.resolve(__dirname, '../../../workflows');
+    const workflowDir = fs.existsSync(docker) ? docker : lokal;
     
-    // Prüfen, ob das Verzeichnis überhaupt da ist (falls wir lokal entwickeln)
+    // Prüfen, ob das Verzeichnis überhaupt da ist
     if (!fs.existsSync(workflowDir)) return;
     
     const dateien = fs.readdirSync(workflowDir).filter((d) => d.endsWith('.json'));
