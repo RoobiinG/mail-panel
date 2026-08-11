@@ -332,16 +332,20 @@ async function alleSynchronisieren(konten) {
 // Prüft, ob die Workflows in n8n existieren, und importiert sie bei Bedarf
 // aus dem lokalen Verzeichnis (/app/workflows/).
 async function basisSetup() {
+  console.log('[basisSetup] gestartet');
   try {
     const alle = await n8n.workflowsAuflisten();
+    console.log(`[basisSetup] ${alle.length} Workflows in n8n gefunden.`);
     const lokal = path.resolve(__dirname, '../../../../workflows');
     const docker = path.resolve(__dirname, '../../../workflows');
     const workflowDir = fs.existsSync(docker) ? docker : lokal;
+    console.log(`[basisSetup] workflowDir: ${workflowDir}, exists: ${fs.existsSync(workflowDir)}`);
     
     // Prüfen, ob das Verzeichnis überhaupt da ist
     if (!fs.existsSync(workflowDir)) return;
     
     const dateien = fs.readdirSync(workflowDir).filter((d) => d.endsWith('.json'));
+    console.log(`[basisSetup] ${dateien.length} Vorlagen gefunden:`, dateien);
     
     for (const datei of dateien) {
       const inhalt = fs.readFileSync(path.join(workflowDir, datei), 'utf-8');
@@ -351,14 +355,21 @@ async function basisSetup() {
       const existiert = alle.some((w) => String(w.name).trim() === String(wf.name).trim());
       
       if (!existiert) {
-        console.log(`Workflow "${wf.name}" fehlt in n8n. Importiere...`);
-        const erstellt = await n8n.workflowErstellen(wf);
-        // Aktivieren, falls möglich
-        try { await n8n.workflowAktivieren(erstellt.id, true); } catch (e) { /* ignorieren */ }
+        console.log(`[basisSetup] Workflow "${wf.name}" fehlt in n8n. Importiere...`);
+        try {
+          const erstellt = await n8n.workflowErstellen(wf);
+          console.log(`[basisSetup] Erfolgreich erstellt: ${erstellt.id}`);
+          // Aktivieren, falls möglich
+          try { await n8n.workflowAktivieren(erstellt.id, true); } catch (e) { /* ignorieren */ }
+        } catch (innerErr) {
+          console.error(`[basisSetup] Fehler beim Erstellen von "${wf.name}":`, innerErr.message);
+        }
+      } else {
+        console.log(`[basisSetup] Workflow "${wf.name}" existiert bereits.`);
       }
     }
   } catch (err) {
-    console.error('Fehler beim automatischen Workflow-Setup:', err.message);
+    console.error('[basisSetup] Fehler beim automatischen Workflow-Setup:', err.message, err.stack);
   }
 }
 
