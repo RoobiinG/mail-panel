@@ -102,16 +102,58 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_plogs_created ON panel_logs(created_at);
   CREATE INDEX IF NOT EXISTS idx_plogs_level ON panel_logs(level);
+
+  -- Rollen: Admin fest, weitere frei erstellbar
+  CREATE TABLE IF NOT EXISTS rollen (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE NOT NULL,
+    fest INTEGER NOT NULL DEFAULT 0,
+    rechte TEXT NOT NULL DEFAULT '{}',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  -- Auth-Log: jede Anmeldung wird protokolliert
+  CREATE TABLE IF NOT EXISTS auth_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    username TEXT NOT NULL,
+    erfolg INTEGER NOT NULL DEFAULT 0,
+    ip TEXT,
+    user_agent TEXT,
+    herkunft TEXT,
+    methode TEXT DEFAULT 'passwort',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_authlog_created ON auth_log(created_at);
+  CREATE INDEX IF NOT EXISTS idx_authlog_user ON auth_log(user_id);
 `);
 
 // ─── Migrationen: neue Spalten kommen als try/catch-ALTER dazu ───────────────
 const migrations = [
   // Eigene Mailserver laufen oft mit selbstsigniertem Zertifikat
   'ALTER TABLE accounts ADD COLUMN tls_unsicher INTEGER NOT NULL DEFAULT 0',
+  // Mehrbenutzer: Rollenzuweisung
+  'ALTER TABLE users ADD COLUMN rolle_id INTEGER DEFAULT NULL',
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch { /* Spalte existiert schon */ }
 }
+
+// ─── Admin-Rolle fest einbauen (nicht lösch-/bearbeitbar) ────────────────────
+const ADMIN_RECHTE = JSON.stringify({
+  konten: true, listen: true, einstellungen: true, benutzer: true,
+  sortierung: true, quarantaene: true, newsletter: true, rspamd: true,
+  workflows: true, logs: true, dashboard: true,
+});
+db.prepare(`
+  INSERT OR IGNORE INTO rollen (id, name, fest, rechte)
+  VALUES (1, 'Admin', 1, ?)
+`).run(ADMIN_RECHTE);
+// Bestehende Admin-Rolle aktualisieren (falls neue Rechte hinzukamen)
+db.prepare(`UPDATE rollen SET rechte = ? WHERE id = 1 AND fest = 1`).run(ADMIN_RECHTE);
+
+// Bestehende Benutzer ohne Rolle bekommen automatisch Admin
+db.prepare(`UPDATE users SET rolle_id = 1 WHERE rolle_id IS NULL`).run();
 
 // ─── Default-Einstellungen beim ersten Start ─────────────────────────────────
 const defaults = {

@@ -8,6 +8,7 @@ const cors        = require('cors');
 const compression = require('compression');
 const path        = require('path');
 const auth         = require('./middleware/auth');
+const { rechtErforderlich } = require('./middleware/auth');
 const internalAuth = require('./middleware/internalAuth');
 const { router: passkeysRoutes } = require('./routes/passkeys');
 const { router: logsRoutes, clientError } = require('./routes/logs');
@@ -24,17 +25,20 @@ app.use(express.json({ limit: '1mb' }));
 
 // ─── Routen ──────────────────────────────────────────────────────────────────
 app.use('/api/auth', require('./routes/auth'));
-app.use('/api/konten', auth, require('./routes/konten'));
-app.use('/api/listen', auth, require('./routes/listen'));
-app.use('/api/einstellungen', auth, require('./routes/einstellungen'));
-app.use('/api/passkeys', auth, passkeysRoutes);
-app.use('/api/quarantaene', auth, require('./routes/quarantaene'));
-app.use('/api/rspamd', auth, require('./routes/rspamd'));
-app.use('/api/newsletter', auth, require('./routes/newsletter'));
-app.use('/api/dashboard', auth, require('./routes/dashboard'));
+app.use('/api/konten', auth, rechtErforderlich('konten'), require('./routes/konten'));
+app.use('/api/listen', auth, rechtErforderlich('listen'), require('./routes/listen'));
+app.use('/api/einstellungen', auth, rechtErforderlich('einstellungen'), require('./routes/einstellungen'));
+app.use('/api/passkeys', auth, passkeysRoutes); // eigene Auth-Logik
+app.use('/api/quarantaene', auth, rechtErforderlich('quarantaene'), require('./routes/quarantaene'));
+app.use('/api/rspamd', auth, rechtErforderlich('rspamd'), require('./routes/rspamd'));
+app.use('/api/newsletter', auth, rechtErforderlich('newsletter'), require('./routes/newsletter'));
+app.use('/api/dashboard', auth, rechtErforderlich('dashboard'), require('./routes/dashboard'));
+app.use('/api/benutzer', auth, rechtErforderlich('benutzer'), require('./routes/benutzer'));
+app.use('/api/rollen', auth, rechtErforderlich('benutzer'), require('./routes/rollen'));
+
 // Panel-Logs
-app.post('/api/logs/client', express.json(), clientError); // ohne Auth — Fehler koennen bei abgelaufenem Token auftreten
-app.use('/api/logs', auth, logsRoutes);
+app.post('/api/logs/client', express.json(), clientError); // ohne Auth
+app.use('/api/logs', auth, rechtErforderlich('logs'), logsRoutes);
 // Interne Endpunkte fuer n8n — eigener Shared-Secret-Schutz statt JWT
 app.use('/api/internal', internalAuth, require('./routes/internal'));
 

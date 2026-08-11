@@ -2,6 +2,22 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [1.9.0.0] - 2026-08-11 (Build 17) — *Mehrbenutzer & Rollen*
+
+### Features / Bugfixes
+
+- **Feature:** Dynamisches Rollen-System zur feingranularen Rechteverwaltung. Eine Admin-Rolle mit Vollzugriff ist fest im System integriert; weitere Rollen (z. B. Viewer oder Operator) können frei angelegt und mit spezifischen Rechten (pro Bereich wie Quarantäne, Einstellungen, etc.) versehen werden.
+- **Feature:** Neue Seite „Benutzer & Rollen" im Frontend zur Verwaltung von Konten und deren Rollenzuweisung.
+- **Feature:** Umfassendes Auth-Log. Jeder Anmeldeversuch (sowohl erfolgreiche als auch fehlgeschlagene) wird mit Zeitstempel, Benutzername, IP-Adresse, User-Agent und abgeleiteter Herkunft (GeoIP) protokolliert und kann in der Benutzer-Seite eingesehen werden.
+- **Feature:** Backend-Sicherheit verschärft: Alle geschützten API-Routen prüfen nun explizit, ob der anfragende Nutzer das entsprechende Recht (`rechtErforderlich()`) aus seiner Rolle besitzt. Das Frontend blendet Seiten und Menüeinträge entsprechend aus.
+- **Sicherheit:** Schutzmechanismen eingebaut, die verhindern, dass Nutzer sich selbst löschen oder der letzte verbleibende Admin gelöscht wird.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migration:** Neue Tabellen `rollen` und `auth_log` angelegt. Die Tabelle `users` erhält die neue Spalte `rolle_id`. Bestehende Benutzer bekommen bei der Migration automatisch die Admin-Rolle zugewiesen, um Abwärtskompatibilität zu gewährleisten.
+- **n8n-Workflow-Kompatibilität:** Keine Änderungen an den Workflows.
+- **Neustart-/Session-Verhalten:** Da sich die Struktur des JWT-Tokens ändert (es enthält nun die Rechte), ist ein erneuter Login ratsam. Zwar werden alte Tokens vom Backend verifiziert, jedoch fehlt ihnen die Berechtigung für die neuen API-Endpunkte.
+
 ## [1.8.0.0] - 2026-08-11 (Build 16) — *Panel-Logs*
 
 ### Features / Bugfixes

@@ -18,6 +18,58 @@ const loginLimiter = rateLimit({
 
 const anzahlUser = () => db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
 
+// ─── GeoIP (optional, fällt still zurück wenn nicht verfügbar) ───────────────
+let geoLookup = null;
+try {
+  const geoip = require('geoip-lite');
+  geoLookup = (ip) => {
+    const geo = geoip.lookup(ip);
+    if (!geo) return null;
+    const teile = [geo.country];
+    if (geo.city) teile.push(geo.city);
+    return teile.join(', ');
+  };
+} catch {
+  geoLookup = () => null;
+}
+
+// ─── Auth-Log schreiben ──────────────────────────────────────────────────────
+const stmtAuthLog = db.prepare(`
+  INSERT INTO auth_log (user_id, username, erfolg, ip, user_agent, herkunft, methode)
+  VALUES (?, ?, ?, ?, ?, ?, ?)
+`);
+
+function authLogSchreiben(req, userId, username, erfolg, methode = 'passwort') {
+  try {
+    const ip = req.ip || req.connection?.remoteAddress || null;
+    const userAgent = req.headers['user-agent'] || null;
+    const herkunft = ip ? geoLookup(ip) : null;
+    stmtAuthLog.run(userId || null, username, erfolg ? 1 : 0, ip, userAgent, herkunft, methode);
+  } catch (err) {
+    console.error('Auth-Log Fehler:', err.message);
+  }
+}
+
+// ─── JWT mit Rolle erzeugen ──────────────────────────────────────────────────
+function tokenErzeugen(user) {
+  // Rechte aus der Rolle laden
+  const rolle = db.prepare('SELECT name, rechte FROM rollen WHERE id = ?').get(user.rolle_id);
+  let rechte = {};
+  try { rechte = JSON.parse(rolle?.rechte || '{}'); } catch { /* leer */ }
+
+  return jwt.sign(
+    {
+      id: user.id,
+      username: user.username,
+      rolle_id: user.rolle_id,
+      rolle_name: rolle?.name || 'Keine Rolle',
+      rechte,
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: '12h' },
+  );
+}
+
 // Erststart-Erkennung fuer das Frontend: solange kein Benutzer existiert,
 // zeigt die App den Setup-Flow statt der Login-Maske.
 router.get('/setup-status', (req, res) => {
@@ -35,9 +87,12 @@ router.post('/setup', (req, res) => {
     return res.status(400).json({ error: 'Passwort: mindestens 10 Zeichen.' });
   }
   const hash = bcrypt.hashSync(password, 12);
-  const info = db.prepare('INSERT INTO users (username, password) VALUES (?, ?)').run(username.trim(), hash);
-  const token = jwt.sign({ id: info.lastInsertRowid, username: username.trim() }, process.env.JWT_SECRET, { expiresIn: '12h' });
-  res.json({ token, username: username.trim() });
+  // Erster Benutzer bekommt automatisch die Admin-Rolle (id=1)
+  const info = db.prepare('INSERT INTO users (username, password, rolle_id) VALUES (?, ?, 1)').run(username.trim(), hash);
+  const user = { id: info.lastInsertRowid, username: username.trim(), rolle_id: 1 };
+  const token = tokenErzeugen(user);
+  authLogSchreiben(req, user.id, user.username, true, 'passwort');
+  res.json({ token, username: user.username });
 });
 
 router.post('/login', loginLimiter, (req, res) => {
@@ -46,9 +101,11 @@ router.post('/login', loginLimiter, (req, res) => {
   const user = db.prepare('SELECT * FROM users WHERE username = ?').get(String(username).trim());
   // Immer derselbe Fehlertext — kein Hinweis, ob der Benutzer existiert
   if (!user || !bcrypt.compareSync(String(password), user.password)) {
+    authLogSchreiben(req, user?.id || null, String(username).trim(), false, 'passwort');
     return res.status(401).json({ error: 'Anmeldung fehlgeschlagen.' });
   }
-  const token = jwt.sign({ id: user.id, username: user.username }, process.env.JWT_SECRET, { expiresIn: '12h' });
+  authLogSchreiben(req, user.id, user.username, true, 'passwort');
+  const token = tokenErzeugen(user);
   res.json({ token, username: user.username });
 });
 
@@ -56,3 +113,6 @@ router.get('/webauthn/generate-authentication-options', loginLimiter, loginStart
 router.post('/webauthn/verify-authentication', loginLimiter, loginFinish);
 
 module.exports = router;
+// Exportiert fuer die Passkey-Route, die ebenfalls Auth-Log schreiben soll
+module.exports.authLogSchreiben = authLogSchreiben;
+module.exports.tokenErzeugen = tokenErzeugen;
