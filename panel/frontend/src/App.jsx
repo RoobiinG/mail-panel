@@ -9,6 +9,7 @@ import Platzhalter from './pages/Platzhalter';
 import Quarantaene from './pages/Quarantaene';
 import Rspamd from './pages/Rspamd';
 import Newsletter from './pages/Newsletter';
+import Logs from './pages/Logs';
 
 // Schuetzt alle Panel-Seiten: ohne Token geht es zum Login
 function Geschuetzt({ children }) {
@@ -36,6 +37,7 @@ export default function App() {
         <Route path="rspamd" element={<Rspamd />} />
         <Route path="workflows" element={<Platzhalter titel="Workflows" etappe="7" />} />
         <Route path="einstellungen" element={<Einstellungen />} />
+        <Route path="logs" element={<Logs />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

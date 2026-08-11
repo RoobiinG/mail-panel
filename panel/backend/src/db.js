@@ -88,6 +88,20 @@ db.exec(`
     abbestellt_am DATETIME,
     zuletzt_gesehen DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+
+  -- Panel-Logs: Backend-Fehler, Frontend-Fehler, Container-Status
+  CREATE TABLE IF NOT EXISTS panel_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    level TEXT NOT NULL DEFAULT 'error',
+    quelle TEXT,
+    nachricht TEXT NOT NULL,
+    stack TEXT,
+    request_url TEXT,
+    request_method TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_plogs_created ON panel_logs(created_at);
+  CREATE INDEX IF NOT EXISTS idx_plogs_level ON panel_logs(level);
 `);
 
 // ─── Migrationen: neue Spalten kommen als try/catch-ALTER dazu ───────────────

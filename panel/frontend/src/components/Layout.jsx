@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Mail, ShieldAlert, ListChecks,
-  Newspaper, Filter, Workflow, Settings, LogOut,
+  Newspaper, Filter, Workflow, Settings, LogOut, FileWarning,
 } from 'lucide-react';
 
 const NAV = [
@@ -14,6 +14,7 @@ const NAV = [
   { zu: '/rspamd', label: 'Rspamd', Icon: Filter },
   { zu: '/workflows', label: 'Workflows', Icon: Workflow },
   { zu: '/einstellungen', label: 'Einstellungen', Icon: Settings },
+  { zu: '/logs', label: 'Logs', Icon: FileWarning },
 ];
 
 export default function Layout() {

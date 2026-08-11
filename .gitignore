@@ -6,6 +6,8 @@ package-lock.json
 *.db-shm
 *.db-wal
 npm-debug.log*
+*.tar
+*.tar.gz
 
 # Produktions-Config mit echten Secrets/Domains — nie auf GitHub!
 docker-compose.prod.yml

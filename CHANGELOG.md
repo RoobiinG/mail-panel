@@ -2,6 +2,22 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [1.8.0.0] - 2026-08-11 (Build 16) — *Panel-Logs*
+
+### Features / Bugfixes
+
+- **Feature:** Zentrales Fehler-Logging für das gesamte Panel. Alle Backend-Fehler (Express-Exceptions, unbehandelte Promises), Frontend-JS-Fehler und Container-Statusprobleme (ClamAV, unbound) werden in einer SQLite-Tabelle (`panel_logs`) mit Ring-Buffer (max. 1000 Einträge) gespeichert.
+- **Feature:** Neue Seite „Logs" im Panel mit Log-Tabelle, aufklappbarem Stack-Trace, Filtern nach Level (Error/Warn/Info), Quelle (Backend/Frontend/Container) und Freitextsuche. Pagination und optionaler Auto-Refresh (10 Sekunden).
+- **Feature:** Frontend-Fehler-Handler (`window.onerror`, `onunhandledrejection`) meldet JS-Crashes automatisch an das Backend (`POST /api/logs/client`, ohne Auth).
+- **Feature:** Container-Health-Check: prüft alle 5 Minuten die Erreichbarkeit von ClamAV (PING) und unbound (DNS-Auflösung) und loggt Warnungen bei Ausfall.
+- **Feature:** Express Error-Handler als letzte Middleware — fängt alle unbehandelten Route-Fehler und schreibt sie ins Log statt sie nur auf die Konsole zu schreiben.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migration:** Neue Tabelle `panel_logs` mit Indizes auf `created_at` und `level`. Wird beim Start automatisch angelegt — kein manueller Eingriff nötig.
+- **n8n-Workflow-Kompatibilität:** Keine Änderungen an den Workflows.
+- **Neustart-/Session-Verhalten:** Der Container-Health-Check startet 30 Sekunden nach dem Backend-Start. Bestehende Sessions bleiben gültig.
+
 ## [1.7.0.3] - 2026-08-10 (Build 15) — *Hotfix: Black Screen of Death*
 
 ### Features / Bugfixes
