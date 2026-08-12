@@ -54,6 +54,7 @@ router.get('/stats', (req, res) => {
       history: Object.values(historyMap)
     });
   } catch (err) {
+    console.error('DASHBOARD STATS ERROR:', err);
     res.status(500).json({ error: err.message });
   }
 });
