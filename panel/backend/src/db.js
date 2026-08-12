@@ -166,6 +166,8 @@ const migrations = [
   'ALTER TABLE accounts ADD COLUMN folder_invoices TEXT',
   'ALTER TABLE accounts ADD COLUMN folder_orders TEXT',
   'ALTER TABLE accounts ADD COLUMN folder_newsletter TEXT',
+  // Viren-Scanner: Speichern des Virus-Namens
+  'ALTER TABLE quarantine_log ADD COLUMN virus_name TEXT',
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch { /* Spalte existiert schon */ }

@@ -2,9 +2,19 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
-## [2.0.0.0] - 2026-08-11 (Build 20) — *Custom Folders & 2FA Hint*
+## [2.0.0.1] - 2026-08-12 (Build 21) — *Dashboard DB Fix*
 
 ### Features / Bugfixes
+
+- **Fix:** Fehlende Datenbank-Migration für die `virus_name`-Spalte in der `quarantine_log`-Tabelle hinzugefügt. Zuvor führte eine fehlende Spalte bei bestehenden Installationen zu einem 500-Fehler beim Laden der Dashboard-Statistiken, wodurch das Dashboard nicht gerendert wurde.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **Datenbank:** Fügt die `virus_name`-Spalte zur `quarantine_log`-Tabelle per `ALTER TABLE` hinzu, wenn sie nicht existiert. Das Dashboard sollte danach wieder normal laden.
+
+---
+
+## [2.0.0.0] - 2026-08-11 (Build 20) — *Custom Folders & 2FA Hint*
 
 - **Feature:** Eigene IMAP-Ordnernamen! Unterhalb der Kontodaten im Panel kann nun definiert werden, in welche Ordner Spam, Rechnungen, Bestellungen und Newsletter verschoben werden sollen, falls man die Standardnamen nicht mag. Bleiben Felder leer, werden die Standardnamen (z. B. "Quarantaene") verwendet.
 - **Feature:** Der n8n-Patcher wurde erweitert: Klickt man auf "Workflows synchronisieren", sucht er nun automatisch in den laufenden Workflows (01 und 04) den "Antwort parsen"-Knoten und rüstet den JS-Code so um, dass er die eigenen Ordnernamen unterstützt. (Ein manuelles Neuimportieren der Vorlagen ist damit nicht nötig).
