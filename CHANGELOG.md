@@ -2,6 +2,38 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [2.1.0.0] - 2026-08-13 (Build 23) — *n8n aus dem Panel steuern*
+
+### Features
+
+- **Neue Seite „Workflows"** (löst den Platzhalter ab). Sie zeigt alle Workflows mit
+  Status und letztem Lauf, schaltet sie ein und aus und listet die letzten Ausführungen.
+  Ein Klick auf einen Lauf zeigt jeden Knoten einzeln — mit Fehlertext im Klartext, statt
+  ihn in n8n suchen zu müssen.
+- **Aufgeklappte Ansicht je Workflow:** alle Knoten mit Kennzeichnung, welche davon das
+  Panel verwaltet (Präfix `panel-`) und welche mangels Zugangsdaten stillgelegt sind —
+  samt Hinweis, dass sie wieder mitlaufen, sobald die Zugangsdaten da sind.
+- **Knöpfe „Neu importieren" und „Synchronisieren"** direkt auf der Seite: fehlende
+  Basis-Workflows nach n8n bringen und die Konten neu verdrahten.
+- Scheitert das Einschalten, reicht das Panel den Grund von n8n unverändert durch
+  (fehlende Zugangsdaten, kein Trigger-Knoten) statt nur zu melden, dass es nicht ging.
+
+### Bugfixes
+
+- **Aktive Workflows wurden bei jedem Konto-Sync stillschweigend abgeschaltet.** Die
+  Aktivierung über die n8n-API scheiterte an einem falschen Content-Type: Ohne Rumpf
+  schickt axios `application/x-www-form-urlencoded`, was n8n mit „unsupported media type"
+  ablehnt. Da der Patcher nach dem Speichern wieder aktiviert, blieb ein zuvor aktiver
+  Workflow danach aus — die Live-Triage lief nach jeder Kontoänderung nicht mehr.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **Neues Recht `workflows`** wird für die Seite gebraucht. Die Admin-Rolle hat es bereits;
+  eigene Rollen brauchen es einmalig unter „Benutzer & Rollen".
+- Keine DB-Migration, keine Änderung an den Workflow-Vorlagen.
+- Die n8n-Oberfläche bleibt erreichbar und wird für Sonderfälle auch weiterhin gebraucht
+  (etwa für die Gmail-Anmeldung per OAuth).
+
 ## [2.0.0.2] - 2026-08-13 (Build 22) — *Prüfbericht abgearbeitet*
 
 Alle Punkte stammen aus einer Code-Durchsicht plus rund 50 Prüfungen gegen den laufenden

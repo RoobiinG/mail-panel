@@ -36,6 +36,7 @@ app.use('/api/dashboard', auth, rechtErforderlich('dashboard'), require('./route
 app.use('/api/benutzer', auth, rechtErforderlich('benutzer'), require('./routes/benutzer'));
 app.use('/api/rollen', auth, rechtErforderlich('benutzer'), require('./routes/rollen'));
 app.use('/api/sortierung', auth, rechtErforderlich('sortierung'), require('./routes/sortierung'));
+app.use('/api/workflows', auth, rechtErforderlich('workflows'), require('./routes/workflows'));
 
 // Panel-Logs: Browser-Fehler kommen ohne Anmeldung an (der Fehler kann ja gerade
 // die Anmeldung betreffen) — deshalb eine Bremse, damit niemand die Datenbank

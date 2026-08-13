@@ -79,7 +79,11 @@ async function workflowSpeichern(id, workflow) {
 async function workflowAktivieren(id, aktiv) {
   try {
     const pfad = aktiv ? 'activate' : 'deactivate';
-    const { data } = await client().post(`/workflows/${id}/${pfad}`);
+    // Ohne Rumpf setzt axios "application/x-www-form-urlencoded" — das lehnt die
+    // n8n-API mit "unsupported media type" ab. Deshalb leeres JSON mitschicken.
+    const { data } = await client().post(`/workflows/${id}/${pfad}`, {}, {
+      headers: { 'Content-Type': 'application/json' },
+    });
     return data;
   } catch (err) {
     throw fehler(err, `Workflow ${id} konnte nicht ${aktiv ? 'aktiviert' : 'deaktiviert'} werden`);

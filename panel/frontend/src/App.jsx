@@ -9,6 +9,7 @@ import Platzhalter from './pages/Platzhalter';
 import Quarantaene from './pages/Quarantaene';
 import Rspamd from './pages/Rspamd';
 import Newsletter from './pages/Newsletter';
+import Workflows from './pages/Workflows';
 import Logs from './pages/Logs';
 import Benutzer from './pages/Benutzer';
 import Sortierung from './pages/Sortierung';
@@ -37,7 +38,7 @@ export default function App() {
         <Route path="listen" element={<Listen />} />
         <Route path="newsletter" element={<Newsletter />} />
         <Route path="rspamd" element={<Rspamd />} />
-        <Route path="workflows" element={<Platzhalter titel="Workflows" etappe="7" />} />
+        <Route path="workflows" element={<Workflows />} />
         <Route path="einstellungen" element={<Einstellungen />} />
         <Route path="benutzer" element={<Benutzer />} />
         <Route path="sortierung" element={<Sortierung />} />
