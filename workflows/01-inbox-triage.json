@@ -117,7 +117,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1980,
+        2200,
         200
       ]
     },
@@ -131,7 +131,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2200,
+        2420,
         200
       ]
     },
@@ -165,7 +165,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        2420,
+        2640,
         200
       ]
     },
@@ -176,7 +176,7 @@
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
-        2660,
+        2880,
         380
       ]
     },
@@ -217,7 +217,7 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        2660,
+        2880,
         120
       ]
     },
@@ -233,7 +233,7 @@
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.1,
       "position": [
-        2920,
+        3140,
         0
       ]
     },
@@ -269,7 +269,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        880,
+        1100,
         180
       ]
     },
@@ -303,7 +303,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1100,
+        1320,
         180
       ]
     },
@@ -317,7 +317,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1100,
+        1320,
         400
       ]
     },
@@ -327,7 +327,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1320,
+        1540,
         200
       ],
       "parameters": {
@@ -354,7 +354,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1540,
+        1760,
         50
       ],
       "parameters": {
@@ -372,7 +372,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1760,
+        1980,
         50
       ],
       "parameters": {
@@ -400,7 +400,7 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        1980,
+        2200,
         -100
       ],
       "parameters": {
@@ -416,7 +416,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1980,
+        2200,
         50
       ],
       "parameters": {
@@ -432,7 +432,7 @@
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ konto: .konto, von: .von, betreff: .betreff, uid: .uid }) }}",
+        "jsonBody": "={{ JSON.stringify({ konto: $json.konto, von: $json.von, betreff: $json.betreff, uid: $json.uid }) }}",
         "options": {}
       },
       "id": "sort-http",
@@ -458,7 +458,7 @@
           "conditions": [
             {
               "id": "cond-verschieben",
-              "leftValue": "={{ .aktion }}",
+              "leftValue": "={{ $json.sort_aktion }}",
               "rightValue": "verschieben",
               "operator": {
                 "type": "string",
@@ -475,21 +475,35 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        880,
+        1100,
         -20
       ]
     },
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "const mail = $('Normalisieren').item.json;\nreturn { json: { ...mail, zielordner: $json.ordner, kategorie: 'sortierung', spam_score: 0, kurzfassung: 'Automatisch einsortiert' } };"
+        "jsCode": "// Die Sortier-Regel hat gegriffen — Zielordner übernehmen, ohne KI-Abfrage\nconst m = $json;\nreturn {\n  json: {\n    ...m,\n    zielordner: m.sort_ordner,\n    kategorie: 'sortierung',\n    spam_score: 0,\n    kurzfassung: 'Automatisch nach eigener Regel einsortiert',\n  },\n};"
       },
       "id": "sort-code",
       "name": "Zielordner übernehmen",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1100,
+        1320,
+        -20
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Antwort des Panels mit der Mail zusammenführen.\n// Der HTTP-Knoten davor ersetzt das Item durch seine Antwort — ohne diesen\n// Schritt hätten alle folgenden Knoten keine Maildaten mehr.\nconst mail = $('Normalisieren').item.json;\nconst s = $json || {};\nreturn {\n  json: {\n    ...mail,\n    sort_aktion: s.aktion || 'inbox',\n    sort_ordner: s.ordner || null,\n  },\n};"
+      },
+      "id": "sort-auswerten",
+      "name": "Sortierung auswerten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
         -20
       ]
     }
@@ -703,7 +717,7 @@
       "main": [
         [
           {
-            "node": "Gleich sortieren?",
+            "node": "Sortierung auswerten",
             "type": "main",
             "index": 0
           }
@@ -733,6 +747,17 @@
         [
           {
             "node": "Verschieben?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sortierung auswerten": {
+      "main": [
+        [
+          {
+            "node": "Gleich sortieren?",
             "type": "main",
             "index": 0
           }

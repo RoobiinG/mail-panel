@@ -32,6 +32,10 @@ router.post('/regeln', (req, res) => {
   if (!['absender', 'betreff', 'domain'].includes(typ)) {
     return res.status(400).json({ error: 'Ungültiger Typ.' });
   }
+  // Regeln fuer ein Konto, das es nicht gibt, wuerden nie greifen
+  if (!db.prepare('SELECT 1 FROM accounts WHERE id = ?').get(Number(konto_id))) {
+    return res.status(400).json({ error: 'Das Konto existiert nicht.' });
+  }
   try {
     const info = db.prepare(`
       INSERT INTO sort_rules (konto_id, typ, muster, zielordner, erstellt_von)
@@ -46,7 +50,8 @@ router.post('/regeln', (req, res) => {
 // DELETE /api/sortierung/regeln/:id — Regel loeschen
 router.delete('/regeln/:id', (req, res) => {
   try {
-    db.prepare('DELETE FROM sort_rules WHERE id = ?').run(Number(req.params.id));
+    const info = db.prepare('DELETE FROM sort_rules WHERE id = ?').run(Number(req.params.id));
+    if (info.changes === 0) return res.status(404).json({ error: 'Regel nicht gefunden.' });
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

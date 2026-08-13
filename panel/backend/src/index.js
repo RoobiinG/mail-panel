@@ -37,8 +37,18 @@ app.use('/api/benutzer', auth, rechtErforderlich('benutzer'), require('./routes/
 app.use('/api/rollen', auth, rechtErforderlich('benutzer'), require('./routes/rollen'));
 app.use('/api/sortierung', auth, rechtErforderlich('sortierung'), require('./routes/sortierung'));
 
-// Panel-Logs
-app.post('/api/logs/client', express.json(), clientError); // ohne Auth
+// Panel-Logs: Browser-Fehler kommen ohne Anmeldung an (der Fehler kann ja gerade
+// die Anmeldung betreffen) — deshalb eine Bremse, damit niemand die Datenbank
+// vollschreiben kann.
+const rateLimit = require('express-rate-limit');
+const clientLogLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Zu viele Fehlermeldungen — bitte kurz warten.' },
+});
+app.post('/api/logs/client', clientLogLimiter, express.json({ limit: '64kb' }), clientError);
 app.use('/api/logs', auth, rechtErforderlich('logs'), logsRoutes);
 // Interne Endpunkte fuer n8n — eigener Shared-Secret-Schutz statt JWT
 app.use('/api/internal', internalAuth, require('./routes/internal'));

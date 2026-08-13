@@ -34,7 +34,9 @@ async function pruefeLinks(links) {
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      // Die Link-Pruefung darf den Mail-Durchlauf nicht aufhalten
+      signal: AbortSignal.timeout(10000),
     });
     
     if (!res.ok) {

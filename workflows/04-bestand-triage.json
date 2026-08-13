@@ -87,7 +87,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        2420,
+        2640,
         100
       ]
     },
@@ -101,7 +101,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2640,
+        2860,
         100
       ]
     },
@@ -135,7 +135,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        2860,
+        3080,
         100
       ]
     },
@@ -146,7 +146,7 @@
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
-        3100,
+        3320,
         280
       ]
     },
@@ -187,7 +187,7 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        3100,
+        3320,
         20
       ]
     },
@@ -203,7 +203,7 @@
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.1,
       "position": [
-        3360,
+        3580,
         -100
       ]
     },
@@ -239,7 +239,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1320,
+        1540,
         100
       ]
     },
@@ -273,7 +273,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1540,
+        1760,
         100
       ]
     },
@@ -287,7 +287,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1540,
+        1760,
         300
       ]
     },
@@ -297,7 +297,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1320,
+        1540,
         200
       ],
       "parameters": {
@@ -324,7 +324,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1540,
+        1760,
         50
       ],
       "parameters": {
@@ -342,7 +342,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1760,
+        1980,
         50
       ],
       "parameters": {
@@ -370,13 +370,13 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        1980,
+        2200,
         -100
       ],
       "parameters": {
         "operation": "sendMessage",
         "chatId": "BITTE_EINTRAGEN",
-        "text": "={{ '⚠️ *VIRUS GEFUNDEN* ⚠️\\n\\nVon: ' + $('Normalisieren').item.json.von + '\\nBetreff: ' + $('Normalisieren').item.json.betreff + '\\nVirus: ' + $json.virus }}",
+        "text": "={{ '⚠️ *VIRUS GEFUNDEN* ⚠️\\n\\nVon: ' + $('Sammeln + Normalisieren').item.json.von + '\\nBetreff: ' + $('Sammeln + Normalisieren').item.json.betreff + '\\nVirus: ' + $json.virus }}",
         "additionalFields": {}
       }
     },
@@ -386,12 +386,12 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1980,
+        2200,
         50
       ],
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "const m = $('Normalisieren').item.json;\nreturn { json: { ...m, kategorie: 'spam', spam_score: 1, virus_name: $json.virus || 'Unbekannt', kurzfassung: 'Malware-Anhang entfernt', zielordner: 'Quarantaene' } };"
+        "jsCode": "const m = $('Sammeln + Normalisieren').item.json;\nreturn { json: { ...m, kategorie: 'spam', spam_score: 1, virus_name: $json.virus || 'Unbekannt', kurzfassung: 'Malware-Anhang entfernt', zielordner: 'Quarantaene' } };"
       }
     },
     {
@@ -402,7 +402,7 @@
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ konto: .konto, von: .von, betreff: .betreff, uid: .uid }) }}",
+        "jsonBody": "={{ JSON.stringify({ konto: $json.konto, von: $json.von, betreff: $json.betreff, uid: $json.uid }) }}",
         "options": {}
       },
       "id": "sort-http-bestand",
@@ -428,7 +428,7 @@
           "conditions": [
             {
               "id": "cond-verschieben",
-              "leftValue": "={{ .aktion }}",
+              "leftValue": "={{ $json.sort_aktion }}",
               "rightValue": "verschieben",
               "operator": {
                 "type": "string",
@@ -445,21 +445,35 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1320,
+        1540,
         -120
       ]
     },
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "const mail = $('Sammeln + Normalisieren').item.json;\nreturn { json: { ...mail, zielordner: $json.ordner, kategorie: 'sortierung', spam_score: 0, kurzfassung: 'Automatisch einsortiert' } };"
+        "jsCode": "// Die Sortier-Regel hat gegriffen — Zielordner übernehmen, ohne KI-Abfrage\nconst m = $json;\nreturn {\n  json: {\n    ...m,\n    zielordner: m.sort_ordner,\n    kategorie: 'sortierung',\n    spam_score: 0,\n    kurzfassung: 'Automatisch nach eigener Regel einsortiert',\n  },\n};"
       },
       "id": "sort-code-bestand",
       "name": "Zielordner übernehmen",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1540,
+        1760,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Antwort des Panels mit der Mail zusammenführen.\n// Der HTTP-Knoten davor ersetzt das Item durch seine Antwort — ohne diesen\n// Schritt hätten alle folgenden Knoten keine Maildaten mehr.\nconst mail = $('Sammeln + Normalisieren').item.json;\nconst s = $json || {};\nreturn {\n  json: {\n    ...mail,\n    sort_aktion: s.aktion || 'inbox',\n    sort_ordner: s.ordner || null,\n  },\n};"
+      },
+      "id": "sort-auswerten",
+      "name": "Sortierung auswerten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
         -120
       ]
     }
@@ -673,7 +687,7 @@
       "main": [
         [
           {
-            "node": "Gleich sortieren?",
+            "node": "Sortierung auswerten",
             "type": "main",
             "index": 0
           }
@@ -703,6 +717,17 @@
         [
           {
             "node": "Verschieben?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sortierung auswerten": {
+      "main": [
+        [
+          {
+            "node": "Gleich sortieren?",
             "type": "main",
             "index": 0
           }

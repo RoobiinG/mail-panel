@@ -186,8 +186,16 @@ db.prepare(`
 // Bestehende Admin-Rolle aktualisieren (falls neue Rechte hinzukamen)
 db.prepare(`UPDATE rollen SET rechte = ? WHERE id = 1 AND fest = 1`).run(ADMIN_RECHTE);
 
-// Bestehende Benutzer ohne Rolle bekommen automatisch Admin
-db.prepare(`UPDATE users SET rolle_id = 1 WHERE rolle_id IS NULL`).run();
+// Einmalige Übernahme für Bestandsinstallationen: Benutzer, die es schon vor der
+// Rollenverwaltung gab, bekommen die Admin-Rolle.
+// WICHTIG: Das darf nur ein einziges Mal laufen. Sonst würde jeder später bewusst
+// ohne Rolle angelegte Zugang beim nächsten Neustart stiller Admin werden.
+const rollenMigration = db.prepare("SELECT value FROM settings WHERE key = 'migration_rollen_erledigt'").get();
+if (!rollenMigration) {
+  db.prepare('UPDATE users SET rolle_id = 1 WHERE rolle_id IS NULL').run();
+  db.prepare("INSERT INTO settings (key, value) VALUES ('migration_rollen_erledigt', ?)")
+    .run(new Date().toISOString());
+}
 
 // ─── Default-Einstellungen beim ersten Start ─────────────────────────────────
 const defaults = {

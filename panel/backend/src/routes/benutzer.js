@@ -30,15 +30,15 @@ router.post('/', (req, res) => {
   if (!password || typeof password !== 'string' || password.length < 10) {
     return res.status(400).json({ error: 'Passwort: mindestens 10 Zeichen.' });
   }
-  // Rolle pruefen
-  if (rolle_id) {
-    const rolle = db.prepare('SELECT id FROM rollen WHERE id = ?').get(rolle_id);
-    if (!rolle) return res.status(400).json({ error: 'Rolle existiert nicht.' });
-  }
+  // Rolle ist Pflicht: Ein Zugang ohne Rolle hätte keine Rechte und wäre nur
+  // Verwirrung — ausserdem verhindert das Grenzfaelle bei der Rechtevergabe.
+  if (!rolle_id) return res.status(400).json({ error: 'Bitte eine Rolle auswählen.' });
+  const rolle = db.prepare('SELECT id FROM rollen WHERE id = ?').get(rolle_id);
+  if (!rolle) return res.status(400).json({ error: 'Rolle existiert nicht.' });
   try {
     const hash = bcrypt.hashSync(password, 12);
     const info = db.prepare('INSERT INTO users (username, password, rolle_id) VALUES (?, ?, ?)').run(
-      username.trim(), hash, rolle_id || null,
+      username.trim(), hash, rolle_id,
     );
     res.json({ id: info.lastInsertRowid, username: username.trim(), rolle_id });
   } catch (err) {
@@ -62,6 +62,17 @@ router.put('/:id', (req, res) => {
     if (rolle_id !== null) {
       const rolle = db.prepare('SELECT id FROM rollen WHERE id = ?').get(rolle_id);
       if (!rolle) return res.status(400).json({ error: 'Rolle existiert nicht.' });
+    }
+    // Den letzten Admin nicht herabstufen — sonst kommt niemand mehr an die
+    // Benutzerverwaltung und nur noch ein Eingriff in der Datenbank hilft.
+    const bisher = db.prepare('SELECT rolle_id FROM users WHERE id = ?').get(id);
+    if (bisher.rolle_id === 1 && rolle_id !== 1) {
+      const admins = db.prepare('SELECT COUNT(*) AS n FROM users WHERE rolle_id = 1').get().n;
+      if (admins <= 1) {
+        return res.status(400).json({
+          error: 'Das ist der letzte Administrator — lege zuerst einen zweiten an.',
+        });
+      }
     }
     db.prepare('UPDATE users SET rolle_id = ? WHERE id = ?').run(rolle_id, id);
   }

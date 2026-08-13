@@ -63,8 +63,12 @@ router.get('/n8n-status', async (req, res) => {
   try {
     const n8nUrl = process.env.N8N_URL || 'http://n8n:5678';
     // Holt den Status von n8n (ob es erreichbar ist)
+    // Der API-Key steht in den Panel-Einstellungen; die Env-Variable ist nur
+    // noch der optionale Vorrang. Zeitlimit, damit die Seite nicht haengt.
+    const settings = require('../services/settings');
     const response = await fetch(`${n8nUrl}/api/v1/workflows`, {
-      headers: { 'X-N8N-API-KEY': process.env.N8N_API_KEY || '' }
+      headers: { 'X-N8N-API-KEY': settings.hole('n8n_api_key') || '' },
+      signal: AbortSignal.timeout(8000),
     });
     
     if (response.ok) {

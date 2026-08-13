@@ -182,6 +182,12 @@ export default function Konten() {
                   <input type="number" value={formular.port} onChange={(e) => setFormular({ ...formular, port: e.target.value })} />
                 </label>
               </div>
+              {Number(formular.port) !== 993 && (
+                <p className="text-xs text-panel-orange -mt-1">
+                  Empfohlen ist Port 993 (durchgehend verschlüsselt). Auf Port 143 verweigern
+                  viele Server die Anmeldung, weil n8n dort kein STARTTLS anbietet.
+                </p>
+              )}
               <label className="text-sm space-y-1">
                 <span className="text-panel-muted">Benutzername / E-Mail-Adresse</span>
                 <input value={formular.username} onChange={(e) => setFormular({ ...formular, username: e.target.value })} autoComplete="off" />

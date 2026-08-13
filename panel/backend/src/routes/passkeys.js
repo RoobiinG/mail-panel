@@ -18,9 +18,19 @@ const jwt = require('jsonwebtoken');
  *  3. Host-Header (Proxy-Szenarien)
  *  4. Fallback localhost
  */
+// Kopfzeilen bestimmt der Aufrufer selbst. Sie als erwartete Herkunft zu nehmen,
+// hebelt die Herkunftsbindung von WebAuthn aus — im Betrieb deshalb nur mit
+// ALLOWED_ORIGIN. Ohne die Variable geht es nur in der Entwicklung weiter.
+function kopfzeilenErlaubt() {
+  return process.env.NODE_ENV !== 'production';
+}
+
 const getRpId = (req) => {
   if (process.env.ALLOWED_ORIGIN) {
     try { return new URL(process.env.ALLOWED_ORIGIN).hostname; } catch {}
+  }
+  if (!kopfzeilenErlaubt()) {
+    throw new Error('Für Passkeys muss ALLOWED_ORIGIN gesetzt sein (Panel-Adresse, z.B. https://panel.example.org).');
   }
   if (req?.headers?.origin) {
     try { return new URL(req.headers.origin).hostname; } catch {}
@@ -37,6 +47,9 @@ const getRpId = (req) => {
  */
 const getOrigin = (req) => {
   if (process.env.ALLOWED_ORIGIN) return process.env.ALLOWED_ORIGIN;
+  if (!kopfzeilenErlaubt()) {
+    throw new Error('Für Passkeys muss ALLOWED_ORIGIN gesetzt sein (Panel-Adresse, z.B. https://panel.example.org).');
+  }
   if (req?.headers?.origin) return req.headers.origin;
   const proto = req?.headers?.['x-forwarded-proto'] || (req?.secure ? 'https' : 'http');
   const host  = req?.headers?.['x-forwarded-host'] || req?.headers?.host || `localhost:${process.env.PORT || 3001}`;
@@ -141,13 +154,17 @@ router.delete('/:id', (req, res) => {
 // Diese Endpoints werden in auth.js eingebunden
 
 const loginStart = async (req, res) => {
-  const options = await generateAuthenticationOptions({
-    rpID:             getRpId(req),
-    userVerification: 'preferred',
-    allowCredentials: [], // Passkey sucht selbst nach passenden Keys (discoverable)
-  });
-  challenges.set(`login:${options.challenge}`, { challenge: options.challenge, expiresAt: Date.now() + 5 * 60_000 });
-  res.json(options);
+  try {
+    const options = await generateAuthenticationOptions({
+      rpID:             getRpId(req),
+      userVerification: 'preferred',
+      allowCredentials: [], // Passkey sucht selbst nach passenden Keys (discoverable)
+    });
+    challenges.set(`login:${options.challenge}`, { challenge: options.challenge, expiresAt: Date.now() + 5 * 60_000 });
+    res.json(options);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 };
 
 const loginFinish = async (req, res) => {
@@ -183,10 +200,15 @@ const loginFinish = async (req, res) => {
     db.prepare('UPDATE passkeys SET counter = ? WHERE credential_id = ?').run(verification.authenticationInfo.newCounter, pk.credential_id);
     challenges.delete(`login:${stored.challenge}`);
 
-    const user  = db.prepare('SELECT id, username FROM users WHERE id = ?').get(pk.user_id);
+    const user = db.prepare('SELECT id, username, rolle_id FROM users WHERE id = ?').get(pk.user_id);
     if (!user) return res.status(401).json({ error: 'Benutzer nicht gefunden' });
 
-    const token = jwt.sign({ id: user.id, username: user.username }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN || '12h' });
+    // Dasselbe Token wie beim Passwort-Login: mit Rolle und Rechten. Ohne die
+    // bliebe die Navigation nach der Anmeldung leer, weil sie danach filtert.
+    // Verzoegertes require, sonst greifen auth.js und passkeys.js im Kreis.
+    const { tokenErzeugen, authLogSchreiben } = require('./auth');
+    const token = tokenErzeugen(user);
+    authLogSchreiben(req, user.id, user.username, true, 'passkey');
     res.json({ token, username: user.username });
   } catch (err) {
     res.status(400).json({ error: err.message });

@@ -2,6 +2,77 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [2.0.0.2] - 2026-08-13 (Build 22) — *Prüfbericht abgearbeitet*
+
+Alle Punkte stammen aus einer Code-Durchsicht plus rund 50 Prüfungen gegen den laufenden
+Stack auf dem Testserver (echtes n8n, echtes Dovecot-Postfach, ClamAV, unbound).
+
+### Sicherheit
+
+- **Rechteausweitung beim Neustart geschlossen.** Beim Start wurde `rolle_id = 1` für alle
+  Benutzer ohne Rolle gesetzt — jeder bewusst ohne Rolle angelegte Zugang wurde damit beim
+  nächsten Neustart Administrator. Die Übernahme läuft jetzt einmalig als Migration
+  (Marker `migration_rollen_erledigt`), und beim Anlegen ist eine Rolle Pflicht.
+- **Serverseitige Anfragefälschung (SSRF) beim Newsletter-Abbestellen geschlossen.** Die
+  aufgerufene Adresse stammt aus dem `List-Unsubscribe`-Header und damit vom Absender der
+  Mail. Ohne Prüfung ließen sich darüber Dienste im eigenen Docker-Netz erreichen
+  (nachgewiesen mit `http://n8n:5678/healthz`). Neuer Helfer `services/urlSchutz.js`:
+  nur http/https, Auflösung des Namens, Ablehnung privater, lokaler, Link-Local- und
+  Metadaten-Adressen, 10 s Zeitlimit, keine Weiterleitungen.
+- **Der letzte Administrator kann sich nicht mehr selbst herabstufen** — bisher war nur das
+  Löschen abgesichert, nicht der Rollenwechsel. Danach kam niemand mehr an die
+  Benutzerverwaltung.
+- **Log-Endpunkt gebremst:** `POST /api/logs/client` nimmt weiterhin ohne Anmeldung
+  Browser-Fehler an (der Fehler kann ja die Anmeldung selbst betreffen), jetzt aber
+  begrenzt auf 30 Meldungen je Minute und IP, mit 64 KB Obergrenze je Meldung.
+- **Passkeys:** Ohne `ALLOWED_ORIGIN` wurden erwartete Herkunft und RP-ID aus den
+  Kopfzeilen der Anfrage abgeleitet — also aus Werten, die der Aufrufer selbst bestimmt.
+  Im Produktivbetrieb wird das jetzt abgelehnt, in der Entwicklung bleibt es erlaubt.
+
+### Bugfixes
+
+- **Die Triage-Workflows liefen überhaupt nicht.** In den Knoten *Sortierung prüfen* und
+  *Gleich sortieren?* fehlte in fünf Ausdrücken das `$json` (`{{ .konto }}` statt
+  `{{ $json.konto }}`) — n8n brach jeden Lauf mit „invalid syntax" ab, bevor eine Mail
+  klassifiziert wurde.
+- **Neuer Knoten *Sortierung auswerten*.** Der HTTP-Knoten davor ersetzt das Item durch
+  seine Antwort; danach kannten alle folgenden Knoten die Mail nicht mehr, sodass die
+  Panel-Prüfung mit leerem Absender lief und weder White- noch Blacklist griffen.
+- **Workflow 01 ließ sich ohne Gmail-Konto gar nicht aktivieren** („Missing required
+  credential"). Knoten ohne hinterlegte Zugangsdaten (Gmail, Telegram, verwaiste
+  IMAP-Knoten) werden beim Konto-Sync jetzt automatisch stillgelegt und laufen wieder mit,
+  sobald Zugangsdaten da sind. Damit ist auch **Workflow 03** wieder aktivierbar, der
+  wegen alter, fest verdrahteter IMAP-Knoten für alle blockiert war.
+- **Workflow 04:** *Virus Warnung (Telegram)* und *Virus: Quarantäne* zeigten auf
+  `$('Normalisieren')` — dort heißt der Knoten *Sammeln + Normalisieren*. Bei einem
+  Virusfund brach genau der Zweig ab, der warnen sollte.
+- Sortier-Regeln lassen sich nicht mehr für nicht existierende Konten anlegen; das Löschen
+  einer unbekannten Regel meldet jetzt 404 statt Erfolg.
+- Zeitlimits für alle externen Aufrufe (Safe Browsing, n8n-Status, Abmelde-Links).
+- Der n8n-Status im Dashboard nutzt jetzt den im Panel hinterlegten API-Key statt einer
+  Umgebungsvariablen, die im Normalfall gar nicht gesetzt ist.
+- Debug-Datei `backend/src/test-db.js` entfernt.
+
+### Verbesserungen
+
+- Beim Anlegen eines Kontos weist das Formular auf Port 993 hin. Auf Port 143 verweigern
+  viele Server die Anmeldung, weil der IMAP-Trigger von n8n dort kein STARTTLS anbietet.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **Workflows 01, 03 und 04 müssen neu importiert werden**, danach einmal „Workflows
+  synchronisieren" im Panel klicken. Der Sync legt dabei Knoten ohne Zugangsdaten still.
+- **Benutzer ohne Rolle** lassen sich nicht mehr anlegen. Bestehende Zugänge ohne Rolle
+  behalten ihre (fehlenden) Rechte und werden nicht mehr stillschweigend zu Admins —
+  ihnen muss einmalig von Hand eine Rolle zugewiesen werden.
+- **Passkeys im Produktivbetrieb brauchen `ALLOWED_ORIGIN`** (die Panel-Adresse, z.B.
+  `https://panel.example.org`). Fehlt die Variable, lehnt das Panel die Passkey-Anmeldung
+  mit einer entsprechenden Meldung ab.
+- Neue Einstellung `migration_rollen_erledigt` in der Panel-Datenbank; keine Migration nötig.
+- Bekannte Einschränkung: In Workflow 04 werden beim Bestandsabruf keine Anhänge geladen,
+  der ClamAV-Zweig greift dort deshalb nicht. Für neu eintreffende Mails (Workflow 01)
+  funktioniert der Virenscan.
+
 ## [2.0.0.1] - 2026-08-12 (Build 21) — *Dashboard DB Fix*
 
 ### Features / Bugfixes

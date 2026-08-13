@@ -397,6 +397,12 @@ async function kiUndBenachrichtigungenSynchronisieren() {
         }
       }
 
+      // Knoten ohne Zugangsdaten stilllegen. n8n verweigert sonst das
+      // Aktivieren des ganzen Workflows ("Missing required credential") —
+      // wer kein Gmail und kein Telegram nutzt, könnte die Triage sonst gar
+      // nicht einschalten. Sobald Zugangsdaten da sind, laufen sie wieder mit.
+      if (knotenStilllegen(workflow)) geaendert = true;
+
       if (geaendert) {
         await n8n.workflowSpeichern(wfInfo.id, workflow);
       }
@@ -404,6 +410,35 @@ async function kiUndBenachrichtigungenSynchronisieren() {
   } catch (err) {
     console.warn('Fehler beim Patchen der Workflows (KI/Telegram):', err.message);
   }
+}
+
+// Diese Knotentypen brauchen zwingend Zugangsdaten — fehlen sie, blockieren sie
+// die Aktivierung des gesamten Workflows.
+const BRAUCHT_ZUGANGSDATEN = [
+  'n8n-nodes-base.gmail',
+  'n8n-nodes-base.gmailTrigger',
+  'n8n-nodes-base.telegram',
+  'n8n-nodes-base.telegramTrigger',
+  // Betrifft vor allem Workflow 03: dort stehen noch fest verdrahtete
+  // IMAP-Knoten aus der ersten Fassung, die keine Zugangsdaten haben.
+  'n8n-nodes-imap.imap',
+  'n8n-nodes-base.emailReadImap',
+];
+
+function knotenStilllegen(workflow) {
+  let geaendert = false;
+  for (const knoten of workflow.nodes) {
+    if (!BRAUCHT_ZUGANGSDATEN.includes(knoten.type)) continue;
+    const hatZugangsdaten = knoten.credentials && Object.keys(knoten.credentials).length > 0;
+    if (!hatZugangsdaten && !knoten.disabled) {
+      knoten.disabled = true;
+      geaendert = true;
+    } else if (hatZugangsdaten && knoten.disabled) {
+      delete knoten.disabled;
+      geaendert = true;
+    }
+  }
+  return geaendert;
 }
 
 // Beide Workflows auf den aktuellen Kontenstand bringen
