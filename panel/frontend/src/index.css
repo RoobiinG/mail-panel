@@ -2,21 +2,77 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Basis übernommen vom Überwachungs-Panel, damit beide Panels sich gleich anfühlen. */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  background-color: #0d1117;
+  color: #e6edf3;
+}
+
 body {
-  @apply bg-panel-bg text-panel-text font-sans antialiased;
+  @apply font-sans antialiased;
 }
 
-/* Einheitliche Formularelemente im Dark-Design */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #161b22; }
+::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #388bfd; }
+
 input, select, textarea {
-  @apply bg-panel-surface border border-panel-border rounded-md px-3 py-2 text-sm
-         focus:outline-none focus:border-panel-accent w-full;
+  color-scheme: dark;
 }
 
-.btn {
-  @apply px-4 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer
-         disabled:opacity-50 disabled:cursor-not-allowed;
+/* Formularelemente sind im Mail-Panel überall ohne eigene Klasse im Einsatz —
+   deshalb bleibt die Gestaltung global. Kästchen und Radios sind ausgenommen,
+   sonst würden sie über die volle Breite gezogen. */
+input:not([type='checkbox']):not([type='radio']),
+select,
+textarea {
+  @apply w-full bg-panel-surface border border-panel-border rounded-md px-3 py-2 text-sm text-panel-text
+         placeholder:text-panel-muted/40
+         focus:border-panel-accent focus:outline-none
+         transition-colors duration-150;
 }
-.btn-primary { @apply btn bg-panel-accent text-white hover:brightness-110; }
-.btn-ghost   { @apply btn bg-panel-card border border-panel-border hover:border-panel-muted; }
 
-.card { @apply bg-panel-surface border border-panel-border rounded-lg p-5; }
+input[type='checkbox'], input[type='radio'] {
+  @apply accent-panel-accent cursor-pointer;
+}
+
+@layer components {
+  /* Gleiche Bezeichnung wie im Überwachungs-Panel, für neue Formulare */
+  .input-field {
+    @apply w-full bg-panel-surface border border-panel-border rounded-md px-3 py-2 text-sm text-panel-text
+           placeholder:text-panel-muted/40
+           focus:border-panel-accent focus:outline-none
+           transition-colors duration-150;
+  }
+
+  /* Abschnittsbeschriftungen in der Seitenleiste */
+  .section-label {
+    @apply block text-[9px] font-bold text-panel-muted/50 uppercase tracking-widest px-3 pt-4 pb-1.5 select-none;
+  }
+
+  /* Zeilen in Listen und Tabellen
+     (NICHT ".table-row" nennen — kollidiert mit Tailwinds display:table-row) */
+  .list-row {
+    @apply border-b border-panel-border/50 last:border-0 hover:bg-panel-card/40 transition-colors duration-100;
+  }
+
+  /* Knöpfe — dieselben Farben wie der Button-Baustein in components/ui */
+  .btn {
+    @apply inline-flex items-center justify-center px-3 py-1.5 text-sm gap-1.5 rounded-md font-medium
+           transition-all duration-150 cursor-pointer
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-panel-accent/50
+           focus-visible:ring-offset-1 focus-visible:ring-offset-panel-bg
+           disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none;
+  }
+  .btn-primary { @apply btn bg-panel-accent hover:bg-blue-500 text-white shadow-sm; }
+  .btn-ghost   { @apply btn bg-transparent hover:bg-panel-card text-panel-text border border-panel-border hover:border-panel-muted/50; }
+  .btn-danger  { @apply btn bg-panel-red hover:bg-red-500 text-white shadow-sm; }
+
+  /* Karte — gleiche Fläche und Rundung wie der Card-Baustein */
+  .card { @apply bg-panel-card border border-panel-border rounded-lg p-4; }
+}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Filter, RefreshCw, Server, AlertTriangle } from 'lucide-react';
+import { RefreshCw, Server, AlertTriangle } from 'lucide-react';
 import api from '../api';
 
 export default function Rspamd() {
@@ -51,7 +51,6 @@ export default function Rspamd() {
   if (mcDisabled) {
     return (
       <div className="space-y-6 max-w-5xl">
-        <h1 className="text-2xl font-semibold">Rspamd-Konfiguration</h1>
         <div className="card text-center py-10 space-y-3">
           <Server size={40} className="mx-auto text-panel-muted opacity-50" />
           <p className="text-panel-muted">Mailcow ist im Panel nicht eingerichtet.</p>
@@ -63,10 +62,7 @@ export default function Rspamd() {
 
   return (
     <div className="space-y-6 max-w-5xl">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold flex items-center gap-2">
-          <Filter size={24} className="text-panel-accent" /> Rspamd-Richtlinien (Mailcow)
-        </h1>
+      <div className="flex items-center justify-end">
         <button 
           onClick={syncPanelWhitelist} 
           disabled={syncLaedt}

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import {
-  FolderInput, Plus, Trash2, CheckCircle2, XCircle, AlertCircle, Inbox, Tag, ArrowRight
+  Plus, Trash2, CheckCircle2, XCircle, AlertCircle, Inbox, Tag, ArrowRight
 } from 'lucide-react';
 import api from '../api';
 
@@ -126,10 +126,6 @@ export default function Sortierung() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold flex items-center gap-2">
-        <FolderInput size={24} /> Sortierung
-      </h1>
-
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* LINKE SEITE: Regeln */}
         <div className="card !p-0 overflow-hidden flex flex-col">

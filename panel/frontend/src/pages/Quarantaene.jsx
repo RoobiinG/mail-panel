@@ -66,10 +66,6 @@ export default function Quarantaene() {
 
   return (
     <div className="space-y-6 max-w-5xl">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Quarantäne</h1>
-      </div>
-
       <div className="flex gap-2 border-b border-panel-border">
         <button
           onClick={() => setTab('n8n')}

@@ -40,7 +40,6 @@ export default function Newsletter() {
     <div className="space-y-6">
       <div className="flex justify-between items-end">
         <div>
-          <h1 className="text-2xl font-semibold">Newsletter-Übersicht</h1>
           <p className="text-sm text-panel-muted mt-1">
             Alle von der KI als "Newsletter" erkannten Absender. Wenn ein Abmelden-Link gefunden wurde, kannst du den Newsletter hier mit einem Klick abbestellen.
           </p>

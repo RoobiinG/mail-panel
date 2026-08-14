@@ -89,7 +89,6 @@ export default function Listen() {
   return (
     <div className="space-y-6 max-w-3xl">
       <div>
-        <h1 className="text-2xl font-semibold">White- / Blacklist</h1>
         <p className="text-sm text-panel-muted mt-1">
           Eigene Absenderlisten für alle Konten. Eine Domain ohne <code>@</code> gilt
           auch für alle Unterdomains. Die Whitelist wird zuerst geprüft.

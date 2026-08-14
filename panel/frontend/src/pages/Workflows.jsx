@@ -182,7 +182,6 @@ export default function Workflows() {
     <div className="space-y-6 max-w-4xl">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Workflows</h1>
           <p className="text-sm text-panel-muted mt-1">
             Die Automatisierungen in n8n — hier steuerbar, ohne sich dort anmelden zu müssen.
           </p>

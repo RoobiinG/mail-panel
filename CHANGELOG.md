@@ -2,6 +2,43 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [2.2.2.0] - 2026-08-14 (Build 26) — *Gleiches Gesicht*
+
+### Änderungen
+
+- **Oberfläche an das Überwachungs-Panel angeglichen.** Die Farben waren schon dieselben,
+  jetzt stimmt auch der Aufbau überein:
+  - `components/Layout.jsx` ist aufgeteilt in `Layout/`, `Sidebar`, `Header` und `MobileNav`.
+  - Die Seitenleiste ist **einklappbar** (56 px statt 224 px, Zustand wird im Browser gemerkt)
+    und gliedert die elf Punkte in Abschnitte: Übersicht, Postfächer, Spam-Schutz,
+    Automatisierung, Verwaltung. Ein Abschnitt verschwindet mit, wenn der Benutzer auf
+    keinen seiner Punkte Zugriff hat.
+  - Neue **Kopfzeile** mit dem Seitentitel; die Seiten selbst tragen ihre Überschrift nicht
+    mehr doppelt. Benutzer, Rolle und Version stehen unten in der Seitenleiste.
+  - **Handy-Ansicht:** Tab-Leiste unten mit Dashboard, Konten, Quarantäne und Workflows,
+    dahinter eine Schublade mit dem vollständigen Menü.
+  - Neuer Baukasten `components/ui/` mit `Card`, `Button`, `Badge`, `Modal` und `StatCard` —
+    zeichengleich mit dem Schwesterprojekt.
+  - `index.css` übernimmt dessen Basis (Bildlaufleisten, `.input-field`, `.section-label`,
+    `.list-row`). Die bisherigen Klassen `.card`, `.btn-primary` und `.btn-ghost` gelten
+    weiter, sehen aber aus wie die neuen Bausteine. Kästchen und Radios werden nicht mehr
+    über die volle Breite gezogen.
+- **README neu geschrieben** als vollständige Einrichtungsanleitung: zehn aufeinander
+  aufbauende Schritte vom `docker compose up -d` bis zum aufgearbeiteten Altbestand, dazu
+  die optionalen Erweiterungen, Betriebshinweise und eine deutlich erweiterte Fehlertabelle.
+  Zwei veraltete Angaben sind dabei rausgeflogen: Die Workflows müssen **nicht** von Hand in
+  n8n importiert werden (das erledigt der n8n-Verbindungstest im Panel), und einen
+  `N8N_ENCRYPTION_KEY` muss man nicht selbst erzeugen — n8n legt ihn beim ersten Start an.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **Datenbank:** keine Migration.
+- **n8n-Workflows:** unverändert. Kein Neuimport, kein Synchronisieren nötig.
+- **Neustart & Sitzungen:** nur der Panel-Container startet neu, keine Abmeldung.
+- **Sichtbare Änderung im Betrieb:** Der Seitentitel steht ab jetzt in der Kopfzeile statt
+  im Inhalt. Zeigt der Browser nach dem Update noch das alte Layout, hilft `Strg+F5` —
+  Name und Prüfsumme der Bündeldatei ändern sich zwar, aber `index.html` kann im Cache liegen.
+
 ## [2.2.1.0] - 2026-08-14 (Build 25) — *Nachprüfung*
 
 Zweiter Prüfdurchgang über den kompletten Stand: 17 Prüfpunkte gegen die laufende Anlage

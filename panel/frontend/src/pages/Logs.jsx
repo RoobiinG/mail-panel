@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import {
-  FileWarning, Trash2, RefreshCw, ChevronDown, ChevronRight,
+  Trash2, RefreshCw, ChevronDown, ChevronRight,
   AlertCircle, AlertTriangle, Info, Search,
 } from 'lucide-react';
 import api from '../api';
@@ -96,10 +96,7 @@ export default function Logs() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold flex items-center gap-2">
-          <FileWarning size={24} /> Panel-Logs
-        </h1>
+      <div className="flex items-center justify-end">
         <div className="flex items-center gap-2">
           <button
             onClick={() => setAutoRefresh(!autoRefresh)}

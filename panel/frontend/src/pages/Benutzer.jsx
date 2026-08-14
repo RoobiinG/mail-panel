@@ -128,10 +128,6 @@ export default function BenutzerVerwaltung() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold flex items-center gap-2">
-        <Users size={24} /> Benutzer & Rollen
-      </h1>
-
       {/* Tabs */}
       <div className="flex gap-4 border-b border-panel-border">
         {[

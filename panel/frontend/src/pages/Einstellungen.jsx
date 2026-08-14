@@ -174,8 +174,6 @@ export default function Einstellungen() {
 
   return (
     <div className="space-y-6 max-w-3xl">
-      <h1 className="text-2xl font-semibold">Einstellungen</h1>
-
       <div className="card space-y-4">
         <h2 className="font-medium">Verbindungen</h2>
         <p className="text-sm text-panel-muted">

@@ -45,7 +45,6 @@ export default function Dashboard() {
     <div className="space-y-6">
       <div className="flex justify-between items-end">
         <div>
-          <h1 className="text-2xl font-semibold">Dashboard</h1>
           <p className="text-sm text-panel-muted mt-1">Überblick der letzten 30 Tage</p>
         </div>
         
