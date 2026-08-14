@@ -1,8 +1,23 @@
-// Verbindungstest für IMAP-Konten, bevor sie in n8n angelegt werden.
+// Verbindungstest für IMAP-Konten, bevor sie in n8n angelegt werden,
+// und das Anlegen fehlender Zielordner.
 const { ImapFlow } = require('imapflow');
 
-async function testVerbindung({ host, port, username, passwort, tlsUnsicher = false, folder_spam, folder_invoices, folder_orders, folder_newsletter }) {
-  const client = new ImapFlow({
+// Die vier Zielordner der Triage plus das Archiv des Newsletter-Aufräumens.
+// Leer gelassene Felder fallen auf diese Namen zurück.
+const STANDARD = {
+  folder_spam: 'Quarantaene',
+  folder_invoices: 'Rechnungen',
+  folder_orders: 'Bestellungen',
+  folder_newsletter: 'Newsletter',
+  folder_archive: 'Archiv',
+};
+
+function zielordner(konto) {
+  return Object.entries(STANDARD).map(([feld, standard]) => (konto[feld] || standard).trim());
+}
+
+function verbindung({ host, port, username, passwort, tlsUnsicher = false }) {
+  return new ImapFlow({
     host,
     port: Number(port),
     // 993 = direkt verschlüsselt, 143 = Klartext mit STARTTLS-Upgrade
@@ -16,25 +31,59 @@ async function testVerbindung({ host, port, username, passwort, tlsUnsicher = fa
     greetingTimeout: 10000,
     connectionTimeout: 10000,
   });
+}
+
+async function testVerbindung(konto) {
+  const client = verbindung(konto);
   try {
     await client.connect();
     const postfach = await client.mailboxOpen('INBOX', { readOnly: true });
-    const ordner = await client.list();
+    const liste = await client.list();
+    const vorhanden = liste.map((o) => o.path);
     return {
       ok: true,
       nachrichten: postfach.exists,
-      ordner: ordner.map((o) => o.path),
-      // Damit die Oberfläche warnen kann, wenn Zielordner fehlen
-      fehlendeOrdner: [
-        folder_spam || 'Quarantaene',
-        folder_invoices || 'Rechnungen',
-        folder_orders || 'Bestellungen',
-        folder_newsletter || 'Newsletter'
-      ].filter((soll) => !ordner.some((o) => o.path === soll)),
+      // Die Oberfläche bietet diese Liste zur Auswahl an, damit man eigene
+      // Ordner nehmen kann, statt neue anlegen zu müssen.
+      ordner: vorhanden,
+      fehlendeOrdner: zielordner(konto).filter((soll) => !vorhanden.includes(soll)),
     };
   } finally {
     try { await client.logout(); } catch { /* Verbindung war schon zu */ }
   }
 }
 
-module.exports = { testVerbindung };
+// Legt die Zielordner an, die im Postfach noch fehlen. Bereits vorhandene
+// Ordner bleiben unangetastet — es wird nie etwas gelöscht oder umbenannt.
+async function ordnerAnlegen(konto) {
+  const client = verbindung(konto);
+  const angelegt = [];
+  const fehler = [];
+  try {
+    await client.connect();
+    const vorhanden = (await client.list()).map((o) => o.path);
+    for (const name of zielordner(konto)) {
+      if (vorhanden.includes(name)) continue;
+      try {
+        await client.mailboxCreate(name);
+        angelegt.push(name);
+      } catch (err) {
+        // Manche Server verlangen ein Präfix (z. B. "INBOX.Archiv") oder
+        // verbieten das Anlegen ganz — das muss der Nutzer erfahren.
+        fehler.push({ ordner: name, grund: err.message });
+      }
+    }
+    const jetzt = (await client.list()).map((o) => o.path);
+    return {
+      ok: fehler.length === 0,
+      angelegt,
+      fehler,
+      ordner: jetzt,
+      fehlendeOrdner: zielordner(konto).filter((soll) => !jetzt.includes(soll)),
+    };
+  } finally {
+    try { await client.logout(); } catch { /* Verbindung war schon zu */ }
+  }
+}
+
+module.exports = { testVerbindung, ordnerAnlegen, STANDARD };

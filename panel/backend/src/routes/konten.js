@@ -14,10 +14,29 @@ const oeffentlich = (k) => ({
   username: k.username, aktiv: Boolean(k.aktiv), tlsUnsicher: Boolean(k.tls_unsicher),
   folder_spam: k.folder_spam, folder_invoices: k.folder_invoices,
   folder_orders: k.folder_orders, folder_newsletter: k.folder_newsletter,
+  folder_archive: k.folder_archive,
   verdrahtet: Boolean(k.n8n_credential_id), created_at: k.created_at,
 });
 
 const alleAktiven = () => db.prepare('SELECT * FROM accounts WHERE aktiv = 1 ORDER BY id').all();
+
+// Die fünf Zielordner stehen in jeder Anfrage — einmal einsammeln reicht.
+const ordnerFelder = (b = {}) => ({
+  folder_spam: b.folder_spam, folder_invoices: b.folder_invoices,
+  folder_orders: b.folder_orders, folder_newsletter: b.folder_newsletter,
+  folder_archive: b.folder_archive,
+});
+
+// Zugangsdaten aus der Anfrage, beim Bearbeiten ergänzt um das gespeicherte Passwort
+function zugang(body = {}) {
+  const { host, port, username, passwort, id, tlsUnsicher } = body;
+  let pw = passwort;
+  if (!pw && id) {
+    const konto = db.prepare('SELECT password_enc FROM accounts WHERE id = ?').get(id);
+    if (konto) pw = entschluesseln(konto.password_enc);
+  }
+  return { host, port, username, passwort: pw, tlsUnsicher, ...ordnerFelder(body) };
+}
 
 // Eingaben prüfen — der Name landet als Knotenname in n8n, deshalb eng begrenzt
 function pruefe({ name, host, port, username, passwort }, passwortPflicht = true) {
@@ -37,24 +56,33 @@ router.get('/', (req, res) => {
 
 // Verbindung testen, ohne etwas zu speichern
 router.post('/test', async (req, res) => {
-  const { host, port, username, passwort, id, tlsUnsicher, folder_spam, folder_invoices, folder_orders, folder_newsletter } = req.body || {};
   // Beim Bearbeiten darf das Passwort leer bleiben — dann das gespeicherte nehmen
-  let pw = passwort;
-  if (!pw && id) {
-    const konto = db.prepare('SELECT password_enc FROM accounts WHERE id = ?').get(id);
-    if (konto) pw = entschluesseln(konto.password_enc);
-  }
-  const fehler = pruefe({ name: 'Test', host, port, username, passwort: pw });
+  const daten = zugang(req.body);
+  const fehler = pruefe({ name: 'Test', ...daten });
   if (fehler) return res.status(400).json({ error: fehler });
   try {
-    res.json(await imap.testVerbindung({ host, port, username, passwort: pw, tlsUnsicher, folder_spam, folder_invoices, folder_orders, folder_newsletter }));
+    res.json(await imap.testVerbindung(daten));
+  } catch (err) {
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+// Fehlende Zielordner im Postfach anlegen — freiwillig, wer eigene Ordner
+// verwendet, wählt sie stattdessen einfach aus.
+router.post('/ordner-anlegen', async (req, res) => {
+  const daten = zugang(req.body);
+  const fehler = pruefe({ name: 'Test', ...daten });
+  if (fehler) return res.status(400).json({ error: fehler });
+  try {
+    res.json(await imap.ordnerAnlegen(daten));
   } catch (err) {
     res.status(502).json({ ok: false, error: err.message });
   }
 });
 
 router.post('/', async (req, res) => {
-  const { name, host, port, username, passwort, tlsUnsicher, folder_spam, folder_invoices, folder_orders, folder_newsletter } = req.body || {};
+  const { name, host, port, username, passwort, tlsUnsicher } = req.body || {};
+  const ordner = ordnerFelder(req.body);
   const fehler = pruefe(req.body || {});
   if (fehler) return res.status(400).json({ error: fehler });
   if (db.prepare('SELECT 1 FROM accounts WHERE name = ?').get(name)) {
@@ -64,15 +92,18 @@ router.post('/', async (req, res) => {
   let credentialId = null;
   try {
     // Erst prüfen, ob die Zugangsdaten überhaupt stimmen
-    await imap.testVerbindung({ host, port, username, passwort, tlsUnsicher, folder_spam, folder_invoices, folder_orders, folder_newsletter });
+    await imap.testVerbindung({ host, port, username, passwort, tlsUnsicher, ...ordner });
     credentialId = await n8n.credentialAnlegen({
       name: `Mail-Panel: ${name}`, host, port, username, passwort, tlsUnsicher,
     });
 
     const info = db.prepare(`
-      INSERT INTO accounts (name, host, port, username, password_enc, n8n_credential_id, tls_unsicher, folder_spam, folder_invoices, folder_orders, folder_newsletter)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(name, host, Number(port), username, verschluesseln(passwort), credentialId, tlsUnsicher ? 1 : 0, folder_spam || null, folder_invoices || null, folder_orders || null, folder_newsletter || null);
+      INSERT INTO accounts (name, host, port, username, password_enc, n8n_credential_id, tls_unsicher,
+                            folder_spam, folder_invoices, folder_orders, folder_newsletter, folder_archive)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(name, host, Number(port), username, verschluesseln(passwort), credentialId, tlsUnsicher ? 1 : 0,
+           ordner.folder_spam || null, ordner.folder_invoices || null, ordner.folder_orders || null,
+           ordner.folder_newsletter || null, ordner.folder_archive || null);
 
     const sync = await patcher.alleSynchronisieren(alleAktiven());
     res.json({ ok: true, id: info.lastInsertRowid, sync });
@@ -90,13 +121,14 @@ router.put('/:id', async (req, res) => {
   const konto = db.prepare('SELECT * FROM accounts WHERE id = ?').get(req.params.id);
   if (!konto) return res.status(404).json({ error: 'Konto nicht gefunden.' });
 
-  const { name, host, port, username, passwort, aktiv, tlsUnsicher, folder_spam, folder_invoices, folder_orders, folder_newsletter } = req.body || {};
+  const { name, host, port, username, passwort, aktiv, tlsUnsicher } = req.body || {};
+  const ordner = ordnerFelder(req.body);
   const fehler = pruefe({ name, host, port, username, passwort }, false);
   if (fehler) return res.status(400).json({ error: fehler });
 
   const neuesPasswort = passwort || entschluesseln(konto.password_enc);
   try {
-    await imap.testVerbindung({ host, port, username, passwort: neuesPasswort, tlsUnsicher, folder_spam, folder_invoices, folder_orders, folder_newsletter });
+    await imap.testVerbindung({ host, port, username, passwort: neuesPasswort, tlsUnsicher, ...ordner });
 
     // n8n kennt kein Aktualisieren per Public API — altes Credential ersetzen
     const neueCredentialId = await n8n.credentialAnlegen({
@@ -106,11 +138,13 @@ router.put('/:id', async (req, res) => {
     db.prepare(`
       UPDATE accounts SET name = ?, host = ?, port = ?, username = ?, password_enc = ?,
                           n8n_credential_id = ?, aktiv = ?, tls_unsicher = ?,
-                          folder_spam = ?, folder_invoices = ?, folder_orders = ?, folder_newsletter = ?
+                          folder_spam = ?, folder_invoices = ?, folder_orders = ?,
+                          folder_newsletter = ?, folder_archive = ?
       WHERE id = ?
     `).run(name, host, Number(port), username, verschluesseln(neuesPasswort),
            neueCredentialId, aktiv === false ? 0 : 1, tlsUnsicher ? 1 : 0,
-           folder_spam || null, folder_invoices || null, folder_orders || null, folder_newsletter || null,
+           ordner.folder_spam || null, ordner.folder_invoices || null, ordner.folder_orders || null,
+           ordner.folder_newsletter || null, ordner.folder_archive || null,
            konto.id);
 
     const sync = await patcher.alleSynchronisieren(alleAktiven());

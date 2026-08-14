@@ -182,6 +182,8 @@ const migrations = [
   'ALTER TABLE accounts ADD COLUMN folder_invoices TEXT',
   'ALTER TABLE accounts ADD COLUMN folder_orders TEXT',
   'ALTER TABLE accounts ADD COLUMN folder_newsletter TEXT',
+  // Zielordner des Newsletter-Aufräumens (Workflow 03)
+  'ALTER TABLE accounts ADD COLUMN folder_archive TEXT',
   // Viren-Scanner: Speichern des Virus-Namens
   'ALTER TABLE quarantine_log ADD COLUMN virus_name TEXT',
 ];

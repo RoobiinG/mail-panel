@@ -4,6 +4,16 @@ import api from '../api';
 
 const LEER = { name: '', host: '', port: 993, username: '', passwort: '', tlsUnsicher: false };
 
+// Die Zielordner der Triage plus das Archiv des Newsletter-Aufräumens.
+// Die Standardnamen stehen als Platzhalter im Feld und gelten, wenn nichts drinsteht.
+const ORDNERFELDER = [
+  { feld: 'folder_spam',       label: 'Spam / Quarantäne', standard: 'Quarantaene' },
+  { feld: 'folder_invoices',   label: 'Rechnungen',        standard: 'Rechnungen' },
+  { feld: 'folder_orders',     label: 'Bestellungen',      standard: 'Bestellungen' },
+  { feld: 'folder_newsletter', label: 'Newsletter',        standard: 'Newsletter' },
+  { feld: 'folder_archive',    label: 'Archiv (Workflow 03)', standard: 'Archiv' },
+];
+
 // Bekannte Anbieter — spart dem Nutzer das Nachschlagen der Serverdaten
 const VORLAGEN = [
   { label: 'Gmail (IMAP)', defaultName: 'Gmail', host: 'imap.gmail.com', port: 993 },
@@ -20,6 +30,8 @@ export default function Konten() {
   const [meldung, setMeldung] = useState('');
   const [laedt, setLaedt] = useState(false);
   const [zeigeOrdner, setZeigeOrdner] = useState(false);
+  const [legtAn, setLegtAn] = useState(false);
+  const [ordnerMeldung, setOrdnerMeldung] = useState('');
 
   const laden = () => api.get('/konten').then((res) => setKonten(res.data));
   useEffect(() => { laden(); }, []);
@@ -28,6 +40,7 @@ export default function Konten() {
     setTest(null);
     setMeldung('');
     setZeigeOrdner(false);
+    setOrdnerMeldung('');
     setFormular(konto ? { ...konto, passwort: '' } : { ...LEER });
   };
 
@@ -38,6 +51,27 @@ export default function Konten() {
       setTest(res.data);
     } catch (err) {
       setTest({ error: err.response?.data?.error || 'Verbindung fehlgeschlagen' });
+    }
+  };
+
+  // Legt nur die Ordner an, die noch fehlen — wer eigene Ordner nutzt, wählt
+  // sie stattdessen oben aus und lässt diesen Knopf einfach liegen.
+  const ordnerAnlegen = async () => {
+    setLegtAn(true);
+    setOrdnerMeldung('');
+    try {
+      const res = await api.post('/konten/ordner-anlegen', formular);
+      setTest({ ...test, ordner: res.data.ordner, fehlendeOrdner: res.data.fehlendeOrdner });
+      const teile = [];
+      if (res.data.angelegt.length) teile.push(`Angelegt: ${res.data.angelegt.join(', ')}.`);
+      if (res.data.fehler.length) {
+        teile.push(`Nicht angelegt: ${res.data.fehler.map((f) => `${f.ordner} (${f.grund})`).join('; ')}.`);
+      }
+      setOrdnerMeldung(teile.join(' ') || 'Es fehlte kein Ordner.');
+    } catch (err) {
+      setOrdnerMeldung(err.response?.data?.error || 'Ordner konnten nicht angelegt werden.');
+    } finally {
+      setLegtAn(false);
     }
   };
 
@@ -95,9 +129,10 @@ export default function Konten() {
       </div>
 
       <p className="text-sm text-panel-muted">
-        Hier verwaltete IMAP-Konten werden automatisch in n8n eingetragen: Zugangsdaten anlegen,
-        Trigger und Verschiebe-Knoten in die Workflows 01 und 04 einbauen. Gmail läuft über OAuth
-        und wird direkt in n8n eingerichtet.
+        Hier verwaltete Konten werden automatisch in n8n eingetragen: Zugangsdaten anlegen,
+        Trigger sowie Abruf- und Verschiebe-Knoten in die Workflows 01, 03 und 04 einbauen.
+        Jedes Postfach läuft über IMAP — auch Gmail, GMX und Web.de. Bei Anbietern mit
+        Zwei-Faktor-Anmeldung dafür ein App-Passwort erzeugen und hier eintragen.
       </p>
 
       {meldung && <div className="card !py-3 text-sm">{meldung}</div>}
@@ -217,30 +252,53 @@ export default function Konten() {
                   onClick={() => setZeigeOrdner(!zeigeOrdner)}
                   className="text-xs text-panel-muted hover:text-panel-text flex items-center gap-1"
                 >
-                  {zeigeOrdner ? 'Erweiterte Ordner-Einstellungen ausblenden' : 'Erweiterte Optionen: Eigene IMAP-Ordnernamen festlegen'}
+                  {zeigeOrdner ? 'Zielordner ausblenden' : 'Zielordner: vorhandene auswählen oder anlegen lassen'}
                 </button>
-                
+
                 {zeigeOrdner && (
-                  <div className="grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-panel-border/50">
-                    <label className="text-sm space-y-1">
-                      <span className="text-panel-muted">Spam/Quarantäne</span>
-                      <input value={formular.folder_spam || ''} onChange={(e) => setFormular({ ...formular, folder_spam: e.target.value })} placeholder="Quarantaene" className="text-xs py-1.5" />
-                    </label>
-                    <label className="text-sm space-y-1">
-                      <span className="text-panel-muted">Rechnungen</span>
-                      <input value={formular.folder_invoices || ''} onChange={(e) => setFormular({ ...formular, folder_invoices: e.target.value })} placeholder="Rechnungen" className="text-xs py-1.5" />
-                    </label>
-                    <label className="text-sm space-y-1">
-                      <span className="text-panel-muted">Bestellungen</span>
-                      <input value={formular.folder_orders || ''} onChange={(e) => setFormular({ ...formular, folder_orders: e.target.value })} placeholder="Bestellungen" className="text-xs py-1.5" />
-                    </label>
-                    <label className="text-sm space-y-1">
-                      <span className="text-panel-muted">Newsletter</span>
-                      <input value={formular.folder_newsletter || ''} onChange={(e) => setFormular({ ...formular, folder_newsletter: e.target.value })} placeholder="Newsletter" className="text-xs py-1.5" />
-                    </label>
-                    <p className="col-span-2 text-xs text-panel-muted mt-1">
-                      Bleiben Felder leer, werden die Standard-Ordnernamen (im Platzhalter angezeigt) verwendet.
+                  <div className="mt-3 pt-3 border-t border-panel-border/50 space-y-3">
+                    {/* Nach dem Verbindungstest stehen hier die Ordner des Postfachs
+                        zur Auswahl — eintippen geht weiterhin. */}
+                    <datalist id="vorhandene-ordner">
+                      {(test?.ordner || []).map((o) => <option key={o} value={o} />)}
+                    </datalist>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      {ORDNERFELDER.map(({ feld, label, standard }) => (
+                        <label key={feld} className="text-sm space-y-1">
+                          <span className="text-panel-muted">{label}</span>
+                          <input
+                            list="vorhandene-ordner"
+                            value={formular[feld] || ''}
+                            onChange={(e) => setFormular({ ...formular, [feld]: e.target.value })}
+                            placeholder={standard}
+                            className="text-xs py-1.5"
+                          />
+                        </label>
+                      ))}
+                    </div>
+
+                    <p className="text-xs text-panel-muted">
+                      Leer gelassene Felder benutzen den Standardnamen aus dem Platzhalter.
+                      Nach einem Verbindungstest schlagen die Felder die Ordner vor, die es im
+                      Postfach schon gibt — dann musst du keine neuen anlegen.
                     </p>
+
+                    {test?.ok && test.fehlendeOrdner?.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <span className="text-panel-orange">
+                          Im Postfach fehlen: {test.fehlendeOrdner.join(', ')}
+                        </span>
+                        <button type="button" onClick={ordnerAnlegen} disabled={legtAn} className="btn-ghost !text-xs !py-1">
+                          {legtAn ? 'Lege an…' : 'Fehlende Ordner anlegen'}
+                        </button>
+                        <span className="text-panel-muted">oder oben vorhandene auswählen</span>
+                      </div>
+                    )}
+                    {test?.ok && test.fehlendeOrdner?.length === 0 && (
+                      <p className="text-xs text-panel-green">Alle Zielordner sind im Postfach vorhanden.</p>
+                    )}
+                    {ordnerMeldung && <p className="text-xs text-panel-muted">{ordnerMeldung}</p>}
                   </div>
                 )}
               </div>

@@ -120,38 +120,43 @@ Die übrigen Verbindungstests nimmst du am besten gleich mit: **unbound** (Black
 und **ClamAV** (Virenscan) sollten grün sein — ClamAV erst, wenn die Signaturen fertig
 geladen sind. Mailcow darf rot bleiben, wenn du keins hast.
 
-## Schritt 4 — Ordner in den Postfächern anlegen
-
-Das Panel sortiert nur in Ordner, die es schon gibt — **es legt keine an**. Also vorher in
-jedem Postfach (per Webmail oder Mail-Programm) diese vier IMAP-Ordner anlegen:
-
-```
-Quarantaene     Rechnungen     Bestellungen     Newsletter
-```
-
-Für Workflow 03 zusätzlich `Archiv`. In **Gmail** sind das Labels mit denselben Namen.
-
-Du hast schon eine eigene Ordnerstruktur? Dann lass diesen Schritt weg — beim Anlegen eines
-Kontos kannst du unter *Erweiterte Optionen* eigene Ordnernamen pro Konto eintragen.
-
-## Schritt 5 — Mail-Konten hinzufügen
+## Schritt 4 — Mail-Konten hinzufügen
 
 Auf die Seite **Konten** → *IMAP-Konto hinzufügen*. Für die gängigen Anbieter gibt es
 Vorlagen (Web.de, GMX, Gmail, Mailbox.org, Mailcow), die Server und Port schon ausfüllen.
 
-Einzutragen sind Name, Server, Port, Benutzername und Passwort. Das Panel testet die
-Verbindung sofort und meldet dabei auch, welche Zielordner noch fehlen.
+Einzutragen sind Name, Server, Port, Benutzername und Passwort — mehr nicht. **Jedes
+Postfach läuft über IMAP**, auch Gmail. Einen Sonderweg für einzelne Anbieter gibt es nicht.
 
 Beim Speichern legt das Panel selbstständig in n8n an: die Zugangsdaten, den Trigger für
-neue Mails und die Verschiebe-Knoten in den Workflows 01 und 04.
+neue Mails sowie die Abruf- und Verschiebe-Knoten in den Workflows 01, 03 und 04.
 
 Was bei den einzelnen Anbietern zu beachten ist:
 
 | Anbieter | Besonderheit |
 |---|---|
 | **Web.de / GMX** | IMAP muss in den Einstellungen der Weboberfläche erst freigeschaltet werden, ab Werk ist es aus |
-| **Gmail** | Zwei-Faktor-Anmeldung aktivieren und ein **App-Passwort** erzeugen (Google-Konto → Sicherheit → App-Passwörter); das normale Passwort lehnt Google ab. Alternativ per OAuth, siehe unten. |
+| **Gmail** | Zwei-Faktor-Anmeldung aktivieren und ein **App-Passwort** erzeugen (Google-Konto → Sicherheit → App-Passwörter); das normale Passwort lehnt Google ab |
 | **Eigener Server** | Bei selbstsigniertem Zertifikat das Häkchen *Selbstsigniertes Zertifikat akzeptieren* setzen |
+
+## Schritt 5 — Zielordner festlegen
+
+Einsortiert wird in fünf Ordner: Quarantäne, Rechnungen, Bestellungen, Newsletter und —
+fürs wöchentliche Newsletter-Aufräumen — Archiv. Du hast dabei die freie Wahl, und zwar
+je Konto: im Konto-Dialog auf **Zielordner: vorhandene auswählen oder anlegen lassen**.
+
+**Entweder deine eigenen Ordner nehmen.** Nach einem Klick auf *Verbindung testen* schlagen
+die fünf Felder alle Ordner vor, die es im Postfach schon gibt — einfach den passenden
+auswählen. Wer seine Rechnungen längst in `Finanzen/Belege` sammelt, trägt genau das ein.
+
+**Oder anlegen lassen.** Fehlt einer der Ordner noch, steht im Dialog ein Knopf
+**Fehlende Ordner anlegen** — ein Klick, und das Panel legt sie über IMAP im Postfach an.
+Vorhandene Ordner werden dabei nicht angefasst.
+
+Wer nichts einträgt, bekommt die Standardnamen (`Quarantaene`, `Rechnungen`,
+`Bestellungen`, `Newsletter`, `Archiv`). Wichtig ist nur: Ein Ordner, in den einsortiert
+werden soll, muss am Ende existieren — ob du ihn selbst angelegt hast oder das Panel,
+ist egal. In **Gmail** entsprechen die Ordner den Labels.
 
 ## Schritt 6 — Gemini-Schlüssel eintragen
 
@@ -249,23 +254,6 @@ Hinter einem Reverse Proxy muss dafür die Umgebungsvariable `ALLOWED_ORIGIN` au
 Panel-Adresse gesetzt sein (`https://panel.example.org`) — sonst weigert sich das Panel,
 Passkeys anzulegen. Das ist Absicht: Ohne festgelegte Herkunft ließen sich Passkeys
 untergeschoben registrieren.
-
-## Gmail über OAuth statt IMAP
-
-Der Weg über IMAP und App-Passwort (Schritt 5) ist einfacher und reicht völlig. OAuth
-lohnt nur, wenn du Gmail-Labels statt IMAP-Ordner nutzen willst.
-
-1. [console.cloud.google.com](https://console.cloud.google.com) → neues Projekt →
-   **Gmail API aktivieren**.
-2. *APIs & Dienste → Anmeldedaten* → OAuth-Client-ID (Webanwendung). Die Rücksprung-Adresse
-   aus dem n8n-Dialog dort eintragen.
-3. Client-ID und Secret in n8n als Gmail-OAuth2-Credential speichern und verbinden.
-4. **Den Zustimmungsbildschirm auf „In Produktion" stellen.** Im Status „Testen" läuft der
-   Refresh-Token nach sieben Tagen ab und die Verbindung bricht ständig zusammen.
-   Unverifiziert ist für den Eigengebrauch in Ordnung.
-
-Die Gmail-Label-IDs holst du dir einmalig über einen Gmail-Knoten (*Label → Get Many*) und
-trägst sie in den *Antwort parsen*-Knoten der Workflows 01 und 04 ein.
 
 ## Mailcow anbinden
 
@@ -385,10 +373,10 @@ nötig — der kostet für dieses Aufkommen Centbeträge.
 | IMAP-Knoten meldet „node not found" | `docker compose up -d` erneut ausführen; der Init-Container installiert `n8n-nodes-imap` ins n8n-Volume |
 | Nichts wird sortiert, der Lauf bricht bei *Gemini klassifizieren* ab mit „Credentials not found" | Gemini-Schlüssel fehlt (Schritt 6) oder es wurde danach nicht synchronisiert |
 | Gemini meldet Fehler 429 | Tageskontingent des Free Tier aufgebraucht — morgen weitermachen oder die Drosselung erhöhen |
-| Gmail-Verbindung bricht alle sieben Tage ab | OAuth-Zustimmungsbildschirm in der Google Console auf „In Produktion" stellen |
+| Gmail lehnt die Anmeldung ab | Gmail verlangt Zwei-Faktor-Anmeldung plus **App-Passwort**; das normale Konto-Passwort funktioniert nicht |
 | Web.de- oder GMX-Anmeldung schlägt fehl | IMAP in den Einstellungen der Weboberfläche freischalten |
 | IMAP scheitert mit „self-signed certificate" | Beim Konto *Selbstsigniertes Zertifikat akzeptieren* anhaken |
-| Mails landen nicht im Zielordner | Der Ordner existiert im Postfach nicht (Schritt 4) oder heißt anders — beim Konto unter *Erweiterte Optionen* eigene Namen eintragen |
+| Mails landen nicht im Zielordner | Der Ordner existiert im Postfach nicht — im Konto-Dialog auf *Fehlende Ordner anlegen* drücken oder den vorhandenen Ordner auswählen (Schritt 5) |
 | Virenscan meldet „nicht bereit" | ClamAV lädt noch seine Signaturen; beim ersten Start dauert das einige Minuten |
 | DNSBL-Test meldet `zen.spamhaus.org (127.255.255.254)` | Spamhaus lehnt Anfragen aus vielen Rechenzentrums-Netzen ab. Die Liste in den Einstellungen entfernen oder einen kostenlosen Spamhaus-DQS-Zugang nutzen — SpamCop und Barracuda laufen weiter. |
 | Passkey lässt sich nicht anlegen | Hinter einem Reverse Proxy muss `ALLOWED_ORIGIN` auf die Panel-Adresse gesetzt sein |

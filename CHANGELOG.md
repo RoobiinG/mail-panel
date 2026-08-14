@@ -2,6 +2,57 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [2.3.0.0] - 2026-08-14 (Build 27) — *Ein Weg für alle Postfächer*
+
+### Features
+
+- **Zielordner: auswählen statt anlegen müssen.** Bisher musste man die vier Ordner vorab
+  von Hand im Postfach anlegen, sonst lief die Einsortierung ins Leere. Jetzt hat man im
+  Konto-Dialog die Wahl:
+  - **Vorhandene auswählen** — nach dem Verbindungstest schlagen die Felder alle Ordner vor,
+    die es im Postfach schon gibt. Wer seine Rechnungen längst in `Finanzen/Belege` sammelt,
+    trägt genau das ein.
+  - **Anlegen lassen** — ein Knopf **Fehlende Ordner anlegen** erzeugt die fehlenden Ordner
+    über IMAP. Vorhandene bleiben unangetastet, gelöscht oder umbenannt wird nie etwas.
+  - Neuer Ordner **Archiv** je Konto (`folder_archive`) für das Newsletter-Aufräumen; bisher
+    hieß er fest `Archiv`.
+- **Workflow 03 wird jetzt aus den Konten gebaut.** Er enthielt zwei namentlich fest
+  eingebaute Postfächer („Web.de", „Mailcow"), die bei niemand anderem passten. Das Panel
+  baut nun je Konto eine Such- und eine Verschiebe-Stufe ein — wie in 01 und 04.
+
+### Änderungen
+
+- **Gmail ist kein Sonderfall mehr.** Die Workflows 01, 03 und 04 hatten einen fest
+  verdrahteten Gmail-Zweig (OAuth-Trigger, Label-Knoten, eine Tabelle mit von Hand
+  einzutragenden Label-IDs). Der ist raus. **Jedes Postfach läuft über IMAP** — Gmail mit
+  einem App-Passwort, wie GMX oder Web.de auch. Das spart die Google-Cloud-Einrichtung,
+  den alle sieben Tage ablaufenden Refresh-Token und das Nachschlagen der Label-IDs.
+- Die Konto-Weiche in 01 und 04 hat keinen festen ersten Ausgang mehr; die Ausgänge folgen
+  jetzt einfach der Reihenfolge der Konten.
+- Der Sammel-Knoten in Workflow 04 kennt keine feste Gmail-Quelle mehr, und die Abrufkette
+  beginnt direkt am Knoten *Manuell starten*.
+- Die Notizzettel in den Workflows 01, 03 und 04 beschreiben den Weg über das Panel statt
+  der früheren Handarbeit in n8n.
+- README: Der Ordner-Schritt ist kein Muss mehr, sondern beschreibt beide Wege; der
+  Abschnitt zur Gmail-OAuth-Einrichtung entfällt.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **Datenbank:** eine neue Spalte `accounts.folder_archive`, wird beim Start automatisch
+  ergänzt. Bestehende Konten bekommen `NULL` und damit den Standardnamen `Archiv`.
+- **n8n-Workflows:** **Nach dem Update einmal auf der Workflows-Seite „Synchronisieren"
+  drücken.** „Neu importieren" fasst bestehende Workflows nicht an, deshalb baut der Patcher
+  die alten Knoten beim Synchronisieren selbst aus: den Gmail-Zweig in 01, 03 und 04, die
+  fest eingebauten Postfächer in 03 und die Gmail-Label-Tabelle im Knoten *Antwort parsen*.
+  Der Vorgang ist wiederholbar und lässt alles andere im Workflow unberührt.
+- **Wer Gmail bisher über OAuth angebunden hatte:** Dieser Zweig verschwindet beim
+  Synchronisieren. Gmail danach unter *Konten* als normales IMAP-Konto anlegen
+  (`imap.gmail.com:993`, App-Passwort). Das Gmail-Credential in n8n kann anschließend weg.
+- **Newsletter-Aufräumen:** Workflow 03 braucht je Konto den Newsletter- und den
+  Archiv-Ordner. Fehlt einer, meldet der betroffene Abruf-Knoten das und die übrigen Konten
+  laufen weiter — anlegen lassen sich beide im Konto-Dialog.
+- **Neustart & Sitzungen:** nur der Panel-Container startet neu, keine Abmeldung.
+
 ## [2.2.2.0] - 2026-08-14 (Build 26) — *Gleiches Gesicht*
 
 ### Änderungen

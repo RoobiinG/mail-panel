@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Inbox-Triage\n\n**Einrichtung:**\n1. Credentials zuordnen: Gmail (OAuth2) und Gemini (Header Auth `x-goog-api-key`)\n2. Ordner in den Postfächern anlegen: `Quarantaene`, `Rechnungen`, `Bestellungen`, `Newsletter` (bei Gmail: Labels)\n3. Im Node **Antwort parsen** die Gmail-Label-IDs eintragen (IDs holen: Gmail-Node → Label → Get Many)\n4. **IMAP-Konten nicht hier anlegen** — die kommen aus dem Mail-Panel (Seite „Konten\"). Das Panel baut dafür Trigger, Weiche und Verschiebe-Knoten automatisch ein.\n\n**Trockentest:** Erst 1-2 Tage nur klassifizieren lassen — dazu die Verbindung nach **Verschieben?** trennen und die Ergebnisse in den Executions prüfen.\n\nEs wird NIE gelöscht, nur verschoben.",
+        "content": "## Inbox-Triage\n\nKlassifiziert neu eintreffende Mails und sortiert sie ein. **Es wird nie gelöscht, nur verschoben.**\n\n**Alles wird im Mail-Panel eingerichtet, nicht hier:**\n1. Konten unter *Konten* anlegen — auch Gmail, GMX oder Web.de laufen als ganz normales\n   IMAP-Konto (bei Anbietern mit Zwei-Faktor-Anmeldung mit einem App-Passwort).\n2. Den Gemini-Schlüssel unter *Einstellungen → KI & Benachrichtigungen* eintragen.\n3. Auf der Seite *Workflows* auf **Synchronisieren** — danach stehen hier Trigger, Weiche\n   und Verschiebe-Knoten für jedes Konto.\n\nDie Zielordner legt das Panel auf Wunsch selbst an; wer eine eigene Ordnerstruktur hat,\nwählt beim Konto unter *Erweiterte Optionen* die vorhandenen Ordner aus.\n\n**Trockentest:** Erst ein bis zwei Tage nur klassifizieren lassen — dazu die Verbindung\nhinter **Verschieben?** trennen und die Läufe im Panel ansehen.",
         "height": 360,
         "width": 440
       },
@@ -18,7 +18,7 @@
     },
     {
       "parameters": {
-        "content": "### Vom Mail-Panel verwaltet\n\nAlle Knoten, die das Panel anlegt (Konto-Trigger links, Weiche und Verschiebe-Knoten rechts), werden beim nächsten Konto-Sync **neu erzeugt**. Änderungen daran gehen dabei verloren — alles andere im Workflow bleibt unangetastet.",
+        "content": "### Vom Mail-Panel verwaltet\n\nAlle Knoten, deren ID mit `panel-` beginnt (Konto-Trigger links, Weiche und Verschiebe-Knoten\nrechts), werden bei jedem Synchronisieren **neu erzeugt**. Änderungen daran gehen dabei\nverloren — alles andere im Workflow bleibt unangetastet und darf frei angepasst werden.",
         "height": 200,
         "width": 360,
         "color": 3
@@ -34,56 +34,8 @@
     },
     {
       "parameters": {
-        "pollTimes": {
-          "item": [
-            {
-              "mode": "everyX",
-              "value": 2,
-              "unit": "minutes"
-            }
-          ]
-        },
-        "simple": true,
-        "filters": {},
-        "options": {}
-      },
-      "id": "trigger-gmail",
-      "name": "Gmail Trigger",
-      "type": "n8n-nodes-base.gmailTrigger",
-      "typeVersion": 1.2,
-      "position": [
-        0,
-        0
-      ]
-    },
-    {
-      "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "konto-1",
-              "name": "konto",
-              "value": "gmail",
-              "type": "string"
-            }
-          ]
-        },
-        "includeOtherFields": true,
-        "options": {}
-      },
-      "id": "set-gmail",
-      "name": "Konto: Gmail",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
-      "position": [
-        220,
-        0
-      ]
-    },
-    {
-      "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// Quelle für den Normalisieren-Knoten in Workflow 01 (wird als jsCode eingebettet).\n// Vereinheitlicht die drei Datenformate und holt heraus, was die Prüfdienste brauchen.\n\n// Gmail-Trigger -> from / subject / snippet\n// IMAP-Trigger  -> from.value[].address / subject / text | textPlain, headers/headerLines\n// IMAP-Node     -> envelope.from[].address / envelope.subject / textContent, headers\nconst j = $json;\nconst e = j.envelope || {};\nconst h = j.headers || {};\n\nconst von = (e.from && e.from[0] && e.from[0].address)\n  || (j.from && j.from.value && j.from.value[0] && j.from.value[0].address)\n  || (j.from && j.from.text)\n  || j.From\n  || (typeof j.from === 'string' ? j.from : '')\n  || '';\n\nconst betreff = e.subject || j.subject || j.Subject || '(kein Betreff)';\n\nlet volltext = j.textContent || j.textPlain || j.text || j.snippet || j.textHtml || '';\nif (typeof volltext !== 'string') volltext = JSON.stringify(volltext);\n\n// ── Absender-IP aus den Received-Kopfzeilen ────────────────────────────────\n// Die oberste Received-Zeile hat der eigene Mailserver geschrieben und enthält\n// die IP, von der die Mail tatsächlich kam — nur die ist vertrauenswürdig.\nfunction absenderIp() {\n  let received = h.received || h.Received;\n  if (!received && Array.isArray(j.headerLines)) {\n    received = j.headerLines\n      .filter((z) => String(z.key || '').toLowerCase() === 'received')\n      .map((z) => z.line);\n  }\n  if (!received) return null;\n  const zeilen = Array.isArray(received) ? received : [received];\n  // Adressen aus privaten und reservierten Netzen sagen nichts über den Absender\n  const intern = /^(10\\.|127\\.|169\\.254\\.|192\\.168\\.|172\\.(1[6-9]|2\\d|3[01])\\.|0\\.)/;\n  for (const zeile of zeilen) {\n    const gefunden = String(zeile).match(/\\b\\d{1,3}(?:\\.\\d{1,3}){3}\\b/g) || [];\n    const treffer = gefunden.find((ip) => !intern.test(ip));\n    if (treffer) return treffer;\n  }\n  return null;\n}\n\n// ── Links im Text (für die spätere Safe-Browsing-Prüfung) ──────────────────\nconst links = [...new Set((volltext.match(/https?:\\/\\/[^\\s<>\"')\\]]+/gi) || []))].slice(0, 20);\n\n// ── Abmelde-Link (für die Newsletter-Verwaltung) ───────────────────────────\nconst listUnsubscribe = h['list-unsubscribe']\n  || (h.list && h.list.unsubscribe && (h.list.unsubscribe.url || h.list.unsubscribe.id))\n  || null;\n\nconst text = volltext.replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim().slice(0, 1500);\n\nconst promptText = `Du bist ein E-Mail-Klassifizierer. Analysiere die folgende E-Mail und antworte NUR mit einem JSON-Objekt in exakt diesem Format:\n{\"kategorie\": \"spam|rechnung|bestellung|newsletter|persoenlich|sonstiges\", \"spam_score\": 0.0, \"kurzfassung\": \"Ein Satz Zusammenfassung auf Deutsch\"}\n\nRegeln:\n- spam_score: 0.0 (sicher kein Spam) bis 1.0 (sicher Spam). Phishing, Betrugsversuche, unserioese Werbung = hoher Score.\n- kategorie \"rechnung\": Rechnungen, Zahlungsaufforderungen, Kontoauszuege, Vertraege.\n- kategorie \"bestellung\": Bestell-/Versandbestaetigungen, Lieferstatus.\n- kategorie \"newsletter\": Newsletter und Marketing serioeser Absender.\n- kategorie \"persoenlich\": Mails von echten Menschen (privat oder geschaeftlich).\n- Alles andere: \"sonstiges\".\n\nE-Mail:\nVon: ${von}\nBetreff: ${betreff}\nText: ${text}`;\n\nreturn {\n  json: {\n    konto: j.konto,\n    uid: j.uid ?? null,\n    id: j.id ?? null,\n    von,\n    betreff,\n    ip: absenderIp(),\n    links,\n    listUnsubscribe: typeof listUnsubscribe === 'string' ? listUnsubscribe : null,\n    promptText,\n  },\n};\n"
+        "jsCode": "// Quelle für den Normalisieren-Knoten in Workflow 01 (wird als jsCode eingebettet).\n// Vereinheitlicht die drei Datenformate und holt heraus, was die Prüfdienste brauchen.\n\n// Einfaches Format -> from / subject / snippet\n// IMAP-Trigger  -> from.value[].address / subject / text | textPlain, headers/headerLines\n// IMAP-Node     -> envelope.from[].address / envelope.subject / textContent, headers\nconst j = $json;\nconst e = j.envelope || {};\nconst h = j.headers || {};\n\nconst von = (e.from && e.from[0] && e.from[0].address)\n  || (j.from && j.from.value && j.from.value[0] && j.from.value[0].address)\n  || (j.from && j.from.text)\n  || j.From\n  || (typeof j.from === 'string' ? j.from : '')\n  || '';\n\nconst betreff = e.subject || j.subject || j.Subject || '(kein Betreff)';\n\nlet volltext = j.textContent || j.textPlain || j.text || j.snippet || j.textHtml || '';\nif (typeof volltext !== 'string') volltext = JSON.stringify(volltext);\n\n// ── Absender-IP aus den Received-Kopfzeilen ────────────────────────────────\n// Die oberste Received-Zeile hat der eigene Mailserver geschrieben und enthält\n// die IP, von der die Mail tatsächlich kam — nur die ist vertrauenswürdig.\nfunction absenderIp() {\n  let received = h.received || h.Received;\n  if (!received && Array.isArray(j.headerLines)) {\n    received = j.headerLines\n      .filter((z) => String(z.key || '').toLowerCase() === 'received')\n      .map((z) => z.line);\n  }\n  if (!received) return null;\n  const zeilen = Array.isArray(received) ? received : [received];\n  // Adressen aus privaten und reservierten Netzen sagen nichts über den Absender\n  const intern = /^(10\\.|127\\.|169\\.254\\.|192\\.168\\.|172\\.(1[6-9]|2\\d|3[01])\\.|0\\.)/;\n  for (const zeile of zeilen) {\n    const gefunden = String(zeile).match(/\\b\\d{1,3}(?:\\.\\d{1,3}){3}\\b/g) || [];\n    const treffer = gefunden.find((ip) => !intern.test(ip));\n    if (treffer) return treffer;\n  }\n  return null;\n}\n\n// ── Links im Text (für die spätere Safe-Browsing-Prüfung) ──────────────────\nconst links = [...new Set((volltext.match(/https?:\\/\\/[^\\s<>\"')\\]]+/gi) || []))].slice(0, 20);\n\n// ── Abmelde-Link (für die Newsletter-Verwaltung) ───────────────────────────\nconst listUnsubscribe = h['list-unsubscribe']\n  || (h.list && h.list.unsubscribe && (h.list.unsubscribe.url || h.list.unsubscribe.id))\n  || null;\n\nconst text = volltext.replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim().slice(0, 1500);\n\nconst promptText = `Du bist ein E-Mail-Klassifizierer. Analysiere die folgende E-Mail und antworte NUR mit einem JSON-Objekt in exakt diesem Format:\n{\"kategorie\": \"spam|rechnung|bestellung|newsletter|persoenlich|sonstiges\", \"spam_score\": 0.0, \"kurzfassung\": \"Ein Satz Zusammenfassung auf Deutsch\"}\n\nRegeln:\n- spam_score: 0.0 (sicher kein Spam) bis 1.0 (sicher Spam). Phishing, Betrugsversuche, unserioese Werbung = hoher Score.\n- kategorie \"rechnung\": Rechnungen, Zahlungsaufforderungen, Kontoauszuege, Vertraege.\n- kategorie \"bestellung\": Bestell-/Versandbestaetigungen, Lieferstatus.\n- kategorie \"newsletter\": Newsletter und Marketing serioeser Absender.\n- kategorie \"persoenlich\": Mails von echten Menschen (privat oder geschaeftlich).\n- Alles andere: \"sonstiges\".\n\nE-Mail:\nVon: ${von}\nBetreff: ${betreff}\nText: ${text}`;\n\nreturn {\n  json: {\n    konto: j.konto,\n    uid: j.uid ?? null,\n    id: j.id ?? null,\n    von,\n    betreff,\n    ip: absenderIp(),\n    links,\n    listUnsubscribe: typeof listUnsubscribe === 'string' ? listUnsubscribe : null,\n    promptText,\n  },\n};\n"
       },
       "id": "code-normalize",
       "name": "Normalisieren",
@@ -124,7 +76,7 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// Gemini-Antwort auswerten und den Zielordner bestimmen.\n// Die Panel-Prüfung (Listen, DNSBL) fließt dabei mit ein.\nconst mail = $('Prüfung auswerten').item.json;\n\nlet raw = '';\ntry { raw = $json.candidates[0].content.parts[0].text; } catch (e) { /* leer lassen */ }\nraw = String(raw).replace(/```json|```/g, '').trim();\n\nlet k = { kategorie: 'sonstiges', spam_score: 0, kurzfassung: '' };\ntry { k = { ...k, ...JSON.parse(raw) }; } catch (e) { /* Fallback: sonstiges */ }\n\n// >>> HIER die eigenen Gmail-Label-IDs eintragen (Gmail-Node: Label -> Get Many) <<<\nconst GMAIL_LABELS = {\n  Quarantaene: 'LABEL_ID_EINTRAGEN',\n  Rechnungen: 'LABEL_ID_EINTRAGEN',\n  Bestellungen: 'LABEL_ID_EINTRAGEN',\n  Newsletter: 'LABEL_ID_EINTRAGEN',\n};\n\n// DNSBL-Treffer erhöhen die Bewertung der KI\nconst schwelle = Number(mail.spam_schwellwert) || 0.8;\nconst score = Math.min(1, (Number(k.spam_score) || 0) + (Number(mail.score_aufschlag) || 0));\n\nlet zielordner = null;\nif (score > schwelle && !mail.nie_quarantaene) zielordner = mail.folder_spam || 'Quarantaene';\nelse if (k.kategorie === 'rechnung') zielordner = mail.folder_invoices || 'Rechnungen';\nelse if (k.kategorie === 'bestellung') zielordner = mail.folder_orders || 'Bestellungen';\nelse if (k.kategorie === 'newsletter') zielordner = mail.folder_newsletter || 'Newsletter';\n\nreturn {\n  json: {\n    ...mail,\n    kategorie: k.kategorie,\n    spam_score: score,\n    kurzfassung: k.kurzfassung,\n    zielordner,\n    gmailLabelId: zielordner ? GMAIL_LABELS[zielordner] : null,\n  },\n};\n"
+        "jsCode": "// Gemini-Antwort auswerten und den Zielordner bestimmen.\n// Die Panel-Prüfung (Listen, DNSBL) fließt dabei mit ein.\nconst mail = $('Prüfung auswerten').item.json;\n\nlet raw = '';\ntry { raw = $json.candidates[0].content.parts[0].text; } catch (e) { /* leer lassen */ }\nraw = String(raw).replace(/```json|```/g, '').trim();\n\nlet k = { kategorie: 'sonstiges', spam_score: 0, kurzfassung: '' };\ntry { k = { ...k, ...JSON.parse(raw) }; } catch (e) { /* Fallback: sonstiges */ }\n\n\n// DNSBL-Treffer erhöhen die Bewertung der KI\nconst schwelle = Number(mail.spam_schwellwert) || 0.8;\nconst score = Math.min(1, (Number(k.spam_score) || 0) + (Number(mail.score_aufschlag) || 0));\n\nlet zielordner = null;\nif (score > schwelle && !mail.nie_quarantaene) zielordner = mail.folder_spam || 'Quarantaene';\nelse if (k.kategorie === 'rechnung') zielordner = mail.folder_invoices || 'Rechnungen';\nelse if (k.kategorie === 'bestellung') zielordner = mail.folder_orders || 'Bestellungen';\nelse if (k.kategorie === 'newsletter') zielordner = mail.folder_newsletter || 'Newsletter';\n\nreturn {\n  json: {\n    ...mail,\n    kategorie: k.kategorie,\n    spam_score: score,\n    kurzfassung: k.kurzfassung,\n    zielordner,\n  },\n};\n"
       },
       "id": "code-parse",
       "name": "Antwort parsen",
@@ -178,63 +130,6 @@
       "position": [
         2880,
         380
-      ]
-    },
-    {
-      "parameters": {
-        "rules": {
-          "values": [
-            {
-              "conditions": {
-                "options": {
-                  "caseSensitive": true,
-                  "leftValue": "",
-                  "typeValidation": "strict",
-                  "version": 2
-                },
-                "conditions": [
-                  {
-                    "id": "sw-gmail",
-                    "leftValue": "={{ $json.konto }}",
-                    "rightValue": "gmail",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    }
-                  }
-                ],
-                "combinator": "and"
-              },
-              "renameOutput": true,
-              "outputKey": "gmail"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "id": "panel-weiche",
-      "name": "Nach Konto",
-      "type": "n8n-nodes-base.switch",
-      "typeVersion": 3.2,
-      "position": [
-        2880,
-        120
-      ]
-    },
-    {
-      "parameters": {
-        "resource": "message",
-        "operation": "addLabels",
-        "messageId": "={{ $json.id }}",
-        "labelIds": "={{ [$json.gmailLabelId] }}"
-      },
-      "id": "gmail-label",
-      "name": "Gmail: Label setzen",
-      "type": "n8n-nodes-base.gmail",
-      "typeVersion": 2.1,
-      "position": [
-        3140,
-        0
       ]
     },
     {
@@ -509,28 +404,6 @@
     }
   ],
   "connections": {
-    "Gmail Trigger": {
-      "main": [
-        [
-          {
-            "node": "Konto: Gmail",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Konto: Gmail": {
-      "main": [
-        [
-          {
-            "node": "Normalisieren",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Normalisieren": {
       "main": [
         [
@@ -566,27 +439,10 @@
     },
     "Verschieben?": {
       "main": [
-        [
-          {
-            "node": "Nach Konto",
-            "type": "main",
-            "index": 0
-          }
-        ],
+        [],
         [
           {
             "node": "Bleibt in der Inbox",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Nach Konto": {
-      "main": [
-        [
-          {
-            "node": "Gmail: Label setzen",
             "type": "main",
             "index": 0
           }

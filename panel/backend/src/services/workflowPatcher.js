@@ -16,14 +16,16 @@ const ANKER = {
     workflowPraefix: '01',
     ziel: 'Normalisieren',      // dorthin laufen die Konto-Trigger
     weiche: 'Verschieben?',     // davor sitzt die Konto-Weiche
-    gmailZiel: 'Gmail: Label setzen',
   },
   bestand: {
     workflowPraefix: '04',
-    kopf: 'Gmail Bestand',          // Kopf der Abrufkette
+    kopf: 'Manuell starten',        // Kopf der Abrufkette
     ziel: 'Sammeln + Normalisieren',
     weiche: 'Verschieben?',
-    gmailZiel: 'Gmail: Label setzen',
+  },
+  newsletter: {
+    workflowPraefix: '03',
+    trigger: 'Sonntags 3:00',
   },
 };
 
@@ -106,8 +108,62 @@ function verschiebeKnoten(konto, position) {
   };
 }
 
+// ── Workflow 03: Newsletter, die älter als 30 Tage sind, ins Archiv ─────────
+// Suchknoten je Konto: liefert die alten Mails aus dem Newsletter-Ordner.
+function altNewsletterKnoten(konto, position) {
+  const quelle = konto.folder_newsletter || 'Newsletter';
+  return {
+    parameters: {
+      authentication: 'coreImapAccount',
+      resource: 'email',
+      operation: 'getEmailsList',
+      mailboxPath: postfach(quelle),
+      // Nur die Kopfdaten — verschoben wird über die UID
+      includeParts: [],
+      limit: 200,
+    },
+    id: `${PRAEFIX}${konto.id}-nl-alt`,
+    name: `Alte Newsletter: ${konto.name}`,
+    type: 'n8n-nodes-imap.imap',
+    typeVersion: 1,
+    position,
+    executeOnce: true,
+    alwaysOutputData: true,
+    // Fehlt der Ordner in einem Postfach, sollen die anderen Konten weiterlaufen
+    onError: 'continueRegularOutput',
+    credentials: imapCredential(konto),
+  };
+}
+
+// Verschiebeknoten je Konto: Newsletter-Ordner -> Archiv
+function archivKnoten(konto, position) {
+  const quelle = konto.folder_newsletter || 'Newsletter';
+  const ziel   = konto.folder_archive || 'Archiv';
+  return {
+    parameters: {
+      authentication: 'coreImapAccount',
+      resource: 'email',
+      operation: 'moveEmail',
+      sourceMailbox: postfach(quelle),
+      emailUid: '={{ $json.uid }}',
+      destinationMailbox: postfach(ziel),
+    },
+    id: `${PRAEFIX}${konto.id}-nl-archiv`,
+    name: `Ins Archiv: ${konto.name}`,
+    type: 'n8n-nodes-imap.imap',
+    typeVersion: 1,
+    position,
+    onError: 'continueRegularOutput',
+    credentials: imapCredential(konto),
+  };
+}
+
+// Nur Mails, die älter als 30 Tage sind — als n8n-Ausdruck, damit das Datum
+// bei jedem Lauf neu berechnet wird.
+const AELTER_ALS_30_TAGE = "={{ 'BEFORE ' + $now.minus({ days: 30 }).toFormat('dd-MMM-yyyy') }}";
+
 // Weiche, die nach dem Feld "konto" auf die passende Verschiebe-Aktion verzweigt.
-// Ausgang 0 ist immer Gmail, danach folgen die Panel-Konten in Reihenfolge.
+// Die Ausgänge folgen der Reihenfolge der Konten.
 function weichenKnoten(konten, position) {
   const regel = (wert) => ({
     conditions: {
@@ -125,7 +181,7 @@ function weichenKnoten(konten, position) {
   });
   return {
     parameters: {
-      rules: { values: [regel('gmail'), ...konten.map((k) => regel(k.name))] },
+      rules: { values: konten.map((k) => regel(k.name)) },
       options: {},
     },
     id: `${PRAEFIX}weiche`,
@@ -178,6 +234,39 @@ function panelKnotenEntfernen(workflow) {
   }
   workflow.connections = verbindungen;
   return workflow;
+}
+
+// Knoten aus früheren Fassungen der Vorlagen. Bis v2.2.2.0 hatten die Workflows
+// einen fest eingebauten Gmail-Zweig und in 03 sogar zwei namentlich genannte
+// Postfächer. Seither läuft alles über die im Panel angelegten IMAP-Konten.
+// "Neu importieren" fasst bestehende Workflows nicht an — deshalb werden diese
+// Knoten hier beim Synchronisieren ausgebaut.
+const ALTLASTEN = [
+  'trigger-gmail', 'set-gmail', 'gmail-label',            // Workflow 01
+  'gmail-bestand', 'gmail-label-bestand',                 // Workflow 04
+  'gmail-old-newsletter', 'gmail-add-archive', 'gmail-remove-newsletter',
+  'webde-old-newsletter', 'webde-move-archive',
+  'mailcow-old-newsletter', 'mailcow-move-archive',       // Workflow 03
+];
+
+function altlastenEntfernen(workflow) {
+  const raus = new Set(
+    workflow.nodes.filter((k) => ALTLASTEN.includes(String(k.id))).map((k) => k.name),
+  );
+  if (raus.size === 0) return false;
+  workflow.nodes = workflow.nodes.filter((k) => !raus.has(k.name));
+
+  const verbindungen = {};
+  for (const [quelle, wert] of Object.entries(workflow.connections || {})) {
+    if (raus.has(quelle)) continue;
+    verbindungen[quelle] = {
+      ...wert,
+      main: (wert.main || []).map((ausgang) => (ausgang || []).filter((ziel) => !raus.has(ziel.node))),
+    };
+  }
+  workflow.connections = verbindungen;
+  console.log('[patcher] Altlasten entfernt:', [...raus].join(', '));
+  return true;
 }
 
 function verbinde(workflow, von, nach, ausgang = 0) {
@@ -254,7 +343,11 @@ function patchAntwortParsen(workflow) {
   code = code.replace(/zielordner = 'Rechnungen';/g, "zielordner = mail.folder_invoices || 'Rechnungen';");
   code = code.replace(/zielordner = 'Bestellungen';/g, "zielordner = mail.folder_orders || 'Bestellungen';");
   code = code.replace(/zielordner = 'Newsletter';/g, "zielordner = mail.folder_newsletter || 'Newsletter';");
-  
+
+  // Übrig aus der Zeit mit fest eingebautem Gmail-Zweig
+  code = code.replace(/\n\/\/ >>> HIER die eigenen Gmail-Label-IDs[\s\S]*?\n\};\n/, '\n');
+  code = code.replace(/,\n    gmailLabelId: zielordner \? GMAIL_LABELS\[zielordner\] : null,/, ',');
+
   knoten.parameters.jsCode = code;
 }
 
@@ -271,10 +364,11 @@ async function triageSynchronisieren(konten, credentialId, aktionenWorkflowId) {
   const info = await workflowSuchen(ANKER.triage.workflowPraefix);
   const workflow = await n8n.workflowHolen(info.id);
   panelKnotenEntfernen(workflow);
+  altlastenEntfernen(workflow);
   if (credentialId) pruefKnotenVerdrahten(workflow, credentialId);
   patchAntwortParsen(workflow);
 
-  for (const name of [ANKER.triage.ziel, ANKER.triage.weiche, ANKER.triage.gmailZiel]) {
+  for (const name of [ANKER.triage.ziel, ANKER.triage.weiche]) {
     if (!workflow.nodes.some((k) => k.name === name)) {
       throw new Error(`Knoten "${name}" fehlt im Workflow 01 — bitte die mitgelieferte Vorlage importieren.`);
     }
@@ -282,7 +376,7 @@ async function triageSynchronisieren(konten, credentialId, aktionenWorkflowId) {
 
   // Eingang: je Konto ein IMAP-Trigger, der die Mail mit dem Kontonamen versieht
   konten.forEach((konto, i) => {
-    const y = 400 + i * 200; // unterhalb der fest eingebauten Gmail-Knoten
+    const y = 100 + i * 200;
     const trigger = triggerKnoten(konto, [0, y]);
     const set     = setKnoten(konto, [220, y]);
     workflow.nodes.push(trigger, set);
@@ -290,15 +384,14 @@ async function triageSynchronisieren(konten, credentialId, aktionenWorkflowId) {
     verbinde(workflow, set.name, ANKER.triage.ziel);
   });
 
-  // Ausgang: Weiche + je Konto ein Verschiebe-Knoten (Ausgang 0 bleibt Gmail)
+  // Ausgang: Weiche + je Konto ein Verschiebe-Knoten
   const weiche = weichenKnoten(konten, [1340, 120]);
   workflow.nodes.push(weiche);
   verbinde(workflow, ANKER.triage.weiche, weiche.name, 0);
-  verbinde(workflow, weiche.name, ANKER.triage.gmailZiel, 0);
   konten.forEach((konto, i) => {
     const move = verschiebeKnoten(konto, [1600, 160 + i * 160]);
     workflow.nodes.push(move);
-    verbinde(workflow, weiche.name, move.name, i + 1);
+    verbinde(workflow, weiche.name, move.name, i);
   });
 
   aktionenKnotenEinhaengen(workflow, aktionenWorkflowId);
@@ -323,6 +416,7 @@ async function bestandSynchronisieren(konten, credentialId, aktionenWorkflowId) 
   const info = await workflowSuchen(ANKER.bestand.workflowPraefix);
   const workflow = await n8n.workflowHolen(info.id);
   panelKnotenEntfernen(workflow);
+  altlastenEntfernen(workflow);
   if (credentialId) pruefKnotenVerdrahten(workflow, credentialId);
   patchAntwortParsen(workflow);
 
@@ -332,7 +426,7 @@ async function bestandSynchronisieren(konten, credentialId, aktionenWorkflowId) 
     throw new Error(`Workflow 04 passt nicht zur Vorlage (Knoten "${ANKER.bestand.kopf}"/"${ANKER.bestand.ziel}" fehlen).`);
   }
 
-  // Abrufkette: Gmail Bestand -> Bestand: A -> Bestand: B -> ... -> Sammler
+  // Abrufkette: Manuell starten -> Bestand: A -> Bestand: B -> ... -> Sammler
   // (nacheinander, damit der Sammel-Knoten nur einmal läuft)
   let vorheriger = kopf.name;
   konten.forEach((konto, i) => {
@@ -352,14 +446,42 @@ async function bestandSynchronisieren(konten, credentialId, aktionenWorkflowId) 
   const weiche = weichenKnoten(konten, [1780, 20]);
   workflow.nodes.push(weiche);
   verbinde(workflow, ANKER.bestand.weiche, weiche.name, 0);
-  verbinde(workflow, weiche.name, ANKER.bestand.gmailZiel, 0);
   konten.forEach((konto, i) => {
     const move = verschiebeKnoten(konto, [2040, 60 + i * 160]);
     workflow.nodes.push(move);
-    verbinde(workflow, weiche.name, move.name, i + 1);
+    verbinde(workflow, weiche.name, move.name, i);
   });
 
   aktionenKnotenEinhaengen(workflow, aktionenWorkflowId);
+  await n8n.workflowSpeichern(info.id, workflow);
+  if (info.active) await n8n.workflowAktivieren(info.id, true);
+  return { workflow: info.name, konten: konten.length };
+}
+
+// ─── Workflow 03: je Konto eine Such- und eine Verschiebe-Stufe ──────────────
+
+async function newsletterSynchronisieren(konten) {
+  const info = await workflowSuchen(ANKER.newsletter.workflowPraefix);
+  const workflow = await n8n.workflowHolen(info.id);
+  panelKnotenEntfernen(workflow);
+  altlastenEntfernen(workflow);
+
+  const trigger = workflow.nodes.find((k) => k.name === ANKER.newsletter.trigger);
+  if (!trigger) {
+    throw new Error(`Knoten "${ANKER.newsletter.trigger}" fehlt im Workflow 03 — bitte die mitgelieferte Vorlage importieren.`);
+  }
+
+  konten.forEach((konto, i) => {
+    const y = 100 + i * 180;
+    const suchen = altNewsletterKnoten(konto, [260, y]);
+    // Das Suchkriterium steht im Knoten, damit es in n8n sichtbar bleibt
+    suchen.parameters.searchCriteria = AELTER_ALS_30_TAGE;
+    const archiv = archivKnoten(konto, [520, y]);
+    workflow.nodes.push(suchen, archiv);
+    verbinde(workflow, trigger.name, suchen.name, 0);
+    verbinde(workflow, suchen.name, archiv.name, 0);
+  });
+
   await n8n.workflowSpeichern(info.id, workflow);
   if (info.active) await n8n.workflowAktivieren(info.id, true);
   return { workflow: info.name, konten: konten.length };
@@ -447,12 +569,13 @@ async function kiUndBenachrichtigungenSynchronisieren() {
 // Diese Knotentypen brauchen zwingend Zugangsdaten — fehlen sie, blockieren sie
 // die Aktivierung des gesamten Workflows.
 const BRAUCHT_ZUGANGSDATEN = [
-  'n8n-nodes-base.gmail',
-  'n8n-nodes-base.gmailTrigger',
+  // Telegram bleibt aus, solange kein Bot-Token hinterlegt ist
   'n8n-nodes-base.telegram',
   'n8n-nodes-base.telegramTrigger',
-  // Betrifft vor allem Workflow 03: dort stehen noch fest verdrahtete
-  // IMAP-Knoten aus der ersten Fassung, die keine Zugangsdaten haben.
+  // Greift bei Installationen, in denen noch Knoten aus einer älteren Fassung
+  // der Vorlagen stehen (Gmail, fest verdrahtete Postfächer).
+  'n8n-nodes-base.gmail',
+  'n8n-nodes-base.gmailTrigger',
   'n8n-nodes-imap.imap',
   'n8n-nodes-base.emailReadImap',
 ];
@@ -508,6 +631,13 @@ async function alleSynchronisieren(konten) {
   const ergebnisse = [];
   ergebnisse.push(await triageSynchronisieren(konten, credentialId, aktionenId));
   ergebnisse.push(await bestandSynchronisieren(konten, credentialId, aktionenId));
+  // Workflow 03 gibt es erst seit dem Wegfall der fest eingebauten Konten —
+  // fehlt er in einer älteren Installation, läuft der Rest trotzdem durch.
+  try {
+    ergebnisse.push(await newsletterSynchronisieren(konten));
+  } catch (err) {
+    console.warn('Workflow 03 konnte nicht verdrahtet werden:', err.message);
+  }
   return ergebnisse;
 }
 
@@ -556,7 +686,7 @@ async function basisSetup() {
 }
 
 module.exports = {
-  alleSynchronisieren, triageSynchronisieren, bestandSynchronisieren, basisSetup,
+  alleSynchronisieren, triageSynchronisieren, bestandSynchronisieren, newsletterSynchronisieren, basisSetup,
   // für Tests
   panelKnotenEntfernen, quellenEintragen, triggerKnoten, setKnoten, bestandKnoten,
 };
