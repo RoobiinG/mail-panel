@@ -32,6 +32,17 @@ router.post('/start', (req, res) => {
   }
 });
 
+// Alles, was in die Antwortseite kommt, stammt teils aus der Adresszeile.
+// Ohne Maskierung wäre das eine Einfallstelle für eingeschleustes HTML.
+function maskieren(text) {
+  return String(text ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 // GET /api/google/rueckkehr — hier landet der Browser nach der Zustimmung.
 // Ohne Anmeldung erreichbar (Google ruft es auf), abgesichert über state.
 async function rueckkehr(req, res) {
@@ -39,9 +50,9 @@ async function rueckkehr(req, res) {
   const antwort = (titel, text) => res
     .status(error || !code ? 400 : 200)
     .type('html')
-    .send(`<!doctype html><meta charset="utf-8"><title>${titel}</title>
+    .send(`<!doctype html><meta charset="utf-8"><title>${maskieren(titel)}</title>
       <body style="font-family:system-ui;background:#0d1117;color:#e6edf3;padding:3rem;text-align:center">
-      <h1 style="font-size:1.3rem">${titel}</h1><p style="color:#8b949e">${text}</p>
+      <h1 style="font-size:1.3rem">${maskieren(titel)}</h1><p style="color:#8b949e">${maskieren(text)}</p>
       <p><a href="/einstellungen" style="color:#388bfd">Zurück zum Panel</a></p></body>`);
 
   if (error) return antwort('Anmeldung abgebrochen', `Google meldet: ${String(error).slice(0, 200)}`);

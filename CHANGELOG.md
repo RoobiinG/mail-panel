@@ -2,6 +2,58 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [2.2.1.0] - 2026-08-14 (Build 25) — *Nachprüfung*
+
+Zweiter Prüfdurchgang über den kompletten Stand: 17 Prüfpunkte gegen die laufende Anlage
+(Zugriffsschutz, Eingabeprüfung, Einschleusung, Pfad-Ausbruch, Prüfdienste,
+Workflow-Steuerung, Rollen). Fünf Befunde, alle behoben und am laufenden System nachgewiesen.
+
+### Bugfixes
+
+- **Workflows 01 und 04 ließen sich nicht mehr einschalten, sobald eine eigene Aktion
+  bestand.** Ab n8n 2 muss ein aufgerufener Unter-Workflow veröffentlicht sein; n8n lehnte
+  mit „references workflow … which is not published" ab. Beim Speichern schaltet n8n einen
+  Workflow ab — Workflow 07 war danach also immer unveröffentlicht. Er wird jetzt nach jedem
+  Bau der Aktionen wieder veröffentlicht, und beim Konto-Sync geschieht das, *bevor* 01 und
+  04 ihren alten Zustand zurückbekommen.
+- **Ausbruch aus dem Zielordner über den Dateinamen eines Anhangs.** Den Namen bestimmt, wer
+  die Mail schickt; er lief ungefiltert in den Nextcloud-Pfad. Ein Anhang
+  `../../../ausbruch.txt` hätte in der Wurzel der Nextcloud gelandet. Der erzeugte Knoten
+  „Anhänge aufteilen" schneidet jetzt Verzeichnisanteile, führende Punkte und Steuerzeichen
+  ab und begrenzt auf 120 Zeichen.
+- **Eingeschleuste Ausdrücke in den Textfeldern der Aktionen.** `{{ … }}` und `${ … }` in
+  Ordner- oder Titelangaben landeten unverändert im Workflow und wurden dort ausgewertet —
+  damit wären `{{ $env.PANEL_SECRET }}` oder beliebiger JavaScript-Code erreichbar gewesen.
+  Nur noch die eigenen Platzhalter (`{{jahr}}`, `{{absender}}` …) bleiben aktiv, alles andere
+  wird entschärft.
+- **Reflektiertes HTML im Google-Rücksprung.** `GET /api/google/rueckkehr` ist ohne Anmeldung
+  erreichbar und baute den Parameter `error` roh in die Antwortseite ein. Damit war fremdes
+  HTML oder Skript auf der Panel-Adresse ausführbar. Alle eingesetzten Werte werden jetzt
+  maskiert.
+
+### Änderungen
+
+- **Obergrenze für KI-Entwürfe:** `POST /api/aktionen/entwurf` erlaubt zehn Anfragen pro
+  Minute und Benutzer. Jeder Entwurf kostet eine Gemini-Anfrage, und das Freikontingent ist
+  am Tag begrenzt.
+- `services/aktionenPatcher.js` benutzte NUL-Zeichen als interne Marker und galt Git dadurch
+  als Binärdatei — Änderungen daran waren im Diff nicht prüfbar. Jetzt stehen sie als
+  Escape-Sequenz in der Datei; das Verhalten ist unverändert.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **Datenbank:** keine Migration, kein Schemawechsel.
+- **n8n-Workflows:** **kein Neuimport nötig.** Aber einmal nach dem Update auf der
+  Workflows-Seite **„Konten neu verdrahten"** drücken (oder eine Aktion speichern) — erst
+  dabei wird Workflow 07 veröffentlicht und die Aktionsknoten werden mit der abgesicherten
+  Fassung neu erzeugt. Ohne diesen Schritt bleiben bestehende Aktionsknoten in ihrer alten
+  Form und 01/04 lassen sich weiter nicht einschalten.
+- **Neustart & Sitzungen:** nur ein Neustart des Panel-Containers, keine Abmeldung,
+  Tokens und Passkeys bleiben gültig.
+- **Sichtbare Änderung im Betrieb:** Workflow 07 steht in der Übersicht ab jetzt auf
+  „aktiv". Das ist beabsichtigt — er hat keinen eigenen Auslöser und läuft nur, wenn 01
+  oder 04 ihn aufrufen.
+
 ## [2.2.0.0] - 2026-08-14 (Build 24) — *Eigene Aktionen mit KI-Assistent*
 
 ### Features

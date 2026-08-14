@@ -24,14 +24,29 @@ const PLATZHALTER = {
   '{{kategorie}}': '{{ $json.kategorie }}',
 };
 
+// Alles, was wie ein Ausdruck aussieht, aber keiner unserer Platzhalter ist,
+// wird entschärft. Sonst könnte über ein Textfeld beliebiger Code in den
+// Workflow gelangen — die Vorlagen sollen aber die einzige Quelle dafür sein.
+function entschaerfen(text) {
+  return String(text || '')
+    .replace(/\$\{/g, '(')   // JavaScript-Einschub
+    .replace(/\{\{/g, '(')   // n8n-Ausdruck
+    .replace(/\}\}/g, ')');
+}
+
 // Liefert einen n8n-Ausdruck (mit führendem =), wenn Platzhalter enthalten sind
 function ausdruck(text) {
-  let s = String(text || '');
-  let ersetzt = false;
-  for (const [platzhalter, ausdr] of Object.entries(PLATZHALTER)) {
-    if (s.includes(platzhalter)) { s = s.split(platzhalter).join(ausdr); ersetzt = true; }
-  }
-  return ersetzt ? `=${s}` : s;
+  const roh = String(text || '');
+  const gefunden = Object.keys(PLATZHALTER).filter((p) => roh.includes(p));
+  if (gefunden.length === 0) return entschaerfen(roh);
+
+  // Erst die bekannten Platzhalter markieren, dann den Rest entschärfen,
+  // damit nur unsere eigenen Ausdrücke übrig bleiben.
+  let s = roh;
+  gefunden.forEach((p, i) => { s = s.split(p).join(`\u0000${i}\u0000`); });
+  s = entschaerfen(s);
+  gefunden.forEach((p, i) => { s = s.split(`\u0000${i}\u0000`).join(PLATZHALTER[p]); });
+  return `=${s}`;
 }
 
 // Pfadangaben säubern: keine Sprünge nach oben, keine doppelten Schrägstriche
@@ -55,8 +70,15 @@ function jsPlatzhalter(text, quelle) {
     '{{konto}}':     `\${${quelle}.konto}`,
     '{{kategorie}}': `\${${quelle}.kategorie}`,
   };
-  let s = String(text || '').replace(/`/g, "'");
-  for (const [p, a] of Object.entries(ersatz)) s = s.split(p).join(a);
+  // Rückwärts-Anführungszeichen würden das Template beenden, ${…} beliebigen
+  // Code einschleusen — beides wird entfernt, bevor die Platzhalter kommen.
+  const marke = (i) => `\u0000${i}\u0000`;
+  const roh = String(text || '').replace(/`/g, "'");
+  const gefunden = Object.keys(ersatz).filter((p) => roh.includes(p));
+  let s = roh;
+  gefunden.forEach((p, i) => { s = s.split(p).join(marke(i)); });
+  s = entschaerfen(s);
+  gefunden.forEach((p, i) => { s = s.split(marke(i)).join(ersatz[p]); });
   return '`' + s + '`';
 }
 
@@ -131,12 +153,20 @@ function anhaengeAufteilenKnoten(aktion, position, quellKnotenName) {
   return {
     parameters: {
       mode: 'runOnceForAllItems',
-      jsCode: `// Ein Item je Anhang, damit der Upload-Knoten sie einzeln bekommt
+      jsCode: `// Ein Item je Anhang, damit der Upload-Knoten sie einzeln bekommt.
+// Der Dateiname stammt aus der Mail und damit vom Absender — ohne Säuberung
+// könnte er mit "../" aus dem Zielordner ausbrechen.
+function sauberer(name) {
+  const roh = String(name || 'anhang').split(/[\\\\/]/).pop();
+  const geputzt = roh.replace(/^\\.+/, '').replace(/[\\x00-\\x1f]/g, '').trim();
+  return geputzt.slice(0, 120) || 'anhang';
+}
+
 const out = [];
 for (const item of $('${quellKnotenName}').all()) {
   for (const [name, datei] of Object.entries(item.binary || {})) {
     out.push({
-      json: { ...item.json, dateiname: datei.fileName || name },
+      json: { ...item.json, dateiname: sauberer(datei.fileName || name) },
       binary: { data: datei },
     });
   }
@@ -300,6 +330,19 @@ async function workflowSuchen(praefix) {
   return treffer;
 }
 
+// Workflow 07 ist ein Unter-Workflow ohne eigenen Auslöser. Ab n8n 2 muss er
+// trotzdem veröffentlicht sein, sonst verweigert n8n das Einschalten der
+// Workflows, die ihn aufrufen. Ein Fehler hier darf den Rest nicht aufhalten.
+async function veroeffentlichen(id) {
+  try {
+    await n8n.workflowAktivieren(id, true);
+    return true;
+  } catch (err) {
+    loggen('warn', 'backend:aktionen', `Workflow 07 konnte nicht veröffentlicht werden: ${err.message}`);
+    return false;
+  }
+}
+
 async function synchronisieren() {
   const info = await workflowSuchen(WORKFLOW_PRAEFIX);
   const workflow = await n8n.workflowHolen(info.id);
@@ -365,8 +408,12 @@ async function synchronisieren() {
   });
 
   await n8n.workflowSpeichern(info.id, workflow);
+  // n8n schaltet einen Workflow beim Speichern ab. Workflow 07 muss aber
+  // veröffentlicht bleiben: Ab n8n 2 lassen sich die Workflows 01 und 04 sonst
+  // gar nicht mehr einschalten („references workflow … which is not published").
+  const veroeffentlicht = await veroeffentlichen(info.id);
   loggen('info', 'backend:aktionen', `Workflow 07 neu gebaut: ${aktionen.length} Aktion(en)`);
-  return { workflow: info.name, aktionen: aktionen.length };
+  return { workflow: info.name, aktionen: aktionen.length, veroeffentlicht };
 }
 
-module.exports = { synchronisieren, ausdruck, pfadSaeubern };
+module.exports = { synchronisieren, veroeffentlichen, ausdruck, pfadSaeubern };

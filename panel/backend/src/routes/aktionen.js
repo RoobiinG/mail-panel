@@ -1,5 +1,6 @@
 // Eigene Aktionen: anlegen, prüfen, in n8n bauen.
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const db      = require('../db');
 const schema  = require('../services/aktionenSchema');
 const ki      = require('../services/aktionenKi');
@@ -40,8 +41,19 @@ router.get('/', (req, res) => {
   }
 });
 
+// Jeder Entwurf kostet eine Gemini-Anfrage. Das Freikontingent ist am Tag
+// begrenzt, deshalb eine Obergrenze pro Panel-Benutzer.
+const entwurfLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => String(req.user?.id || req.ip),
+  message: { ok: false, fehler: 'Zu viele Entwürfe hintereinander — bitte kurz warten.' },
+});
+
 // POST /api/aktionen/entwurf — Beschreibung von der KI in eine Regel übersetzen
-router.post('/entwurf', async (req, res) => {
+router.post('/entwurf', entwurfLimiter, async (req, res) => {
   const ergebnis = await ki.entwurfBauen(req.body?.beschreibung);
   if (!ergebnis.ok) return res.status(400).json(ergebnis);
   res.json(ergebnis);

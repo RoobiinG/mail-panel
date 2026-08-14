@@ -474,6 +474,11 @@ function knotenStilllegen(workflow) {
 }
 
 // Beide Workflows auf den aktuellen Kontenstand bringen
+// Verzögert geladen: aktionenPatcher hängt selbst an diesem Modul.
+function aktionenPatcher() {
+  return require('./aktionenPatcher');
+}
+
 async function alleSynchronisieren(konten) {
   // Zuerst sicherstellen, dass die Basis-Workflows überhaupt in n8n existieren
   await basisSetup();
@@ -492,7 +497,12 @@ async function alleSynchronisieren(konten) {
   let aktionenId = null;
   try {
     const alle = await n8n.workflowsAuflisten();
-    aktionenId = alle.find((w) => String(w.name).trim().startsWith('07'))?.id || null;
+    const treffer = alle.find((w) => String(w.name).trim().startsWith('07'));
+    aktionenId = treffer?.id || null;
+    // Ab n8n 2 muss ein aufgerufener Unter-Workflow veröffentlicht sein, sonst
+    // lassen sich 01 und 04 nicht mehr einschalten. Das muss vor dem Speichern
+    // passieren, weil direkt danach ihr alter Zustand wiederhergestellt wird.
+    if (treffer && !treffer.active) await aktionenPatcher().veroeffentlichen(aktionenId);
   } catch { /* ohne Aktionen weitermachen */ }
 
   const ergebnisse = [];
