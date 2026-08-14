@@ -5,6 +5,7 @@ const n8n      = require('../services/n8n');
 const mailcow  = require('../services/mailcow');
 const clamav   = require('../services/clamav');
 const dnsbl    = require('../services/dnsbl');
+const nextcloud = require('../services/nextcloud');
 
 const router = express.Router();
 
@@ -73,6 +74,12 @@ router.post('/test/:dienst', async (req, res) => {
     else if (dienst === 'mailcow') ergebnis = await mailcow.testVerbindung();
     else if (dienst === 'clamav') ergebnis = await clamav.ping();
     else if (dienst === 'unbound') ergebnis = await dnsbl.testVerbindung();
+    else if (dienst === 'nextcloud') {
+      ergebnis = await nextcloud.testVerbindung();
+      // Klappt die Verbindung, gleich die Zugangsdaten in n8n hinterlegen —
+      // dort muss der Nutzer dann nichts mehr eintragen.
+      if (ergebnis.ok) { try { await nextcloud.credentialsAnlegen(); } catch (e) { ergebnis.hinweis = 'In n8n konnte nichts hinterlegt werden: ' + e.message; } }
+    }
     else return res.status(400).json({ error: `Unbekannter Dienst: ${dienst}` });
     res.json(ergebnis);
   } catch (err) {

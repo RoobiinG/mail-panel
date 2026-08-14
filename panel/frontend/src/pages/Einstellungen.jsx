@@ -7,7 +7,51 @@ const DIENSTE = [
   { id: 'mailcow', label: 'Mailcow-API' },
   { id: 'clamav', label: 'ClamAV (clamd)' },
   { id: 'unbound', label: 'unbound (DNSBL-Resolver)' },
+  { id: 'nextcloud', label: 'Nextcloud (WebDAV)' },
 ];
+
+// Kleiner Block für die Google-Anmeldung — sie läuft über eine Weiterleitung,
+// deshalb kein einfaches Eingabefeld.
+function GoogleVerbindung() {
+  const [status, setStatus] = useState(null);
+  const [fehler, setFehler] = useState('');
+
+  const laden = () => api.get('/google/status').then((r) => setStatus(r.data)).catch(() => setStatus(null));
+  useEffect(() => { laden(); }, []);
+
+  const verbinden = async () => {
+    setFehler('');
+    try {
+      const r = await api.post('/google/start');
+      window.open(r.data.link, '_blank', 'noopener');
+    } catch (err) {
+      setFehler(err.response?.data?.error || 'Anmeldung konnte nicht gestartet werden.');
+    }
+  };
+  const loesen = async () => { await api.delete('/google').catch(() => {}); laden(); };
+
+  if (!status) return null;
+  return (
+    <div className="text-sm space-y-2">
+      <div className="flex items-center gap-3">
+        <span className={status.verbunden ? 'text-panel-green' : 'text-panel-muted'}>
+          {status.verbunden ? 'Mit Google verbunden' : 'Noch nicht mit Google verbunden'}
+        </span>
+        {status.verbunden ? (
+          <button onClick={loesen} className="btn-ghost !py-1 !px-2 text-xs">Verbindung lösen</button>
+        ) : (
+          <button onClick={verbinden} className="btn-ghost !py-1 !px-2 text-xs">Mit Google verbinden</button>
+        )}
+        <button onClick={laden} className="text-xs text-panel-muted underline">Status prüfen</button>
+      </div>
+      <p className="text-xs text-panel-muted">
+        Diese Adresse muss in der Google Cloud Console als Weiterleitungs-URI stehen:{' '}
+        <code className="text-panel-text break-all">{status.rueckkehrAdresse}</code>
+      </p>
+      {fehler && <p className="text-panel-red text-xs">{fehler}</p>}
+    </div>
+  );
+}
 
 export default function Einstellungen() {
   const [settings, setSettings] = useState(null);
@@ -159,6 +203,35 @@ export default function Einstellungen() {
         {zugangsFeld('gemini_api_key', 'Gemini API-Key', '', 'password')}
         {zugangsFeld('telegram_token', 'Telegram Bot-Token', '123456:ABC-DEF1234ghIkl-zyx...', 'password')}
         {zugangsFeld('telegram_chat_id', 'Telegram Chat-ID', '123456789')}
+        <div className="flex items-center gap-3">
+          <button onClick={speichern} className="btn-primary">Speichern</button>
+          {meldung && <span className="text-sm text-panel-muted">{meldung}</span>}
+        </div>
+      </div>
+
+      <div className="card space-y-4">
+        <h2 className="font-medium">Ziele für eigene Aktionen</h2>
+        <p className="text-sm text-panel-muted">
+          Wohin eigene Aktionen etwas ablegen dürfen. Für Nextcloud ein App-Passwort
+          verwenden (Nextcloud → Einstellungen → Sicherheit), nicht das Konto-Passwort.
+          Die Zugangsdaten hinterlegt das Panel anschließend selbst in n8n.
+        </p>
+        {zugangsFeld('nextcloud_url', 'Nextcloud-Adresse', 'https://cloud.example.org')}
+        {zugangsFeld('nextcloud_user', 'Nextcloud-Benutzer', 'robin')}
+        {zugangsFeld('nextcloud_passwort', 'Nextcloud-App-Passwort', '', 'password')}
+        {zugangsFeld('nextcloud_kalender', 'Nextcloud-Kalender (Name in der Adresse)', 'personal')}
+
+        <div className="pt-2 border-t border-panel-border" />
+        <p className="text-sm text-panel-muted">
+          Für Google-Termine: Client-ID und Secret aus der Google Cloud Console eintragen,
+          speichern und dann unten verbinden. Die Anmeldung läuft im Panel — in n8n musst
+          du dafür nichts einrichten.
+        </p>
+        {zugangsFeld('google_client_id', 'Google Client-ID', '...apps.googleusercontent.com')}
+        {zugangsFeld('google_client_secret', 'Google Client-Secret', '', 'password')}
+        {zugangsFeld('google_kalender_id', 'Google-Kalender', 'primary')}
+        <GoogleVerbindung />
+
         <div className="flex items-center gap-3">
           <button onClick={speichern} className="btn-primary">Speichern</button>
           {meldung && <span className="text-sm text-panel-muted">{meldung}</span>}

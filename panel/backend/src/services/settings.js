@@ -11,6 +11,20 @@ const FELDER = {
   mailcow_url:          { env: 'MAILCOW_URL', geheim: false },
   mailcow_api_key:      { env: 'MAILCOW_API_KEY', geheim: true },
   safebrowsing_api_key: { env: 'SAFEBROWSING_API_KEY', geheim: true },
+  // KI und Benachrichtigung: Das Panel legt daraus die Credentials in n8n an
+  // (siehe workflowPatcher.kiUndBenachrichtigungenSynchronisieren).
+  gemini_api_key:       { env: 'GEMINI_API_KEY', geheim: true },
+  telegram_token:       { env: 'TELEGRAM_TOKEN', geheim: true },
+  telegram_chat_id:     { env: 'TELEGRAM_CHAT_ID', geheim: false },
+  // Ziele für eigene Aktionen
+  nextcloud_url:        { env: 'NEXTCLOUD_URL', geheim: false },
+  nextcloud_user:       { env: 'NEXTCLOUD_USER', geheim: false },
+  nextcloud_passwort:   { env: 'NEXTCLOUD_PASSWORT', geheim: true },
+  nextcloud_kalender:   { env: 'NEXTCLOUD_KALENDER', geheim: false },
+  google_client_id:     { env: 'GOOGLE_CLIENT_ID', geheim: false },
+  google_client_secret: { env: 'GOOGLE_CLIENT_SECRET', geheim: true },
+  google_refresh_token: { geheim: true },
+  google_kalender_id:   { geheim: false, standard: 'primary' },
 };
 
 function hole(key) {

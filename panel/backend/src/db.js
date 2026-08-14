@@ -153,6 +153,22 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
   CREATE INDEX IF NOT EXISTS idx_sortinbox_status ON sort_inbox(status);
+
+  -- Eigene Aktionen: "Wenn eine Mail so aussieht, mach das damit."
+  -- bedingung und konfig sind JSON; der Aktionen-Patcher baut daraus die
+  -- Knoten in Workflow 07.
+  CREATE TABLE IF NOT EXISTS aktionen (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    beschreibung TEXT,
+    bedingung TEXT NOT NULL DEFAULT '{}',
+    typ TEXT NOT NULL CHECK(typ IN ('nextcloud_datei','nextcloud_kalender','google_kalender','webhook')),
+    konfig TEXT NOT NULL DEFAULT '{}',
+    aktiv INTEGER NOT NULL DEFAULT 1,
+    treffer INTEGER NOT NULL DEFAULT 0,
+    erstellt_von INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 `);
 
 // ─── Migrationen: neue Spalten kommen als try/catch-ALTER dazu ───────────────

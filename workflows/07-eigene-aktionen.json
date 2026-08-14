@@ -1,0 +1,39 @@
+{
+  "name": "07 - Eigene Aktionen",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Eigene Aktionen\n\nDiesen Workflow rufen die Workflows 01 und 04 nach der Klassifizierung auf.\n\n**Alles hier drin verwaltet das Mail-Panel** (Seite „Workflows\" → Eigene Aktionen). Bei jeder Änderung an den Regeln werden die Knoten neu erzeugt — von Hand ergänzte Knoten mit dem ID-Präfix `panel-` gehen dabei verloren.\n\nJede Regel wird zu einer Kette: **Bedingung → Aktion**. Schlägt eine Aktion fehl, läuft die Mail trotzdem weiter — die Sortierung in Workflow 01 hängt nicht davon ab.",
+        "height": 300,
+        "width": 420,
+        "color": 3
+      },
+      "id": "sticky-aktionen",
+      "name": "Hinweise",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        -320
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "aktionen-trigger",
+      "name": "Von Workflow 01/04",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        100
+      ]
+    }
+  ],
+  "connections": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

@@ -37,9 +37,11 @@ function triggerKnoten(konto, position) {
       mailbox: 'INBOX',
       postProcessAction: 'read',
       // "resolved" liefert die vollständigen Kopfzeilen (nötig für die
-      // Absender-IP der DNSBL-Prüfung) und legt Anhänge als Binärdaten ab
-      // (nötig für den Virenscan).
+      // Absender-IP der DNSBL-Prüfung).
       format: 'resolved',
+      // Erst damit landen Anhänge als Binärdaten im Item — ohne sie kann weder
+      // der Virenscan noch eine Datei-Aktion etwas ausrichten.
+      downloadAttachments: true,
       options: {},
     },
     id: `${PRAEFIX}${konto.id}-trigger`,
@@ -204,6 +206,34 @@ async function panelCredentialId() {
   return id;
 }
 
+// Ruft nach der Klassifizierung den Workflow "07 - Eigene Aktionen" auf.
+// Bewusst als zweiter Abzweig neben "Verschieben?" statt in Reihe: Der
+// Execute-Workflow-Knoten würde das Item sonst durch seine Antwort ersetzen und
+// die Mail wäre für die Sortierung verloren (derselbe Stolperstein wie bei den
+// HTTP-Knoten). So laufen beide Zweige unabhängig.
+function aktionenKnotenEinhaengen(workflow, aktionenWorkflowId) {
+  if (!aktionenWorkflowId) return;
+  const quelle = 'Antwort parsen';
+  if (!workflow.nodes.some((k) => k.name === quelle)) return;
+
+  const knoten = {
+    parameters: {
+      workflowId: { __rl: true, mode: 'id', value: String(aktionenWorkflowId) },
+      options: { waitForSubWorkflow: false },
+    },
+    id: `${PRAEFIX}eigene-aktionen`,
+    name: 'Eigene Aktionen',
+    type: 'n8n-nodes-base.executeWorkflow',
+    typeVersion: 1.2,
+    position: [1320, 560],
+    // Eine fehlgeschlagene Aktion darf die Einsortierung nicht aufhalten
+    alwaysOutputData: true,
+    onError: 'continueRegularOutput',
+  };
+  workflow.nodes.push(knoten);
+  verbinde(workflow, quelle, knoten.name, 0);
+}
+
 // Hängt das Panel-Credential an den Prüf-Knoten der Vorlage
 function pruefKnotenVerdrahten(workflow, credentialId) {
   const knoten = workflow.nodes.find((k) => k.name === 'Panel-Prüfung');
@@ -237,7 +267,7 @@ async function workflowSuchen(praefix) {
 
 // ─── Workflow 01: Trigger + Konto-Kennzeichnung je Konto ─────────────────────
 
-async function triageSynchronisieren(konten, credentialId) {
+async function triageSynchronisieren(konten, credentialId, aktionenWorkflowId) {
   const info = await workflowSuchen(ANKER.triage.workflowPraefix);
   const workflow = await n8n.workflowHolen(info.id);
   panelKnotenEntfernen(workflow);
@@ -271,6 +301,7 @@ async function triageSynchronisieren(konten, credentialId) {
     verbinde(workflow, weiche.name, move.name, i + 1);
   });
 
+  aktionenKnotenEinhaengen(workflow, aktionenWorkflowId);
   await n8n.workflowSpeichern(info.id, workflow);
   // Nach dem Speichern deaktiviert n8n den Workflow — vorherigen Zustand wiederherstellen
   if (info.active) await n8n.workflowAktivieren(info.id, true);
@@ -288,7 +319,7 @@ function quellenEintragen(code, konten) {
   );
 }
 
-async function bestandSynchronisieren(konten, credentialId) {
+async function bestandSynchronisieren(konten, credentialId, aktionenWorkflowId) {
   const info = await workflowSuchen(ANKER.bestand.workflowPraefix);
   const workflow = await n8n.workflowHolen(info.id);
   panelKnotenEntfernen(workflow);
@@ -328,6 +359,7 @@ async function bestandSynchronisieren(konten, credentialId) {
     verbinde(workflow, weiche.name, move.name, i + 1);
   });
 
+  aktionenKnotenEinhaengen(workflow, aktionenWorkflowId);
   await n8n.workflowSpeichern(info.id, workflow);
   if (info.active) await n8n.workflowAktivieren(info.id, true);
   return { workflow: info.name, konten: konten.length };
@@ -455,9 +487,17 @@ async function alleSynchronisieren(konten) {
   try { credentialId = await panelCredentialId(); }
   catch (err) { console.warn('Panel-Credential konnte nicht angelegt werden:', err.message); }
 
+  // Workflow 07 nimmt die eigenen Aktionen auf; fehlt er, bleibt der Aufruf
+  // schlicht weg und die Triage läuft wie bisher.
+  let aktionenId = null;
+  try {
+    const alle = await n8n.workflowsAuflisten();
+    aktionenId = alle.find((w) => String(w.name).trim().startsWith('07'))?.id || null;
+  } catch { /* ohne Aktionen weitermachen */ }
+
   const ergebnisse = [];
-  ergebnisse.push(await triageSynchronisieren(konten, credentialId));
-  ergebnisse.push(await bestandSynchronisieren(konten, credentialId));
+  ergebnisse.push(await triageSynchronisieren(konten, credentialId, aktionenId));
+  ergebnisse.push(await bestandSynchronisieren(konten, credentialId, aktionenId));
   return ergebnisse;
 }
 

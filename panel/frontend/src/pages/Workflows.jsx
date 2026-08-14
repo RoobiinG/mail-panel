@@ -4,6 +4,7 @@ import {
   CheckCircle2, XCircle, Loader2, AlertTriangle,
 } from 'lucide-react';
 import api from '../api';
+import AktionenBereich from '../components/AktionenBereich';
 
 const zeit = (w) => (w ? new Date(w).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' }) : '—');
 
@@ -250,6 +251,10 @@ export default function Workflows() {
             ))}
           </ul>
         )}
+      </div>
+
+      <div className="pt-2 border-t border-panel-border">
+        <AktionenBereich />
       </div>
     </div>
   );

@@ -5,6 +5,7 @@ const listen  = require('../services/listen');
 const dnsbl   = require('../services/dnsbl');
 const safebrowsing = require('../services/safebrowsing');
 const clamav  = require('../services/clamav');
+const google  = require('../services/google');
 const sortierung = require('../services/sortierung');
 
 const router = express.Router();
@@ -201,6 +202,17 @@ router.get('/digest', (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Frischen Google-Zugriffs-Token fuer die Kalender-Aktion in Workflow 07.
+// Die Anmeldung selbst passiert im Panel — n8n bekommt hier nur einen kurzlebigen
+// Token und sieht die Zugangsdaten nie.
+router.get('/google-token', async (req, res) => {
+  try {
+    res.json(await google.zugriffsToken());
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 });
 

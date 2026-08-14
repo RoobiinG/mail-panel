@@ -161,6 +161,38 @@ Newsletter-Abbestellen, Rspamd-Tuning und Prüfdienste (DNSBL via unbound, ClamA
 gehören dem Panel und werden bei jedem Konto-Sync neu erzeugt. Änderungen daran gehen
 verloren — der Rest des Workflows bleibt unangetastet und kann frei angepasst werden.
 
+
+### Eigene Aktionen (Workflows-Seite)
+
+Neben der Spam-Sortierung kann das Panel weitere Dinge mit Mails tun. Auf der Seite
+*Workflows* im Bereich **Eigene Aktionen** beschreibst du in einem Satz, was passieren soll:
+
+> Rechnungen von amazon.de als PDF in Nextcloud unter Belege/{{jahr}} ablegen
+
+Die KI macht daraus eine Regel, die dir als Formular zur Kontrolle angezeigt wird — erst
+nach deiner Bestätigung wird sie gespeichert und in n8n gebaut. Jedes Feld bleibt änderbar,
+und ohne Gemini-Schlüssel füllst du das Formular einfach selbst aus.
+
+**Mögliche Ziele**
+
+| Ziel | Was du dafür brauchst |
+|---|---|
+| Anhang in Nextcloud ablegen | Adresse, Benutzer und App-Passwort unter Einstellungen |
+| Termin im Nextcloud-Kalender | dieselben Zugangsdaten plus Kalendername |
+| Termin im Google-Kalender | Client-ID und Secret aus der Google Cloud Console, dann im Panel verbinden |
+| Beliebige Adresse aufrufen | die Adresse (Ziele im eigenen Netz werden abgelehnt) |
+
+In Textfeldern sind Platzhalter erlaubt: `{{jahr}}`, `{{monat}}`, `{{tag}}`,
+`{{absender}}`, `{{betreff}}`, `{{konto}}`, `{{kategorie}}`.
+
+Die Aktionen laufen im Workflow **07 - Eigene Aktionen**, den die Workflows 01 und 04 nach
+der Klassifizierung aufrufen. Schlägt eine Aktion fehl, wird die Mail trotzdem einsortiert.
+
+**Google ohne n8n-Login:** Der Google-Kalender-Knoten von n8n kann nur OAuth2, und dessen
+Anmeldung läuft in der n8n-Oberfläche. Deshalb meldest du dich im Panel an; die Workflows
+holen sich den Zugriffs-Token dann beim Panel ab. Die im Panel angezeigte Rücksprung-Adresse
+muss in der Google Cloud Console als Weiterleitungs-URI eingetragen sein.
+
 ### Spam-Prüfung: White-/Blacklist und DNSBL
 
 Unter *White- / Blacklist* pflegst du eigene Absenderlisten, die für alle Konten gelten.

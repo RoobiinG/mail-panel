@@ -12,6 +12,7 @@ const { rechtErforderlich } = require('./middleware/auth');
 const internalAuth = require('./middleware/internalAuth');
 const { router: passkeysRoutes } = require('./routes/passkeys');
 const { router: logsRoutes, clientError } = require('./routes/logs');
+const { router: googleRoutes, rueckkehr: googleRueckkehr } = require('./routes/google');
 const panelLog = require('./services/panelLog');
 
 const app = express();
@@ -37,6 +38,11 @@ app.use('/api/benutzer', auth, rechtErforderlich('benutzer'), require('./routes/
 app.use('/api/rollen', auth, rechtErforderlich('benutzer'), require('./routes/rollen'));
 app.use('/api/sortierung', auth, rechtErforderlich('sortierung'), require('./routes/sortierung'));
 app.use('/api/workflows', auth, rechtErforderlich('workflows'), require('./routes/workflows'));
+app.use('/api/aktionen', auth, rechtErforderlich('workflows'), require('./routes/aktionen'));
+// Google ruft die Rueckkehr-Adresse im Browser auf — die kann keine Anmeldung
+// mitschicken und ist deshalb ueber den state-Parameter abgesichert.
+app.get('/api/google/rueckkehr', googleRueckkehr);
+app.use('/api/google', auth, rechtErforderlich('einstellungen'), googleRoutes);
 
 // Panel-Logs: Browser-Fehler kommen ohne Anmeldung an (der Fehler kann ja gerade
 // die Anmeldung betreffen) — deshalb eine Bremse, damit niemand die Datenbank

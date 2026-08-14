@@ -2,6 +2,60 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [2.2.0.0] - 2026-08-14 (Build 24) — *Eigene Aktionen mit KI-Assistent*
+
+### Features
+
+- **Eigene Aktionen** (neuer Bereich auf der Workflows-Seite). Man beschreibt in einem Satz,
+  was passieren soll — etwa „Rechnungen von amazon.de als PDF in Nextcloud unter
+  Belege/{{jahr}} ablegen". Gemini übersetzt das in eine Regel, das Panel zeigt sie als
+  Formular zur Kontrolle, und erst nach Bestätigung wird sie gespeichert und in n8n gebaut.
+  Wer lieber selbst tippt, füllt dasselbe Formular direkt aus.
+- **Vier Ziele:** Anhänge in einen Nextcloud-Ordner legen, Termine im Nextcloud-Kalender
+  (CalDAV) oder im Google-Kalender anlegen, oder eine beliebige Adresse aufrufen.
+  In Textfeldern gibt es Platzhalter wie `{{jahr}}`, `{{absender}}` oder `{{betreff}}`.
+- **Die KI kann nichts kaputt machen.** Sie füllt nur ein festes Schema aus
+  (`services/aktionenSchema.js`); erfundene Felder, Vergleiche oder Aktionstypen werden
+  verworfen. Die n8n-Knoten entstehen anschließend aus geprüften Vorlagen im Panel —
+  von der KI erzeugtes Workflow-JSON kommt nie in n8n an.
+- **Neuer Workflow `07 - Eigene Aktionen`.** Die Workflows 01 und 04 rufen ihn nach der
+  Klassifizierung auf, bewusst als zweiter Abzweig neben dem Verschieben: Eine
+  fehlgeschlagene Aktion hält die Einsortierung so nicht auf.
+- **Nextcloud im Panel einrichten:** Adresse, Benutzer und App-Passwort eintragen, Verbindung
+  testen — das Panel legt die beiden nötigen Credentials selbst in n8n an. Fehlende Ordner
+  im Zielpfad werden beim Ablegen automatisch erstellt.
+- **Google-Anmeldung im Panel statt in n8n.** Der Google-Kalender-Knoten von n8n kennt nur
+  OAuth2, dessen Zustimmungsdialog in der n8n-Oberfläche läuft. Stattdessen meldet man sich
+  im Panel an; die Workflows holen sich über den internen Endpunkt
+  `/api/internal/google-token` einen kurzlebigen Zugriffs-Token. n8n sieht die Zugangsdaten nie.
+- **Webhook-Ziele werden geprüft:** Adressen im eigenen Netz lehnt das Panel beim Speichern
+  ab — sonst wäre die Aktion ein Werkzeug für Anfragen nach innen (derselbe Schutz wie beim
+  Abmelde-Link).
+
+### Bugfixes
+
+- **Gemini-Schlüssel und Telegram-Token ließen sich gar nicht speichern.** Die Felder gab es
+  in der Oberfläche, gelesen wurden sie auch — nur fehlten sie in der Liste der erlaubten
+  Einstellungen, sodass jede Eingabe stillschweigend verworfen wurde. Damit lief die
+  KI-Klassifizierung bei niemandem, der sie über das Panel eingerichtet hat.
+- **Anhänge kamen nie in den Workflows an.** Dem IMAP-Trigger fehlte `downloadAttachments`;
+  ohne das gibt es keine Binärdaten — der Virenscan und alle Datei-Aktionen liefen deshalb ins Leere.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **Workflows 01 und 04 neu importieren**, danach „Synchronisieren" — der Sync trägt den
+  Aufruf von Workflow 07 ein. Workflow 07 selbst kommt über „Neu importieren".
+- **Neue Tabelle `aktionen`** (wird automatisch angelegt), neue Einstellungen für Nextcloud
+  und Google.
+- **Anhänge werden jetzt heruntergeladen.** Das kostet Arbeitsspeicher je Ausführung —
+  bei sehr großen Anhängen entsprechend mehr.
+- Für Google muss die im Panel angezeigte Rücksprung-Adresse in der Google Cloud Console
+  als Weiterleitungs-URI hinterlegt sein.
+- Auf dem Testserver verifiziert: Regel anlegen, Workflow 07 wird gebaut, Aufruf aus einem
+  Workflow, Webhook erhält die Maildaten, unpassende Mails lösen nichts aus, und ein echter
+  Anhang landet in einer echten Nextcloud unter `Belege/2026/`.
+  Nicht getestet mangels Zugangsdaten: Google-Kalender und der Nextcloud-Kalender.
+
 ## [2.1.0.0] - 2026-08-13 (Build 23) — *n8n aus dem Panel steuern*
 
 ### Features
