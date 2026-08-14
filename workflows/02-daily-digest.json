@@ -11,7 +11,10 @@
       "name": "Hinweise",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [-60, -320]
+      "position": [
+        -60,
+        -320
+      ]
     },
     {
       "parameters": {
@@ -28,7 +31,10 @@
       "name": "Täglich 7:30",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [0, 100]
+      "position": [
+        0,
+        100
+      ]
     },
     {
       "parameters": {
@@ -37,11 +43,14 @@
         "genericAuthType": "httpHeaderAuth",
         "options": {}
       },
-      "id": "panel-digest",
+      "id": "digest-abruf",
       "name": "Daten vom Panel holen",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [220, 100],
+      "position": [
+        220,
+        100
+      ],
       "executeOnce": true,
       "alwaysOutputData": true
     },
@@ -54,7 +63,10 @@
       "name": "Digest zusammenstellen",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [440, 100]
+      "position": [
+        440,
+        100
+      ]
     },
     {
       "parameters": {
@@ -71,7 +83,10 @@
       "name": "Gemini zusammenfassen",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [660, 100]
+      "position": [
+        660,
+        100
+      ]
     },
     {
       "parameters": {
@@ -82,7 +97,10 @@
       "name": "Text extrahieren",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [880, 100]
+      "position": [
+        880,
+        100
+      ]
     },
     {
       "parameters": {
@@ -118,24 +136,67 @@
       "name": "Telegram senden",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [1100, 100]
+      "position": [
+        1100,
+        100
+      ]
     }
   ],
   "connections": {
     "Täglich 7:30": {
-      "main": [[{ "node": "Daten vom Panel holen", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Daten vom Panel holen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Daten vom Panel holen": {
-      "main": [[{ "node": "Digest zusammenstellen", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Digest zusammenstellen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Digest zusammenstellen": {
-      "main": [[{ "node": "Gemini zusammenfassen", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Gemini zusammenfassen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Gemini zusammenfassen": {
-      "main": [[{ "node": "Text extrahieren", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Text extrahieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Text extrahieren": {
-      "main": [[{ "node": "Telegram senden", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Telegram senden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {

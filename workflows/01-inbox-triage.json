@@ -35,7 +35,7 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// Quelle für den Normalisieren-Knoten in Workflow 01 (wird als jsCode eingebettet).\n// Vereinheitlicht die drei Datenformate und holt heraus, was die Prüfdienste brauchen.\n\n// Einfaches Format -> from / subject / snippet\n// IMAP-Trigger  -> from.value[].address / subject / text | textPlain, headers/headerLines\n// IMAP-Node     -> envelope.from[].address / envelope.subject / textContent, headers\nconst j = $json;\nconst e = j.envelope || {};\nconst h = j.headers || {};\n\nconst von = (e.from && e.from[0] && e.from[0].address)\n  || (j.from && j.from.value && j.from.value[0] && j.from.value[0].address)\n  || (j.from && j.from.text)\n  || j.From\n  || (typeof j.from === 'string' ? j.from : '')\n  || '';\n\nconst betreff = e.subject || j.subject || j.Subject || '(kein Betreff)';\n\nlet volltext = j.textContent || j.textPlain || j.text || j.snippet || j.textHtml || '';\nif (typeof volltext !== 'string') volltext = JSON.stringify(volltext);\n\n// ── Absender-IP aus den Received-Kopfzeilen ────────────────────────────────\n// Die oberste Received-Zeile hat der eigene Mailserver geschrieben und enthält\n// die IP, von der die Mail tatsächlich kam — nur die ist vertrauenswürdig.\nfunction absenderIp() {\n  let received = h.received || h.Received;\n  if (!received && Array.isArray(j.headerLines)) {\n    received = j.headerLines\n      .filter((z) => String(z.key || '').toLowerCase() === 'received')\n      .map((z) => z.line);\n  }\n  if (!received) return null;\n  const zeilen = Array.isArray(received) ? received : [received];\n  // Adressen aus privaten und reservierten Netzen sagen nichts über den Absender\n  const intern = /^(10\\.|127\\.|169\\.254\\.|192\\.168\\.|172\\.(1[6-9]|2\\d|3[01])\\.|0\\.)/;\n  for (const zeile of zeilen) {\n    const gefunden = String(zeile).match(/\\b\\d{1,3}(?:\\.\\d{1,3}){3}\\b/g) || [];\n    const treffer = gefunden.find((ip) => !intern.test(ip));\n    if (treffer) return treffer;\n  }\n  return null;\n}\n\n// ── Links im Text (für die spätere Safe-Browsing-Prüfung) ──────────────────\nconst links = [...new Set((volltext.match(/https?:\\/\\/[^\\s<>\"')\\]]+/gi) || []))].slice(0, 20);\n\n// ── Abmelde-Link (für die Newsletter-Verwaltung) ───────────────────────────\nconst listUnsubscribe = h['list-unsubscribe']\n  || (h.list && h.list.unsubscribe && (h.list.unsubscribe.url || h.list.unsubscribe.id))\n  || null;\n\nconst text = volltext.replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim().slice(0, 1500);\n\nconst promptText = `Du bist ein E-Mail-Klassifizierer. Analysiere die folgende E-Mail und antworte NUR mit einem JSON-Objekt in exakt diesem Format:\n{\"kategorie\": \"spam|rechnung|bestellung|newsletter|persoenlich|sonstiges\", \"spam_score\": 0.0, \"kurzfassung\": \"Ein Satz Zusammenfassung auf Deutsch\"}\n\nRegeln:\n- spam_score: 0.0 (sicher kein Spam) bis 1.0 (sicher Spam). Phishing, Betrugsversuche, unserioese Werbung = hoher Score.\n- kategorie \"rechnung\": Rechnungen, Zahlungsaufforderungen, Kontoauszuege, Vertraege.\n- kategorie \"bestellung\": Bestell-/Versandbestaetigungen, Lieferstatus.\n- kategorie \"newsletter\": Newsletter und Marketing serioeser Absender.\n- kategorie \"persoenlich\": Mails von echten Menschen (privat oder geschaeftlich).\n- Alles andere: \"sonstiges\".\n\nE-Mail:\nVon: ${von}\nBetreff: ${betreff}\nText: ${text}`;\n\nreturn {\n  json: {\n    konto: j.konto,\n    uid: j.uid ?? null,\n    id: j.id ?? null,\n    von,\n    betreff,\n    ip: absenderIp(),\n    links,\n    listUnsubscribe: typeof listUnsubscribe === 'string' ? listUnsubscribe : null,\n    promptText,\n  },\n};\n"
+        "jsCode": "// Quelle für den Normalisieren-Knoten in Workflow 01 (wird als jsCode eingebettet).\n// Vereinheitlicht die drei Datenformate und holt heraus, was die Prüfdienste brauchen.\n\n// Einfaches Format -> from / subject / snippet\n// IMAP-Trigger  -> from.value[].address / subject / text | textPlain, headers/headerLines\n// IMAP-Node     -> envelope.from[].address / envelope.subject / textContent, headers\nconst j = $json;\nconst e = j.envelope || {};\nconst h = j.headers || {};\n\nconst von = (e.from && e.from[0] && e.from[0].address)\n  || (j.from && j.from.value && j.from.value[0] && j.from.value[0].address)\n  || (j.from && j.from.text)\n  || j.From\n  || (typeof j.from === 'string' ? j.from : '')\n  || '';\n\nconst betreff = e.subject || j.subject || j.Subject || '(kein Betreff)';\n\nlet volltext = j.textContent || j.textPlain || j.text || j.snippet || j.textHtml || '';\nif (typeof volltext !== 'string') volltext = JSON.stringify(volltext);\n\n// ── Absender-IP aus den Received-Kopfzeilen ────────────────────────────────\n// Die oberste Received-Zeile hat der eigene Mailserver geschrieben und enthält\n// die IP, von der die Mail tatsächlich kam — nur die ist vertrauenswürdig.\nfunction absenderIp() {\n  let received = h.received || h.Received;\n  if (!received && Array.isArray(j.headerLines)) {\n    received = j.headerLines\n      .filter((z) => String(z.key || '').toLowerCase() === 'received')\n      .map((z) => z.line);\n  }\n  if (!received) return null;\n  const zeilen = Array.isArray(received) ? received : [received];\n  // Adressen aus privaten und reservierten Netzen sagen nichts über den Absender\n  const intern = /^(10\\.|127\\.|169\\.254\\.|192\\.168\\.|172\\.(1[6-9]|2\\d|3[01])\\.|0\\.)/;\n  for (const zeile of zeilen) {\n    const gefunden = String(zeile).match(/\\b\\d{1,3}(?:\\.\\d{1,3}){3}\\b/g) || [];\n    const treffer = gefunden.find((ip) => !intern.test(ip));\n    if (treffer) return treffer;\n  }\n  return null;\n}\n\n// ── Links im Text (für die spätere Safe-Browsing-Prüfung) ──────────────────\nconst links = [...new Set((volltext.match(/https?:\\/\\/[^\\s<>\"')\\]]+/gi) || []))].slice(0, 20);\n\n// ── Abmelde-Link (für die Newsletter-Verwaltung) ───────────────────────────\nconst listUnsubscribe = h['list-unsubscribe']\n  || (h.list && h.list.unsubscribe && (h.list.unsubscribe.url || h.list.unsubscribe.id))\n  || null;\n\nconst text = volltext.replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim().slice(0, 1500);\n\nconst promptText = `Du bist ein E-Mail-Klassifizierer. Analysiere die folgende E-Mail und antworte NUR mit einem JSON-Objekt in exakt diesem Format:\n{\"kategorie\": \"spam|rechnung|bestellung|newsletter|persoenlich|sonstiges\", \"spam_score\": 0.0, \"kurzfassung\": \"Ein Satz Zusammenfassung auf Deutsch\"}\n\nRegeln:\n- spam_score: 0.0 (sicher kein Spam) bis 1.0 (sicher Spam). Phishing, Betrugsversuche, unserioese Werbung = hoher Score.\n- kategorie \"rechnung\": Rechnungen, Zahlungsaufforderungen, Kontoauszuege, Vertraege.\n- kategorie \"bestellung\": Bestell-/Versandbestaetigungen, Lieferstatus.\n- kategorie \"newsletter\": Newsletter und Marketing serioeser Absender.\n- kategorie \"persoenlich\": Mails von echten Menschen (privat oder geschaeftlich).\n- Alles andere: \"sonstiges\".\n\nE-Mail:\nVon: ${von}\nBetreff: ${betreff}\nText: ${text}`;\n\nreturn {\n  json: {\n    konto: j.konto,\n    // Der IMAP-Trigger legt die UID unter attributes ab, der Abruf-Knoten\n    // direkt daneben — ohne sie kann später nichts verschoben werden.\n    uid: j.uid ?? j.attributes?.uid ?? null,\n    id: j.id ?? null,\n    von,\n    betreff,\n    ip: absenderIp(),\n    links,\n    listUnsubscribe: typeof listUnsubscribe === 'string' ? listUnsubscribe : null,\n    promptText,\n  },\n  // Anhaenge weiterreichen — sonst fehlen sie dem Virenscan\n  binary: $input.item.binary,\n};\n"
       },
       "id": "code-normalize",
       "name": "Normalisieren",
@@ -157,7 +157,7 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// Ergebnis der Panel-Prüfung mit der Mail zusammenführen.\n// Whitelist beendet die Prüfung sofort, Blacklist geht ohne KI in die Quarantäne.\nconst mail = $('Normalisieren').item.json;\nconst p = $json || {};\n\nconst entscheidung = p.entscheidung || 'weiter';\nconst gruende = Array.isArray(p.gruende) ? p.gruende : [];\n\nreturn {\n  json: {\n    ...mail,\n    entscheidung,\n    score_aufschlag: Number(p.score_aufschlag) || 0,\n    spam_schwellwert: Number(p.spam_schwellwert) || 0.8,\n    gruende,\n    dnsbl_treffer: p.dnsbl_treffer || [],\n    // Blacklist braucht keine KI-Abfrage mehr\n    direkt_quarantaene: entscheidung === 'quarantaene',\n    // Whitelist übersteuert später auch die KI-Bewertung\n    nie_quarantaene: entscheidung === 'freigeben',\n  },\n};"
+        "jsCode": "// Ergebnis der Panel-Prüfung mit der Mail zusammenführen.\n// Whitelist beendet die Prüfung sofort, Blacklist geht ohne KI in die Quarantäne.\nconst mail = $('Normalisieren').item.json;\nconst p = $json || {};\n\nconst entscheidung = p.entscheidung || 'weiter';\nconst gruende = Array.isArray(p.gruende) ? p.gruende : [];\n\nreturn {\n  json: {\n    ...mail,\n    entscheidung,\n    score_aufschlag: Number(p.score_aufschlag) || 0,\n    spam_schwellwert: Number(p.spam_schwellwert) || 0.8,\n    gruende,\n    dnsbl_treffer: p.dnsbl_treffer || [],\n    // Blacklist braucht keine KI-Abfrage mehr\n    direkt_quarantaene: entscheidung === 'quarantaene',\n    // Whitelist übersteuert später auch die KI-Bewertung\n    // Für den Virenscan: $binary lässt sich in IF- und HTTP-Knoten nicht\n    // auflösen, ein gewöhnliches Feld schon.\n    hat_anhang: Object.keys($('Normalisieren').item.binary ?? {}).length > 0,\n    nie_quarantaene: entscheidung === 'freigeben',\n  },\n  // Anhaenge weiterreichen — der HTTP-Knoten davor wirft sie weg\n  // Den ersten Anhang unter festem Namen weiterreichen — der HTTP-Knoten\n  // davor wirft Binärdaten weg, und einen dynamischen Feldnamen kann der\n  // Scan-Knoten nicht auflösen.\n  binary: (() => {\n    const anhaenge = $('Normalisieren').item.binary ?? {};\n    const erster = Object.keys(anhaenge)[0];\n    return erster ? { anhang: anhaenge[erster] } : undefined;\n  })(),\n};\n"
       },
       "id": "check-auswerten",
       "name": "Prüfung auswerten",
@@ -231,11 +231,12 @@
           "conditions": [
             {
               "id": "cond-has-binary",
-              "leftValue": "={{ $binary ? Object.keys($binary).length : 0 }}",
-              "rightValue": 0,
+              "leftValue": "={{ $json.hat_anhang }}",
+              "rightValue": true,
               "operator": {
-                "type": "number",
-                "operation": "larger"
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
               }
             }
           ],
@@ -256,11 +257,11 @@
         "method": "POST",
         "url": "http://panel:3002/api/internal/scan",
         "sendBody": true,
-        "specifyBody": "binary",
-        "inputDataFieldName": "={{ Object.keys($binary)[0] }}",
+        "inputDataFieldName": "anhang",
         "options": {},
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth"
+        "genericAuthType": "httpHeaderAuth",
+        "contentType": "binaryData"
       }
     },
     {
@@ -318,7 +319,7 @@
       ],
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "const m = $('Normalisieren').item.json;\nreturn { json: { ...m, kategorie: 'spam', spam_score: 1, virus_name: $json.virus || 'Unbekannt', kurzfassung: 'Malware-Anhang entfernt', zielordner: 'Quarantaene' } };"
+        "jsCode": "const m = $('Normalisieren').item.json;\nreturn { json: { ...m, kategorie: 'spam', spam_score: 1, virus_name: $('ClamAV Scan').item.json.virus || 'Unbekannt', kurzfassung: 'Malware-Anhang entfernt', zielordner: 'Quarantaene' } };"
       }
     },
     {
@@ -393,7 +394,7 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// Antwort des Panels mit der Mail zusammenführen.\n// Der HTTP-Knoten davor ersetzt das Item durch seine Antwort — ohne diesen\n// Schritt hätten alle folgenden Knoten keine Maildaten mehr.\nconst mail = $('Normalisieren').item.json;\nconst s = $json || {};\nreturn {\n  json: {\n    ...mail,\n    sort_aktion: s.aktion || 'inbox',\n    sort_ordner: s.ordner || null,\n  },\n};"
+        "jsCode": "// Antwort des Panels mit der Mail zusammenführen.\n// Der HTTP-Knoten davor ersetzt das Item durch seine Antwort — ohne diesen\n// Schritt hätten alle folgenden Knoten keine Maildaten mehr.\nconst mail = $('Normalisieren').item.json;\nconst s = $json || {};\nreturn {\n  json: {\n    ...mail,\n    sort_aktion: s.aktion || 'inbox',\n    sort_ordner: s.ordner || null,\n  },\n  // Anhaenge weiterreichen — der HTTP-Knoten davor wirft sie weg\n  binary: $('Normalisieren').item.binary,\n};\n"
       },
       "id": "sort-auswerten",
       "name": "Sortierung auswerten",

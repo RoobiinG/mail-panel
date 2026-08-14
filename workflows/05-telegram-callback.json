@@ -47,7 +47,7 @@
         "jsonBody": "{}",
         "options": {}
       },
-      "id": "panel-api",
+      "id": "beispiel-panel-aufruf",
       "name": "Panel benachrichtigen (Beispiel)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,

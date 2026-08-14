@@ -27,15 +27,29 @@ const ordnerFelder = (b = {}) => ({
   folder_archive: b.folder_archive,
 });
 
-// Zugangsdaten aus der Anfrage, beim Bearbeiten ergänzt um das gespeicherte Passwort
+// Zugangsdaten aus der Anfrage, beim Bearbeiten ergänzt um das gespeicherte Passwort.
+//
+// Wichtig: Wird das Passwort aus der Datenbank geholt, kommen Server, Port und
+// Benutzername zwingend ebenfalls von dort. Sonst könnte jemand mit dem Recht
+// "konten" den Verbindungstest auf einen eigenen Server richten und sich die
+// gespeicherten Postfach-Passwörter zuschicken lassen — im Panel selbst sind sie
+// nicht lesbar. Wer den Server ändern will, muss das Passwort neu eingeben.
 function zugang(body = {}) {
   const { host, port, username, passwort, id, tlsUnsicher } = body;
-  let pw = passwort;
-  if (!pw && id) {
-    const konto = db.prepare('SELECT password_enc FROM accounts WHERE id = ?').get(id);
-    if (konto) pw = entschluesseln(konto.password_enc);
+  if (!passwort && id) {
+    const konto = db.prepare('SELECT * FROM accounts WHERE id = ?').get(id);
+    if (konto) {
+      return {
+        host: konto.host,
+        port: konto.port,
+        username: konto.username,
+        passwort: entschluesseln(konto.password_enc),
+        tlsUnsicher: Boolean(konto.tls_unsicher),
+        ...ordnerFelder(body),
+      };
+    }
   }
-  return { host, port, username, passwort: pw, tlsUnsicher, ...ordnerFelder(body) };
+  return { host, port, username, passwort, tlsUnsicher, ...ordnerFelder(body) };
 }
 
 // Eingaben prüfen — der Name landet als Knotenname in n8n, deshalb eng begrenzt

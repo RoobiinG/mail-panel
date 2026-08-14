@@ -2,6 +2,64 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [2.4.0.2] - 2026-08-14 (Build 30) — *Prüfdurchgang 3: Virenscan und Verschieben*
+
+Dritter Prüfdurchgang, diesmal mit echten Testmails statt nur gegen die Endpunkte.
+Dabei kam heraus, dass zwei Kernfunktionen noch nie gelaufen sind.
+
+### Bugfixes
+
+- **Es wurde nie eine Mail verschoben.** Der IMAP-Trigger legt die UID unter
+  `attributes.uid` ab, der Normalisierer las aber `j.uid` — also immer `null`. Ohne UID
+  scheiterte der Verschiebe-Knoten mit „Unable to move email". Aufgefallen ist das nie, weil
+  die Läufe vorher schon an anderer Stelle abbrachen. Jetzt mit Rückfall auf `attributes`.
+- **Der Virenscan lief nie.** Drei Ursachen hintereinander:
+  1. Code-Knoten geben nur zurück, was sie selbst bauen, und die HTTP-Knoten dazwischen
+     ersetzen das Item komplett — die Anhänge waren längst weg, bevor die Weiche sie suchte.
+  2. `$binary` lässt sich weder im IF- noch im HTTP-Knoten auflösen. Die Weiche prüft jetzt
+     ein gewöhnliches Feld (`hat_anhang`), und der Anhang wird unter dem festen Namen
+     `anhang` weitergereicht.
+  3. Dem Scan-Knoten fehlte `contentType: binaryData` — er schickte gar keine Datei und
+     bekam vom Panel eine 400 zurück.
+  Nachgewiesen mit einer Mail mit EICAR-Anhang: erkannt als `Eicar-Test-Signature`,
+  Telegram-Warnung raus, Mail in der Quarantäne.
+- **Der Virusname stand als „Unbekannt" im Protokoll**, weil er über `$json` gelesen wurde.
+  Jetzt direkt beim Scan-Knoten geholt.
+- **Verwaiste Verweise auf gelöschte Credentials.** Wurde ein Gemini- oder Telegram-Schlüssel
+  wieder entfernt, behielt der Knoten den Verweis und meldete „Credential with ID … does not
+  exist" — der Workflow ließ sich weder ausführen noch einschalten. Der Verweis wird jetzt
+  abgehängt, wie beim Postausgang schon seit v2.4.0.0.
+
+### Sicherheit
+
+- **Gespeicherte Postfach-Passwörter waren auslesbar.** Der Verbindungstest übernahm Server
+  und Port aus der Anfrage, das Passwort aber aus der Datenbank. Wer das Recht `konten`
+  hatte, konnte den Test damit auf einen eigenen Server richten und bekam das Passwort im
+  Klartext zugeschickt — im Panel selbst ist es nicht lesbar. Kommt das Passwort aus der
+  Datenbank, stammen Server, Port und Benutzername jetzt zwingend ebenfalls von dort. Wer den
+  Server ändern will, muss das Passwort neu eingeben. Betrifft `/api/konten/test` und
+  `/api/konten/ordner-anlegen`.
+- **Ordnernamen konnten n8n-Ausdrücke einschleusen.** Ein Ordner namens
+  `={{ $env.PANEL_SECRET }}` landete unverändert im Workflow, wo n8n das führende `=` als
+  Ausdruck versteht — das Panel-Secret wäre so in den Mail-Daten gelandet. Führendes `=`
+  sowie `{{ }}` und `${ }` werden jetzt entschärft.
+- **Zwei Vorlagen-Knoten trugen das reservierte Präfix `panel-`** (`Daten vom Panel holen` in
+  Workflow 02, der Beispielknoten in 05). Die Oberfläche wies sie dadurch fälschlich als
+  „wird bei jedem Sync neu gebaut" aus — und ein künftiger Aufruf des Aufräumers auf diese
+  Workflows hätte sie ersatzlos gelöscht. Beide haben jetzt eigene IDs.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **Datenbank:** keine Migration.
+- **n8n-Workflows:** **Nach dem Update einmal „Synchronisieren" drücken.** Der Patcher zieht
+  bestehende Workflows nach: UID-Rückfall, Anhang-Kette, Virusname, Knoten-IDs und die
+  verwaisten Credential-Verweise. Alles wiederholbar, alles andere bleibt unangetastet.
+- **Bekannte Grenze:** Gescannt wird der **erste** Anhang einer Mail. Und in Workflow 04
+  (Bestands-Triage) gibt es gar keinen Scan — der Abruf-Knoten liefert nur
+  `attachmentsInfo` (Dateiname, Größe), keine Dateiinhalte. Neu eintreffende Mails über
+  Workflow 01 werden vollständig geprüft.
+- **Neustart & Sitzungen:** nur der Panel-Container startet neu, keine Abmeldung.
+
 ## [2.4.0.1] - 2026-08-14 (Build 29) — *Alle Panel-Aufrufe verdrahtet*
 
 ### Bugfixes

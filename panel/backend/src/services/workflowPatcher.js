@@ -31,6 +31,21 @@ const ANKER = {
 
 const istPanelKnoten = (knoten) => String(knoten.id || '').startsWith(PRAEFIX);
 
+// Ordnernamen landen als Werte in n8n-Knoten. Beginnt ein Wert dort mit "=",
+// wertet n8n ihn als Ausdruck aus — ein Ordner namens "={{ $env.PANEL_SECRET }}"
+// würde also das Panel-Secret in die Mail-Daten schreiben. Deshalb wird alles
+// entfernt, was wie ein Ausdruck aussieht. Ein Ordnername braucht das nie.
+function ordnerName(wert, standard = '') {
+  const roh = String(wert || '').trim();
+  if (!roh) return standard;
+  return roh
+    .replace(/^=+/, '')          // führendes = macht in n8n einen Ausdruck daraus
+    .split('{{').join('(')       // n8n-Ausdruck
+    .split('}}').join(')')
+    .split('${').join('(')       // JavaScript-Einschub
+    .trim() || standard;
+}
+
 // ─── Knoten-Bausteine ────────────────────────────────────────────────────────
 
 function triggerKnoten(konto, position) {
@@ -61,10 +76,10 @@ function setKnoten(konto, position) {
       assignments: {
         assignments: [
           { id: `konto-${konto.id}`, name: 'konto', value: konto.name, type: 'string' },
-          { id: `f1-${konto.id}`, name: 'folder_spam', value: konto.folder_spam || '', type: 'string' },
-          { id: `f2-${konto.id}`, name: 'folder_invoices', value: konto.folder_invoices || '', type: 'string' },
-          { id: `f3-${konto.id}`, name: 'folder_orders', value: konto.folder_orders || '', type: 'string' },
-          { id: `f4-${konto.id}`, name: 'folder_newsletter', value: konto.folder_newsletter || '', type: 'string' },
+          { id: `f1-${konto.id}`, name: 'folder_spam', value: ordnerName(konto.folder_spam), type: 'string' },
+          { id: `f2-${konto.id}`, name: 'folder_invoices', value: ordnerName(konto.folder_invoices), type: 'string' },
+          { id: `f3-${konto.id}`, name: 'folder_orders', value: ordnerName(konto.folder_orders), type: 'string' },
+          { id: `f4-${konto.id}`, name: 'folder_newsletter', value: ordnerName(konto.folder_newsletter), type: 'string' },
         ],
       },
       includeOtherFields: true,
@@ -111,7 +126,7 @@ function verschiebeKnoten(konto, position) {
 // ── Workflow 03: Newsletter, die älter als 30 Tage sind, ins Archiv ─────────
 // Suchknoten je Konto: liefert die alten Mails aus dem Newsletter-Ordner.
 function altNewsletterKnoten(konto, position) {
-  const quelle = konto.folder_newsletter || 'Newsletter';
+  const quelle = ordnerName(konto.folder_newsletter, 'Newsletter');
   return {
     parameters: {
       authentication: 'coreImapAccount',
@@ -137,8 +152,8 @@ function altNewsletterKnoten(konto, position) {
 
 // Verschiebeknoten je Konto: Newsletter-Ordner -> Archiv
 function archivKnoten(konto, position) {
-  const quelle = konto.folder_newsletter || 'Newsletter';
-  const ziel   = konto.folder_archive || 'Archiv';
+  const quelle = ordnerName(konto.folder_newsletter, 'Newsletter');
+  const ziel   = ordnerName(konto.folder_archive, 'Archiv');
   return {
     parameters: {
       authentication: 'coreImapAccount',
@@ -249,6 +264,26 @@ const ALTLASTEN = [
   'mailcow-old-newsletter', 'mailcow-move-archive',       // Workflow 03
 ];
 
+// Zwei Knoten der Vorlagen trugen bis v2.4.0.1 das reservierte Präfix "panel-".
+// Das ist die Marke für "gehört dem Panel und wird bei jedem Sync neu gebaut" —
+// die Oberfläche wies sie deshalb falsch aus, und ein künftiger Aufruf von
+// panelKnotenEntfernen auf Workflow 02 oder 05 hätte sie ersatzlos gelöscht.
+const UMBENENNEN = {
+  'panel-digest': 'digest-abruf',            // Workflow 02
+  'panel-api': 'beispiel-panel-aufruf',      // Workflow 05
+};
+
+function reservierteIdsUmbenennen(workflow) {
+  let geaendert = false;
+  for (const knoten of workflow.nodes) {
+    const neueId = UMBENENNEN[String(knoten.id)];
+    if (!neueId) continue;
+    knoten.id = neueId;
+    geaendert = true;
+  }
+  return geaendert;
+}
+
 function altlastenEntfernen(workflow) {
   const raus = new Set(
     workflow.nodes.filter((k) => ALTLASTEN.includes(String(k.id))).map((k) => k.name),
@@ -348,6 +383,113 @@ function panelKnotenVerdrahten(workflow, credentialId) {
   return geaendert;
 }
 
+// ─── Anhang-Kette (Virenscan) ───────────────────────────────────────────────
+//
+// Bis v2.4.0.1 lief der Virenscan nie: Die Code-Knoten geben nur zurück, was sie
+// selbst bauen, und die HTTP-Knoten dazwischen ersetzen das Item komplett — die
+// Anhänge waren also längst weg. Zusätzlich lässt sich `$binary` weder im IF-
+// noch im HTTP-Knoten auflösen, und dem Scan-Knoten fehlte `contentType`.
+// Deshalb hier drei zusammengehörige Reparaturen, die auch bestehende Workflows
+// beim Synchronisieren mitnehmen.
+
+// Der Knoten, der die Mail samt Anhang liefert — je Workflow anders benannt.
+const NORMALISIERER = { '01': 'Normalisieren', '04': 'Sammeln + Normalisieren' };
+
+// Der IMAP-Trigger liefert die UID unter attributes, nicht direkt. Ohne diesen
+// Rückfall blieb sie null — und ohne UID konnte der Verschiebe-Knoten keine
+// einzige Mail einsortieren ("Unable to move email").
+function uidReparieren(workflow, normalisierer) {
+  const knoten = workflow.nodes.find((k) => k.name === normalisierer && k.type === 'n8n-nodes-base.code');
+  if (!knoten?.parameters?.jsCode) return false;
+  const alt = 'uid: j.uid ?? null,';
+  if (!knoten.parameters.jsCode.includes(alt)) return false;
+  knoten.parameters.jsCode = knoten.parameters.jsCode.replace(
+    alt, 'uid: j.uid ?? j.attributes?.uid ?? null,',
+  );
+  return true;
+}
+
+// Der Virusname stand vorher über $json zur Verfügung — das ist fehleranfällig,
+// sobald sich die Kette ändert. Jetzt wird er direkt beim Scan-Knoten geholt.
+function virusnamenReparieren(workflow) {
+  const knoten = workflow.nodes.find((k) => k.name === 'Virus: Quarantäne');
+  if (!knoten?.parameters?.jsCode?.includes("$json.virus")) return false;
+  knoten.parameters.jsCode = knoten.parameters.jsCode.replace(
+    "$json.virus || 'Unbekannt'",
+    "$('ClamAV Scan').item.json.virus || 'Unbekannt'",
+  );
+  return true;
+}
+
+function anhangKetteReparieren(workflow, quelle) {
+  let geaendert = false;
+  if (uidReparieren(workflow, quelle)) geaendert = true;
+  if (virusnamenReparieren(workflow)) geaendert = true;
+
+  // 1. Anhang durchreichen und melden, dass es einen gibt
+  const pruefung = workflow.nodes.find(
+    (k) => k.name === 'Prüfung auswerten' && k.type === 'n8n-nodes-base.code',
+  );
+  if (pruefung?.parameters?.jsCode) {
+    let code = pruefung.parameters.jsCode;
+    const vorher = code;
+
+    if (!code.includes('hat_anhang') && code.includes('    nie_quarantaene:')) {
+      code = code.replace(
+        '    nie_quarantaene:',
+        `    hat_anhang: Object.keys($('${quelle}').item.binary ?? {}).length > 0,\n    nie_quarantaene:`,
+      );
+    }
+
+    if (!code.includes('{ anhang:')) {
+      const anhangBlock = [
+        '  binary: (() => {',
+        `    const anhaenge = $('${quelle}').item.binary ?? {};`,
+        '    const erster = Object.keys(anhaenge)[0];',
+        '    return erster ? { anhang: anhaenge[erster] } : undefined;',
+        '  })(),',
+        '',
+      ].join('\n');
+      const altesDurchreichen = new RegExp(`  binary: \\$\\('${quelle}'\\)\\.item\\.binary,\\n`);
+      if (altesDurchreichen.test(code)) {
+        code = code.replace(altesDurchreichen, anhangBlock);
+      } else {
+        // Noch gar kein Durchreichen vorhanden: an die return-Anweisung anhängen
+        const muster = /\n(\s*)\},\n\};\s*$/;
+        if (muster.test(code)) {
+          code = code.replace(muster, (_t, einzug) => `\n${einzug}},\n${anhangBlock}};\n`);
+        }
+      }
+    }
+
+    if (code !== vorher) { pruefung.parameters.jsCode = code; geaendert = true; }
+  }
+
+  // 2. Weiche auf das gewöhnliche Feld umstellen
+  const weiche = workflow.nodes.find((k) => k.name === 'Hat Anhang?');
+  const bedingung = weiche?.parameters?.conditions?.conditions?.[0];
+  if (bedingung && String(bedingung.leftValue).includes('$binary')) {
+    weiche.parameters.conditions.conditions = [{
+      id: 'cond-has-binary',
+      leftValue: '={{ $json.hat_anhang }}',
+      rightValue: true,
+      operator: { type: 'boolean', operation: 'true', singleValue: true },
+    }];
+    geaendert = true;
+  }
+
+  // 3. Scan-Knoten: Datei als Binärkörper senden
+  const scan = workflow.nodes.find((k) => k.name === 'ClamAV Scan');
+  if (scan?.parameters && scan.parameters.contentType !== 'binaryData') {
+    delete scan.parameters.specifyBody;
+    scan.parameters.contentType = 'binaryData';
+    scan.parameters.inputDataFieldName = 'anhang';
+    geaendert = true;
+  }
+
+  return geaendert;
+}
+
 // Ersetzt den harten Ordnernamen-Code im "Antwort parsen" Knoten durch die dynamischen Variablen
 function patchAntwortParsen(workflow) {
   const knoten = workflow.nodes.find((k) => k.name === 'Antwort parsen');
@@ -382,6 +524,7 @@ async function triageSynchronisieren(konten, credentialId, aktionenWorkflowId) {
   altlastenEntfernen(workflow);
   if (credentialId) panelKnotenVerdrahten(workflow, credentialId);
   patchAntwortParsen(workflow);
+  anhangKetteReparieren(workflow, NORMALISIERER['01']);
 
   for (const name of [ANKER.triage.ziel, ANKER.triage.weiche]) {
     if (!workflow.nodes.some((k) => k.name === name)) {
@@ -434,6 +577,7 @@ async function bestandSynchronisieren(konten, credentialId, aktionenWorkflowId) 
   altlastenEntfernen(workflow);
   if (credentialId) panelKnotenVerdrahten(workflow, credentialId);
   patchAntwortParsen(workflow);
+  anhangKetteReparieren(workflow, NORMALISIERER['04']);
 
   const sammler = workflow.nodes.find((k) => k.name === ANKER.bestand.ziel);
   const kopf    = workflow.nodes.find((k) => k.name === ANKER.bestand.kopf);
@@ -577,12 +721,21 @@ async function kiUndBenachrichtigungenSynchronisieren() {
       let geaendert = false;
       const workflow = await n8n.workflowHolen(wfInfo.id);
 
+      if (reservierteIdsUmbenennen(workflow)) geaendert = true;
       if (panelKnotenVerdrahten(workflow, panelCredId)) geaendert = true;
 
       for (const knoten of workflow.nodes) {
-        if (['Gemini klassifizieren', 'Gemini zusammenfassen'].includes(knoten.name) && geminiCredId) {
-          knoten.credentials = { httpHeaderAuth: { id: String(geminiCredId), name: 'Gemini API' } };
-          geaendert = true;
+        if (['Gemini klassifizieren', 'Gemini zusammenfassen'].includes(knoten.name)) {
+          if (geminiCredId) {
+            knoten.credentials = { httpHeaderAuth: { id: String(geminiCredId), name: 'Gemini API' } };
+            geaendert = true;
+          } else if (knoten.credentials?.httpHeaderAuth) {
+            // Kein Schlüssel mehr hinterlegt: Der Verweis zeigt sonst auf ein
+            // gelöschtes Credential ("Credential with ID ... does not exist")
+            // und der Workflow lässt sich weder ausführen noch einschalten.
+            delete knoten.credentials.httpHeaderAuth;
+            geaendert = true;
+          }
         }
         if (knoten.type === 'n8n-nodes-base.emailSend') {
           if (smtpCredId) {
@@ -603,6 +756,9 @@ async function kiUndBenachrichtigungenSynchronisieren() {
         if (['Telegram senden', 'Virus Warnung (Telegram)', 'Telegram Trigger'].includes(knoten.name)) {
           if (telegramCredId) {
             knoten.credentials = { telegramApi: { id: String(telegramCredId), name: 'Telegram Bot' } };
+            geaendert = true;
+          } else if (knoten.credentials?.telegramApi) {
+            delete knoten.credentials.telegramApi;
             geaendert = true;
           }
           if (telegramChatId && knoten.type === 'n8n-nodes-base.telegram') {
