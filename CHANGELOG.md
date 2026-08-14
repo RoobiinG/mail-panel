@@ -2,6 +2,34 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [2.4.0.1] - 2026-08-14 (Build 29) — *Alle Panel-Aufrufe verdrahtet*
+
+### Bugfixes
+
+- **„Credentials not found" im täglichen Digest.** Der Knoten *Daten vom Panel holen* in
+  Workflow 02 bekam nie das Panel-Credential: Verdrahtet wurde bisher nur ein Knoten mit dem
+  festen Namen *Panel-Prüfung*, und auch nur in den Workflows 01 und 04. Ab jetzt erkennt
+  der Patcher die Knoten an ihrer Adresse (`/api/internal/…`) statt am Namen und verdrahtet
+  sie in **allen** Workflows. Betroffen waren neben Workflow 02 auch *Sortierung prüfen* in
+  01 und 04 sowie der Beispielknoten in Workflow 05.
+- **Virenscan schlug bei jeder Mail mit Anhang fehl.** Der Knoten *ClamAV Scan* hatte in den
+  Vorlagen überhaupt keine Authentifizierung eingetragen und rief `/api/internal/scan` ohne
+  den Header `X-Panel-Secret` auf — der Endpunkt antwortet darauf mit 401. Da der Knoten
+  keine Fehlertoleranz hat, brach damit der komplette Triage-Lauf ab und die Mail blieb
+  unsortiert liegen. Die Vorlagen tragen die Header-Authentifizierung jetzt, und der Patcher
+  ergänzt sie in bestehenden Installationen.
+
+Das Verhalten bei einem echten Ausfall von ClamAV bleibt bewusst unverändert: Der Lauf
+bricht ab, statt die Mail ungeprüft als sauber durchzuwinken.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **Datenbank:** keine Migration.
+- **n8n-Workflows:** **Nach dem Update einmal „Synchronisieren" drücken.** Dabei bekommen
+  alle acht Knoten, die das Panel aufrufen, ihr Credential und die fehlende
+  Header-Authentifizierung. Ein Neuimport ist nicht nötig.
+- **Neustart & Sitzungen:** nur der Panel-Container startet neu, keine Abmeldung.
+
 ## [2.4.0.0] - 2026-08-14 (Build 28) — *Postausgang im Panel*
 
 ### Features

@@ -253,7 +253,9 @@
         "sendBody": true,
         "specifyBody": "binary",
         "inputDataFieldName": "={{ Object.keys($binary)[0] }}",
-        "options": {}
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
       }
     },
     {

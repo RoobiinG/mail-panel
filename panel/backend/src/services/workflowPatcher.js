@@ -324,13 +324,28 @@ function aktionenKnotenEinhaengen(workflow, aktionenWorkflowId) {
 }
 
 // Hängt das Panel-Credential an den Prüf-Knoten der Vorlage
-function pruefKnotenVerdrahten(workflow, credentialId) {
-  const knoten = workflow.nodes.find((k) => k.name === 'Panel-Prüfung');
-  if (!knoten) return false;
-  knoten.credentials = {
-    httpHeaderAuth: { id: String(credentialId), name: PANEL_CREDENTIAL_NAME },
-  };
-  return true;
+// Jeder Knoten, der einen internen Endpunkt des Panels aufruft, braucht den
+// Header X-Panel-Secret. Erkannt werden sie an der Adresse und nicht am Namen —
+// so bleibt keiner übrig, wenn später weitere dazukommen. (Bis v2.4.0.0 wurde
+// nur "Panel-Prüfung" in 01 und 04 verdrahtet; die übrigen liefen in
+// "Credentials not found" beziehungsweise in eine 401.)
+function panelKnotenVerdrahten(workflow, credentialId) {
+  if (!credentialId) return false;
+  let geaendert = false;
+  for (const knoten of workflow.nodes) {
+    if (knoten.type !== 'n8n-nodes-base.httpRequest') continue;
+    const adresse = String(knoten.parameters?.url || '');
+    if (!adresse.includes('/api/internal/')) continue;
+
+    knoten.parameters.authentication = 'genericCredentialType';
+    knoten.parameters.genericAuthType = 'httpHeaderAuth';
+    knoten.credentials = {
+      ...(knoten.credentials || {}),
+      httpHeaderAuth: { id: String(credentialId), name: PANEL_CREDENTIAL_NAME },
+    };
+    geaendert = true;
+  }
+  return geaendert;
 }
 
 // Ersetzt den harten Ordnernamen-Code im "Antwort parsen" Knoten durch die dynamischen Variablen
@@ -365,7 +380,7 @@ async function triageSynchronisieren(konten, credentialId, aktionenWorkflowId) {
   const workflow = await n8n.workflowHolen(info.id);
   panelKnotenEntfernen(workflow);
   altlastenEntfernen(workflow);
-  if (credentialId) pruefKnotenVerdrahten(workflow, credentialId);
+  if (credentialId) panelKnotenVerdrahten(workflow, credentialId);
   patchAntwortParsen(workflow);
 
   for (const name of [ANKER.triage.ziel, ANKER.triage.weiche]) {
@@ -417,7 +432,7 @@ async function bestandSynchronisieren(konten, credentialId, aktionenWorkflowId) 
   const workflow = await n8n.workflowHolen(info.id);
   panelKnotenEntfernen(workflow);
   altlastenEntfernen(workflow);
-  if (credentialId) pruefKnotenVerdrahten(workflow, credentialId);
+  if (credentialId) panelKnotenVerdrahten(workflow, credentialId);
   patchAntwortParsen(workflow);
 
   const sammler = workflow.nodes.find((k) => k.name === ANKER.bestand.ziel);
@@ -550,12 +565,19 @@ async function kiUndBenachrichtigungenSynchronisieren() {
     } catch (err) { console.warn('SMTP-Credential Fehler:', err.message); }
   }
 
+  // Das Panel-Credential brauchen auch Workflows, die der Konten-Sync nicht anfasst
+  let panelCredId = null;
+  try { panelCredId = await panelCredentialId(); }
+  catch (err) { console.warn('Panel-Credential konnte nicht angelegt werden:', err.message); }
+
   // Alle Workflows durchsuchen und anpassen
   try {
     const alle = await n8n.workflowsAuflisten();
     for (const wfInfo of alle) {
       let geaendert = false;
       const workflow = await n8n.workflowHolen(wfInfo.id);
+
+      if (panelKnotenVerdrahten(workflow, panelCredId)) geaendert = true;
 
       for (const knoten of workflow.nodes) {
         if (['Gemini klassifizieren', 'Gemini zusammenfassen'].includes(knoten.name) && geminiCredId) {
