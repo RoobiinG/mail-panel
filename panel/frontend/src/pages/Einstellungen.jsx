@@ -8,6 +8,7 @@ const DIENSTE = [
   { id: 'clamav', label: 'ClamAV (clamd)' },
   { id: 'unbound', label: 'unbound (DNSBL-Resolver)' },
   { id: 'nextcloud', label: 'Nextcloud (WebDAV)' },
+  { id: 'smtp', label: 'Postausgang (SMTP)' },
 ];
 
 // Kleiner Block für die Google-Anmeldung — sie läuft über eine Weiterleitung,
@@ -201,6 +202,37 @@ export default function Einstellungen() {
         {zugangsFeld('gemini_api_key', 'Gemini API-Key', '', 'password')}
         {zugangsFeld('telegram_token', 'Telegram Bot-Token', '123456:ABC-DEF1234ghIkl-zyx...', 'password')}
         {zugangsFeld('telegram_chat_id', 'Telegram Chat-ID', '123456789')}
+        <div className="flex items-center gap-3">
+          <button onClick={speichern} className="btn-primary">Speichern</button>
+          {meldung && <span className="text-sm text-panel-muted">{meldung}</span>}
+        </div>
+      </div>
+
+      <div className="card space-y-4">
+        <h2 className="font-medium">Postausgang (SMTP)</h2>
+        <p className="text-sm text-panel-muted">
+          Nur für das Abbestellen von Newslettern: Manche Verteiler wollen eine Mail an eine
+          Abmeldeadresse statt eines Links. Ohne diese Angaben bleibt der Versand-Knoten in
+          Workflow 06 stillgelegt — alles andere läuft weiter. Das Panel legt die Zugangsdaten
+          anschließend selbst in n8n an.
+        </p>
+        {zugangsFeld('smtp_host', 'SMTP-Server', 'mail.example.org')}
+        {zugangsFeld('smtp_port', 'Port', '587')}
+        {zugangsFeld('smtp_user', 'Benutzername', 'panel@example.org')}
+        {zugangsFeld('smtp_passwort', 'Passwort', '', 'password')}
+        {zugangsFeld('smtp_absender', 'Absenderadresse', 'panel@example.org')}
+        <label className="flex items-center gap-2 text-sm cursor-pointer">
+          <input
+            type="checkbox"
+            className="w-auto"
+            checked={settings.smtp_tls_unsicher === '1'}
+            onChange={(e) => setSettings({ ...settings, smtp_tls_unsicher: e.target.checked ? '1' : '0' })}
+          />
+          <span className="text-panel-muted">
+            Selbstsigniertes Zertifikat akzeptieren
+            <span className="block text-xs">Nur nötig bei eigenen Mailservern ohne offizielles Zertifikat</span>
+          </span>
+        </label>
         <div className="flex items-center gap-3">
           <button onClick={speichern} className="btn-primary">Speichern</button>
           {meldung && <span className="text-sm text-panel-muted">{meldung}</span>}

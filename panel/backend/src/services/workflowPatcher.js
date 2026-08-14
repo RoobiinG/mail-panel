@@ -492,9 +492,12 @@ async function kiUndBenachrichtigungenSynchronisieren() {
   const geminiKey = settings.hole('gemini_api_key');
   const telegramToken = settings.hole('telegram_token');
   const telegramChatId = settings.hole('telegram_chat_id');
+  const smtpHost = settings.hole('smtp_host');
+  const smtpAbsender = settings.hole('smtp_absender');
 
   let geminiCredId = null;
   let telegramCredId = null;
+  let smtpCredId = null;
 
   if (geminiKey) {
     try {
@@ -526,6 +529,27 @@ async function kiUndBenachrichtigungenSynchronisieren() {
     } catch (err) { console.warn('Telegram-Credential Fehler:', err.message); }
   }
 
+  if (smtpHost) {
+    try {
+      const dbSmtp = db.prepare("SELECT value FROM settings WHERE key = 'n8n_smtp_credential_id'").get();
+      if (dbSmtp?.value) {
+        smtpCredId = dbSmtp.value;
+        await n8n.credentialLoeschen(smtpCredId);
+      }
+      smtpCredId = await n8n.smtpCredentialAnlegen('Mail-Panel: Postausgang', {
+        host: smtpHost,
+        port: settings.hole('smtp_port'),
+        user: settings.hole('smtp_user'),
+        passwort: settings.hole('smtp_passwort'),
+        tlsUnsicher: settings.hole('smtp_tls_unsicher') === '1',
+      });
+      db.prepare(`
+        INSERT INTO settings (key, value, updated_at) VALUES ('n8n_smtp_credential_id', ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+      `).run(smtpCredId);
+    } catch (err) { console.warn('SMTP-Credential Fehler:', err.message); }
+  }
+
   // Alle Workflows durchsuchen und anpassen
   try {
     const alle = await n8n.workflowsAuflisten();
@@ -537,6 +561,22 @@ async function kiUndBenachrichtigungenSynchronisieren() {
         if (['Gemini klassifizieren', 'Gemini zusammenfassen'].includes(knoten.name) && geminiCredId) {
           knoten.credentials = { httpHeaderAuth: { id: String(geminiCredId), name: 'Gemini API' } };
           geaendert = true;
+        }
+        if (knoten.type === 'n8n-nodes-base.emailSend') {
+          if (smtpCredId) {
+            knoten.credentials = { smtp: { id: String(smtpCredId), name: 'Mail-Panel: Postausgang' } };
+            // Die Absenderadresse gehört zum Postausgang und stand bisher fest im Knoten
+            if (smtpAbsender) {
+              knoten.parameters = knoten.parameters || {};
+              knoten.parameters.fromEmail = smtpAbsender;
+            }
+            geaendert = true;
+          } else if (knoten.credentials?.smtp) {
+            // Postausgang wurde entfernt — sonst zeigt der Knoten auf ein
+            // gelöschtes Credential und blockiert wieder die Aktivierung.
+            delete knoten.credentials.smtp;
+            geaendert = true;
+          }
         }
         if (['Telegram senden', 'Virus Warnung (Telegram)', 'Telegram Trigger'].includes(knoten.name)) {
           if (telegramCredId) {
@@ -572,6 +612,8 @@ const BRAUCHT_ZUGANGSDATEN = [
   // Telegram bleibt aus, solange kein Bot-Token hinterlegt ist
   'n8n-nodes-base.telegram',
   'n8n-nodes-base.telegramTrigger',
+  // Ebenso der Postausgang: ohne SMTP-Daten ließe sich Workflow 06 nicht einschalten
+  'n8n-nodes-base.emailSend',
   // Greift bei Installationen, in denen noch Knoten aus einer älteren Fassung
   // der Vorlagen stehen (Gmail, fest verdrahtete Postfächer).
   'n8n-nodes-base.gmail',

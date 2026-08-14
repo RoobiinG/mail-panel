@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Newsletter Abbestellen via Mailto\n\n**WICHTIG: Vor dem Aktivieren**\n1. Im Node **Send Email** musst du ein SMTP-Credential hinterlegen (z.B. von deiner Mailcow oder Gmail), damit n8n die Abmelde-E-Mail versenden kann.\n2. In den Einstellungen des Panels muss die URL zu n8n (inkl. Port 5678) korrekt hinterlegt sein, sonst erreicht das Panel diesen Webhook nicht.",
+        "content": "## Newsletter abbestellen per Mail\n\nManche Verteiler wollen zum Abmelden keine Webseite, sondern eine Mail an eine\nAbmeldeadresse. Genau die verschickt dieser Workflow, wenn du im Panel unter\n*Newsletter* auf Abbestellen drückst.\n\n**Eingerichtet wird alles im Panel, nicht hier:**\n1. *Einstellungen → Postausgang (SMTP)* ausfüllen und den Verbindungstest laufen lassen.\n   Das Panel legt daraus das Credential in n8n an und trägt es hier ein.\n2. Auf der Seite *Workflows* auf **Synchronisieren**.\n\nOhne SMTP-Angaben bleibt der Knoten **Send Email** stillgelegt — der Workflow lässt sich\ntrotzdem einschalten, es wird nur nichts verschickt.",
         "height": 200,
         "width": 380
       },
@@ -11,7 +11,10 @@
       "name": "Hinweise",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [-60, -220]
+      "position": [
+        -60,
+        -220
+      ]
     },
     {
       "parameters": {
@@ -23,7 +26,10 @@
       "name": "Webhook (Panel-Unsubscribe)",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1.1,
-      "position": [0, 100],
+      "position": [
+        0,
+        100
+      ],
       "webhookId": "panel-unsubscribe"
     },
     {
@@ -35,11 +41,14 @@
       "name": "Mailto Parsen",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [220, 100]
+      "position": [
+        220,
+        100
+      ]
     },
     {
       "parameters": {
-        "fromEmail": "deine-email@domain.de",
+        "fromEmail": "",
         "toEmail": "={{ $json.targetEmail }}",
         "subject": "={{ $json.subject }}",
         "text": "={{ $json.text }}",
@@ -49,15 +58,34 @@
       "name": "Send Email",
       "type": "n8n-nodes-base.emailSend",
       "typeVersion": 2.1,
-      "position": [440, 100]
+      "position": [
+        440,
+        100
+      ]
     }
   ],
   "connections": {
     "Webhook (Panel-Unsubscribe)": {
-      "main": [[{ "node": "Mailto Parsen", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Mailto Parsen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Mailto Parsen": {
-      "main": [[{ "node": "Send Email", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Send Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {

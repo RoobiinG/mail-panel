@@ -16,6 +16,13 @@ const FELDER = {
   gemini_api_key:       { env: 'GEMINI_API_KEY', geheim: true },
   telegram_token:       { env: 'TELEGRAM_TOKEN', geheim: true },
   telegram_chat_id:     { env: 'TELEGRAM_CHAT_ID', geheim: false },
+  // Postausgang für Workflow 06 (Newsletter abbestellen per Mail)
+  smtp_host:            { env: 'SMTP_HOST', geheim: false },
+  smtp_port:            { env: 'SMTP_PORT', geheim: false, standard: '587' },
+  smtp_user:            { env: 'SMTP_USER', geheim: false },
+  smtp_passwort:        { env: 'SMTP_PASSWORT', geheim: true },
+  smtp_absender:        { env: 'SMTP_ABSENDER', geheim: false },
+  smtp_tls_unsicher:    { env: 'SMTP_TLS_UNSICHER', geheim: false },
   // Ziele für eigene Aktionen
   nextcloud_url:        { env: 'NEXTCLOUD_URL', geheim: false },
   nextcloud_user:       { env: 'NEXTCLOUD_USER', geheim: false },

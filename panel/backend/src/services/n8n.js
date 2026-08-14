@@ -151,6 +151,31 @@ async function telegramCredentialAnlegen(name, accessToken) {
   }
 }
 
+// Postausgang für den Send-Email-Knoten. Feldnamen laut Schema von n8n:
+// user, password, host, port, secure, disableStartTls, hostName.
+async function smtpCredentialAnlegen(name, { host, port, user, passwort, tlsUnsicher = false }) {
+  const nummer = Number(port) || 587;
+  try {
+    const { data } = await client().post('/credentials', {
+      name,
+      type: 'smtp',
+      data: {
+        host,
+        port: nummer,
+        user: user || '',
+        password: passwort || '',
+        // 465 ist von Anfang an verschlüsselt, 587 und 25 steigen per STARTTLS um
+        secure: nummer === 465,
+        disableStartTls: false,
+        ...(tlsUnsicher ? { hostName: host } : {}),
+      },
+    });
+    return data.id;
+  } catch (err) {
+    throw fehler(err, 'SMTP-Credential konnte nicht in n8n angelegt werden');
+  }
+}
+
 async function executionsAuflisten(limit = 20) {
   try {
     const { data } = await client().get('/executions', { params: { limit } });
@@ -162,6 +187,7 @@ async function executionsAuflisten(limit = 20) {
 
 module.exports = {
   client, testVerbindung, workflowsAuflisten, workflowHolen, workflowErstellen, workflowSpeichern,
-  workflowAktivieren, credentialAnlegen, headerCredentialAnlegen, telegramCredentialAnlegen, credentialLoeschen,
+  workflowAktivieren, credentialAnlegen, headerCredentialAnlegen, telegramCredentialAnlegen,
+  smtpCredentialAnlegen, credentialLoeschen,
   executionsAuflisten,
 };

@@ -270,6 +270,20 @@ Console erzeugen (Safe Browsing API aktivieren) und im Panel unter
 **Einstellungen → Verbindungen** eintragen. Ohne Key entfällt diese Prüfung, alles andere
 läuft weiter.
 
+## Postausgang für das Newsletter-Abbestellen
+
+Die meisten Newsletter lassen sich über einen Link abbestellen — dafür ist nichts
+einzurichten. Manche Verteiler wollen aber eine Mail an eine Abmeldeadresse. Nur dafür
+braucht das Panel einen Postausgang.
+
+Unter **Einstellungen → Postausgang (SMTP)** Server, Port, Benutzer, Passwort und
+Absenderadresse eintragen, dann unter *Verbindungstests* auf **Postausgang (SMTP)** —
+der Test meldet sich testweise am Server an. Das Panel legt daraus das Credential in n8n
+an und trägt es in Workflow 06 ein.
+
+Ohne diese Angaben bleibt der Versand-Knoten stillgelegt. Workflow 06 lässt sich trotzdem
+einschalten, es wird dann nur nichts verschickt.
+
 ## Eigene Aktionen — Nextcloud und Kalender
 
 Auf der Seite **Workflows** im Bereich *Eigene Aktionen* beschreibst du in einem Satz, was
@@ -379,6 +393,7 @@ nötig — der kostet für dieses Aufkommen Centbeträge.
 | Mails landen nicht im Zielordner | Der Ordner existiert im Postfach nicht — im Konto-Dialog auf *Fehlende Ordner anlegen* drücken oder den vorhandenen Ordner auswählen (Schritt 5) |
 | Virenscan meldet „nicht bereit" | ClamAV lädt noch seine Signaturen; beim ersten Start dauert das einige Minuten |
 | DNSBL-Test meldet `zen.spamhaus.org (127.255.255.254)` | Spamhaus lehnt Anfragen aus vielen Rechenzentrums-Netzen ab. Die Liste in den Einstellungen entfernen oder einen kostenlosen Spamhaus-DQS-Zugang nutzen — SpamCop und Barracuda laufen weiter. |
+| Workflow lässt sich nicht einschalten, n8n meldet „Missing required credential: smtp" | Postausgang unter *Einstellungen → Postausgang (SMTP)* eintragen und synchronisieren — oder leer lassen, dann wird der Knoten stillgelegt und der Workflow lässt sich einschalten |
 | Passkey lässt sich nicht anlegen | Hinter einem Reverse Proxy muss `ALLOWED_ORIGIN` auf die Panel-Adresse gesetzt sein |
 | Panel zeigt nach dem Update die alte Versionsnummer | Browser-Cache — mit `Strg+F5` neu laden |
 

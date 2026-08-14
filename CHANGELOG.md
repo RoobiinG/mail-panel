@@ -2,6 +2,40 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [2.4.0.0] - 2026-08-14 (Build 28) — *Postausgang im Panel*
+
+### Features
+
+- **Postausgang (SMTP) im Panel einrichten.** Unter *Einstellungen → Postausgang (SMTP)*
+  trägt man Server, Port, Benutzer, Passwort und Absenderadresse ein; das Panel legt daraus
+  das Credential in n8n an und verdrahtet es in Workflow 06. Bisher stand in dessen Notiz
+  „im Node Send Email ein SMTP-Credential hinterlegen" — also genau die Handarbeit in n8n,
+  die das Panel eigentlich abnehmen soll.
+- **Verbindungstest für den Postausgang**, wie bei n8n, Mailcow, ClamAV, unbound und
+  Nextcloud. Der Test führt den echten Ablauf durch (Begrüßung, EHLO, bei Bedarf STARTTLS,
+  AUTH LOGIN) und gibt die Antwort des Servers im Klartext zurück — ein falsches Passwort
+  meldet er also als solches. Ohne zusätzliche Abhängigkeit, nur mit `net` und `tls`.
+
+### Bugfixes
+
+- **Workflow 06 ließ sich nicht einschalten.** n8n lehnte mit „Cannot publish workflow:
+  Node ‚Send Email' — Missing required credential: smtp" ab. Der Knoten stand nicht auf der
+  Liste der Knoten, die ohne Zugangsdaten stillgelegt werden; jetzt schon. Ohne
+  SMTP-Angaben bleibt er also aus und der Workflow lässt sich trotzdem einschalten.
+- Werden die SMTP-Angaben wieder entfernt, hängt der Patcher das Credential vom Knoten ab.
+  Sonst zeigte er auf ein gelöschtes Credential und blockierte erneut die Aktivierung.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **Datenbank:** keine Migration. Die sechs neuen Einstellungen (`smtp_host`, `smtp_port`,
+  `smtp_user`, `smtp_passwort`, `smtp_absender`, `smtp_tls_unsicher`) liegen in der
+  vorhandenen `settings`-Tabelle, das Passwort verschlüsselt.
+- **n8n-Workflows:** **Nach dem Update einmal „Synchronisieren" drücken.** Erst dabei wird
+  der Send-Email-Knoten stillgelegt beziehungsweise mit dem Postausgang verdrahtet. Wer
+  bisher von Hand ein SMTP-Credential in n8n eingetragen hat, kann es behalten — sobald im
+  Panel ein Postausgang steht, wird es beim Synchronisieren durch das eigene ersetzt.
+- **Neustart & Sitzungen:** nur der Panel-Container startet neu, keine Abmeldung.
+
 ## [2.3.0.0] - 2026-08-14 (Build 27) — *Ein Weg für alle Postfächer*
 
 ### Features
