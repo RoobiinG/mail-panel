@@ -216,7 +216,9 @@ function bestandKnoten(konto, position) {
       mailboxPath: postfach('INBOX'),
       limit: 100,
       // headers wird für die Absender-IP der DNSBL-Prüfung gebraucht
-      includeParts: ['textContent', 'headers'],
+      // attachmentsInfo liefert Namen und Größen der Anhänge — die Dateien
+      // selbst holt sich das Panel später über die UID.
+      includeParts: ['textContent', 'headers', 'attachmentsInfo'],
       includeAllHeaders: true,
     },
     id: `${PRAEFIX}${konto.id}-bestand`,
@@ -409,66 +411,59 @@ function uidReparieren(workflow, normalisierer) {
   return true;
 }
 
-// Der Virusname stand vorher über $json zur Verfügung — das ist fehleranfällig,
-// sobald sich die Kette ändert. Jetzt wird er direkt beim Scan-Knoten geholt.
-function virusnamenReparieren(workflow) {
-  const knoten = workflow.nodes.find((k) => k.name === 'Virus: Quarantäne');
-  if (!knoten?.parameters?.jsCode?.includes("$json.virus")) return false;
-  knoten.parameters.jsCode = knoten.parameters.jsCode.replace(
-    "$json.virus || 'Unbekannt'",
-    "$('ClamAV Scan').item.json.virus || 'Unbekannt'",
-  );
-  return true;
-}
+// Woher der Normalisierer weiß, ob eine Mail Anhänge hat: Workflow 01 bekommt
+// sie als Binärdaten vom Trigger, Workflow 04 nur als Liste vom Abruf-Knoten.
+const ANHANG_ERKENNUNG = {
+  Normalisieren: 'Object.keys($input.item.binary ?? {}).length > 0',
+  'Sammeln + Normalisieren': 'Array.isArray(j.attachmentsInfo) && j.attachmentsInfo.length > 0',
+};
 
 function anhangKetteReparieren(workflow, quelle) {
   let geaendert = false;
   if (uidReparieren(workflow, quelle)) geaendert = true;
-  if (virusnamenReparieren(workflow)) geaendert = true;
 
-  // 1. Anhang durchreichen und melden, dass es einen gibt
-  const pruefung = workflow.nodes.find(
-    (k) => k.name === 'Prüfung auswerten' && k.type === 'n8n-nodes-base.code',
-  );
-  if (pruefung?.parameters?.jsCode) {
-    let code = pruefung.parameters.jsCode;
-    const vorher = code;
-
-    if (!code.includes('hat_anhang') && code.includes('    nie_quarantaene:')) {
-      code = code.replace(
-        '    nie_quarantaene:',
-        `    hat_anhang: Object.keys($('${quelle}').item.binary ?? {}).length > 0,\n    nie_quarantaene:`,
+  // 1. Der Normalisierer meldet, ob Anhänge dranhängen. Von dort wandert das
+  //    Feld über die üblichen `...mail`-Kopien durch die ganze Kette.
+  const norm = workflow.nodes.find((k) => k.name === quelle && k.type === 'n8n-nodes-base.code');
+  const erkennung = ANHANG_ERKENNUNG[quelle];
+  if (norm?.parameters?.jsCode && erkennung && !norm.parameters.jsCode.includes('hat_anhang')) {
+    const anker = 'uid: j.uid ?? j.attributes?.uid ?? null,';
+    if (norm.parameters.jsCode.includes(anker)) {
+      norm.parameters.jsCode = norm.parameters.jsCode.replace(
+        anker,
+        anker + `\n    hat_anhang: ${erkennung},`,
       );
+      geaendert = true;
     }
-
-    if (!code.includes('{ anhang:')) {
-      const anhangBlock = [
-        '  binary: (() => {',
-        `    const anhaenge = $('${quelle}').item.binary ?? {};`,
-        '    const erster = Object.keys(anhaenge)[0];',
-        '    return erster ? { anhang: anhaenge[erster] } : undefined;',
-        '  })(),',
-        '',
-      ].join('\n');
-      const altesDurchreichen = new RegExp(`  binary: \\$\\('${quelle}'\\)\\.item\\.binary,\\n`);
-      if (altesDurchreichen.test(code)) {
-        code = code.replace(altesDurchreichen, anhangBlock);
-      } else {
-        // Noch gar kein Durchreichen vorhanden: an die return-Anweisung anhängen
-        const muster = /\n(\s*)\},\n\};\s*$/;
-        if (muster.test(code)) {
-          code = code.replace(muster, (_t, einzug) => `\n${einzug}},\n${anhangBlock}};\n`);
-        }
-      }
-    }
-
-    if (code !== vorher) { pruefung.parameters.jsCode = code; geaendert = true; }
   }
 
-  // 2. Weiche auf das gewöhnliche Feld umstellen
+  // 2. Den früheren Umweg über die Binärdaten ausbauen (v2.4.0.2).
+  //    Wichtig: Dessen Zeile in "Sortierung auswerten" zeigte fest auf
+  //    $('Normalisieren') — in Workflow 04 heißt der Knoten aber anders, und der
+  //    Lauf brach dort mit "Referenced node doesn't exist" ab.
+  for (const name of ['Prüfung auswerten', 'Sortierung auswerten']) {
+    const knoten = workflow.nodes.find((k) => k.name === name && k.type === 'n8n-nodes-base.code');
+    if (!knoten?.parameters?.jsCode) continue;
+    const vorher = knoten.parameters.jsCode;
+    let code = vorher;
+    // Kommentar samt hat_anhang-Zeile, dann eine eventuell nackte hat_anhang-Zeile
+    code = code.replace(/ *\/\/ Für den Virenscan[\s\S]*?\n *hat_anhang:[^\n]*\n/, '');
+    code = code.replace(/ *hat_anhang:[^\n]*\n/, '');
+    // Kommentarzeilen, die zum Durchreichen gehörten — die Formulierungen
+    // haben sich zwischen den Fassungen unterschieden, deshalb großzügig.
+    // Das Durchreichen selbst: einmal als Funktionsblock, einmal als schlichte Zeile
+    code = code.replace(/ *binary: \(\(\) => \{[\s\S]*?\n *\}\)\(\),\n/, '');
+    code = code.replace(/ *binary:[^\n]*\n/, '');
+    // Übrig gebliebene Kommentare dazu — die Formulierungen haben sich zwischen
+    // den Fassungen unterschieden, deshalb wird nach Stichwort aufgeräumt.
+    code = code.replace(/ *\/\/[^\n]*(Anhang|Anhänge|Anhaenge|Binärdaten|\$binary|Feldname)[^\n]*\n(?= *(\/\/|\}))/g, '');
+    if (code !== vorher) { knoten.parameters.jsCode = code; geaendert = true; }
+  }
+
+  // 3. Weiche auf das gewöhnliche Feld ($binary löst in IF-Knoten nicht auf)
   const weiche = workflow.nodes.find((k) => k.name === 'Hat Anhang?');
   const bedingung = weiche?.parameters?.conditions?.conditions?.[0];
-  if (bedingung && String(bedingung.leftValue).includes('$binary')) {
+  if (bedingung && String(bedingung.leftValue) !== '={{ $json.hat_anhang }}') {
     weiche.parameters.conditions.conditions = [{
       id: 'cond-has-binary',
       leftValue: '={{ $json.hat_anhang }}',
@@ -478,16 +473,52 @@ function anhangKetteReparieren(workflow, quelle) {
     geaendert = true;
   }
 
-  // 3. Scan-Knoten: Datei als Binärkörper senden
-  const scan = workflow.nodes.find((k) => k.name === 'ClamAV Scan');
-  if (scan?.parameters && scan.parameters.contentType !== 'binaryData') {
-    delete scan.parameters.specifyBody;
-    scan.parameters.contentType = 'binaryData';
-    scan.parameters.inputDataFieldName = 'anhang';
-    geaendert = true;
+  // 4. Scan-Knoten: schickt nur noch Konto und UID, das Panel holt die Dateien
+  const scan = workflow.nodes.find((k) => k.name === 'ClamAV Scan' || k.name === 'Anhänge scannen');
+  if (scan?.parameters) {
+    const zielAdresse = 'http://panel:3002/api/internal/scan-anhaenge';
+    if (scan.parameters.url !== zielAdresse || scan.name !== 'Anhänge scannen') {
+      delete scan.parameters.inputDataFieldName;
+      delete scan.parameters.specifyBody;
+      scan.parameters.url = zielAdresse;
+      scan.parameters.sendBody = true;
+      scan.parameters.contentType = 'json';
+      scan.parameters.specifyBody = 'json';
+      scan.parameters.jsonBody =
+        `={{ JSON.stringify({ konto: $json.konto, uid: $json.uid, ordner: "INBOX" }) }}`;
+      knotenUmbenennen(workflow, scan, 'Anhänge scannen');
+      geaendert = true;
+    }
+  }
+
+  // 5. Der Virusname wird beim Scan-Knoten geholt — Name nachziehen
+  const quarantaene = workflow.nodes.find((k) => k.name === 'Virus: Quarantäne');
+  if (quarantaene?.parameters?.jsCode) {
+    const vorher = quarantaene.parameters.jsCode;
+    let code = vorher
+      .replace("$json.virus || 'Unbekannt'", "$('Anhänge scannen').item.json.virus || 'Unbekannt'")
+      .replace("$('ClamAV Scan')", "$('Anhänge scannen')");
+    if (code !== vorher) { quarantaene.parameters.jsCode = code; geaendert = true; }
   }
 
   return geaendert;
+}
+
+// Knoten umbenennen heißt in n8n auch: alle Verbindungen nachziehen, denn die
+// laufen über den Namen und nicht über die ID.
+function knotenUmbenennen(workflow, knoten, neuerName) {
+  const alt = knoten.name;
+  if (alt === neuerName) return;
+  knoten.name = neuerName;
+  for (const wert of Object.values(workflow.connections || {})) {
+    for (const arm of wert.main || []) {
+      for (const ziel of arm || []) if (ziel.node === alt) ziel.node = neuerName;
+    }
+  }
+  if (workflow.connections[alt]) {
+    workflow.connections[neuerName] = workflow.connections[alt];
+    delete workflow.connections[alt];
+  }
 }
 
 // Ersetzt den harten Ordnernamen-Code im "Antwort parsen" Knoten durch die dynamischen Variablen

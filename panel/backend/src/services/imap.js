@@ -86,4 +86,71 @@ async function ordnerAnlegen(konto) {
   }
 }
 
-module.exports = { testVerbindung, ordnerAnlegen, STANDARD };
+// Grenzen für das Holen der Anhänge — ein Postfach ist keine vertrauenswürdige
+// Quelle, deshalb wird nicht unbegrenzt in den Speicher geladen.
+const MAX_ANHAENGE = 20;
+const MAX_GROESSE = 30 * 1024 * 1024; // 30 MB je Datei
+
+// Läuft rekursiv durch die Struktur einer Mail und sammelt die Anhang-Teile ein.
+// imapflow liefert sie als Baum; ein Teil gilt als Anhang, wenn er so ausgewiesen
+// ist oder einen Dateinamen trägt.
+function anhangTeile(knoten, gefunden = []) {
+  if (!knoten) return gefunden;
+  for (const teil of knoten.childNodes || []) anhangTeile(teil, gefunden);
+  const name = knoten.dispositionParameters?.filename || knoten.parameters?.name;
+  const istAnhang = knoten.disposition === 'attachment' || (name && knoten.part);
+  if (istAnhang && knoten.part) {
+    gefunden.push({ part: knoten.part, name: name || knoten.part, groesse: knoten.size || 0 });
+  }
+  return gefunden;
+}
+
+async function stromLesen(strom, grenze) {
+  const stuecke = [];
+  let gesamt = 0;
+  for await (const stueck of strom) {
+    gesamt += stueck.length;
+    if (gesamt > grenze) throw new Error('Anhang ist größer als erlaubt');
+    stuecke.push(stueck);
+  }
+  return Buffer.concat(stuecke);
+}
+
+// Holt alle Anhänge einer Mail. `uid` ist die IMAP-UID, `ordner` das Postfach.
+// Gibt je Anhang Name und Inhalt zurück — gescannt wird eine Ebene höher.
+async function anhaengeHolen({ ordner = 'INBOX', uid, ...konto }) {
+  const nummer = Number(uid);
+  if (!Number.isInteger(nummer) || nummer <= 0) throw new Error('Ungültige UID.');
+
+  const client = verbindung(konto);
+  try {
+    await client.connect();
+    const schloss = await client.getMailboxLock(String(ordner || 'INBOX'));
+    try {
+      const nachricht = await client.fetchOne(String(nummer), { bodyStructure: true }, { uid: true });
+      if (!nachricht) return { gefunden: 0, anhaenge: [] };
+
+      const teile = anhangTeile(nachricht.bodyStructure).slice(0, MAX_ANHAENGE);
+      const anhaenge = [];
+      for (const teil of teile) {
+        if (teil.groesse > MAX_GROESSE) {
+          anhaenge.push({ name: teil.name, fehler: 'zu groß für den Scan' });
+          continue;
+        }
+        try {
+          const { content } = await client.download(String(nummer), teil.part, { uid: true });
+          anhaenge.push({ name: teil.name, inhalt: await stromLesen(content, MAX_GROESSE) });
+        } catch (err) {
+          anhaenge.push({ name: teil.name, fehler: err.message });
+        }
+      }
+      return { gefunden: teile.length, anhaenge };
+    } finally {
+      schloss.release();
+    }
+  } finally {
+    try { await client.logout(); } catch { /* Verbindung war schon zu */ }
+  }
+}
+
+module.exports = { testVerbindung, ordnerAnlegen, anhaengeHolen, STANDARD };

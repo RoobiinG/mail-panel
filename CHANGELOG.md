@@ -2,6 +2,42 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [2.5.0.0] - 2026-08-16 (Build 31) — *Anhänge über das Panel scannen*
+
+### Features
+
+- **Neuer Endpunkt `POST /api/internal/scan-anhaenge`.** Der Workflow schickt nur noch
+  Konto, Nachrichten-Nummer und Ordner; das Panel holt sich die Anhänge selbst per IMAP und
+  gibt jeden einzelnen an ClamAV. Zurück kommt ein Gesamtergebnis plus eine Liste je Datei
+  (`gefunden`, `geprueft`, `dateien`). Zugangsdaten stammen ausschließlich aus der
+  Datenbank, nie aus der Anfrage.
+- **Alle Anhänge werden geprüft, nicht nur der erste.** Nachgewiesen mit einer Mail, deren
+  **zweiter** Anhang EICAR enthielt — der alte Weg hätte sie durchgelassen.
+- **Die Bestands-Triage prüft jetzt ebenfalls.** Bisher war das gar nicht möglich: Ihr
+  Abruf-Knoten liefert nur `attachmentsInfo` (Name, Größe), keine Dateiinhalte. Er meldet
+  jetzt die Anhang-Liste, und die Dateien holt das Panel über die Nachrichten-Nummer.
+- Grenzen zum Schutz des Panels: höchstens 20 Anhänge je Mail, höchstens 30 MB je Datei.
+  Was übersprungen wird, steht im Ergebnis und ist im Panel unter *Workflows → Läufe* zu sehen.
+
+### Bugfixes
+
+- **Workflow 04 lief seit v2.4.0.2 gar nicht mehr.** Das damalige Durchreichen der
+  Binärdaten setzte in *Sortierung auswerten* einen festen Verweis auf `$('Normalisieren')` —
+  in Workflow 04 heißt der Knoten aber *Sammeln + Normalisieren*, der Lauf brach mit
+  „Referenced node doesn't exist" ab. Der Umweg über die Binärdaten entfällt jetzt komplett,
+  und der Patcher räumt ihn in bestehenden Installationen weg.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **Datenbank:** keine Migration.
+- **n8n-Workflows:** **Nach dem Update einmal „Synchronisieren" drücken.** Dabei wird der
+  Scan-Knoten auf den neuen Endpunkt umgestellt und umbenannt (*ClamAV Scan* →
+  *Anhänge scannen*), der Abruf-Knoten der Bestands-Triage bekommt `attachmentsInfo`, und
+  die Reste des alten Binär-Umwegs verschwinden.
+- **Mehr IMAP-Verkehr:** Für jede Mail mit Anhang öffnet das Panel eine zusätzliche
+  IMAP-Verbindung. Bei großen Bestandsläufen dauert das entsprechend länger.
+- **Neustart & Sitzungen:** nur der Panel-Container startet neu, keine Abmeldung.
+
 ## [2.4.0.2] - 2026-08-14 (Build 30) — *Prüfdurchgang 3: Virenscan und Verschieben*
 
 Dritter Prüfdurchgang, diesmal mit echten Testmails statt nur gegen die Endpunkte.

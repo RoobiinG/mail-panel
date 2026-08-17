@@ -7,6 +7,8 @@ const safebrowsing = require('../services/safebrowsing');
 const clamav  = require('../services/clamav');
 const google  = require('../services/google');
 const sortierung = require('../services/sortierung');
+const imap    = require('../services/imap');
+const { entschluesseln } = require('../services/crypto');
 
 const router = express.Router();
 
@@ -152,6 +154,57 @@ router.post('/scan', express.raw({ type: '*/*', limit: '50mb' }), async (req, re
     console.error('ClamAV Scan Fehler:', err.message);
     // Bei Fehlern (wie Timeout) lassen wir die Mail durch, um keine Mails zu blockieren
     res.json({ clean: true, fehler: err.message });
+  }
+});
+
+// Scannt alle Anhänge einer Mail. Der Workflow schickt nur Konto, UID und Ordner —
+// das Panel holt die Dateien selbst per IMAP und gibt sie an ClamAV weiter.
+//
+// Warum nicht wie bisher die Datei mitschicken? Zwei Gründe: Der Abruf-Knoten der
+// Bestands-Triage liefert überhaupt keine Dateiinhalte (nur Namen und Größen), und
+// über den Umweg mit den Binärdaten wurde immer nur der erste Anhang geprüft.
+// Zugangsdaten kommen ausschließlich aus der Datenbank, nie aus der Anfrage.
+router.post('/scan-anhaenge', express.json({ limit: '16kb' }), async (req, res) => {
+  const { konto, uid, ordner } = req.body || {};
+  try {
+    if (!konto) return res.status(400).json({ clean: true, fehler: 'Kein Konto angegeben.' });
+
+    const zeile = db.prepare('SELECT * FROM accounts WHERE name = ? AND aktiv = 1').get(String(konto));
+    if (!zeile) return res.status(404).json({ clean: true, fehler: `Unbekanntes Konto: ${konto}` });
+
+    const { gefunden, anhaenge } = await imap.anhaengeHolen({
+      host: zeile.host,
+      port: zeile.port,
+      username: zeile.username,
+      passwort: entschluesseln(zeile.password_enc),
+      tlsUnsicher: Boolean(zeile.tls_unsicher),
+      ordner: ordner || 'INBOX',
+      uid,
+    });
+
+    const dateien = [];
+    let virus = null;
+    for (const anhang of anhaenge) {
+      if (anhang.fehler) { dateien.push({ name: anhang.name, fehler: anhang.fehler }); continue; }
+      const ergebnis = await clamav.scan(anhang.inhalt);
+      dateien.push({ name: anhang.name, clean: ergebnis.clean, virus: ergebnis.virus || null });
+      if (!ergebnis.clean && !virus) virus = ergebnis.virus;
+    }
+
+    res.json({
+      clean: virus === null,
+      virus,
+      // Wie viele Anhänge die Mail hat und wie viele wirklich geprüft wurden —
+      // im Workflow sieht man damit sofort, ob etwas übersprungen wurde.
+      gefunden,
+      geprueft: dateien.filter((d) => !d.fehler).length,
+      dateien,
+    });
+  } catch (err) {
+    console.error('Anhang-Scan Fehler:', err.message);
+    // Wie beim Einzel-Scan: Ein Fehler darf die Mail nicht blockieren, muss aber
+    // im Ergebnis stehen, damit er im Panel sichtbar wird.
+    res.json({ clean: true, fehler: err.message, gefunden: 0, geprueft: 0, dateien: [] });
   }
 });
 

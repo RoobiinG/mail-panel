@@ -318,6 +318,23 @@ Weiterleitungs-URI eingetragen sein.
 Die Aktionen laufen im Workflow `07 - Eigene Aktionen`, den die Workflows 01 und 04 nach der
 Klassifizierung aufrufen. Schlägt eine Aktion fehl, wird die Mail trotzdem einsortiert.
 
+## Virenscan der Anhänge
+
+Hat eine Mail Anhänge, schickt der Workflow nur **Konto und Nachrichten-Nummer** ans Panel.
+Das Panel holt sich die Dateien selbst über IMAP und gibt jede einzelne an ClamAV weiter
+(`POST /api/internal/scan-anhaenge`). Findet sich etwas, wandert die Mail in die Quarantäne
+und — sofern eingerichtet — geht sofort eine Telegram-Warnung raus.
+
+Warum der Umweg über das Panel? Weil so **alle** Anhänge geprüft werden, nicht nur der erste,
+und weil es auch für die **Bestands-Triage** funktioniert: Deren Abruf-Knoten liefert nur die
+Namen der Anhänge, nicht die Dateien selbst.
+
+Grenzen: höchstens 20 Anhänge je Mail, höchstens 30 MB je Datei. Was darüber liegt, wird im
+Ergebnis als übersprungen ausgewiesen — sichtbar im Panel unter *Workflows → Läufe*.
+
+Ist ClamAV nicht erreichbar, bricht der Lauf ab und die Mail bleibt liegen. Das ist Absicht:
+Lieber unsortiert als ungeprüft durchgewunken.
+
 ## White- und Blacklist
 
 Unter **White- / Blacklist** pflegst du eigene Absenderlisten, die für alle Konten gelten.
@@ -392,6 +409,7 @@ nötig — der kostet für dieses Aufkommen Centbeträge.
 | IMAP scheitert mit „self-signed certificate" | Beim Konto *Selbstsigniertes Zertifikat akzeptieren* anhaken |
 | Mails landen nicht im Zielordner | Der Ordner existiert im Postfach nicht — im Konto-Dialog auf *Fehlende Ordner anlegen* drücken oder den vorhandenen Ordner auswählen (Schritt 5) |
 | Virenscan meldet „nicht bereit" | ClamAV lädt noch seine Signaturen; beim ersten Start dauert das einige Minuten |
+| Anhänge werden nicht geprüft | Auf der Workflows-Seite **Synchronisieren** drücken — erst dabei bekommen die Workflows den Scan-Knoten |
 | DNSBL-Test meldet `zen.spamhaus.org (127.255.255.254)` | Spamhaus lehnt Anfragen aus vielen Rechenzentrums-Netzen ab. Die Liste in den Einstellungen entfernen oder einen kostenlosen Spamhaus-DQS-Zugang nutzen — SpamCop und Barracuda laufen weiter. |
 | Workflow lässt sich nicht einschalten, n8n meldet „Missing required credential: smtp" | Postausgang unter *Einstellungen → Postausgang (SMTP)* eintragen und synchronisieren — oder leer lassen, dann wird der Knoten stillgelegt und der Workflow lässt sich einschalten |
 | Passkey lässt sich nicht anlegen | Hinter einem Reverse Proxy muss `ALLOWED_ORIGIN` auf die Panel-Adresse gesetzt sein |
