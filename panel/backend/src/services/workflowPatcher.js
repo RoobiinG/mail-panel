@@ -547,18 +547,31 @@ async function workflowSuchen(praefix) {
 }
 
 // Repariert den Bug, bei dem n8n's JSON.stringify den promptText verwirft, weil 
-// die Eigenschaft unter bestimmten Umständen als Proxy-Feld nicht iterierbar ist.
+// die Eigenschaft unter bestimmten Umständen als Proxy-Feld nicht iterierbar ist,
+// und rüstet alte 2.5-flash-lite Modelle auf 3.5 auf.
 function geminiRequestReparieren(workflow) {
   let geaendert = false;
   for (const knoten of workflow.nodes) {
     if (knoten.name !== 'Gemini klassifizieren' || knoten.type !== 'n8n-nodes-base.httpRequest') continue;
-    if (!knoten.parameters?.jsonBody) continue;
     
-    const alt = '{ text: $json.promptText }';
-    const neu = "{ text: String($json.promptText || '') }";
-    if (knoten.parameters.jsonBody.includes(alt)) {
-      knoten.parameters.jsonBody = knoten.parameters.jsonBody.replace(alt, neu);
-      geaendert = true;
+    // Bugfix: JSON.stringify
+    if (knoten.parameters?.jsonBody) {
+      const alt = '{ text: $json.promptText }';
+      const neu = "{ text: String($json.promptText || '') }";
+      if (knoten.parameters.jsonBody.includes(alt)) {
+        knoten.parameters.jsonBody = knoten.parameters.jsonBody.replace(alt, neu);
+        geaendert = true;
+      }
+    }
+
+    // Bugfix: Gemini 2.5 ist deprecated
+    if (knoten.parameters?.url) {
+      const altUrl = 'models/gemini-2.5-flash-lite:generateContent';
+      const neuUrl = 'models/gemini-3.5-flash-lite:generateContent';
+      if (knoten.parameters.url.includes(altUrl)) {
+        knoten.parameters.url = knoten.parameters.url.replace(altUrl, neuUrl);
+        geaendert = true;
+      }
     }
   }
   return geaendert;
