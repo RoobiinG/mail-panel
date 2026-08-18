@@ -2,6 +2,20 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [2.5.3.1] - 2026-08-18 (Build 35) — *Einstellungen: Google-Kalender Anleitung*
+
+### Änderungen
+
+- Kurze Schritt-für-Schritt-Anleitung samt Direktlink zur Google Cloud Console in den
+  Einstellungen (Sektion *Google-Kalender*) eingefügt.
+- Gleiche Anleitung ausführlich in die `README.md` übernommen.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migrationen**: keine
+- **n8n-Workflow-Kompatibilität**: nicht betroffen
+- **Neustart**: ausreichend
+
 ## [2.5.3.0] - 2026-08-18 (Build 34) — *Einstellungen: Tab-Layout wie Überwachungs-Panel*
 
 ### Änderungen

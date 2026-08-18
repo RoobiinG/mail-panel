@@ -495,8 +495,8 @@ export default function Einstellungen() {
 
           <Card title={<><Cloud size={13} /> Google-Kalender</>}>
             <p className="text-xs text-panel-muted">
-              Client-ID und Secret aus der Google Cloud Console eintragen, speichern,
-              dann die Verbindung herstellen.
+              <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" className="text-panel-accent hover:underline">Google Cloud Console</a> öffnen, Projekt anlegen, <em>Google Calendar API</em> aktivieren.
+              OAuth-Client (Typ Webanwendung) erstellen und die unten angezeigte Rücksprung-URI eintragen.
             </p>
             <Feld label="Client-ID" value={settings.google_client_id} placeholder="…apps.googleusercontent.com"
               disabled={settings.google_client_id_per_env} onChange={v => set('google_client_id', v)} />

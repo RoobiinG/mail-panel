@@ -312,8 +312,15 @@ nicht das Konto-Passwort.
 **Google ohne n8n-Anmeldung:** Der Google-Kalender-Knoten von n8n kann nur OAuth2, und
 dessen Zustimmungsdialog läuft in der n8n-Oberfläche — genau das wollen wir vermeiden.
 Deshalb meldest du dich im Panel an, und die Workflows holen sich den Zugriffs-Token dort
-ab. Die im Panel angezeigte Rücksprung-Adresse muss dafür in der Google Cloud Console als
-Weiterleitungs-URI eingetragen sein.
+ab.
+
+So richtest du es ein:
+1. Öffne die [Google Cloud Console](https://console.cloud.google.com/apis/credentials).
+2. Erstelle ein neues Projekt und aktiviere die **Google Calendar API**.
+3. Richte den **OAuth-Zustimmungsbildschirm** ein (Nutzertyp: Extern).
+4. Erstelle unter *Anmeldedaten* eine neue **OAuth-Client-ID** (Typ: *Webanwendung*).
+5. Trage die im Panel angezeigte Rücksprung-Adresse als **Autorisierte Weiterleitungs-URIs** ein.
+6. Kopiere Client-ID und Client-Secret ins Panel und klicke auf Verbinden.
 
 Die Aktionen laufen im Workflow `07 - Eigene Aktionen`, den die Workflows 01 und 04 nach der
 Klassifizierung aufrufen. Schlägt eine Aktion fehl, wird die Mail trotzdem einsortiert.
