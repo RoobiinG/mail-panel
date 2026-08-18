@@ -186,6 +186,10 @@ const migrations = [
   'ALTER TABLE accounts ADD COLUMN folder_archive TEXT',
   // Viren-Scanner: Speichern des Virus-Namens
   'ALTER TABLE quarantine_log ADD COLUMN virus_name TEXT',
+  // Panel-Logs: neues Schema (Überwachungs-Panel-kompatibel)
+  'ALTER TABLE panel_logs ADD COLUMN source TEXT',
+  'ALTER TABLE panel_logs ADD COLUMN message TEXT',
+  'ALTER TABLE panel_logs ADD COLUMN url TEXT',
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch { /* Spalte existiert schon */ }

@@ -2,7 +2,36 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [2.5.1.0] - 2026-08-18 (Build 32) — *Panel-Logs: Karten-Layout*
+
+### Änderungen
+
+- **Panel-Logs-Seite vollständig überarbeitet** nach dem Vorbild des Überwachungs-Panels:
+  - Layout von Tabelle auf **Karten-Design** umgestellt — farbiger linker Border je nach Level
+    (rot = Error, gelb = Warn, blau = Info), farbige Quellen-Chips
+  - **Checkbox-Auswahl** pro Eintrag und **Auswahl-Toolbar** mit Bulk-Löschen und Kopieren
+  - **Dynamische Quellliste** — neuer Endpunkt `GET /api/logs/sources` liefert alle distinct
+    Quellen aus der Datenbank; kein statischer Filter mehr
+  - **Copy-Button** pro Eintrag kopiert Level, Zeitpunkt, Quelle, URL und Nachricht als Text
+  - **Stack-Trace** weiterhin aufklappbar per Button
+  - Auto-Refresh (10 s) bleibt, jetzt als umschaltbarer Toggle-Button
+- **Backend**: neuer Endpunkt `DELETE /api/logs/bulk` für selektives Löschen
+- **DB-Migration**: Spalten `source`, `message`, `url` in `panel_logs` ergänzt —
+  abwärtskompatibel; bestehende Logs (mit `quelle`/`nachricht`) werden beim Lesen automatisch
+  harmonisiert und bleiben erhalten
+- **Frontend-Fehler-Reporter** (`main.jsx`) nutzt jetzt das neue Schema
+  `{source, message, stack, url}` (Überwachungs-Panel-kompatibel); `source` ist jetzt
+  `JavaScript` bzw. `Promise` statt generisch `frontend`
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migration**: läuft automatisch beim nächsten Start; keine manuelle Aktion nötig;
+  kein Datenverlust (ALTER TABLE, try/catch)
+- **n8n-Workflow-Kompatibilität**: nicht betroffen
+- **Neustart**: Container-Neustart nach Deployment ausreichend; kein Session-Verlust
+
 ## [2.5.0.0] - 2026-08-16 (Build 31) — *Anhänge über das Panel scannen*
+
 
 ### Features
 
