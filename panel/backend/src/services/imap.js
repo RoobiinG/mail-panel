@@ -86,6 +86,26 @@ async function ordnerAnlegen(konto) {
   }
 }
 
+// Legt gezielt einen bestimmten Ordnernamen an, falls er nicht existiert.
+// Nützlich, wenn in der UI ein neuer Ordner für eine Sortier-Regel getippt wird.
+async function ordnerErstellen(konto, ordnerName) {
+  if (!ordnerName) return false;
+  const client = verbindung(konto);
+  try {
+    await client.connect();
+    const vorhanden = (await client.list()).map((o) => o.path);
+    if (!vorhanden.includes(ordnerName)) {
+      await client.mailboxCreate(ordnerName);
+      return true; // Wurde neu angelegt
+    }
+    return false; // Existierte bereits
+  } catch (err) {
+    throw err;
+  } finally {
+    try { await client.logout(); } catch { }
+  }
+}
+
 // Grenzen für das Holen der Anhänge — ein Postfach ist keine vertrauenswürdige
 // Quelle, deshalb wird nicht unbegrenzt in den Speicher geladen.
 const MAX_ANHAENGE = 20;
@@ -153,4 +173,10 @@ async function anhaengeHolen({ ordner = 'INBOX', uid, ...konto }) {
   }
 }
 
-module.exports = { testVerbindung, ordnerAnlegen, anhaengeHolen, STANDARD };
+module.exports = {
+  testVerbindung,
+  ordnerAnlegen,
+  ordnerErstellen,
+  anhaengeHolen,
+  STANDARD,
+};

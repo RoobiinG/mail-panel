@@ -3,11 +3,8 @@
 const express = require('express');
 const db      = require('../db');
 const { loggen } = require('../services/panelLog');
-// Wir muessen IMAP-Ordner live vom Konto holen. Dazu brauchen wir n8n (oder den imap-client)
-// Das bestehende Backend nutzt node-imap nicht direkt für die Mail-Verwaltung, aber wir koennen
-// die Ordner ueber n8n (oder eine rudimentaere IMAP-Abfrage) holen.
-// Für diese Ausbaustufe lassen wir den Nutzer den Ordnernamen per Freitext oder Dropdown eintragen.
-// Optional: IMAP-Abfrage hier einbauen.
+const imap = require('../services/imap');
+const { entschluesseln } = require('../services/crypto');
 
 const router = express.Router();
 
@@ -24,7 +21,7 @@ router.get('/regeln', (req, res) => {
 });
 
 // POST /api/sortierung/regeln — Neue Regel anlegen
-router.post('/regeln', (req, res) => {
+router.post('/regeln', async (req, res) => {
   const { konto_id, typ, muster, zielordner } = req.body || {};
   if (!konto_id || !typ || !muster || !zielordner) {
     return res.status(400).json({ error: 'Alle Felder müssen ausgefüllt sein.' });
@@ -32,8 +29,8 @@ router.post('/regeln', (req, res) => {
   if (!['absender', 'betreff', 'domain'].includes(typ)) {
     return res.status(400).json({ error: 'Ungültiger Typ.' });
   }
-  // Regeln fuer ein Konto, das es nicht gibt, wuerden nie greifen
-  if (!db.prepare('SELECT 1 FROM accounts WHERE id = ?').get(Number(konto_id))) {
+  const konto = db.prepare('SELECT * FROM accounts WHERE id = ?').get(Number(konto_id));
+  if (!konto) {
     return res.status(400).json({ error: 'Das Konto existiert nicht.' });
   }
   try {
@@ -41,6 +38,16 @@ router.post('/regeln', (req, res) => {
       INSERT INTO sort_rules (konto_id, typ, muster, zielordner, erstellt_von)
       VALUES (?, ?, ?, ?, ?)
     `).run(konto_id, typ, muster.trim(), zielordner.trim(), req.user.id);
+
+    // Versuche den Zielordner direkt anzulegen (Best Effort)
+    try {
+      konto.passwort = entschluesseln(konto.password_enc);
+      const angelegt = await imap.ordnerErstellen(konto, zielordner.trim());
+      if (angelegt) loggen('info', 'sortierung', `Neuer Ordner "${zielordner.trim()}" für Konto ${konto.name} via IMAP angelegt.`);
+    } catch (err) {
+      loggen('warn', 'sortierung', `Konnte Ordner "${zielordner.trim()}" nicht via IMAP anlegen: ${err.message}`);
+    }
+
     res.json({ id: info.lastInsertRowid, status: 'ok' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -78,15 +85,15 @@ router.get('/inbox', (req, res) => {
 });
 
 // POST /api/sortierung/zuordnen — Mail aus Inbox einem Ordner zuweisen
-router.post('/zuordnen', (req, res) => {
+router.post('/zuordnen', async (req, res) => {
   const { id, zielordner, regelAnlegen } = req.body || {};
   if (!id || !zielordner) return res.status(400).json({ error: 'ID und Zielordner fehlen.' });
   
   try {
-    db.transaction(() => {
-      const mail = db.prepare('SELECT * FROM sort_inbox WHERE id = ?').get(id);
-      if (!mail) throw new Error('Mail nicht gefunden.');
+    const mail = db.prepare('SELECT * FROM sort_inbox WHERE id = ?').get(id);
+    if (!mail) throw new Error('Mail nicht gefunden.');
 
+    db.transaction(() => {
       // In der Inbox als zugeordnet markieren (Wird nicht gelöscht, für spätere Analyse/Logs)
       db.prepare("UPDATE sort_inbox SET status = 'zugeordnet', vorschlag = ? WHERE id = ?").run(zielordner, id);
 
@@ -106,18 +113,22 @@ router.post('/zuordnen', (req, res) => {
           `).run(mail.konto_id, absenderEmail, zielordner, req.user.id);
         }
       }
-
-      // HIER muesste der eigentliche IMAP-Move passieren! 
-      // In dieser Architektur uebergeben wir die Verschiebe-Aktionen oft an n8n zurueck,
-      // oder wir rufen einen Webhook in n8n auf, der die UID im Konto verschiebt.
-      // Da wir in Workflow 04/01 sind: Die Mail wurde temporaer pausiert? 
-      // NEIN, das Architekturkonzept von Etappe 8 (Block A) besagt: "Zuordnung wird als Regel gespeichert, sodass n8n künftige Mails gleich sortiert.
-      // Die eigentliche Sortier-Inbox im Panel MUSS Mails eigentlich live verschieben.
-      // => Dazu schicken wir einen Trigger-Request an einen neuen n8n-Verschiebe-Workflow.
-      // Workaround fuer Etappe 8: Wir loggen es erstmal nur. Die eigentliche Live-Verschiebung
-      // erfordert einen dedizierten IMAP-Move-Workflow.
-      loggen('info', 'sortierung', `Mail ${mail.uid} (Konto ${mail.konto}) soll in Ordner ${zielordner} verschoben werden.`);
     })();
+
+    if (mail.konto_id) {
+      try {
+        const konto = db.prepare('SELECT * FROM accounts WHERE id = ?').get(mail.konto_id);
+        if (konto) {
+          konto.passwort = entschluesseln(konto.password_enc);
+          const angelegt = await imap.ordnerErstellen(konto, zielordner.trim());
+          if (angelegt) loggen('info', 'sortierung', `Neuer Ordner "${zielordner.trim()}" für Konto ${konto.name} via IMAP angelegt.`);
+        }
+      } catch (err) {
+        loggen('warn', 'sortierung', `Konnte Ordner "${zielordner.trim()}" nicht anlegen: ${err.message}`);
+      }
+    }
+
+    loggen('info', 'sortierung', `Mail ${mail.uid} (Konto ${mail.konto}) soll in Ordner ${zielordner} verschoben werden.`);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
