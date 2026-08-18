@@ -2,7 +2,28 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [2.5.3.0] - 2026-08-18 (Build 34) — *Einstellungen: Tab-Layout wie Überwachungs-Panel*
+
+### Änderungen
+
+- **Einstellungen-Seite erneut überarbeitet** — jetzt mit Tab-Navigation + Karten-Masonry-Layout
+  exakt nach dem Muster des Überwachungs-Panels:
+  - **Tab-Bar** (`Verbindungen` / `KI & Prüfung` / `Dienste` / `Konto`) — Tab-Status in
+    `bg-panel-card` hervorgehoben, inaktive Tabs `text-panel-muted`
+  - **`columns-1 lg:columns-2`-Masonry-Layout** innerhalb jedes Tabs — Karten füllen die
+    Spalten von oben nach unten, keine feste Zeilenaufteilung
+  - **`Card`-Komponente** mit `uppercase`-Titelzeile und `border-b` Trennlinie wie im ÜP
+  - Verbindungstests nun im Tab `Verbindungen` integriert als vertikale Liste mit Inline-Ergebnis
+  - Safe-Browsing-API-Key-Feld erscheint nur, wenn Safe Browsing aktiviert ist
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migrationen**: keine
+- **n8n-Workflow-Kompatibilität**: nicht betroffen
+- **Neustart**: ausreichend
+
 ## [2.5.2.0] - 2026-08-18 (Build 33) — *Einstellungen: modernes UI + Gemini/Google-Test*
+
 
 ### Änderungen
 
