@@ -2,7 +2,35 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [2.5.2.0] - 2026-08-18 (Build 33) — *Einstellungen: modernes UI + Gemini/Google-Test*
+
+### Änderungen
+
+- **Einstellungen-Seite vollständig überarbeitet:**
+  - **Aufklappbare Sektionen** — alle Bereiche (Verbindungen, KI, SMTP, Aktionen, Passkeys…)
+    können einzeln auf- und zugeklappt werden; selten genutzte Bereiche starten zugeklappt
+  - **Toggle-Switches** statt Checkboxen für boolean-Optionen (ClamAV, Safe Browsing, SMTP-TLS)
+  - **Passwortfelder mit Auge-Icon** — Sichtbarkeit per Klick umschalten
+  - **Meldungen per Sektion** — jeder Bereich hat seinen eigenen Speichern-Button und zeigt
+    Erfolg/Fehler direkt darunter an (kein gemeinsamer globaler Status mehr)
+  - **2-Spalten-Grid** für Felder, die thematisch zusammengehören
+- **Verbindungstest: Gemini-API** — prüft API-Key mit minimalem Modell-Listen-Request
+  (keine Token verbraucht); zeigt Anzahl der gefundenen Modelle im Ergebnis
+- **Verbindungstest: Google-Kalender** — holt einen frischen Access-Token über den
+  Refresh-Token und bestätigt so die Verbindung; zeigt Gültigkeitsdauer
+- **Backend** `einstellungen.js`: neue Test-Zweige `gemini` und `google` in
+  `POST /api/einstellungen/test/:dienst`
+- **Google-Verbindungsblock** in der Aktionen-Sektion umgestaltet: kompakter Status-Badge,
+  Rücksprung-URI direkt darunter
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migrationen**: keine
+- **n8n-Workflow-Kompatibilität**: nicht betroffen
+- **Neustart**: Container-Neustart nach Deployment ausreichend
+
 ## [2.5.1.0] - 2026-08-18 (Build 32) — *Panel-Logs: Karten-Layout*
+
 
 ### Änderungen
 

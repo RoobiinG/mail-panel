@@ -7,6 +7,7 @@ const clamav   = require('../services/clamav');
 const dnsbl    = require('../services/dnsbl');
 const nextcloud = require('../services/nextcloud');
 const smtp      = require('../services/smtp');
+const google    = require('../services/google');
 
 const router = express.Router();
 
@@ -89,6 +90,26 @@ router.post('/test/:dienst', async (req, res) => {
         passwort: settings.hole('smtp_passwort'),
         tlsUnsicher: settings.hole('smtp_tls_unsicher') === '1',
       });
+    }
+    else if (dienst === 'gemini') {
+      // Minimaler API-Call: listet Modelle auf (keine Tokens verbraucht)
+      const apiKey = settings.hole('gemini_api_key');
+      if (!apiKey) throw new Error('Kein Gemini-API-Key gesetzt.');
+      const r = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models?pageSize=1&key=${encodeURIComponent(apiKey)}`,
+        { signal: AbortSignal.timeout(10000) }
+      );
+      const body = await r.json();
+      if (!r.ok) throw new Error(body.error?.message || `Gemini antwortete mit HTTP ${r.status}`);
+      ergebnis = { ok: true, hinweis: `Verbunden — ${(body.models?.length ?? 0)} Modell(e) gefunden` };
+    }
+    else if (dienst === 'google') {
+      // Frischen Access-Token holen: beweist, dass Refresh-Token gültig ist
+      const token = await google.zugriffsToken();
+      ergebnis = {
+        ok: true,
+        hinweis: `Verbunden — Access-Token gültig bis ${new Date(token.gueltig_bis).toLocaleTimeString('de-DE')}`,
+      };
     }
     else return res.status(400).json({ error: `Unbekannter Dienst: ${dienst}` });
     res.json(ergebnis);
