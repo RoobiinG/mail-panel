@@ -124,8 +124,17 @@ export default function Sortierung() {
     }
   };
 
+  const alleOrdner = Array.from(new Set([
+    'Quarantaene', 'Rechnungen', 'Bestellungen', 'Newsletter', 'Archiv',
+    ...regeln.map(r => r.zielordner)
+  ])).filter(Boolean).sort();
+
   return (
     <div className="space-y-6">
+      <datalist id="ordner-vorschlaege">
+        {alleOrdner.map(o => <option key={o} value={o} />)}
+      </datalist>
+      
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* LINKE SEITE: Regeln */}
         <div className="card !p-0 overflow-hidden flex flex-col">
@@ -231,6 +240,7 @@ export default function Sortierung() {
                           placeholder="Zielordner (z.B. Rechnungen)"
                           value={ordnerWahl[mail.id] || ''}
                           onChange={e => setOrdnerWahl(p => ({ ...p, [mail.id]: e.target.value }))}
+                          list="ordner-vorschlaege"
                           className="w-full text-sm"
                         />
                       </div>
@@ -294,6 +304,7 @@ export default function Sortierung() {
                 type="text" required
                 value={regelModal.zielordner}
                 onChange={e => setRegelModal(p => ({ ...p, zielordner: e.target.value }))}
+                list="ordner-vorschlaege"
                 className="w-full font-mono"
                 placeholder="z.B. Rechnungen"
               />
