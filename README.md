@@ -318,6 +318,7 @@ So richtest du es ein:
 1. Öffne die [Google Cloud Console](https://console.cloud.google.com/apis/credentials).
 2. Erstelle ein neues Projekt und aktiviere die **Google Calendar API**.
 3. Richte den **OAuth-Zustimmungsbildschirm** ein (Nutzertyp: Extern).
+   *Wichtig:* Füge hier unter **Testnutzer** deine eigene E-Mail-Adresse hinzu, sonst blockiert Google den Login später mit „Fehler 403: access_denied“.
 4. Erstelle unter *Anmeldedaten* eine neue **OAuth-Client-ID** (Typ: *Webanwendung*).
 5. Trage die im Panel angezeigte Rücksprung-Adresse als **Autorisierte Weiterleitungs-URIs** ein.
 6. Kopiere Client-ID und Client-Secret ins Panel und klicke auf Verbinden.
@@ -419,6 +420,7 @@ nötig — der kostet für dieses Aufkommen Centbeträge.
 | Anhänge werden nicht geprüft | Auf der Workflows-Seite **Synchronisieren** drücken — erst dabei bekommen die Workflows den Scan-Knoten |
 | DNSBL-Test meldet `zen.spamhaus.org (127.255.255.254)` | Spamhaus lehnt Anfragen aus vielen Rechenzentrums-Netzen ab. Die Liste in den Einstellungen entfernen oder einen kostenlosen Spamhaus-DQS-Zugang nutzen — SpamCop und Barracuda laufen weiter. |
 | Workflow lässt sich nicht einschalten, n8n meldet „Missing required credential: smtp" | Postausgang unter *Einstellungen → Postausgang (SMTP)* eintragen und synchronisieren — oder leer lassen, dann wird der Knoten stillgelegt und der Workflow lässt sich einschalten |
+| Google-Verbindung bricht mit „Fehler 403: access_denied“ ab | Die App in der Google Cloud Console steht auf Status *Testing*. Die eigene E-Mail-Adresse muss dort unter **OAuth-Zustimmungsbildschirm → Testnutzer** eingetragen werden. |
 | Passkey lässt sich nicht anlegen | Hinter einem Reverse Proxy muss `ALLOWED_ORIGIN` auf die Panel-Adresse gesetzt sein |
 | Panel zeigt nach dem Update die alte Versionsnummer | Browser-Cache — mit `Strg+F5` neu laden |
 
