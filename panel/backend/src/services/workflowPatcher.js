@@ -546,6 +546,24 @@ async function workflowSuchen(praefix) {
   return treffer;
 }
 
+// Repariert den Bug, bei dem n8n's JSON.stringify den promptText verwirft, weil 
+// die Eigenschaft unter bestimmten Umständen als Proxy-Feld nicht iterierbar ist.
+function geminiRequestReparieren(workflow) {
+  let geaendert = false;
+  for (const knoten of workflow.nodes) {
+    if (knoten.name !== 'Gemini klassifizieren' || knoten.type !== 'n8n-nodes-base.httpRequest') continue;
+    if (!knoten.parameters?.jsonBody) continue;
+    
+    const alt = '{ text: $json.promptText }';
+    const neu = "{ text: String($json.promptText || '') }";
+    if (knoten.parameters.jsonBody.includes(alt)) {
+      knoten.parameters.jsonBody = knoten.parameters.jsonBody.replace(alt, neu);
+      geaendert = true;
+    }
+  }
+  return geaendert;
+}
+
 // ─── Workflow 01: Trigger + Konto-Kennzeichnung je Konto ─────────────────────
 
 async function triageSynchronisieren(konten, credentialId, aktionenWorkflowId) {
@@ -555,6 +573,7 @@ async function triageSynchronisieren(konten, credentialId, aktionenWorkflowId) {
   altlastenEntfernen(workflow);
   if (credentialId) panelKnotenVerdrahten(workflow, credentialId);
   patchAntwortParsen(workflow);
+  geminiRequestReparieren(workflow);
   anhangKetteReparieren(workflow, NORMALISIERER['01']);
 
   for (const name of [ANKER.triage.ziel, ANKER.triage.weiche]) {
@@ -610,6 +629,7 @@ async function bestandSynchronisieren(konten, credentialId, aktionenWorkflowId) 
   altlastenEntfernen(workflow);
   if (credentialId) panelKnotenVerdrahten(workflow, credentialId);
   patchAntwortParsen(workflow);
+  geminiRequestReparieren(workflow);
   anhangKetteReparieren(workflow, NORMALISIERER['04']);
 
   const sammler = workflow.nodes.find((k) => k.name === ANKER.bestand.ziel);

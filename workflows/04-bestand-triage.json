@@ -49,7 +49,7 @@
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ contents: [{ parts: [{ text: $json.promptText }] }], generationConfig: { responseMimeType: 'application/json', temperature: 0.1 } }) }}",
+        "jsonBody": "={{ JSON.stringify({ contents: [{ parts: [{ text: String($json.promptText || '') }] }], generationConfig: { responseMimeType: 'application/json', temperature: 0.1 } }) }}",
         "options": {
           "batching": {
             "batch": {
