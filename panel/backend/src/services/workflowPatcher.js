@@ -576,7 +576,9 @@ async function triageSynchronisieren(konten, credentialId, aktionenWorkflowId) {
   // Ausgang: Weiche + je Konto ein Verschiebe-Knoten
   const weiche = weichenKnoten(konten, [1340, 120]);
   workflow.nodes.push(weiche);
-  verbinde(workflow, ANKER.triage.weiche, weiche.name, 0);
+  if (settings.hole('trockenlauf_aktiv') !== '1') {
+    verbinde(workflow, ANKER.triage.weiche, weiche.name, 0);
+  }
   konten.forEach((konto, i) => {
     const move = verschiebeKnoten(konto, [1600, 160 + i * 160]);
     workflow.nodes.push(move);
@@ -635,7 +637,9 @@ async function bestandSynchronisieren(konten, credentialId, aktionenWorkflowId) 
   // Ausgang: Weiche + Verschiebe-Knoten wie in Workflow 01
   const weiche = weichenKnoten(konten, [1780, 20]);
   workflow.nodes.push(weiche);
-  verbinde(workflow, ANKER.bestand.weiche, weiche.name, 0);
+  if (settings.hole('trockenlauf_aktiv') !== '1') {
+    verbinde(workflow, ANKER.bestand.weiche, weiche.name, 0);
+  }
   konten.forEach((konto, i) => {
     const move = verschiebeKnoten(konto, [2040, 60 + i * 160]);
     workflow.nodes.push(move);

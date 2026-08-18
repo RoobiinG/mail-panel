@@ -197,21 +197,14 @@ wieder, wenn du an den Einstellungen etwas geändert hast.
 > sie beim nächsten Mal weg. Der Rest jedes Workflows bleibt unangetastet und darf frei
 > angepasst werden.
 
-## Schritt 9 — Trockenlauf, dann scharf schalten
+## Schritt 9 — Trockenlauf aktivieren (Wichtig!)
 
-Nicht sofort alles einschalten. Erst zusehen, ob die KI so einsortiert, wie du es erwartest.
+Bevor das System wild E-Mails verschiebt, solltest du es testen.
+1. Gehe im Panel auf **Einstellungen → KI & Prüfung**.
+2. Aktiviere den Schalter **Trockenlauf aktivieren**.
+3. Klicke auf **Speichern** und danach auf der *Workflows*-Seite auf **Synchronisieren**.
 
-1. In n8n den Workflow `01 - Inbox-Triage` öffnen und die Verbindung **hinter** dem Knoten
-   *Verschieben?* trennen. Dann im Panel auf der Workflows-Seite einschalten — jetzt
-   klassifiziert er nur und fasst nichts an.
-2. Ein bis zwei Tage laufen lassen und die Läufe ansehen (Panel → Workflows → Workflow
-   anklicken). Stimmen die Kategorien?
-3. Passt es, die Verbindung wieder herstellen — ab jetzt wird einsortiert.
-4. Testmails an jedes Konto schicken: etwas offensichtlicher Spam, eine Rechnung, ein
-   Newsletter. Landen sie in den richtigen Ordnern?
-5. `02 - Täglicher Digest` einmal von Hand starten → kommt die Telegram-Nachricht an?
-
-Ist die KI daneben, schärfst du den Klassifizierungs-Text im Knoten *Normalisieren* nach.
+Jetzt werden alle eingehenden E-Mails zwar von der KI analysiert und im Log erfasst, aber sie bleiben in deinem Posteingang. So kannst du im Panel unter *Workflows → Läufe* (oder in den Logs) entspannt prüfen, ob das System Spam, Newsletter und Rechnungen so erkennt, wie du dir das vorstellst. Sobald du zufrieden bist, schaltest du den Trockenlauf einfach wieder aus und synchronisierst erneut.
 
 ## Schritt 10 — Altbestand aufarbeiten
 

@@ -12,7 +12,7 @@ const google    = require('../services/google');
 const router = express.Router();
 
 // Einfache Schalter/Werte (unverschlüsselt, direkt in settings)
-const EINFACHE_KEYS = ['dnsbl_listen', 'spam_schwellwert', 'clamav_aktiv', 'safebrowsing_aktiv'];
+const EINFACHE_KEYS = ['dnsbl_listen', 'spam_schwellwert', 'clamav_aktiv', 'safebrowsing_aktiv', 'trockenlauf_aktiv'];
 
 router.get('/', (req, res) => {
   const zeilen = db.prepare(

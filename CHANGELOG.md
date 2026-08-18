@@ -2,6 +2,20 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [2.6.0.0] - 2026-08-18 (Build 36) — *Feature: Panel-Trockenlauf*
+
+### Features
+
+- **Trockenlauf per Knopfdruck:** Es muss nun keine Verbindung in den Workflows mehr manuell getrennt werden. Unter *Einstellungen → KI & Prüfung* gibt es einen Schalter „Trockenlauf aktivieren“.
+  - Ist dieser aktiv, trennt der Workflow-Patcher beim Synchronisieren die Verschiebe-Knoten in Workflow 01 und 04 einfach ab.
+  - Die Mails werden klassifiziert, durchlaufen alle Prüfungen, führen eigene Aktionen (Workflow 07) aus und landen im Log — bleiben aber sicher im Posteingang.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migrationen**: keine (`trockenlauf_aktiv` läuft als einfacher String in der `settings`-Tabelle).
+- **n8n-Workflow-Kompatibilität**: **Sync zwingend erforderlich**. Wer den Trockenlauf nutzen will, muss ihn aktivieren und danach auf der Workflows-Seite auf **Synchronisieren** klicken, damit die Workflows frisch gepatched werden.
+- **Neustart**: ausreichend
+
 ## [2.5.3.1] - 2026-08-18 (Build 35) — *Einstellungen: Google-Kalender Anleitung*
 
 ### Änderungen

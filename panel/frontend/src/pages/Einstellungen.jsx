@@ -388,6 +388,18 @@ export default function Einstellungen() {
               Die Werte werden bei der Konto-Synchronisierung an die n8n-Workflows verteilt.
               Gemini Free Tier genügt.
             </p>
+            <div className="pt-2">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <Toggle
+                  on={settings.trockenlauf_aktiv === '1'}
+                  onToggle={() => set('trockenlauf_aktiv', settings.trockenlauf_aktiv === '1' ? '0' : '1')}
+                />
+                <div className="flex flex-col">
+                  <span className="text-sm text-panel-text">Trockenlauf aktivieren</span>
+                  <span className="text-[10px] text-panel-muted/70">Mails werden von der KI klassifiziert und geloggt, aber nicht verschoben (perfekt zum Testen).</span>
+                </div>
+              </label>
+            </div>
             <PwFeld label="Gemini API-Key" value={settings.gemini_api_key} placeholder="AIza…"
               disabled={settings.gemini_api_key_per_env} onChange={v => set('gemini_api_key', v)} />
             <SpeichernBtn onSpeichern={() => speichern('ki')} meldung={meldung.ki} />
