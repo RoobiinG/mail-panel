@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
-  Plus, Trash2, CheckCircle2, XCircle, AlertCircle, Inbox, Tag, ArrowRight
+  Plus, Trash2, CheckCircle2, XCircle, AlertCircle, Inbox, Tag, ArrowRight,
+  FolderTree, Sparkles, Lock, Unlock, RefreshCw, Check, Wand2
 } from 'lucide-react';
 import api from '../api';
 
@@ -26,6 +27,13 @@ export default function Sortierung() {
   // State für die Zuordnung in der Inbox (welcher Ordner ist im Dropdown gewählt)
   const [ordnerWahl, setOrdnerWahl] = useState({});
   const [regelAnlegenWahl, setRegelAnlegenWahl] = useState({});
+
+  // Themen-Katalog und die Ordner, die die KI vorgeschlagen hat
+  const [katalog, setKatalog] = useState([]);
+  const [vorschlaege, setVorschlaege] = useState([]);
+  const [katalogModal, setKatalogModal] = useState({ offen: false, ordner: '', beschreibung: '' });
+  const [einleseMeldung, setEinleseMeldung] = useState('');
+  const [beschreibungEntwurf, setBeschreibungEntwurf] = useState({});
 
   const ladenInit = async () => {
     try {
@@ -54,7 +62,94 @@ export default function Sortierung() {
     }
   };
 
-  useEffect(() => { regelnLaden(aktivesKonto); }, [aktivesKonto]);
+  const katalogLaden = async (kontoId) => {
+    if (!kontoId) return;
+    try {
+      const { data } = await api.get(`/sortierung/katalog?konto_id=${kontoId}`);
+      setKatalog(data || []);
+    } catch { /* leer */ }
+  };
+
+  const vorschlaegeLaden = async () => {
+    try {
+      const { data } = await api.get('/sortierung/vorschlaege');
+      setVorschlaege(data || []);
+    } catch { /* leer */ }
+  };
+
+  useEffect(() => { regelnLaden(aktivesKonto); katalogLaden(aktivesKonto); }, [aktivesKonto]);
+  useEffect(() => { vorschlaegeLaden(); }, []);
+
+  // ─── THEMEN-KATALOG ─────────────────────────────────────────────────────────
+
+  const katalogSpeichern = async (e) => {
+    e.preventDefault();
+    try {
+      await api.post('/sortierung/katalog', {
+        konto_id: aktivesKonto,
+        ordner: katalogModal.ordner,
+        beschreibung: katalogModal.beschreibung,
+      });
+      setKatalogModal({ offen: false, ordner: '', beschreibung: '' });
+      katalogLaden(aktivesKonto);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Fehler beim Speichern');
+    }
+  };
+
+  const katalogAendern = async (id, felder) => {
+    try {
+      await api.put(`/sortierung/katalog/${id}`, felder);
+      katalogLaden(aktivesKonto);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Fehler beim Ändern');
+    }
+  };
+
+  const katalogEntfernen = async (id) => {
+    if (!confirm('Aus dem Katalog nehmen? Der Ordner im Postfach bleibt bestehen.')) return;
+    try {
+      await api.delete(`/sortierung/katalog/${id}`);
+      katalogLaden(aktivesKonto);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Fehler beim Entfernen');
+    }
+  };
+
+  const ordnerEinlesen = async () => {
+    setEinleseMeldung('Lese …');
+    try {
+      const { data } = await api.post('/sortierung/katalog/einlesen', { konto_id: aktivesKonto });
+      setEinleseMeldung(
+        data.neu?.length ? `${data.neu.length} Ordner übernommen.` : 'Keine neuen Ordner gefunden.',
+      );
+      katalogLaden(aktivesKonto);
+      setTimeout(() => setEinleseMeldung(''), 4000);
+    } catch (err) {
+      setEinleseMeldung(err.response?.data?.error || 'Fehler beim Einlesen');
+    }
+  };
+
+  // ─── ORDNER-VORSCHLÄGE ──────────────────────────────────────────────────────
+
+  const vorschlagFreigeben = async (id) => {
+    try {
+      const { data } = await api.post(`/sortierung/vorschlaege/${id}/freigeben`);
+      vorschlaegeLaden(); katalogLaden(aktivesKonto); inboxLaden();
+      if (data.wartend) alert(`Ordner "${data.ordner}" angelegt. ${data.verschoben} von ${data.wartend} wartenden Mails einsortiert.`);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Fehler beim Freigeben');
+    }
+  };
+
+  const vorschlagAblehnen = async (id) => {
+    try {
+      await api.post(`/sortierung/vorschlaege/${id}/ablehnen`);
+      vorschlaegeLaden();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Fehler beim Ablehnen');
+    }
+  };
 
   const inboxLaden = async () => {
     try {
@@ -126,6 +221,7 @@ export default function Sortierung() {
 
   const alleOrdner = Array.from(new Set([
     'Quarantaene', 'Rechnungen', 'Bestellungen', 'Newsletter', 'Archiv',
+    ...katalog.map(o => o.ordner),
     ...regeln.map(r => r.zielordner)
   ])).filter(Boolean).sort();
 
@@ -135,6 +231,134 @@ export default function Sortierung() {
         {alleOrdner.map(o => <option key={o} value={o} />)}
       </datalist>
       
+      {/* ══ Vorschläge der KI: neue Ordner, die auf Freigabe warten ══ */}
+      {vorschlaege.length > 0 && (
+        <div className="card !p-0 overflow-hidden">
+          <div className="p-4 border-b border-panel-border bg-panel-card/50 flex items-center gap-2">
+            <Sparkles size={18} className="text-panel-accent" />
+            <h2 className="font-medium">Neue Ordner-Vorschläge</h2>
+            <span className="bg-panel-accent text-white text-xs px-2 py-0.5 rounded-full">
+              {vorschlaege.length}
+            </span>
+          </div>
+          <div className="divide-y divide-panel-border">
+            {vorschlaege.map(v => (
+              <div key={v.id} className="p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-mono text-panel-accent">{v.ordner}</span>
+                    <span className="text-xs text-panel-muted">
+                      {v.konto_name} · {v.anzahl}× vorgeschlagen
+                      {v.wartend > 0 && ` · ${v.wartend} Mail(s) warten`}
+                    </span>
+                  </div>
+                  {v.begruendung && (
+                    <div className="text-xs text-panel-muted truncate mt-1" title={v.begruendung}>
+                      {v.begruendung}
+                    </div>
+                  )}
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <button onClick={() => vorschlagAblehnen(v.id)} className="btn-ghost !py-1.5 !px-3 text-sm text-panel-muted hover:text-panel-red">
+                    Ablehnen
+                  </button>
+                  <button onClick={() => vorschlagFreigeben(v.id)} className="btn !py-1.5 !px-3 text-sm flex items-center gap-1">
+                    <Check size={14} /> Anlegen &amp; einsortieren
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ══ Themen-Katalog: woraus die KI wählen darf ══ */}
+      <div className="card !p-0 overflow-hidden">
+        <div className="p-4 border-b border-panel-border bg-panel-card/50 flex flex-wrap gap-3 justify-between items-center">
+          <h2 className="font-medium flex items-center gap-2">
+            <FolderTree size={18} className="text-panel-accent" /> Themen-Ordner
+          </h2>
+          <div className="flex items-center gap-2 flex-wrap">
+            {einleseMeldung && <span className="text-xs text-panel-muted">{einleseMeldung}</span>}
+            <button onClick={ordnerEinlesen} disabled={!aktivesKonto}
+              className="btn-ghost !py-1.5 !px-3 text-sm flex items-center gap-1">
+              <RefreshCw size={14} /> Aus Postfach einlesen
+            </button>
+            <button onClick={() => setKatalogModal({ offen: true, ordner: '', beschreibung: '' })}
+              disabled={!aktivesKonto} className="btn !py-1.5 !px-3 text-sm flex items-center gap-1">
+              <Plus size={14} /> Ordner
+            </button>
+          </div>
+        </div>
+
+        <p className="px-4 pt-3 text-xs text-panel-muted">
+          Aus diesen Ordnern wählt die KI beim Einsortieren — und nur aus diesen. Die Beschreibung
+          geht wörtlich in den Prompt: Ein Satz wie „Spiele, Steam, Konsolen, Gaming-Newsletter“
+          verbessert die Treffer deutlich. Gesperrte Ordner werden nie befüllt.
+        </p>
+
+        <div className="overflow-auto max-h-[360px] mt-2">
+          {katalog.length === 0 ? (
+            <p className="p-6 text-center text-panel-muted text-sm">
+              Noch keine Themen-Ordner. Mit <span className="text-panel-text">Aus Postfach einlesen</span> übernimmst
+              du die Ordner, die es im Konto schon gibt.
+            </p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-panel-border text-left text-panel-muted text-xs bg-panel-bg/30">
+                  <th className="py-2 px-4">Ordner</th>
+                  <th className="py-2 px-4">Beschreibung für die KI</th>
+                  <th className="py-2 px-4">Herkunft</th>
+                  <th className="py-2 px-4 text-center">Treffer</th>
+                  <th className="py-2 px-4"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {katalog.map(o => (
+                  <tr key={o.id} className={`border-b border-panel-border/50 hover:bg-panel-bg/30 transition-colors ${o.gesperrt ? 'opacity-50' : ''}`}>
+                    <td className="py-2 px-4 font-mono text-panel-accent whitespace-nowrap">{o.ordner}</td>
+                    <td className="py-2 px-4">
+                      <input
+                        type="text"
+                        placeholder="Wofür ist dieser Ordner?"
+                        defaultValue={o.beschreibung || ''}
+                        onChange={e => setBeschreibungEntwurf(p => ({ ...p, [o.id]: e.target.value }))}
+                        onBlur={() => {
+                          const neu = beschreibungEntwurf[o.id];
+                          if (neu !== undefined && neu !== (o.beschreibung || '')) {
+                            katalogAendern(o.id, { beschreibung: neu });
+                          }
+                        }}
+                        className="w-full bg-transparent text-sm border-b border-transparent hover:border-panel-border focus:border-panel-accent focus:outline-none"
+                      />
+                    </td>
+                    <td className="py-2 px-4">
+                      <span className="text-xs px-1.5 py-0.5 rounded bg-panel-border/50">
+                        {o.quelle === 'ki' ? 'KI' : o.quelle === 'manuell' ? 'manuell' : 'Postfach'}
+                      </span>
+                    </td>
+                    <td className="py-2 px-4 text-center text-xs text-panel-muted">{o.treffer}</td>
+                    <td className="py-2 px-4 text-right whitespace-nowrap">
+                      <button
+                        onClick={() => katalogAendern(o.id, { gesperrt: !o.gesperrt })}
+                        className="btn-ghost !px-2"
+                        title={o.gesperrt ? 'Wieder freigeben' : 'Sperren — hier nie einsortieren'}
+                      >
+                        {o.gesperrt ? <Lock size={16} /> : <Unlock size={16} className="text-panel-muted" />}
+                      </button>
+                      <button onClick={() => katalogEntfernen(o.id)} className="btn-ghost !px-2 text-panel-red" title="Aus dem Katalog nehmen">
+                        <Trash2 size={16} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* LINKE SEITE: Regeln */}
         <div className="card !p-0 overflow-hidden flex flex-col">
@@ -216,7 +440,7 @@ export default function Sortierung() {
             {inbox.length === 0 ? (
               <div className="p-8 text-center text-panel-muted flex flex-col items-center gap-2">
                 <CheckCircle2 size={32} className="text-green-500/50" />
-                <p className="text-sm">Inbox ist leer. Alle Mails wurden automatisch zugeordnet.</p>
+                <p className="text-sm">Nichts offen — alle Mails wurden automatisch einsortiert.</p>
               </div>
             ) : (
               <div className="divide-y divide-panel-border">
@@ -230,6 +454,18 @@ export default function Sortierung() {
                         </div>
                         <div className="font-medium truncate" title={mail.von}>{mail.von}</div>
                         <div className="text-sm text-panel-muted truncate" title={mail.betreff}>{mail.betreff || '(Kein Betreff)'}</div>
+                        {(mail.ki_ordner || mail.ki_grund) && (
+                          <div className="mt-1.5 text-xs flex items-start gap-1.5 text-panel-muted">
+                            <Wand2 size={13} className="text-panel-accent mt-0.5 shrink-0" />
+                            <span>
+                              {mail.ki_ordner
+                                ? <>KI schlug <span className="font-mono text-panel-accent">{mail.ki_ordner}</span> vor
+                                    {mail.ki_konfidenz != null && ` (${Math.round(mail.ki_konfidenz * 100)} % sicher)`} — </>
+                                : null}
+                              {mail.ki_grund}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </div>
                     
@@ -238,11 +474,20 @@ export default function Sortierung() {
                         <input
                           type="text"
                           placeholder="Zielordner (z.B. Rechnungen)"
-                          value={ordnerWahl[mail.id] || ''}
+                          value={ordnerWahl[mail.id] ?? ''}
                           onChange={e => setOrdnerWahl(p => ({ ...p, [mail.id]: e.target.value }))}
                           list="ordner-vorschlaege"
                           className="w-full text-sm"
                         />
+                        {mail.ki_ordner && !ordnerWahl[mail.id] && (
+                          <button
+                            type="button"
+                            onClick={() => setOrdnerWahl(p => ({ ...p, [mail.id]: mail.ki_ordner }))}
+                            className="mt-1 text-xs text-panel-accent hover:underline"
+                          >
+                            Vorschlag „{mail.ki_ordner}“ übernehmen
+                          </button>
+                        )}
                       </div>
                       <label className="flex items-center gap-2 text-xs cursor-pointer whitespace-nowrap">
                         <input
@@ -269,6 +514,49 @@ export default function Sortierung() {
           </div>
         </div>
       </div>
+
+      {/* MODAL: Themen-Ordner aufnehmen */}
+      {katalogModal.offen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <form onSubmit={katalogSpeichern} className="card w-full max-w-md space-y-4 shadow-2xl">
+            <h2 className="text-xl font-semibold">Themen-Ordner aufnehmen</h2>
+            <p className="text-xs text-panel-muted">
+              Existiert der Ordner im Postfach noch nicht, legt das Panel ihn an. Steht in den
+              Einstellungen ein Sammelordner, entsteht er darunter.
+            </p>
+
+            <label className="block space-y-1">
+              <span className="text-sm font-medium">Ordnername</span>
+              <input
+                type="text" required autoFocus
+                value={katalogModal.ordner}
+                onChange={e => setKatalogModal(p => ({ ...p, ordner: e.target.value }))}
+                className="w-full font-mono"
+                placeholder="z.B. Games"
+              />
+              <span className="text-[11px] text-panel-muted">
+                2–40 Zeichen, nur Buchstaben, Zahlen, Leerzeichen, - und _
+              </span>
+            </label>
+
+            <label className="block space-y-1">
+              <span className="text-sm font-medium">Beschreibung für die KI</span>
+              <input
+                type="text"
+                value={katalogModal.beschreibung}
+                onChange={e => setKatalogModal(p => ({ ...p, beschreibung: e.target.value }))}
+                className="w-full"
+                placeholder="Spiele, Steam, Konsolen, Gaming-Newsletter"
+              />
+            </label>
+
+            <div className="flex gap-2 pt-4">
+              <button type="button" onClick={() => setKatalogModal({ offen: false, ordner: '', beschreibung: '' })} className="btn-ghost flex-1">Abbrechen</button>
+              <button type="submit" className="btn flex-1">Anlegen</button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {/* MODAL */}
       {regelModal.offen && (

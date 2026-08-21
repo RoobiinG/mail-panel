@@ -158,6 +158,10 @@ Wer nichts einträgt, bekommt die Standardnamen (`Quarantaene`, `Rechnungen`,
 werden soll, muss am Ende existieren — ob du ihn selbst angelegt hast oder das Panel,
 ist egal. In **Gmail** entsprechen die Ordner den Labels.
 
+Diese fünf sind nur die Grundausstattung. Wer will, lässt zusätzlich **nach Themen** sortieren —
+„alles rund um Games in den Games-Ordner“, inklusive Ordner anlegen. Das steht weiter unten
+unter *Automatische Themen-Sortierung* und ist ab Werk aus.
+
 ## Schritt 6 — Gemini-Schlüssel eintragen
 
 Ohne diesen Schlüssel bricht die Klassifizierung ab und es wird nichts sortiert.
@@ -336,6 +340,51 @@ Ergebnis als übersprungen ausgewiesen — sichtbar im Panel unter *Workflows �
 Ist ClamAV nicht erreichbar, bricht der Lauf ab und die Mail bleibt liegen. Das ist Absicht:
 Lieber unsortiert als ungeprüft durchgewunken.
 
+## Automatische Themen-Sortierung
+
+Die fünf Zielordner aus Schritt 5 decken Spam, Rechnungen, Bestellungen und Newsletter ab.
+Alles andere bleibt liegen. Mit der Themen-Sortierung ordnet die KI **jede** Mail zusätzlich
+einem eigenen Ordner zu — Games, Reisen, Uni, was bei dir eben anfällt.
+
+Einschalten unter **Einstellungen → KI & Prüfung → Automatische Themen-Sortierung**. Danach
+einmal *Workflows → Synchronisieren*.
+
+**Was die KI wählen darf, bestimmst du.** Auf der Seite **Sortierung** steht der *Themen-Katalog*
+je Konto. Ein Klick auf **Aus Postfach einlesen** übernimmt die Ordner, die es in deinem Postfach
+schon gibt — die KI baut also keine zweite Struktur neben deiner auf. Aus diesem Katalog wählt
+sie, und nur daraus. Schreib zu jedem Ordner einen Satz dazu („Spiele, Steam, Konsolen“): Der
+geht wörtlich in den Prompt und verbessert die Treffer deutlich. Ordner, in die nie einsortiert
+werden soll, sperrst du mit dem Schloss-Symbol.
+
+**Neue Ordner** sind eine eigene Entscheidung:
+
+| Modus | Was passiert |
+|---|---|
+| *Nicht anlegen* | Es wird nur benutzt, was schon im Katalog steht |
+| *Erst freigeben* (Standard) | Die KI schlägt vor, du bestätigst mit einem Klick — dabei wird der Ordner angelegt **und** die Mails, die inzwischen im Posteingang gewartet haben, wandern gleich hinein |
+| *Vollautomatisch* | Die KI legt selbst an und sortiert sofort ein |
+
+Dazu drei Bremsen: eine **Obergrenze** (ab Werk 25 KI-Ordner je Konto), eine
+**Mindest-Sicherheit** (ab Werk 0,7 — darunter bleibt die Mail lieber liegen) und ein optionaler
+**Sammelordner**, unter dem alle KI-Ordner entstehen (leer = direkt im Postfach, sonst z. B.
+`Themen/Games`).
+
+**Vorrang:** Ein erkanntes Thema schlägt die feste Kategorie — ein Games-Newsletter landet in
+Games, nicht in Newsletter. Nur Spam, Blacklist-Treffer und Viren stehen darüber, die gehen
+immer in die Quarantäne.
+
+**Was die KI vorschlägt, prüft immer das Panel.** Ordnernamen aus einem Modell, das fremden
+Mailtext liest, werden nicht ungeprüft an dein Postfach weitergereicht: erlaubt sind 2–40 Zeichen
+aus Buchstaben, Zahlen, Leerzeichen, `-` und `_`; Pfadtrenner, System- und Kategorieordner sind
+gesperrt. Und im **Trockenlauf** wird nie ein Ordner angelegt — dort siehst du nur, was passiert
+wäre.
+
+**Mit der Zeit wird es günstiger:** Landen drei Mails desselben Absenders im selben Ordner, macht
+das Panel daraus eine feste Regel. Dieser Absender läuft danach ohne KI-Abfrage durch.
+
+Was die KI nicht sicher zuordnen konnte, bleibt im Posteingang und steht in der **Sortier-Inbox** —
+dort siehst du den Vorschlag, die Sicherheit und den Grund, warum es nicht gereicht hat.
+
 ## White- und Blacklist
 
 Unter **White- / Blacklist** pflegst du eigene Absenderlisten, die für alle Konten gelten.
@@ -416,6 +465,9 @@ nötig — der kostet für dieses Aufkommen Centbeträge.
 | Google-Verbindung bricht mit „Fehler 403: access_denied“ ab | Die App in der Google Cloud Console steht auf Status *Testing*. Die eigene E-Mail-Adresse muss dort unter **OAuth-Zustimmungsbildschirm → Testnutzer** eingetragen werden. |
 | Passkey lässt sich nicht anlegen | Hinter einem Reverse Proxy muss `ALLOWED_ORIGIN` auf die Panel-Adresse gesetzt sein |
 | Panel zeigt nach dem Update die alte Versionsnummer | Browser-Cache — mit `Strg+F5` neu laden |
+| Themen-Sortierung läuft, aber es entstehen keine Ordner | Einer von vieren: *Neue Ordner* steht auf *Nicht anlegen* oder *Erst freigeben* (dann warten die Vorschläge auf der Seite *Sortierung*), die Obergrenze je Konto ist erreicht, oder der **Trockenlauf** ist noch an |
+| Mails bleiben trotz Themen-Sortierung im Posteingang | Der Katalog ist leer (*Sortierung → Aus Postfach einlesen*) oder die Mindest-Sicherheit ist zu hoch. Der Grund steht bei jeder Mail in der Sortier-Inbox |
+| Sortiert wird in die alten Kategorien statt ins Thema | Nach dem Einschalten wurde nicht synchronisiert — ohne *Workflows → Synchronisieren* fehlt den Workflows der neue Knoten *Einsortieren* |
 
 Weiter kommst du mit den Protokollen: im Panel unter **Logs**, für die Container mit
 `docker compose logs -f panel` bzw. `docker compose logs -f n8n`.

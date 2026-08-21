@@ -173,10 +173,58 @@ async function anhaengeHolen({ ordner = 'INBOX', uid, ...konto }) {
   }
 }
 
+// Legt einen Ordner an und gibt den Pfad zurueck, den der Server vergeben hat.
+// `pfad` darf ein Array sein ([Eltern, Kind]) — dann setzt imapflow das
+// Trennzeichen des Servers selbst ein (bei Dovecot meist "/", bei anderen ".").
+// Genau deshalb wird hier nicht selbst zusammengebaut.
+async function ordnerAnlegenPfad(konto, pfad) {
+  const client = verbindung(konto);
+  try {
+    await client.connect();
+    const ergebnis = await client.mailboxCreate(pfad);
+    return ergebnis.path;
+  } catch (err) {
+    // "ALREADYEXISTS" ist kein Fehler — dann steht der Ordner eben schon da
+    if (/exist/i.test(err.message)) {
+      const gesucht = Array.isArray(pfad) ? pfad[pfad.length - 1] : pfad;
+      const liste = await client.list();
+      const treffer = liste.find((o) => o.path === pfad || o.name === gesucht);
+      if (treffer) return treffer.path;
+    }
+    throw err;
+  } finally {
+    try { await client.logout(); } catch { /* Verbindung war schon zu */ }
+  }
+}
+
+// Verschiebt eine einzelne Mail. Wird gebraucht, wenn ein KI-Ordner erst
+// nachtraeglich freigegeben wird und die wartenden Mails noch im Posteingang
+// liegen. Geloescht wird dabei nichts — IMAP MOVE ist ein Umhaengen.
+async function mailVerschieben({ uid, von = 'INBOX', nach, ...konto }) {
+  const nummer = Number(uid);
+  if (!Number.isInteger(nummer) || nummer <= 0) throw new Error('Ungültige UID.');
+  if (!nach) throw new Error('Kein Zielordner angegeben.');
+
+  const client = verbindung(konto);
+  try {
+    await client.connect();
+    const schloss = await client.getMailboxLock(String(von));
+    try {
+      return await client.messageMove(String(nummer), String(nach), { uid: true });
+    } finally {
+      schloss.release();
+    }
+  } finally {
+    try { await client.logout(); } catch { /* Verbindung war schon zu */ }
+  }
+}
+
 module.exports = {
   testVerbindung,
   ordnerAnlegen,
   ordnerErstellen,
+  ordnerAnlegenPfad,
+  mailVerschieben,
   anhaengeHolen,
   STANDARD,
 };

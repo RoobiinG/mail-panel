@@ -8,11 +8,17 @@ const dnsbl    = require('../services/dnsbl');
 const nextcloud = require('../services/nextcloud');
 const smtp      = require('../services/smtp');
 const google    = require('../services/google');
+const themen    = require('../services/themen');
 
 const router = express.Router();
 
 // Einfache Schalter/Werte (unverschlüsselt, direkt in settings)
-const EINFACHE_KEYS = ['dnsbl_listen', 'spam_schwellwert', 'clamav_aktiv', 'safebrowsing_aktiv', 'trockenlauf_aktiv'];
+const EINFACHE_KEYS = [
+  'dnsbl_listen', 'spam_schwellwert', 'clamav_aktiv', 'safebrowsing_aktiv', 'trockenlauf_aktiv',
+  // Automatische Themen-Sortierung
+  'themen_sortierung_aktiv', 'themen_ordner_anlegen', 'themen_ordner_max',
+  'themen_konfidenz', 'themen_eltern', 'themen_regel_lernen',
+];
 
 router.get('/', (req, res) => {
   const zeilen = db.prepare(
@@ -53,6 +59,22 @@ router.put('/', (req, res) => {
     }
     if (key === 'spam_schwellwert' && (isNaN(Number(value)) || Number(value) < 0 || Number(value) > 1)) {
       return res.status(400).json({ error: 'spam_schwellwert: Zahl zwischen 0 und 1' });
+    }
+    if (key === 'themen_konfidenz' && (isNaN(Number(value)) || Number(value) < 0 || Number(value) > 1)) {
+      return res.status(400).json({ error: 'themen_konfidenz: Zahl zwischen 0 und 1' });
+    }
+    if (key === 'themen_ordner_anlegen' && !themen.ANLEGEN_MODI.includes(String(value))) {
+      return res.status(400).json({ error: 'themen_ordner_anlegen: nur aus, freigabe oder auto' });
+    }
+    if (key === 'themen_ordner_max' && (!Number.isInteger(Number(value)) || Number(value) < 1 || Number(value) > 200)) {
+      return res.status(400).json({ error: 'themen_ordner_max: ganze Zahl zwischen 1 und 200' });
+    }
+    // Der Sammelordner landet als Elternpfad in einem IMAP-Befehl und muss
+    // deshalb durch dieselbe Prüfung wie jeder KI-Ordner. Leer heißt: keiner.
+    if (key === 'themen_eltern' && String(value).trim() && !themen.ordnerNormalisieren(value)) {
+      return res.status(400).json({
+        error: 'themen_eltern: 2–40 Zeichen aus Buchstaben, Zahlen, Leerzeichen, - und _; System- und Kategorieordner sind gesperrt',
+      });
     }
     update.run(key, String(value));
     geaendert.push(key);

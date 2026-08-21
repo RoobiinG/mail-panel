@@ -8,6 +8,7 @@ const db  = require('../db');
 const fs  = require('fs');
 const path = require('path');
 const settings = require('./settings');
+const code = require('./workflowCode');
 
 const PRAEFIX = 'panel-';
 // Ankerpunkte in den Workflow-Vorlagen, an die das Panel andockt
@@ -539,6 +540,111 @@ function patchAntwortParsen(workflow) {
   knoten.parameters.jsCode = code;
 }
 
+// ─── Themen-Sortierung ───────────────────────────────────────────────────────
+//
+// Nach der Klassifizierung fragt der Workflow beim Panel nach dem endgueltigen
+// Zielordner. Warum nicht gleich in n8n entscheiden? Weil der Ordnername von
+// einem Modell kommt, das Mailtext liest: Er muss geprueft werden, der Ordner
+// muss unter Umstaenden erst angelegt werden, und es gibt eine Obergrenze. Das
+// alles kann nur das Panel.
+//
+// Der Knoten antwortet mit konto, uid und zielordner — also genau dem, was
+// "Verschieben?", die Weiche und der Verschiebe-Knoten danach brauchen. Deshalb
+// braucht es hier ausnahmsweise keinen nachgelagerten Code-Knoten, der das Item
+// wieder zusammensetzt.
+function einsortierenKnoten(position, credentialId) {
+  const felder = [
+    'konto: $json.konto', 'von: $json.von', 'betreff: $json.betreff', 'uid: $json.uid',
+    'kategorie: $json.kategorie', 'spam_score: $json.spam_score',
+    'kurzfassung: $json.kurzfassung', 'list_unsubscribe: $json.listUnsubscribe',
+    'virus_name: $json.virus_name', 'dnsbl_treffer: $json.dnsbl_treffer',
+    'zielordner: $json.zielordner', 'ziel_fest: $json.ziel_fest',
+    'thema: $json.thema', 'konfidenz: $json.konfidenz',
+  ].join(', ');
+
+  const knoten = {
+    parameters: {
+      method: 'POST',
+      url: 'http://panel:3002/api/internal/einsortieren',
+      sendBody: true,
+      contentType: 'json',
+      specifyBody: 'json',
+      jsonBody: `={{ JSON.stringify({ ${felder} }) }}`,
+      options: {},
+    },
+    id: `${PRAEFIX}einsortieren`,
+    name: 'Einsortieren',
+    type: 'n8n-nodes-base.httpRequest',
+    typeVersion: 4.2,
+    position,
+    // Ist das Panel nicht erreichbar, reicht der Knoten das Item unveraendert
+    // weiter — dann greift die Kategorie-Entscheidung aus "Antwort parsen".
+    alwaysOutputData: true,
+    onError: 'continueRegularOutput',
+  };
+  if (credentialId) {
+    knoten.parameters.authentication = 'genericCredentialType';
+    knoten.parameters.genericAuthType = 'httpHeaderAuth';
+    knoten.credentials = { httpHeaderAuth: { id: String(credentialId), name: PANEL_CREDENTIAL_NAME } };
+  }
+  return knoten;
+}
+
+// Die drei Zweige, die bisher unmittelbar auf "Verschieben?" zeigten
+const VOR_EINSORTIEREN = ['Antwort parsen', 'Blacklist: Quarantäne', 'Virus: Quarantäne'];
+
+function themenKetteEinbauen(workflow, normalisierer, credentialId) {
+  // 1. Ohne den Kontonamen kann das Panel den Themen-Katalog nicht zuordnen
+  const pruefung = workflow.nodes.find((k) => k.name === 'Panel-Prüfung');
+  if (pruefung?.parameters?.jsonBody && !pruefung.parameters.jsonBody.includes('konto:')) {
+    pruefung.parameters.jsonBody =
+      '={{ JSON.stringify({ konto: $json.konto, von: $json.von, ip: $json.ip, links: $json.links }) }}';
+  }
+
+  // 2. Der Prompt entsteht jetzt in "Prüfung auswerten", weil erst die Antwort
+  //    des Panels den Katalog mitbringt. Der Normalisierer reicht nur den Text durch.
+  const norm = workflow.nodes.find((k) => k.name === normalisierer && k.type === 'n8n-nodes-base.code');
+  if (norm?.parameters?.jsCode && norm.parameters.jsCode.includes('const promptText')) {
+    let js = norm.parameters.jsCode;
+    // Bis zum abschliessenden Backtick der Vorlage schneiden. In Workflow 04
+    // steht der Block eingerueckt in einer Schleife — deshalb kein Anker auf
+    // den Zeilenanfang und keine Annahme ueber Leerzeilen davor oder danach.
+    js = js.replace(/[ \t]*const promptText = [\s\S]*?`;\n[ \t]*\n?/, '');
+    js = js.replace(/^([ \t]*)promptText,$/m, '$1text,');
+    norm.parameters.jsCode = js;
+  }
+
+  // 3. Die vier Code-Knoten auf den Stand des Panels bringen. Steht die Marke
+  //    schon drin, bleibt der Knoten unangetastet — dann darf er in n8n von Hand
+  //    angepasst werden, ohne dass der naechste Sync die Aenderung wegputzt.
+  const setzeCode = (name, neuerCode) => {
+    const knoten = workflow.nodes.find((k) => k.name === name && k.type === 'n8n-nodes-base.code');
+    if (!knoten?.parameters) return;
+    if (String(knoten.parameters.jsCode || '').includes(code.MARKE)) return;
+    knoten.parameters.jsCode = neuerCode;
+  };
+  setzeCode('Prüfung auswerten', code.fuer(code.PRUEFUNG_AUSWERTEN, normalisierer));
+  setzeCode('Antwort parsen', code.ANTWORT_PARSEN);
+  setzeCode('Blacklist: Quarantäne', code.BLACKLIST_QUARANTAENE);
+  setzeCode('Virus: Quarantäne', code.fuer(code.VIRUS_QUARANTAENE, normalisierer));
+
+  // 4. Verdrahten: die drei Zweige laufen kuenftig ueber "Einsortieren".
+  const ziel = workflow.nodes.find((k) => k.name === 'Verschieben?');
+  if (!ziel) return;
+  for (const name of VOR_EINSORTIEREN) {
+    const verbindung = workflow.connections[name];
+    if (!verbindung?.main) continue;
+    verbindung.main = verbindung.main.map((arm) => (arm || []).filter((z) => z.node !== 'Verschieben?'));
+  }
+  const platz = [(ziel.position?.[0] ?? 2640) - 140, (ziel.position?.[1] ?? 200) + 200];
+  const knoten = einsortierenKnoten(platz, credentialId);
+  workflow.nodes.push(knoten);
+  for (const name of VOR_EINSORTIEREN) {
+    if (workflow.nodes.some((k) => k.name === name)) verbinde(workflow, name, knoten.name, 0);
+  }
+  verbinde(workflow, knoten.name, 'Verschieben?', 0);
+}
+
 async function workflowSuchen(praefix) {
   const alle = await n8n.workflowsAuflisten();
   const treffer = alle.find((w) => String(w.name).trim().startsWith(praefix));
@@ -588,6 +694,7 @@ async function triageSynchronisieren(konten, credentialId, aktionenWorkflowId) {
   patchAntwortParsen(workflow);
   geminiRequestReparieren(workflow);
   anhangKetteReparieren(workflow, NORMALISIERER['01']);
+  themenKetteEinbauen(workflow, NORMALISIERER['01'], credentialId);
 
   for (const name of [ANKER.triage.ziel, ANKER.triage.weiche]) {
     if (!workflow.nodes.some((k) => k.name === name)) {
@@ -644,6 +751,7 @@ async function bestandSynchronisieren(konten, credentialId, aktionenWorkflowId) 
   patchAntwortParsen(workflow);
   geminiRequestReparieren(workflow);
   anhangKetteReparieren(workflow, NORMALISIERER['04']);
+  themenKetteEinbauen(workflow, NORMALISIERER['04'], credentialId);
 
   const sammler = workflow.nodes.find((k) => k.name === ANKER.bestand.ziel);
   const kopf    = workflow.nodes.find((k) => k.name === ANKER.bestand.kopf);
@@ -977,4 +1085,5 @@ module.exports = {
   alleSynchronisieren, triageSynchronisieren, bestandSynchronisieren, newsletterSynchronisieren, basisSetup,
   // für Tests
   panelKnotenEntfernen, quellenEintragen, triggerKnoten, setKnoten, bestandKnoten,
+  themenKetteEinbauen, einsortierenKnoten,
 };

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   CheckCircle2, XCircle, Loader2, PlugZap, ShieldCheck, Trash2,
   Eye, EyeOff, Save, KeyRound, Cpu, Mail, Cloud, Server,
-  Link, Wifi, TestTube2, User, Settings2,
+  Link, Wifi, TestTube2, User, Settings2, FolderTree,
 } from 'lucide-react';
 import api from '../api';
 
@@ -451,6 +451,98 @@ export default function Einstellungen() {
                 onChange={v => set('safebrowsing_api_key', v)} />
             )}
             <SpeichernBtn onSpeichern={() => speichern('spam')} meldung={meldung.spam} />
+          </Card>
+
+          <Card title={<><FolderTree size={13} /> Automatische Themen-Sortierung</>}>
+            <p className="text-xs text-panel-muted">
+              Die KI ordnet jede Mail zusätzlich einem Themen-Ordner zu — „alles rund um Games
+              in den Games-Ordner“. Welche Ordner sie dabei kennt, steht auf der Seite
+              <span className="text-panel-text"> Sortierung → Themen-Ordner</span>.
+              Nach jeder Änderung hier einmal <span className="text-panel-text">Workflows →
+              Synchronisieren</span> drücken.
+            </p>
+
+            <label className="flex items-center gap-3 cursor-pointer pt-1">
+              <Toggle
+                on={settings.themen_sortierung_aktiv === '1'}
+                onToggle={() => set('themen_sortierung_aktiv', settings.themen_sortierung_aktiv === '1' ? '0' : '1')}
+              />
+              <div className="flex flex-col">
+                <span className="text-sm text-panel-text">Themen-Sortierung aktivieren</span>
+                <span className="text-[10px] text-panel-muted/70">
+                  Ein erkanntes Thema schlägt die festen Kategorien — ein Games-Newsletter landet
+                  in Games, nicht in Newsletter. Spam und Viren gehen weiterhin immer in die Quarantäne.
+                </span>
+              </div>
+            </label>
+
+            {settings.themen_sortierung_aktiv === '1' && (
+              <>
+                <div className="space-y-1">
+                  <label className="block text-xs text-panel-muted">Neue Ordner anlegen</label>
+                  <select
+                    value={settings.themen_ordner_anlegen || 'freigabe'}
+                    onChange={e => set('themen_ordner_anlegen', e.target.value)}
+                    className={inputCls}
+                  >
+                    <option value="aus">Nicht anlegen — nur vorhandene Ordner benutzen</option>
+                    <option value="freigabe">Erst freigeben — die KI schlägt vor, du bestätigst</option>
+                    <option value="auto">Vollautomatisch — die KI legt selbst an</option>
+                  </select>
+                  <p className="text-[10px] text-panel-muted/60">
+                    Vorschläge und Freigabe findest du unter <span className="text-panel-muted">Sortierung</span>.
+                    Im Trockenlauf wird nie ein Ordner angelegt.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="block text-xs text-panel-muted">Höchstens KI-Ordner</label>
+                    <input type="number" min="1" max="200" step="1"
+                      value={settings.themen_ordner_max ?? '25'}
+                      onChange={e => set('themen_ordner_max', e.target.value)}
+                      className={inputCls} />
+                    <p className="text-[10px] text-panel-muted/60">je Konto</p>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="block text-xs text-panel-muted">Mindest-Sicherheit (0–1)</label>
+                    <input type="number" min="0" max="1" step="0.05"
+                      value={settings.themen_konfidenz ?? '0.7'}
+                      onChange={e => set('themen_konfidenz', e.target.value)}
+                      className={inputCls} />
+                    <p className="text-[10px] text-panel-muted/60">darunter bleibt die Mail liegen</p>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-xs text-panel-muted">Sammelordner (optional)</label>
+                  <input type="text" placeholder="leer = direkt im Postfach"
+                    value={settings.themen_eltern ?? ''}
+                    onChange={e => set('themen_eltern', e.target.value)}
+                    className={inputCls} />
+                  <p className="text-[10px] text-panel-muted/60">
+                    Leer lassen ergibt „Games“. Trägst du z.&nbsp;B. <span className="text-panel-muted">Themen</span>
+                    {' '}ein, entsteht stattdessen „Themen/Games“ und dein Postfach bleibt aufgeräumt.
+                  </p>
+                </div>
+
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <Toggle
+                    on={settings.themen_regel_lernen !== '0'}
+                    onToggle={() => set('themen_regel_lernen', settings.themen_regel_lernen === '0' ? '1' : '0')}
+                  />
+                  <div className="flex flex-col">
+                    <span className="text-sm text-panel-text">Regeln lernen</span>
+                    <span className="text-[10px] text-panel-muted/70">
+                      Landen drei Mails desselben Absenders im selben Ordner, entsteht daraus eine
+                      feste Regel. Der Absender läuft danach ohne KI durch — das schont das
+                      Gemini-Kontingent.
+                    </span>
+                  </div>
+                </label>
+              </>
+            )}
+            <SpeichernBtn onSpeichern={() => speichern('themen')} meldung={meldung.themen} />
           </Card>
 
         </div>

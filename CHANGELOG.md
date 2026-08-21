@@ -2,6 +2,65 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [2.7.0.0] - 2026-08-22 (Build 37) — *Feature: Automatische Themen-Sortierung*
+
+### Features
+
+- **Die KI sortiert nach Themen — und legt die Ordner selbst an.** Bisher konnte sie nur vier
+  feste Kategorien bedienen (Rechnungen, Bestellungen, Newsletter, Quarantäne); alles andere blieb
+  liegen und musste in der Sortier-Inbox einzeln weggeklickt werden. Jetzt bekommt sie den
+  Ordner-Katalog des Kontos in den Prompt und wählt daraus — „alles rund um Games in den
+  Games-Ordner“. Fehlt ein passender Ordner, schlägt sie einen neuen vor.
+  - **Thema schlägt Kategorie:** Ein Games-Newsletter landet in Games, nicht in Newsletter.
+    Nur Spam, Blacklist-Treffer und Viren stehen darüber — die gehen weiterhin immer in die Quarantäne.
+  - **Weiterhin nur ein Gemini-Aufruf je Mail.** Der Prompt entsteht jetzt in *Prüfung auswerten*
+    statt im Normalisierer, weil erst dort die Antwort des Panels den Katalog mitbringt.
+- **Themen-Katalog je Konto** (*Sortierung → Themen-Ordner*): Aus diesen Ordnern wählt die KI —
+  und nur aus diesen. **Aus Postfach einlesen** übernimmt die vorhandene Struktur, damit niemand
+  eine zweite danebenbauen muss. Je Ordner ein Satz Beschreibung, der wörtlich in den Prompt geht;
+  einzelne Ordner lassen sich sperren.
+- **Neue Ordner mit Bremse** (*Einstellungen → KI & Prüfung*): drei Modi — `aus`, `freigabe`
+  (Standard: die KI schlägt vor, ein Klick legt an **und sortiert die wartenden Mails nach**) und
+  `auto`. Dazu eine Obergrenze je Konto (Standard 25), eine Mindest-Sicherheit (Standard 0,7) und
+  ein optionaler Sammelordner, unter dem alle KI-Ordner entstehen (leer = direkt im Postfach).
+- **Regeln lernen:** Landen drei Mails desselben Absenders im selben Ordner, entsteht daraus eine
+  feste Sortier-Regel. Der Absender läuft danach ohne KI durch — das schont das Gemini-Kontingent
+  und macht die Sortierung mit der Zeit vorhersagbar.
+- **Sortier-Inbox zeigt jetzt, was die KI wollte:** Vorschlag, Sicherheit und der Grund, warum es
+  nicht gereicht hat („Zu unsicher (0,55 < 0,7)“, „Obergrenze erreicht“, „wartet auf Freigabe“).
+  Ein Klick übernimmt den Vorschlag ins Eingabefeld.
+
+### Bugfixes
+
+- **Workflow 01 und 04 protokollieren endlich.** `POST /api/internal/log` wurde von keinem
+  Workflow aufgerufen — `quarantine_log` blieb leer, Dashboard und Quarantäne-Seite zeigten nichts.
+  Der neue Knoten *Einsortieren* schreibt das Log mit, auch für Blacklist- und Virus-Treffer.
+- **Eigene Zielordner je Konto wurden nie benutzt.** Der Normalisierer baut ein frisches Item und
+  warf dabei die Felder des Set-Knotens (`folder_spam`, `folder_invoices`, …) weg — `Antwort parsen`
+  fand sie deshalb nie und fiel immer auf die Standardnamen zurück. Wer im Panel `Finanzen/Belege`
+  eingetragen hatte, bekam trotzdem `Rechnungen`. In Workflow 04 gab es den Set-Knoten überhaupt
+  nicht. Die Ordner kommen jetzt über die Antwort von `/api/internal/check` — damit stimmt es in
+  beiden Workflows.
+- **Blacklist- und Virus-Treffer landeten fest in `Quarantaene`**, statt im Ordner, den das Konto
+  konfiguriert hat. Wer die Quarantäne umbenannt hatte, bekam Mails in einen Ordner, den es nicht gibt.
+- Die Sortier-Inbox wurde doppelt befüllt, sobald eine Mail durch die KI lief: einmal vorab in
+  `/sort` und einmal danach. Jetzt schreibt nur noch `/einsortieren` hinein.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migrationen**: zwei neue Tabellen (`konto_ordner`, `ordner_vorschlaege`) und fünf neue
+  Spalten (`sort_inbox.ki_ordner/ki_konfidenz/ki_grund`, `quarantine_log.thema/konfidenz`).
+  Laufen beim Start automatisch, kein Eingriff nötig.
+- **n8n-Workflow-Kompatibilität**: **Synchronisieren zwingend erforderlich.** Der Patcher baut den
+  neuen Knoten *Einsortieren* ein, hängt *Antwort parsen*, *Blacklist: Quarantäne* und
+  *Virus: Quarantäne* darauf um und schreibt vier Code-Knoten neu.
+  **Achtung:** Wer *Prüfung auswerten*, *Antwort parsen*, *Blacklist: Quarantäne* oder
+  *Virus: Quarantäne* in n8n von Hand angepasst hat, verliert diese Änderung einmalig — die Knoten
+  tragen danach die Marke `// PANEL:THEMEN v1` und bleiben bei künftigen Syncs unangetastet.
+- **Neu importieren nicht nötig**: Der Patcher nimmt bestehende Workflows mit.
+- **Neustart**: ausreichend. Die Themen-Sortierung ist ab Werk **aus** — ohne den Schalter in
+  *Einstellungen → KI & Prüfung* ändert sich am Verhalten nichts.
+
 ## [2.6.0.0] - 2026-08-18 (Build 36) — *Feature: Panel-Trockenlauf*
 
 ### Features

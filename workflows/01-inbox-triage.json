@@ -18,8 +18,8 @@
     },
     {
       "parameters": {
-        "content": "### Vom Mail-Panel verwaltet\n\nAlle Knoten, deren ID mit `panel-` beginnt (Konto-Trigger links, Weiche und Verschiebe-Knoten\nrechts), werden bei jedem Synchronisieren **neu erzeugt**. Änderungen daran gehen dabei\nverloren — alles andere im Workflow bleibt unangetastet und darf frei angepasst werden.",
-        "height": 200,
+        "content": "### Vom Mail-Panel verwaltet\n\nAlle Knoten, deren ID mit `panel-` beginnt (Konto-Trigger links, Weiche und Verschiebe-Knoten\nrechts), werden bei jedem Synchronisieren **neu erzeugt**. Änderungen daran gehen dabei\nverloren — alles andere im Workflow bleibt unangetastet und darf frei angepasst werden.\n\n**Seit v2.7.0.0:** Der Knoten **Einsortieren** holt nach der Klassifizierung beim Panel den\nendgültigen Zielordner — dort wird der Ordnername geprüft, ein fehlender Ordner angelegt und\ndas Ergebnis protokolliert. Die Code-Knoten *Prüfung auswerten*, *Antwort parsen* und die\nbeiden Quarantäne-Knoten schreibt der Patcher neu, solange sie die Marke PANEL:THEMEN v1\nnicht tragen — steht sie drin, bleiben sie unangetastet.",
+        "height": 320,
         "width": 360,
         "color": 3
       },

@@ -169,6 +169,37 @@ db.exec(`
     erstellt_von INTEGER,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+
+  -- Themen-Katalog: die Ordner, in die die KI einsortieren darf. Gefuellt aus dem
+  -- Postfach (quelle 'imap'), von Hand ('manuell') oder von der KI selbst ('ki').
+  -- Die Beschreibung wandert eins zu eins in den Gemini-Prompt.
+  CREATE TABLE IF NOT EXISTS konto_ordner (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    konto_id INTEGER NOT NULL,
+    ordner TEXT NOT NULL,
+    beschreibung TEXT,
+    quelle TEXT NOT NULL DEFAULT 'imap' CHECK(quelle IN ('imap','ki','manuell')),
+    gesperrt INTEGER NOT NULL DEFAULT 0,
+    treffer INTEGER NOT NULL DEFAULT 0,
+    zuletzt_genutzt DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(konto_id, ordner),
+    FOREIGN KEY(konto_id) REFERENCES accounts(id) ON DELETE CASCADE
+  );
+
+  -- Ordner, die die KI vorgeschlagen hat und die auf eine Freigabe warten
+  CREATE TABLE IF NOT EXISTS ordner_vorschlaege (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    konto_id INTEGER NOT NULL,
+    ordner TEXT NOT NULL,
+    begruendung TEXT,
+    anzahl INTEGER NOT NULL DEFAULT 1,
+    status TEXT NOT NULL DEFAULT 'offen' CHECK(status IN ('offen','freigegeben','abgelehnt')),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(konto_id, ordner),
+    FOREIGN KEY(konto_id) REFERENCES accounts(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_vorschlaege_status ON ordner_vorschlaege(status);
 `);
 
 // ─── Migrationen: neue Spalten kommen als try/catch-ALTER dazu ───────────────
@@ -190,6 +221,12 @@ const migrations = [
   'ALTER TABLE panel_logs ADD COLUMN source TEXT',
   'ALTER TABLE panel_logs ADD COLUMN message TEXT',
   'ALTER TABLE panel_logs ADD COLUMN url TEXT',
+  // Themen-Sortierung: was die KI vorgeschlagen hat, auch wenn es verworfen wurde
+  'ALTER TABLE sort_inbox ADD COLUMN ki_ordner TEXT',
+  'ALTER TABLE sort_inbox ADD COLUMN ki_konfidenz REAL',
+  'ALTER TABLE sort_inbox ADD COLUMN ki_grund TEXT',
+  'ALTER TABLE quarantine_log ADD COLUMN thema TEXT',
+  'ALTER TABLE quarantine_log ADD COLUMN konfidenz REAL',
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch { /* Spalte existiert schon */ }
@@ -225,6 +262,13 @@ const defaults = {
   spam_schwellwert: '0.8',
   clamav_aktiv: '1',
   safebrowsing_aktiv: '0',
+  // Automatische Themen-Sortierung: ab Werk aus, neue Ordner nur nach Freigabe
+  themen_sortierung_aktiv: '0',
+  themen_ordner_anlegen: 'freigabe',
+  themen_ordner_max: '25',
+  themen_konfidenz: '0.7',
+  themen_eltern: '',
+  themen_regel_lernen: '1',
 };
 const insertDefault = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
 for (const [key, value] of Object.entries(defaults)) insertDefault.run(key, value);

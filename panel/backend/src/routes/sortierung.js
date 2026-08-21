@@ -4,6 +4,7 @@ const express = require('express');
 const db      = require('../db');
 const { loggen } = require('../services/panelLog');
 const imap = require('../services/imap');
+const themen = require('../services/themen');
 const { entschluesseln } = require('../services/crypto');
 
 const router = express.Router();
@@ -139,6 +140,165 @@ router.post('/zuordnen', async (req, res) => {
 router.post('/ignorieren', (req, res) => {
   try {
     db.prepare("UPDATE sort_inbox SET status = 'ignoriert' WHERE id = ?").run(Number(req.body.id));
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── THEMEN-KATALOG ──────────────────────────────────────────────────────────
+// Die Ordner, in die die KI einsortieren darf. Was hier nicht steht, waehlt sie
+// auch nicht aus — der Katalog ist die Leine.
+
+const kontoHolen = (id) => db.prepare('SELECT * FROM accounts WHERE id = ?').get(Number(id));
+
+// GET /api/sortierung/katalog?konto_id=1
+router.get('/katalog', (req, res) => {
+  const konto_id = Number(req.query.konto_id);
+  if (!konto_id) return res.status(400).json({ error: 'konto_id fehlt' });
+  try {
+    res.json(themen.katalog(konto_id, { auchGesperrte: true }));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/sortierung/katalog — Ordner von Hand aufnehmen (und anlegen, falls er fehlt)
+router.post('/katalog', async (req, res) => {
+  const { konto_id, ordner, beschreibung } = req.body || {};
+  const konto = kontoHolen(konto_id);
+  if (!konto) return res.status(400).json({ error: 'Das Konto existiert nicht.' });
+
+  const name = themen.ordnerNormalisieren(ordner, konto);
+  if (!name) {
+    return res.status(400).json({
+      error: 'Ungültiger Ordnername. Erlaubt sind 2–40 Zeichen aus Buchstaben, Zahlen, Leerzeichen, - und _; System- und Kategorieordner sind gesperrt.',
+    });
+  }
+  try {
+    const pfad = await themen.ordnerAnlegen(konto, name);
+    const eintrag = themen.inKatalog(konto.id, pfad, 'manuell', beschreibung || null);
+    loggen('info', 'sortierung', `Themen-Ordner "${pfad}" für Konto ${konto.name} aufgenommen.`);
+    res.json({ ok: true, eintrag });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+// PUT /api/sortierung/katalog/:id — Beschreibung pflegen, sperren/entsperren
+router.put('/katalog/:id', (req, res) => {
+  const { beschreibung, gesperrt } = req.body || {};
+  try {
+    const info = db.prepare(`
+      UPDATE konto_ordner
+      SET beschreibung = COALESCE(?, beschreibung),
+          gesperrt = COALESCE(?, gesperrt)
+      WHERE id = ?
+    `).run(
+      beschreibung !== undefined ? String(beschreibung).slice(0, 200) : null,
+      gesperrt !== undefined ? (gesperrt ? 1 : 0) : null,
+      Number(req.params.id),
+    );
+    if (info.changes === 0) return res.status(404).json({ error: 'Eintrag nicht gefunden.' });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/sortierung/katalog/:id — nur aus dem Katalog nehmen.
+// Der Ordner im Postfach bleibt stehen: Es wird nie gelöscht, nur verschoben.
+router.delete('/katalog/:id', (req, res) => {
+  try {
+    const info = db.prepare('DELETE FROM konto_ordner WHERE id = ?').run(Number(req.params.id));
+    if (info.changes === 0) return res.status(404).json({ error: 'Eintrag nicht gefunden.' });
+    res.json({ ok: true, hinweis: 'Aus dem Katalog entfernt. Der Ordner im Postfach bleibt bestehen.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/sortierung/katalog/einlesen — vorhandene Ordner aus dem Postfach übernehmen
+router.post('/katalog/einlesen', async (req, res) => {
+  const konto = kontoHolen(req.body?.konto_id);
+  if (!konto) return res.status(400).json({ error: 'Das Konto existiert nicht.' });
+  try {
+    res.json(await themen.ausPostfachEinlesen(konto));
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+// ─── ORDNER-VORSCHLÄGE DER KI ────────────────────────────────────────────────
+// Steht "Neue Ordner" auf *Freigabe*, landen die Wünsche der KI hier, statt
+// sofort im Postfach zu erscheinen.
+
+// GET /api/sortierung/vorschlaege — offene Vorschläge samt wartender Mails
+router.get('/vorschlaege', (req, res) => {
+  try {
+    res.json(db.prepare(`
+      SELECT v.*, a.name AS konto_name,
+             (SELECT COUNT(*) FROM sort_inbox i
+               WHERE i.konto_id = v.konto_id AND i.status = 'offen' AND i.ki_ordner = v.ordner) AS wartend
+      FROM ordner_vorschlaege v
+      LEFT JOIN accounts a ON a.id = v.konto_id
+      WHERE v.status = 'offen'
+      ORDER BY v.anzahl DESC, v.created_at DESC
+    `).all());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/sortierung/vorschlaege/:id/freigeben
+// Legt den Ordner an, nimmt ihn in den Katalog und sortiert die Mails nach, die
+// währenddessen im Posteingang liegen geblieben sind.
+router.post('/vorschlaege/:id/freigeben', async (req, res) => {
+  const vorschlag = db.prepare('SELECT * FROM ordner_vorschlaege WHERE id = ?').get(Number(req.params.id));
+  if (!vorschlag) return res.status(404).json({ error: 'Vorschlag nicht gefunden.' });
+  const konto = kontoHolen(vorschlag.konto_id);
+  if (!konto) return res.status(400).json({ error: 'Das Konto existiert nicht mehr.' });
+
+  // Der Name wurde beim Vorschlagen schon geprüft — vor dem Anlegen trotzdem
+  // noch einmal, denn zwischenzeitlich kann sich die Konto-Konfiguration ändern.
+  const name = themen.ordnerNormalisieren(vorschlag.ordner, konto);
+  if (!name) return res.status(400).json({ error: 'Der Ordnername ist nicht (mehr) zulässig.' });
+
+  try {
+    const pfad = await themen.ordnerAnlegen(konto, name);
+    themen.inKatalog(konto.id, pfad, 'ki', vorschlag.begruendung);
+    db.prepare("UPDATE ordner_vorschlaege SET status = 'freigegeben' WHERE id = ?").run(vorschlag.id);
+
+    // Wartende Mails nachsortieren. Schlägt eine fehl (Mail schon weg, UID alt),
+    // laufen die übrigen weiter — deshalb je Mail ein eigener try.
+    const wartend = db.prepare(`
+      SELECT * FROM sort_inbox WHERE konto_id = ? AND status = 'offen' AND ki_ordner = ?
+    `).all(konto.id, vorschlag.ordner);
+    const zugang = themen.zugang(konto);
+    let verschoben = 0;
+    for (const mail of wartend) {
+      if (!mail.uid) continue;
+      try {
+        await imap.mailVerschieben({ ...zugang, uid: mail.uid, von: 'INBOX', nach: pfad });
+        db.prepare("UPDATE sort_inbox SET status = 'zugeordnet', vorschlag = ? WHERE id = ?").run(pfad, mail.id);
+        verschoben++;
+      } catch (err) {
+        loggen('warn', 'sortierung', `Mail ${mail.uid} konnte nicht nach "${pfad}" verschoben werden: ${err.message}`);
+      }
+    }
+    loggen('info', 'sortierung', `Ordner "${pfad}" freigegeben, ${verschoben} wartende Mail(s) nachsortiert.`);
+    res.json({ ok: true, ordner: pfad, verschoben, wartend: wartend.length });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+// POST /api/sortierung/vorschlaege/:id/ablehnen — kommt nicht wieder
+router.post('/vorschlaege/:id/ablehnen', (req, res) => {
+  try {
+    const info = db.prepare("UPDATE ordner_vorschlaege SET status = 'abgelehnt' WHERE id = ?")
+      .run(Number(req.params.id));
+    if (info.changes === 0) return res.status(404).json({ error: 'Vorschlag nicht gefunden.' });
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
