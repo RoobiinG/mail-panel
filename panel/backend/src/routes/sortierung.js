@@ -5,6 +5,7 @@ const db      = require('../db');
 const { loggen } = require('../services/panelLog');
 const imap = require('../services/imap');
 const themen = require('../services/themen');
+const sortierung = require('../services/sortierung');
 const { entschluesseln } = require('../services/crypto');
 
 const router = express.Router();
@@ -49,7 +50,20 @@ router.post('/regeln', async (req, res) => {
       loggen('warn', 'sortierung', `Konnte Ordner "${zielordner.trim()}" nicht via IMAP anlegen: ${err.message}`);
     }
 
-    res.json({ id: info.lastInsertRowid, status: 'ok' });
+    // Eine neue Regel gilt auch fuer das, was schon liegt — sonst muesste man
+    // den Bestand trotzdem von Hand durchgehen. Abschaltbar per rueckwirkend:false.
+    let nachsortiert = { treffer: 0, verschoben: 0, fehler: [] };
+    if (req.body?.rueckwirkend !== false) {
+      try {
+        nachsortiert = await sortierung.bestandAnwenden(konto, {
+          typ, muster: muster.trim().toLowerCase(), zielordner: zielordner.trim(),
+        });
+      } catch (err) {
+        loggen('warn', 'sortierung', `Bestand konnte nicht nachsortiert werden: ${err.message}`);
+      }
+    }
+
+    res.json({ id: info.lastInsertRowid, status: 'ok', nachsortiert });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -98,20 +112,24 @@ router.post('/zuordnen', async (req, res) => {
       // In der Inbox als zugeordnet markieren (Wird nicht gelöscht, für spätere Analyse/Logs)
       db.prepare("UPDATE sort_inbox SET status = 'zugeordnet', vorschlag = ? WHERE id = ?").run(zielordner, id);
 
-      // Regel anlegen?
+      // Regel anlegen? regelAnlegen ist entweder true (= Absender, wie frueher)
+      // oder 'absender' / 'domain'.
       if (regelAnlegen && mail.konto_id) {
-        // Extrahiere E-Mail für Absender-Regel
-        let absenderEmail = mail.von;
-        const match = mail.von.match(/<([^>]+)>/);
-        if (match) absenderEmail = match[1];
+        const typ = regelAnlegen === 'domain' ? 'domain' : 'absender';
+        const muster = typ === 'domain'
+          ? sortierung.domain(mail.von)
+          : sortierung.adresse(mail.von);
 
-        // Vermeide Duplikate
-        const exists = db.prepare('SELECT id FROM sort_rules WHERE konto_id = ? AND typ = ? AND muster = ?').get(mail.konto_id, 'absender', absenderEmail);
-        if (!exists) {
-          db.prepare(`
-            INSERT INTO sort_rules (konto_id, typ, muster, zielordner, erstellt_von)
-            VALUES (?, 'absender', ?, ?, ?)
-          `).run(mail.konto_id, absenderEmail, zielordner, req.user.id);
+        if (muster) {
+          const exists = db.prepare(
+            'SELECT id FROM sort_rules WHERE konto_id = ? AND typ = ? AND muster = ?',
+          ).get(mail.konto_id, typ, muster);
+          if (!exists) {
+            db.prepare(`
+              INSERT INTO sort_rules (konto_id, typ, muster, zielordner, erstellt_von)
+              VALUES (?, ?, ?, ?, ?)
+            `).run(mail.konto_id, typ, muster, zielordner, req.user.id);
+          }
         }
       }
     })();
@@ -141,6 +159,81 @@ router.post('/ignorieren', (req, res) => {
   try {
     db.prepare("UPDATE sort_inbox SET status = 'ignoriert' WHERE id = ?").run(Number(req.body.id));
     res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── BESTAND: ÄHNLICHE MAILS GLEICH MITSORTIEREN ─────────────────────────────
+//
+// Der eigentliche Zeitfresser war nicht das Sortieren, sondern das Einzeln-
+// Anfassen: 20 Mails von @accounts.google.com bedeuteten 20 Klicks. Hier kommt
+// deshalb alles zusammen — Regel anlegen, Ordner sicherstellen und die schon
+// wartenden Mails in einem Rutsch nachziehen.
+
+const kontoLaden = (id) => db.prepare('SELECT * FROM accounts WHERE id = ?').get(Number(id));
+
+// POST /api/sortierung/sammel-zuordnen
+// { konto_id, typ: 'absender'|'domain'|'betreff', muster, zielordner, regelMerken }
+router.post('/sammel-zuordnen', async (req, res) => {
+  const { konto_id, typ, muster, zielordner, regelMerken = true } = req.body || {};
+  if (!konto_id || !typ || !muster || !zielordner) {
+    return res.status(400).json({ error: 'konto_id, typ, muster und zielordner sind Pflicht.' });
+  }
+  if (!['absender', 'domain', 'betreff'].includes(typ)) {
+    return res.status(400).json({ error: 'Ungültiger Typ.' });
+  }
+  const konto = kontoLaden(konto_id);
+  if (!konto) return res.status(400).json({ error: 'Das Konto existiert nicht.' });
+
+  const regel = { typ, muster: String(muster).trim().toLowerCase(), zielordner: String(zielordner).trim() };
+
+  try {
+    // 1. Zielordner sicherstellen — ohne ihn scheitert jedes Verschieben
+    try {
+      const neu = await imap.ordnerErstellen({ ...konto, ...themen.zugang(konto) }, regel.zielordner);
+      if (neu) loggen('info', 'sortierung', `Ordner "${regel.zielordner}" für ${konto.name} angelegt.`);
+    } catch (err) {
+      return res.status(502).json({ error: `Zielordner nicht nutzbar: ${err.message}` });
+    }
+
+    // 2. Regel merken, damit künftige Mails gar nicht erst hier landen
+    let regelId = null;
+    if (regelMerken) {
+      const schonDa = db.prepare(
+        'SELECT id FROM sort_rules WHERE konto_id = ? AND typ = ? AND muster = ?',
+      ).get(konto.id, regel.typ, regel.muster);
+      if (schonDa) regelId = schonDa.id;
+      else {
+        regelId = db.prepare(`
+          INSERT INTO sort_rules (konto_id, typ, muster, zielordner, erstellt_von)
+          VALUES (?, ?, ?, ?, ?)
+        `).run(konto.id, regel.typ, regel.muster, regel.zielordner, req.user.id).lastInsertRowid;
+      }
+    }
+
+    // 3. Alles nachziehen, was schon wartet
+    const ergebnis = await sortierung.bestandAnwenden(konto, regel);
+    themen.cacheVerwerfen(konto.id);
+
+    res.json({ ok: true, regel_id: regelId, ...ergebnis });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+// GET /api/sortierung/vorschau?konto_id=1&typ=domain&muster=google.com
+// Wie viele wartende Mails würde diese Regel erfassen? Für die Anzeige „… und
+// 19 weitere", bevor der Nutzer den Knopf drückt.
+router.get('/vorschau', async (req, res) => {
+  const { konto_id, typ, muster } = req.query;
+  const konto = kontoLaden(konto_id);
+  if (!konto || !typ || !muster) return res.status(400).json({ error: 'konto_id, typ und muster fehlen.' });
+  try {
+    const { treffer } = await sortierung.bestandAnwenden(
+      konto, { typ, muster: String(muster).toLowerCase(), zielordner: '' }, { nurZaehlen: true },
+    );
+    res.json({ treffer });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

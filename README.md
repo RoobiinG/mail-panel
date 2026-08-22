@@ -385,6 +385,35 @@ das Panel daraus eine feste Regel. Dieser Absender läuft danach ohne KI-Abfrage
 Was die KI nicht sicher zuordnen konnte, bleibt im Posteingang und steht in der **Sortier-Inbox** —
 dort siehst du den Vorschlag, die Sicherheit und den Grund, warum es nicht gereicht hat.
 
+## Bestand aufräumen: ähnliche Mails auf einmal
+
+Wer die Bestands-Triage laufen lässt, hat hinterher oft hunderte Mails in der **Sortier-Inbox**.
+Sie ist deshalb nicht nach Mails sortiert, sondern nach **Absender-Domain** gebündelt:
+
+```
+▸ @accounts.google.com   20 Mails
+▸ @plesk.com              6 Mails
+▸ @mail.anthropic.com     4 Mails · 4 Absender
+```
+
+Zielordner eintippen, einmal klicken — das Panel legt den Ordner an, merkt sich die Regel und
+verschiebt **alle** Mails der Gruppe. Was sich das Panel merken soll, wählst du daneben:
+
+| Auswahl | Wofür |
+|---|---|
+| **Ganze Domain** | Der Regelfall. Deckt auch Unterdomains ab und alle Absender, die dieser Dienst noch benutzt |
+| **Nur dieser Absender** | Wenn aus derselben Domain Verschiedenes kommt und nur ein Absender gemeint ist |
+| **Nur jetzt** | Einmal aufräumen, ohne dass eine Regel entsteht |
+
+**Domain-Regeln sind fast immer die richtige Wahl.** Viele Dienste verschicken aus einer ganzen
+Reihe von Adressen — `googleplay-noreply@`, `googleone-noreply@`, `google-noreply@` — oder gleich
+aus Wegwerf-Adressen mit einem Hash im Namen. Eine Absender-Regel greift dort schlicht kein
+zweites Mal.
+
+Das Panel merkt sich das mit der Zeit selbst: Sobald zwei verschiedene Absender derselben Domain
+im selben Ordner gelandet sind, legt es eine Domain-Regel an. Und **jede neue Regel gilt
+rückwirkend** — was schon in der Sortier-Inbox liegt und dazu passt, wird sofort mitverschoben.
+
 ## White- und Blacklist
 
 Unter **White- / Blacklist** pflegst du eigene Absenderlisten, die für alle Konten gelten.
@@ -465,6 +494,8 @@ nötig — der kostet für dieses Aufkommen Centbeträge.
 | Google-Verbindung bricht mit „Fehler 403: access_denied“ ab | Die App in der Google Cloud Console steht auf Status *Testing*. Die eigene E-Mail-Adresse muss dort unter **OAuth-Zustimmungsbildschirm → Testnutzer** eingetragen werden. |
 | Passkey lässt sich nicht anlegen | Hinter einem Reverse Proxy muss `ALLOWED_ORIGIN` auf die Panel-Adresse gesetzt sein |
 | Panel zeigt nach dem Update die alte Versionsnummer | Browser-Cache — mit `Strg+F5` neu laden |
+| Nach dem Update ist man abgemeldet | Einmalig und beabsichtigt: Seit v2.8.0.0 liegt die Anmeldung an anderer Stelle. Wer über einen Neustart des Browsers hinweg angemeldet bleiben will, setzt beim Anmelden den Haken **Angemeldet bleiben** |
+| Man bleibt scheinbar angemeldet, aber nichts lädt mehr | War bis v2.8.0.0 der Fall, wenn die Sitzung ablief. Seither wird sauber abgemeldet und die Anmeldemaske nennt den Grund |
 | Synchronisieren läuft in einen Timeout, n8n meldet „Maximum number of connections from user+IP exceeded" | Dein Mailserver begrenzt die gleichzeitigen IMAP-Verbindungen (bei Dovecot `mail_max_userip_connections`, ab Werk oft 10). n8n baut beim Speichern alle Trigger neu auf und läuft ins Limit; der Aufruf kommt dann nie zurück. `docker compose restart n8n` gibt die alten Verbindungen frei, danach klappt der Sync. Dauerhaft: das Limit am Mailserver anheben |
 | Themen-Sortierung läuft, aber es entstehen keine Ordner | Einer von vieren: *Neue Ordner* steht auf *Nicht anlegen* oder *Erst freigeben* (dann warten die Vorschläge auf der Seite *Sortierung*), die Obergrenze je Konto ist erreicht, oder der **Trockenlauf** ist noch an |
 | Mails bleiben trotz Themen-Sortierung im Posteingang | Der Katalog ist leer (*Sortierung → Aus Postfach einlesen*) oder die Mindest-Sicherheit ist zu hoch. Der Grund steht bei jeder Mail in der Sortier-Inbox |

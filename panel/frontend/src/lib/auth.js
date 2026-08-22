@@ -1,25 +1,19 @@
-// Der angemeldete Benutzer steckt im JWT im localStorage — Rolle und Rechte
-// kommen von dort, damit die Navigation ohne zusätzliche Anfrage weiß, was
-// sie anzeigen darf. Geprüft wird trotzdem immer im Backend.
+// Der angemeldete Benutzer steckt im JWT — Rolle und Rechte kommen von dort,
+// damit die Navigation ohne zusätzliche Anfrage weiß, was sie anzeigen darf.
+// Geprüft wird trotzdem immer im Backend. Wo das Token liegt, weiß session.js.
+
+import { nutzlast, abmelden } from './session';
 
 const LEER = { username: 'Unbekannt', rolle_name: 'Keine Rolle', rechte: {} };
 
 export function angemeldeterBenutzer() {
-  const token = localStorage.getItem('token');
-  if (!token) return LEER;
-  try {
-    const nutzlast = JSON.parse(atob(token.split('.')[1]));
-    return {
-      username: nutzlast.username || LEER.username,
-      rolle_name: nutzlast.rolle_name || LEER.rolle_name,
-      rechte: nutzlast.rechte || {},
-    };
-  } catch {
-    return LEER;
-  }
+  const daten = nutzlast();
+  if (!daten) return LEER;
+  return {
+    username: daten.username || LEER.username,
+    rolle_name: daten.rolle_name || LEER.rolle_name,
+    rechte: daten.rechte || {},
+  };
 }
 
-export function abmelden() {
-  localStorage.removeItem('token');
-  window.location.href = '/login';
-}
+export { abmelden };

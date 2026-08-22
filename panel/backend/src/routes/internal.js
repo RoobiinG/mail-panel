@@ -250,7 +250,17 @@ router.post('/einsortieren', async (req, res) => {
     // Erst nach dem Protokollieren zaehlen — sonst uebersieht die Zaehlung die
     // gerade laufende Mail.
     if (ausThema && konto && themen.einstellungen().regelLernen) {
-      try { themen.regelLernen(konto.id, b.von, ordner); } catch { /* nicht kritisch */ }
+      try {
+        const gelernt = themen.regelLernen(konto.id, b.von, ordner);
+        // Eine frisch gelernte Regel gilt auch fuer das, was schon in der
+        // Sortier-Inbox liegt. Bewusst ohne await: Der Workflow wartet auf diese
+        // Antwort, und das Nachsortieren kann einen Moment dauern.
+        if (gelernt) {
+          sortierung.bestandAnwenden(konto, gelernt).catch((err) => {
+            console.warn('Nachsortieren nach gelernter Regel fehlgeschlagen:', err.message);
+          });
+        }
+      } catch { /* nicht kritisch */ }
     }
 
     // Kein Ziel: Die Mail bleibt im Posteingang und taucht in der Sortier-Inbox

@@ -1,4 +1,6 @@
+import { useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { angemeldet, ablaufUeberwachen } from './lib/session';
 import Layout from './components/Layout/Layout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -14,13 +16,19 @@ import Logs from './pages/Logs';
 import Benutzer from './pages/Benutzer';
 import Sortierung from './pages/Sortierung';
 
-// Schuetzt alle Panel-Seiten: ohne Token geht es zum Login
+// Schuetzt alle Panel-Seiten. Geprueft wird nicht nur, OB ein Token da ist,
+// sondern auch, ob es noch gilt — sonst landet man nach Ablauf auf einem
+// Dashboard, das nichts mehr laden kann, statt auf der Anmeldemaske.
 function Geschuetzt({ children }) {
-  if (!localStorage.getItem('token')) return <Navigate to="/login" replace />;
+  if (!angemeldet()) return <Navigate to="/login" replace />;
   return children;
 }
 
 export default function App() {
+  // Laeuft die Sitzung ab, waehrend das Fenster offen ist, meldet der Wecker
+  // von selbst ab — man muss nicht erst irgendwo klicken, um es zu merken.
+  useEffect(() => { ablaufUeberwachen(); }, []);
+
   return (
     <Routes>
       <Route path="/login" element={<Login />} />

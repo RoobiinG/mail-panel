@@ -1,8 +1,17 @@
 import { useState, useEffect } from 'react';
 import {
   Plus, Trash2, CheckCircle2, XCircle, AlertCircle, Inbox, Tag, ArrowRight,
-  FolderTree, Sparkles, Lock, Unlock, RefreshCw, Check, Wand2
+  FolderTree, Sparkles, Lock, Unlock, RefreshCw, Check, Wand2,
+  ChevronRight, ChevronDown, Layers, AtSign
 } from 'lucide-react';
+
+// "Name <a@b.de>" -> "a@b.de" bzw. "b.de"
+const adresse = (von) => {
+  const roh = String(von || '').toLowerCase().trim();
+  const t = roh.match(/<([^>]+)>/);
+  return (t ? t[1] : roh).trim();
+};
+const domainVon = (von) => (adresse(von).split('@')[1] || '').trim();
 import api from '../api';
 
 const REGEL_TYPEN = {
@@ -34,6 +43,12 @@ export default function Sortierung() {
   const [katalogModal, setKatalogModal] = useState({ offen: false, ordner: '', beschreibung: '' });
   const [einleseMeldung, setEinleseMeldung] = useState('');
   const [beschreibungEntwurf, setBeschreibungEntwurf] = useState({});
+
+  // Sortier-Inbox nach Absender-Domain gebuendelt
+  const [offeneGruppen, setOffeneGruppen] = useState({});   // domain -> aufgeklappt?
+  const [gruppenOrdner, setGruppenOrdner] = useState({});   // domain -> Zielordner
+  const [gruppenTyp, setGruppenTyp] = useState({});         // domain -> 'domain'|'absender'|'keine'
+  const [gruppeLaeuft, setGruppeLaeuft] = useState('');
 
   const ladenInit = async () => {
     try {
@@ -191,7 +206,8 @@ export default function Sortierung() {
   const zuordnen = async (mailId) => {
     const zielordner = ordnerWahl[mailId];
     if (!zielordner) return alert('Bitte einen Zielordner angeben.');
-    const anlegen = !!regelAnlegenWahl[mailId];
+    // '' | 'absender' | 'domain' — das Backend versteht beide Regeltypen
+    const anlegen = regelAnlegenWahl[mailId] || false;
 
     try {
       await api.post('/sortierung/zuordnen', {
@@ -207,6 +223,54 @@ export default function Sortierung() {
       inboxLaden();
     } catch (err) {
       alert(err.response?.data?.error || 'Fehler beim Zuordnen');
+    }
+  };
+
+  // ─── STAPEL: ALLE MAILS EINER DOMAIN AUF EINMAL ─────────────────────────────
+
+  // Die offenen Mails nach Absender-Domain buendeln. Genau hier liegt die
+  // Arbeitsersparnis: 20 Mails von accounts.google.com sind ein Handgriff,
+  // nicht zwanzig.
+  const gruppen = (() => {
+    const map = new Map();
+    for (const mail of inbox) {
+      const d = domainVon(mail.von) || '(ohne Absender)';
+      if (!map.has(d)) map.set(d, { domain: d, mails: [], absender: new Set() });
+      const g = map.get(d);
+      g.mails.push(mail);
+      g.absender.add(adresse(mail.von));
+    }
+    return [...map.values()].sort((a, b) => b.mails.length - a.mails.length);
+  })();
+
+  const stapelZuordnen = async (gruppe) => {
+    const zielordner = (gruppenOrdner[gruppe.domain] || '').trim();
+    if (!zielordner) return alert('Bitte einen Zielordner angeben.');
+    const kontoId = gruppe.mails[0]?.konto_id;
+    if (!kontoId) return alert('Zu diesen Mails ist kein Konto hinterlegt.');
+
+    // Standard: Domain-Regel, wenn mehrere Absender darin stecken
+    const typ = gruppenTyp[gruppe.domain] || (gruppe.absender.size > 1 ? 'domain' : 'absender');
+    const muster = typ === 'domain' ? gruppe.domain : adresse(gruppe.mails[0].von);
+
+    setGruppeLaeuft(gruppe.domain);
+    try {
+      const { data } = await api.post('/sortierung/sammel-zuordnen', {
+        konto_id: kontoId,
+        typ: typ === 'keine' ? 'domain' : typ,
+        muster: typ === 'keine' ? gruppe.domain : muster,
+        zielordner,
+        regelMerken: typ !== 'keine',
+      });
+      const fehler = data.fehler?.length ? ` (${data.fehler.length} Fehler)` : '';
+      alert(`${data.verschoben} von ${data.treffer} Mail(s) nach „${zielordner}" verschoben${fehler}.`);
+      inboxLaden();
+      regelnLaden(aktivesKonto);
+      katalogLaden(aktivesKonto);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Fehler beim Sortieren');
+    } finally {
+      setGruppeLaeuft('');
     }
   };
 
@@ -427,6 +491,9 @@ export default function Sortierung() {
           <div className="p-4 border-b border-panel-border bg-panel-card/50 flex justify-between items-center">
             <h2 className="font-medium flex items-center gap-2">
               <Inbox size={18} className="text-panel-accent" /> Sortier-Inbox
+              <span className="text-[11px] font-normal text-panel-muted hidden sm:inline">
+                nach Absender-Domain gebündelt
+              </span>
               {inbox.length > 0 && (
                 <span className="bg-panel-accent text-white text-xs px-2 py-0.5 rounded-full">
                   {inbox.length}
@@ -444,7 +511,66 @@ export default function Sortierung() {
               </div>
             ) : (
               <div className="divide-y divide-panel-border">
-                {inbox.map(mail => (
+                {gruppen.map(gruppe => {
+                  const offen = offeneGruppen[gruppe.domain];
+                  const typ = gruppenTyp[gruppe.domain] || (gruppe.absender.size > 1 ? 'domain' : 'absender');
+                  const laeuft = gruppeLaeuft === gruppe.domain;
+                  return (
+                    <div key={gruppe.domain}>
+                      {/* Kopfzeile der Domain-Gruppe */}
+                      <div className="p-3 bg-panel-bg/40 flex flex-wrap items-center gap-2">
+                        <button
+                          onClick={() => setOffeneGruppen(p => ({ ...p, [gruppe.domain]: !p[gruppe.domain] }))}
+                          className="btn-ghost !px-1 shrink-0"
+                          title={offen ? 'Einklappen' : 'Mails anzeigen'}
+                        >
+                          {offen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                        </button>
+                        <AtSign size={14} className="text-panel-accent shrink-0" />
+                        <span className="font-mono text-sm truncate max-w-[220px]" title={gruppe.domain}>
+                          {gruppe.domain}
+                        </span>
+                        <span className="bg-panel-border/60 text-xs px-1.5 py-0.5 rounded whitespace-nowrap">
+                          {gruppe.mails.length} Mail{gruppe.mails.length === 1 ? '' : 's'}
+                        </span>
+                        {gruppe.absender.size > 1 && (
+                          <span className="text-[11px] text-panel-muted whitespace-nowrap">
+                            {gruppe.absender.size} Absender
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Ein Handgriff für den ganzen Stapel */}
+                      <div className="px-3 pb-3 flex flex-col sm:flex-row gap-2 items-stretch sm:items-center bg-panel-bg/40">
+                        <input
+                          type="text"
+                          placeholder={`Alle ${gruppe.mails.length} nach … (z.B. Google)`}
+                          value={gruppenOrdner[gruppe.domain] || ''}
+                          onChange={e => setGruppenOrdner(p => ({ ...p, [gruppe.domain]: e.target.value }))}
+                          list="ordner-vorschlaege"
+                          className="flex-1 text-sm"
+                        />
+                        <select
+                          value={typ}
+                          onChange={e => setGruppenTyp(p => ({ ...p, [gruppe.domain]: e.target.value }))}
+                          className="text-sm bg-panel-bg"
+                          title="Was soll sich das Panel für die Zukunft merken?"
+                        >
+                          <option value="domain">Regel: ganze Domain</option>
+                          <option value="absender">Regel: nur dieser Absender</option>
+                          <option value="keine">Nur jetzt, keine Regel</option>
+                        </select>
+                        <button
+                          onClick={() => stapelZuordnen(gruppe)}
+                          disabled={laeuft}
+                          className="btn !py-1.5 !px-3 text-sm flex items-center justify-center gap-1 whitespace-nowrap disabled:opacity-50"
+                        >
+                          <Layers size={14} /> {laeuft ? 'Läuft …' : `Alle ${gruppe.mails.length} verschieben`}
+                        </button>
+                      </div>
+
+                      {/* Einzelne Mails erst auf Wunsch */}
+                      {offen && gruppe.mails.map(mail => (
                   <div key={mail.id} className="p-4 hover:bg-panel-bg/30 transition-colors">
                     <div className="flex justify-between items-start gap-4 mb-3">
                       <div className="truncate">
@@ -489,15 +615,16 @@ export default function Sortierung() {
                           </button>
                         )}
                       </div>
-                      <label className="flex items-center gap-2 text-xs cursor-pointer whitespace-nowrap">
-                        <input
-                          type="checkbox"
-                          checked={!!regelAnlegenWahl[mail.id]}
-                          onChange={e => setRegelAnlegenWahl(p => ({ ...p, [mail.id]: e.target.checked }))}
-                          className="accent-panel-accent"
-                        />
-                        Regel für Absender merken
-                      </label>
+                      <select
+                        value={regelAnlegenWahl[mail.id] || ''}
+                        onChange={e => setRegelAnlegenWahl(p => ({ ...p, [mail.id]: e.target.value }))}
+                        className="text-xs bg-panel-bg whitespace-nowrap"
+                        title="Was soll sich das Panel für die Zukunft merken?"
+                      >
+                        <option value="">Keine Regel merken</option>
+                        <option value="absender">Regel: {adresse(mail.von)}</option>
+                        <option value="domain">Regel: alles von @{domainVon(mail.von)}</option>
+                      </select>
                       <div className="flex gap-2 w-full sm:w-auto mt-2 sm:mt-0">
                         <button onClick={() => ignorieren(mail.id)} className="btn-ghost !px-2 flex-1 sm:flex-none text-panel-muted hover:text-panel-red" title="Ignorieren">
                           <XCircle size={18} />
@@ -508,7 +635,10 @@ export default function Sortierung() {
                       </div>
                     </div>
                   </div>
-                ))}
+                      ))}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

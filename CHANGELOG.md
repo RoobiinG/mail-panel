@@ -2,6 +2,58 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [2.8.0.0] - 2026-08-22 (Build 42) — *Feature: Stapelweise sortieren, saubere Sitzungen*
+
+### Features
+
+- **Ähnliche Mails wandern gleich mit.** Die Sortier-Inbox ist nach Absender-Domain gebündelt:
+  „20 Mails von `accounts.google.com`" statt zwanzig Einzeleinträge. Ein Zielordner, ein Klick —
+  und das Panel legt den Ordner an, merkt sich die Regel und verschiebt **alle** wartenden Mails
+  der Gruppe per IMAP. Auf dem Testserver hätte das 53 von 63 offenen Mails in sieben Handgriffen
+  erledigt.
+- **Neue Regeln gelten rückwirkend.** Bisher galt eine Regel nur für das, was danach kam; den
+  Bestand musste man trotzdem von Hand durchgehen. Jetzt zieht jede neu angelegte Regel die schon
+  wartenden Mails sofort nach (abschaltbar).
+- **Das Panel lernt Domain-Regeln statt Regel-Müll.** Viele Dienste verschicken aus einer ganzen
+  Reihe von Adressen (`googleplay-noreply@`, `googleone-noreply@`, `google-noreply@` …) oder gleich
+  aus Wegwerf-Adressen mit Hash im Namen — eine Absender-Regel greift dort kein zweites Mal.
+  Sobald zwei verschiedene Absender derselben Domain im selben Ordner gelandet sind, entsteht
+  deshalb eine Regel für die **Domain**.
+- **Regeltyp direkt wählbar:** Beim Zuordnen einer einzelnen Mail steht jetzt zur Wahl, ob sich das
+  Panel den Absender, die ganze Domain oder gar nichts merken soll.
+- **Angemeldet bleiben.** Ohne Haken endet die Sitzung, sobald der Browser geschlossen wird
+  (`sessionStorage`); mit Haken bleibt sie wie bisher erhalten.
+
+### Bugfixes
+
+- **Sicherheitslücke im Domain-Abgleich.** Der Vergleich lief über ein blankes
+  `absenderEmail.endsWith('google.com')` — damit passte eine Regel für `google.com` auch auf
+  `boesegoogle.com`. Wer eine solche Domain registriert, hätte Mails gezielt in einen fremden
+  Zielordner einschleusen können. Jetzt wird auf Punktgrenzen geprüft: `google.com` trifft die
+  Domain selbst und ihre Unterdomains, aber nichts, was bloß so endet.
+- **Nach Ablauf der Sitzung passierte gar nichts.** Ein abgelaufenes Token lieferte HTTP **403**,
+  das Frontend meldet aber nur bei **401** ab. Man blieb also scheinbar angemeldet, jede Anfrage
+  scheiterte still und im Dashboard standen nur noch Fehler — genau das Verhalten, über das
+  gestolpert wurde. Auth-Fehler liefern jetzt 401 (mit Grund), 403 bleibt den fehlenden Rechten
+  vorbehalten, und das Frontend meldet sauber ab.
+- **Ein abgelaufenes Token galt als Anmeldung.** Der Routen-Schutz prüfte nur, *ob* ein Token da
+  ist, nicht ob es noch gilt. Jetzt wird die Laufzeit mitgeprüft, ein Wecker meldet bei Ablauf von
+  selbst ab, und ein Tab, der stundenlang im Hintergrund lag, prüft beim Zurückkommen sofort nach.
+- **Die Anmeldemaske sagt jetzt, warum man dort steht** („Deine Sitzung ist abgelaufen") statt
+  wortlos aufzutauchen.
+- **Massenumzüge öffnen nur noch eine IMAP-Verbindung** statt einer je Mail. Bei größeren Stapeln
+  wäre man sonst in dasselbe Verbindungslimit gelaufen, an dem schon der Workflow-Sync hing.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migrationen**: keine.
+- **n8n-Workflow-Kompatibilität**: unverändert, kein Sync nötig.
+- **Neustart**: ausreichend. **Alle angemeldeten Benutzer müssen sich einmal neu anmelden** — das
+  Token liegt jetzt woanders. Das ist einmalig und beabsichtigt.
+- **Bestehende Domain-Regeln greifen enger als vorher.** Wer bewusst eine Regel angelegt hat, die
+  nur über das lose `endsWith` gepasst hat, muss sie anpassen. Regeln für echte Domains und deren
+  Unterdomains funktionieren unverändert.
+
 ## [2.7.0.4] - 2026-08-22 (Build 41) — *Fix: Dubletten in der Sortier-Inbox aufräumen*
 
 ### Bugfixes

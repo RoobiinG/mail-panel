@@ -219,12 +219,55 @@ async function mailVerschieben({ uid, von = 'INBOX', nach, ...konto }) {
   }
 }
 
+// Verschiebt mehrere Mails ueber EINE Verbindung.
+//
+// Wichtig, weil Mailserver die gleichzeitigen IMAP-Verbindungen begrenzen
+// (Dovecot: mail_max_userip_connections, ab Werk oft 10). Eine Verbindung je
+// Mail waere nicht nur langsam, sondern liefe bei groesseren Stapeln genau in
+// dieses Limit — mit demselben Ergebnis, das n8n beim Speichern schon zeigt.
+//
+// @param {Array<{uid: string|number, id?: any}>} mails
+// @returns {Promise<{verschoben: Array, fehler: Array<{uid, grund}>}>}
+async function mailsVerschieben({ mails, von = 'INBOX', nach, ...konto }) {
+  if (!nach) throw new Error('Kein Zielordner angegeben.');
+  const verschoben = [];
+  const fehler = [];
+  if (!mails?.length) return { verschoben, fehler };
+
+  const client = verbindung(konto);
+  try {
+    await client.connect();
+    const schloss = await client.getMailboxLock(String(von));
+    try {
+      for (const mail of mails) {
+        const nummer = Number(mail.uid);
+        if (!Number.isInteger(nummer) || nummer <= 0) {
+          fehler.push({ uid: mail.uid, grund: 'ungültige UID' });
+          continue;
+        }
+        try {
+          await client.messageMove(String(nummer), String(nach), { uid: true });
+          verschoben.push(mail);
+        } catch (err) {
+          fehler.push({ uid: mail.uid, grund: err.message });
+        }
+      }
+    } finally {
+      schloss.release();
+    }
+  } finally {
+    try { await client.logout(); } catch { /* Verbindung war schon zu */ }
+  }
+  return { verschoben, fehler };
+}
+
 module.exports = {
   testVerbindung,
   ordnerAnlegen,
   ordnerErstellen,
   ordnerAnlegenPfad,
   mailVerschieben,
+  mailsVerschieben,
   anhaengeHolen,
   STANDARD,
 };

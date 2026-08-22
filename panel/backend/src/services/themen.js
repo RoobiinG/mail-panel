@@ -7,6 +7,7 @@
 // Es wird nie geloescht und nie umbenannt, nur angelegt und verschoben.
 const db = require('../db');
 const imap = require('./imap');
+const sortierung = require('./sortierung');
 const { entschluesseln } = require('./crypto');
 const { loggen } = require('./panelLog');
 
@@ -154,42 +155,60 @@ async function ausPostfachEinlesen(konto) {
 
 // ─── Regeln lernen ───────────────────────────────────────────────────────────
 
-// Ab dem wievielten gleichen Treffer eines Absenders eine feste Regel entsteht.
-// Danach laeuft dieser Absender ohne KI durch — das schont das Gemini-Kontingent
-// und macht die Sortierung mit der Zeit vorhersagbar.
+// Ab wie vielen gleichen Treffern eine feste Regel entsteht. Danach laeuft der
+// Absender ohne KI durch — das schont das Gemini-Kontingent und macht die
+// Sortierung mit der Zeit vorhersagbar.
 const LERNSCHWELLE = 3;
+// Ab wie vielen VERSCHIEDENEN Absendern derselben Domain eine Domain-Regel
+// entsteht statt weiterer Einzelregeln.
+const DOMAIN_SCHWELLE = 2;
 
-function absenderAdresse(von) {
-  const roh = String(von || '').toLowerCase().trim();
-  const treffer = roh.match(/<([^>]+)>/);
-  return (treffer ? treffer[1] : roh).trim();
-}
-
+/**
+ * Merkt sich, wohin Mails eines Absenders gehen.
+ *
+ * Bevorzugt wird die Domain-Regel: Viele Dienste verschicken aus einer ganzen
+ * Reihe von Adressen derselben Domain (googleplay-noreply@, googleone-noreply@,
+ * google-noreply@ …) oder gleich aus Wegwerf-Adressen mit Hash im Namen. Eine
+ * Absender-Regel greift dort kein zweites Mal — sie erzeugt nur Regel-Müll.
+ * Deshalb: Sobald zwei verschiedene Absender derselben Domain im selben Ordner
+ * gelandet sind, entsteht eine Regel für die Domain.
+ */
 function regelLernen(kontoId, von, ordner) {
-  const adresse = absenderAdresse(von);
-  if (!adresse || !adresse.includes('@')) return false;
-
-  const vorhanden = db.prepare(
-    'SELECT id FROM sort_rules WHERE konto_id = ? AND typ = ? AND muster = ?',
-  ).get(kontoId, 'absender', adresse);
-  if (vorhanden) return false;
+  const adresse = sortierung.adresse(von);
+  const domain = sortierung.domain(von);
+  if (!adresse.includes('@') || !domain) return false;
 
   const konto = db.prepare('SELECT name FROM accounts WHERE id = ?').get(kontoId);
   if (!konto) return false;
 
-  // Gezaehlt wird im Triage-Log — eine eigene Tabelle braucht es dafuer nicht.
-  const zeile = db.prepare(`
-    SELECT COUNT(*) AS anzahl FROM quarantine_log
-    WHERE konto = ? AND zielordner = ? AND lower(von) LIKE ?
-      AND created_at >= datetime('now', '-90 day')
-  `).get(konto.name, ordner, `%${adresse}%`);
-  if (!zeile || zeile.anzahl < LERNSCHWELLE) return false;
+  const schonDa = (typ, muster) => db.prepare(
+    'SELECT id FROM sort_rules WHERE konto_id = ? AND typ = ? AND muster = ?',
+  ).get(kontoId, typ, muster);
 
+  if (schonDa('domain', domain) || schonDa('absender', adresse)) return false;
+
+  // Wer ist aus dieser Domain schon in diesem Ordner gelandet? Gezaehlt wird im
+  // Triage-Log — eine eigene Tabelle braucht es dafuer nicht.
+  const zeilen = db.prepare(`
+    SELECT von FROM quarantine_log
+    WHERE konto = ? AND zielordner = ? AND created_at >= datetime('now', '-90 day')
+  `).all(konto.name, ordner);
+
+  const ausDomain = zeilen.filter((z) => sortierung.domain(z.von) === domain);
+  const absender = new Set(ausDomain.map((z) => sortierung.adresse(z.von)));
+
+  let typ = null;
+  if (absender.size >= DOMAIN_SCHWELLE) typ = 'domain';
+  else if (ausDomain.length >= LERNSCHWELLE) typ = 'absender';
+  if (!typ) return false;
+
+  const muster = typ === 'domain' ? domain : adresse;
   db.prepare(
-    "INSERT INTO sort_rules (konto_id, typ, muster, zielordner) VALUES (?, 'absender', ?, ?)",
-  ).run(kontoId, adresse, ordner);
-  loggen('info', 'themen', `Regel gelernt: ${adresse} → ${ordner} (Konto ${konto.name})`);
-  return true;
+    'INSERT INTO sort_rules (konto_id, typ, muster, zielordner) VALUES (?, ?, ?, ?)',
+  ).run(kontoId, typ, muster, ordner);
+  loggen('info', 'themen',
+    `Regel gelernt [${typ}]: ${muster} → ${ordner} (Konto ${konto.name}, ${absender.size} Absender / ${ausDomain.length} Mails)`);
+  return { typ, muster, zielordner: ordner };
 }
 
 // ─── Existiert der Zielordner ueberhaupt? ────────────────────────────────────

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
+import { tokenSetzen, abmeldegrundHolen, ablaufUeberwachen } from '../lib/session';
 
 // Login-Maske mit integriertem Erststart-Setup: existiert noch kein Benutzer,
 // wird stattdessen das Admin-Konto angelegt (Backend erzwingt Einmaligkeit).
@@ -12,12 +13,23 @@ export default function Login() {
   const [fehler, setFehler] = useState('');
   const [laedt, setLaedt] = useState(false);
   const [pkLaedt, setPkLaedt] = useState(false);
+  const [angemeldetBleiben, setAngemeldetBleiben] = useState(false);
+  // Warum steht man wieder hier? Ohne diesen Hinweis wirkt ein abgelaufenes
+  // Token wie ein Fehler des Panels.
+  const [hinweis, setHinweis] = useState('');
 
   useEffect(() => {
+    setHinweis(abmeldegrundHolen());
     api.get('/auth/setup-status')
       .then((res) => setSetupNoetig(res.data.setupNoetig))
       .catch(() => setFehler('Backend nicht erreichbar.'));
   }, []);
+
+  const anmelden = (token) => {
+    tokenSetzen(token, angemeldetBleiben);
+    ablaufUeberwachen();
+    navigate('/');
+  };
 
   const absenden = async (e) => {
     e.preventDefault();
@@ -26,8 +38,7 @@ export default function Login() {
     try {
       const pfad = setupNoetig ? '/auth/setup' : '/auth/login';
       const res = await api.post(pfad, { username, password });
-      localStorage.setItem('token', res.data.token);
-      navigate('/');
+      anmelden(res.data.token);
     } catch (err) {
       setFehler(err.response?.data?.error || 'Anmeldung fehlgeschlagen.');
     } finally {
@@ -43,8 +54,7 @@ export default function Login() {
       const optRes  = await api.get('/auth/webauthn/generate-authentication-options');
       const assertion = await startAuthentication({ optionsJSON: optRes.data });
       const finRes  = await api.post('/auth/webauthn/verify-authentication', assertion);
-      localStorage.setItem('token', finRes.data.token);
-      navigate('/');
+      anmelden(finRes.data.token);
     } catch (err) {
       setFehler(err.response?.data?.error || err.message || 'Passkey-Anmeldung fehlgeschlagen.');
     } finally {
@@ -79,6 +89,27 @@ export default function Login() {
             autoComplete={setupNoetig ? 'new-password' : 'current-password'}
           />
         </div>
+
+        {!setupNoetig && (
+          <label className="flex items-center gap-2 text-xs cursor-pointer text-panel-muted">
+            <input
+              type="checkbox"
+              checked={angemeldetBleiben}
+              onChange={(e) => setAngemeldetBleiben(e.target.checked)}
+              className="accent-panel-accent"
+            />
+            Angemeldet bleiben
+            <span className="text-[10px] text-panel-muted/70">
+              — sonst endet die Sitzung, sobald du den Browser schließt
+            </span>
+          </label>
+        )}
+
+        {hinweis && (
+          <p className="text-sm text-panel-muted bg-panel-surface border border-panel-border rounded-md px-3 py-2">
+            {hinweis}
+          </p>
+        )}
         {fehler && <p className="text-sm text-panel-red">{fehler}</p>}
         <button type="submit" disabled={laedt || pkLaedt} className="btn-primary w-full">
           {laedt ? 'Bitte warten…' : setupNoetig ? 'Konto anlegen' : 'Anmelden'}
