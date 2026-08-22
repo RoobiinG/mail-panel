@@ -164,6 +164,83 @@ router.post('/ignorieren', (req, res) => {
   }
 });
 
+// ─── REGELN ZUSAMMENFASSEN ───────────────────────────────────────────────────
+//
+// Wer eine Weile von Hand sortiert hat, sammelt Einzelregeln fuer denselben
+// Dienst an: noreply-accounts@google.com, googleplay-noreply@google.com,
+// googleone-noreply@google.com … Alle mit demselben Ziel, alle ersetzbar durch
+// eine Regel fuer die Domain — die zusaetzlich jede kuenftige Adresse abdeckt.
+
+/** Gruppen von mindestens zwei Absender-Regeln mit gleicher Domain und gleichem Ziel. */
+function zusammenfassbar(kontoId) {
+  const regeln = db.prepare(
+    "SELECT id, typ, muster, zielordner, treffer FROM sort_rules WHERE konto_id = ? AND typ = 'absender'",
+  ).all(kontoId);
+  const domainRegeln = new Set(
+    db.prepare("SELECT muster FROM sort_rules WHERE konto_id = ? AND typ = 'domain'")
+      .all(kontoId).map((r) => r.muster),
+  );
+
+  const gruppen = new Map();
+  for (const r of regeln) {
+    const dom = sortierung.domain(r.muster);
+    if (!dom || domainRegeln.has(dom)) continue;
+    const schluessel = `${dom}|${r.zielordner}`;
+    if (!gruppen.has(schluessel)) gruppen.set(schluessel, { domain: dom, zielordner: r.zielordner, regeln: [] });
+    gruppen.get(schluessel).regeln.push(r);
+  }
+  return [...gruppen.values()].filter((g) => g.regeln.length >= 2);
+}
+
+// GET /api/sortierung/regeln/zusammenfassbar?konto_id=1
+router.get('/regeln/zusammenfassbar', (req, res) => {
+  const konto_id = Number(req.query.konto_id);
+  if (!konto_id) return res.status(400).json({ error: 'konto_id fehlt' });
+  try {
+    res.json(zusammenfassbar(konto_id));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/sortierung/regeln/zusammenfassen  { konto_id, domain, zielordner }
+// Legt die Domain-Regel an und raeumt die ersetzten Einzelregeln weg.
+router.post('/regeln/zusammenfassen', async (req, res) => {
+  const { konto_id, domain, zielordner } = req.body || {};
+  const konto = kontoLaden(konto_id);
+  if (!konto || !domain || !zielordner) {
+    return res.status(400).json({ error: 'konto_id, domain und zielordner sind Pflicht.' });
+  }
+  const gruppe = zusammenfassbar(konto.id)
+    .find((g) => g.domain === String(domain).toLowerCase() && g.zielordner === zielordner);
+  if (!gruppe) return res.status(404).json({ error: 'Dazu gibt es nichts zusammenzufassen.' });
+
+  try {
+    db.transaction(() => {
+      db.prepare(`
+        INSERT INTO sort_rules (konto_id, typ, muster, zielordner, treffer, erstellt_von)
+        VALUES (?, 'domain', ?, ?, ?, ?)
+      `).run(
+        konto.id, gruppe.domain, gruppe.zielordner,
+        gruppe.regeln.reduce((s, r) => s + (r.treffer || 0), 0),
+        req.user.id,
+      );
+      const weg = db.prepare('DELETE FROM sort_rules WHERE id = ?');
+      for (const r of gruppe.regeln) weg.run(r.id);
+    })();
+
+    // Die neue Regel ist weiter gefasst als die alten — was jetzt passt, gleich mitnehmen
+    const nachsortiert = await sortierung.bestandAnwenden(konto, {
+      typ: 'domain', muster: gruppe.domain, zielordner: gruppe.zielordner,
+    });
+    loggen('info', 'sortierung',
+      `${gruppe.regeln.length} Einzelregeln zu einer Domain-Regel für @${gruppe.domain} zusammengefasst.`);
+    res.json({ ok: true, ersetzt: gruppe.regeln.length, domain: gruppe.domain, nachsortiert });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── BESTAND: ÄHNLICHE MAILS GLEICH MITSORTIEREN ─────────────────────────────
 //
 // Der eigentliche Zeitfresser war nicht das Sortieren, sondern das Einzeln-

@@ -2,6 +2,25 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [2.8.1.0] - 2026-08-22 (Build 43) — *Einzelregeln zu Domain-Regeln zusammenfassen*
+
+### Features
+
+- **Aufgesammelte Einzelregeln lassen sich bündeln.** Wer eine Weile von Hand sortiert hat, hat für
+  denselben Dienst mehrere Regeln angelegt — im Testpostfach vier Stück für `@google.com`
+  (`noreply-accounts@`, `googleplay-noreply@`, `googleone-noreply@`, `google-noreply@`), alle mit
+  demselben Ziel. Die Regel-Übersicht weist jetzt darauf hin und ersetzt sie auf einen Klick durch
+  **eine** Domain-Regel, die zusätzlich jede künftige Adresse dieser Domain abdeckt. Die bisherigen
+  Trefferzahlen werden dabei zusammengezählt, und was gerade in der Sortier-Inbox wartet und zur
+  neuen, weiter gefassten Regel passt, wird gleich mitsortiert.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migrationen**: keine. Die ersetzten Einzelregeln werden beim Zusammenfassen gelöscht — das
+  passiert nur auf ausdrückliche Bestätigung im Panel, nie von selbst.
+- **n8n-Workflow-Kompatibilität**: unverändert, kein Sync nötig.
+- **Neustart**: ausreichend.
+
 ## [2.8.0.0] - 2026-08-22 (Build 42) — *Feature: Stapelweise sortieren, saubere Sitzungen*
 
 ### Features

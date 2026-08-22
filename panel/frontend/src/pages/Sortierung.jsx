@@ -50,6 +50,9 @@ export default function Sortierung() {
   const [gruppenTyp, setGruppenTyp] = useState({});         // domain -> 'domain'|'absender'|'keine'
   const [gruppeLaeuft, setGruppeLaeuft] = useState('');
 
+  // Einzelregeln, die sich zu einer Domain-Regel zusammenfassen lassen
+  const [zusammenfassbar, setZusammenfassbar] = useState([]);
+
   const ladenInit = async () => {
     try {
       const [{ data: accData }, { data: inData }] = await Promise.all([
@@ -70,10 +73,34 @@ export default function Sortierung() {
     if (!kontoId) return;
     setLaedt(true);
     try {
-      const { data } = await api.get(`/sortierung/regeln?konto_id=${kontoId}`);
+      const [{ data }, zus] = await Promise.all([
+        api.get(`/sortierung/regeln?konto_id=${kontoId}`),
+        api.get(`/sortierung/regeln/zusammenfassbar?konto_id=${kontoId}`).catch(() => ({ data: [] })),
+      ]);
       setRegeln(data || []);
+      setZusammenfassbar(zus.data || []);
     } catch { /* leer */ } finally {
       setLaedt(false);
+    }
+  };
+
+  const regelnZusammenfassen = async (gruppe) => {
+    const text = `${gruppe.regeln.length} Einzelregeln durch eine Regel für @${gruppe.domain} ersetzen?\n\n`
+      + gruppe.regeln.map(r => `  ${r.muster}`).join('\n')
+      + `\n\nDie neue Regel deckt auch alle künftigen Adressen dieser Domain ab.`;
+    if (!confirm(text)) return;
+    try {
+      const { data } = await api.post('/sortierung/regeln/zusammenfassen', {
+        konto_id: aktivesKonto, domain: gruppe.domain, zielordner: gruppe.zielordner,
+      });
+      const dazu = data.nachsortiert?.verschoben
+        ? ` Dabei wurden ${data.nachsortiert.verschoben} wartende Mail(s) mitsortiert.`
+        : '';
+      alert(`${data.ersetzt} Regeln zu einer Domain-Regel zusammengefasst.${dazu}`);
+      regelnLaden(aktivesKonto);
+      inboxLaden();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Fehler beim Zusammenfassen');
     }
   };
 
@@ -448,6 +475,23 @@ export default function Sortierung() {
             </div>
           </div>
           
+          {/* Aufgesammelte Einzelregeln zu einer Domain-Regel bündeln */}
+          {zusammenfassbar.map(gruppe => (
+            <div key={gruppe.domain + gruppe.zielordner}
+              className="mx-4 mt-3 p-3 rounded-lg border border-panel-accent/40 bg-panel-accent/5 flex flex-wrap items-center gap-2 text-sm">
+              <Layers size={16} className="text-panel-accent shrink-0" />
+              <span className="flex-1 min-w-[200px]">
+                <span className="font-medium">{gruppe.regeln.length} Einzelregeln</span> für
+                {' '}<span className="font-mono">@{gruppe.domain}</span> zeigen alle auf
+                {' '}<span className="font-mono text-panel-accent">{gruppe.zielordner}</span>.
+                <span className="text-panel-muted"> Eine Domain-Regel erledigt das und deckt künftige Adressen mit ab.</span>
+              </span>
+              <button onClick={() => regelnZusammenfassen(gruppe)} className="btn !py-1.5 !px-3 text-sm whitespace-nowrap">
+                Zusammenfassen
+              </button>
+            </div>
+          ))}
+
           <div className="flex-1 overflow-auto max-h-[500px]">
             {regeln.length === 0 ? (
               <p className="p-6 text-center text-panel-muted text-sm">

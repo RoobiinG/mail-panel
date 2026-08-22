@@ -414,6 +414,9 @@ Das Panel merkt sich das mit der Zeit selbst: Sobald zwei verschiedene Absender 
 im selben Ordner gelandet sind, legt es eine Domain-Regel an. Und **jede neue Regel gilt
 rückwirkend** — was schon in der Sortier-Inbox liegt und dazu passt, wird sofort mitverschoben.
 
+Hast du früher schon mehrere Einzelregeln für denselben Dienst angelegt, weist die Regel-Übersicht
+darauf hin und fasst sie auf Wunsch zu einer Domain-Regel zusammen.
+
 ## White- und Blacklist
 
 Unter **White- / Blacklist** pflegst du eigene Absenderlisten, die für alle Konten gelten.
