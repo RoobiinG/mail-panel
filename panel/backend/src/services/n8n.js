@@ -3,14 +3,21 @@
 const axios    = require('axios');
 const settings = require('./settings');
 
-function client() {
+// Abfragen sind schnell; das Schreiben eines Workflows dauert deutlich laenger,
+// weil n8n dabei den ganzen Graphen prueft und neu indiziert. Mit einem festen
+// Limit von 15 s brach der Sync auf ausgelasteten Instanzen mitten in der Kette
+// ab — deshalb bekommen schreibende Aufrufe mehr Zeit.
+const ZEITLIMIT_LESEN    = 15000;
+const ZEITLIMIT_SCHREIBEN = 60000;
+
+function client(zeitlimit = ZEITLIMIT_LESEN) {
   const basis = (settings.hole('n8n_url') || 'http://n8n:5678').replace(/\/$/, '');
   const key   = settings.hole('n8n_api_key');
   if (!key) throw new Error('Kein n8n-API-Key hinterlegt (Einstellungen → n8n).');
   return axios.create({
     baseURL: `${basis}/api/v1`,
     headers: { 'X-N8N-API-KEY': key, Accept: 'application/json' },
-    timeout: 15000,
+    timeout: zeitlimit,
   });
 }
 
@@ -49,7 +56,7 @@ async function workflowHolen(id) {
 
 async function workflowErstellen(workflow) {
   try {
-    const { data } = await client().post('/workflows', {
+    const { data } = await client(ZEITLIMIT_SCHREIBEN).post('/workflows', {
       name: workflow.name,
       nodes: workflow.nodes,
       connections: workflow.connections,
@@ -64,7 +71,7 @@ async function workflowErstellen(workflow) {
 // n8n akzeptiert beim Update nur diese vier Felder
 async function workflowSpeichern(id, workflow) {
   try {
-    const { data } = await client().put(`/workflows/${id}`, {
+    const { data } = await client(ZEITLIMIT_SCHREIBEN).put(`/workflows/${id}`, {
       name: workflow.name,
       nodes: workflow.nodes,
       connections: workflow.connections,
@@ -81,7 +88,7 @@ async function workflowAktivieren(id, aktiv) {
     const pfad = aktiv ? 'activate' : 'deactivate';
     // Ohne Rumpf setzt axios "application/x-www-form-urlencoded" — das lehnt die
     // n8n-API mit "unsupported media type" ab. Deshalb leeres JSON mitschicken.
-    const { data } = await client().post(`/workflows/${id}/${pfad}`, {}, {
+    const { data } = await client(ZEITLIMIT_SCHREIBEN).post(`/workflows/${id}/${pfad}`, {}, {
       headers: { 'Content-Type': 'application/json' },
     });
     return data;

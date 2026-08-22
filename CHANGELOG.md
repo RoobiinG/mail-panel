@@ -2,6 +2,28 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [2.7.0.1] - 2026-08-22 (Build 38) — *Fix: Synchronisieren bricht nicht mehr auf halber Strecke ab*
+
+### Bugfixes
+
+- **Der Sync riss beim ersten Fehler die ganze Kette mit.** Lief das Speichern von Workflow 01 in
+  ein Zeitlimit, wurden 04 und 03 gar nicht mehr angefasst — und zwar unbemerkt, weil die
+  Fehlermeldung nur den ersten Workflow nannte. Ergebnis: eine halb umgestellte Installation, in
+  der 01 die neue Themen-Kette hatte und 04 noch die alte. Jetzt wird jeder Workflow einzeln
+  versucht und am Ende gesammelt gemeldet, welche nicht durchliefen.
+- **Zeitlimit der n8n-API angehoben.** 15 Sekunden galten für jeden Aufruf; das Schreiben eines
+  Workflows dauert aber deutlich länger, weil n8n dabei den ganzen Graphen prüft. Seit v2.7.0.0
+  sind die Workflows zusätzlich gewachsen, damit lief das Speichern auf ausgelasteten Instanzen
+  regelmäßig in den Timeout. Lesende Aufrufe bleiben bei 15 s, schreibende bekommen 60 s.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migrationen**: keine.
+- **n8n-Workflow-Kompatibilität**: **Synchronisieren erforderlich**, wenn v2.7.0.0 zuvor mit einem
+  Timeout abgebrochen ist — dann steht Workflow 04 noch auf dem alten Stand. Ein erneuter Klick auf
+  *Synchronisieren* holt ihn nach.
+- **Neustart**: ausreichend.
+
 ## [2.7.0.0] - 2026-08-22 (Build 37) — *Feature: Automatische Themen-Sortierung*
 
 ### Features

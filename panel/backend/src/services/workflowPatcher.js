@@ -1024,15 +1024,38 @@ async function alleSynchronisieren(konten) {
     if (treffer && !treffer.active) await aktionenPatcher().veroeffentlichen(aktionenId);
   } catch { /* ohne Aktionen weitermachen */ }
 
+  // Jeder Workflow wird einzeln versucht. Vorher riss der erste Fehlschlag die
+  // ganze Kette mit: Lief das Speichern von 01 in ein Zeitlimit, blieben 04 und
+  // 03 auf dem alten Stand — und zwar unbemerkt, weil der Fehler nur den ersten
+  // Workflow nannte. Jetzt wird alles angefasst und am Ende gesammelt gemeldet.
   const ergebnisse = [];
-  ergebnisse.push(await triageSynchronisieren(konten, credentialId, aktionenId));
-  ergebnisse.push(await bestandSynchronisieren(konten, credentialId, aktionenId));
+  const fehlgeschlagen = [];
+
+  for (const [bezeichnung, aufgabe] of [
+    ['01 - Inbox-Triage', () => triageSynchronisieren(konten, credentialId, aktionenId)],
+    ['04 - Bestands-Triage', () => bestandSynchronisieren(konten, credentialId, aktionenId)],
+  ]) {
+    try {
+      ergebnisse.push(await aufgabe());
+    } catch (err) {
+      fehlgeschlagen.push(`${bezeichnung}: ${err.message}`);
+      console.warn(`Sync fehlgeschlagen — ${bezeichnung}:`, err.message);
+    }
+  }
+
   // Workflow 03 gibt es erst seit dem Wegfall der fest eingebauten Konten —
   // fehlt er in einer älteren Installation, läuft der Rest trotzdem durch.
   try {
     ergebnisse.push(await newsletterSynchronisieren(konten));
   } catch (err) {
     console.warn('Workflow 03 konnte nicht verdrahtet werden:', err.message);
+    ergebnisse.push({ workflow: '03 - Newsletter-Cleanup', hinweis: err.message });
+  }
+
+  if (fehlgeschlagen.length > 0) {
+    const err = new Error(fehlgeschlagen.join(' | '));
+    err.teilergebnisse = ergebnisse;
+    throw err;
   }
   return ergebnisse;
 }
