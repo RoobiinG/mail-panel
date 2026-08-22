@@ -233,6 +233,18 @@ router.post('/einsortieren', async (req, res) => {
       grund = `Unbekanntes Konto: ${b.konto}`;
     }
 
+    // Existiert der Ordner ueberhaupt? Fehlt er, bricht der Verschiebe-Knoten
+    // den ganzen n8n-Lauf ab ("No folder Newsletter") und die Mail bleibt
+    // unbearbeitet liegen, ohne dass im Panel etwas davon zu sehen waere.
+    // Themen-Ordner sind eben erst geprueft oder angelegt worden — zu pruefen
+    // sind die Kategorie-Ordner aus der Konto-Konfiguration.
+    if (ordner && konto && !ausThema) {
+      if (!(await themen.ordnerExistiert(konto, ordner))) {
+        grund = `Zielordner "${ordner}" existiert im Postfach nicht — bitte im Konto anlegen lassen`;
+        ordner = null;
+      }
+    }
+
     triageProtokollieren({ ...b, zielordner: ordner });
 
     // Erst nach dem Protokollieren zaehlen — sonst uebersieht die Zaehlung die

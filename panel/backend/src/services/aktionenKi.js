@@ -8,7 +8,10 @@ const settings = require('./settings');
 const schema   = require('./aktionenSchema');
 const { loggen } = require('./panelLog');
 
-const MODELL = 'gemini-2.5-flash-lite';
+// gemini-2.5-flash-lite ist abgekuendigt ("no longer available to new users") —
+// dieselbe Falle wie in den Workflows. Steht hier bewusst als Konstante, damit
+// der naechste Modellwechsel eine einzige Zeile ist.
+const MODELL = 'gemini-3.5-flash-lite';
 
 function promptBauen(beschreibung) {
   const s = schema.beschreibung();

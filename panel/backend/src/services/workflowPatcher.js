@@ -652,14 +652,22 @@ async function workflowSuchen(praefix) {
   return treffer;
 }
 
-// Repariert den Bug, bei dem n8n's JSON.stringify den promptText verwirft, weil 
+// Repariert den Bug, bei dem n8n's JSON.stringify den promptText verwirft, weil
 // die Eigenschaft unter bestimmten Umständen als Proxy-Feld nicht iterierbar ist,
 // und rüstet alte 2.5-flash-lite Modelle auf 3.5 auf.
+//
+// Erkannt werden die Knoten an der Adresse, nicht am Namen. Vorher zählte nur
+// "Gemini klassifizieren" — dadurch blieb "Gemini zusammenfassen" im Workflow 02
+// auf dem abgekündigten Modell hängen und der tägliche Digest scheiterte jeden
+// Morgen mit "This model models/gemini-2.5-flash-lite is no longer available".
+// Dasselbe Muster wie bei panelKnotenVerdrahten: über die URL, damit kein Knoten
+// übrig bleibt, wenn später weitere dazukommen.
 function geminiRequestReparieren(workflow) {
   let geaendert = false;
   for (const knoten of workflow.nodes) {
-    if (knoten.name !== 'Gemini klassifizieren' || knoten.type !== 'n8n-nodes-base.httpRequest') continue;
-    
+    if (knoten.type !== 'n8n-nodes-base.httpRequest') continue;
+    if (!String(knoten.parameters?.url || '').includes('generativelanguage.googleapis.com')) continue;
+
     // Bugfix: JSON.stringify
     if (knoten.parameters?.jsonBody) {
       const alt = '{ text: $json.promptText }';
@@ -899,6 +907,9 @@ async function kiUndBenachrichtigungenSynchronisieren() {
 
       if (reservierteIdsUmbenennen(workflow)) geaendert = true;
       if (panelKnotenVerdrahten(workflow, panelCredId)) geaendert = true;
+      // Auch hier, nicht nur in 01 und 04: Sonst bleibt der Digest-Workflow auf
+      // dem abgekündigten Gemini-Modell stehen, weil ihn sonst niemand anfasst.
+      if (geminiRequestReparieren(workflow)) geaendert = true;
 
       for (const knoten of workflow.nodes) {
         if (['Gemini klassifizieren', 'Gemini zusammenfassen'].includes(knoten.name)) {

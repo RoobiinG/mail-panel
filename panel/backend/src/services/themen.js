@@ -192,6 +192,47 @@ function regelLernen(kontoId, von, ordner) {
   return true;
 }
 
+// ─── Existiert der Zielordner ueberhaupt? ────────────────────────────────────
+//
+// Fehlt er, bricht der Verschiebe-Knoten den ganzen n8n-Lauf ab
+// ("9 NO [TRYCREATE] No folder Newsletter") und die Mail bleibt unbearbeitet
+// liegen — ohne dass im Panel etwas davon zu sehen waere. Lieber vorher hier
+// merken und die Mail mit klarer Begruendung in der Sortier-Inbox zeigen.
+//
+// Die Ordnerliste je Konto wird kurz zwischengespeichert: Ohne das kaeme auf
+// jede einzelne Mail eine eigene IMAP-Verbindung.
+const ORDNER_CACHE_MS = 60000;
+const ordnerCache = new Map();
+
+async function ordnerListe(konto) {
+  const eintrag = ordnerCache.get(konto.id);
+  if (eintrag && Date.now() - eintrag.zeit < ORDNER_CACHE_MS) return eintrag.ordner;
+  const ergebnis = await imap.testVerbindung({ ...konto, ...zugang(konto) });
+  const ordner = ergebnis.ordner || [];
+  ordnerCache.set(konto.id, { zeit: Date.now(), ordner });
+  return ordner;
+}
+
+/** Nach dem Anlegen eines Ordners ist die Liste veraltet. */
+function cacheVerwerfen(kontoId) {
+  ordnerCache.delete(kontoId);
+}
+
+/**
+ * @returns {Promise<boolean>} true, wenn der Ordner im Postfach existiert.
+ * Laesst sich das Postfach nicht erreichen, wird true angenommen — eine
+ * gescheiterte Pruefung darf die Sortierung nicht blockieren.
+ */
+async function ordnerExistiert(konto, pfad) {
+  if (!pfad) return false;
+  try {
+    return (await ordnerListe(konto)).includes(pfad);
+  } catch (err) {
+    loggen('warn', 'themen', `Ordnerliste für ${konto.name} nicht abrufbar: ${err.message}`);
+    return true;
+  }
+}
+
 // ─── Bausteine, die auch die Panel-Routen brauchen ───────────────────────────
 
 // Legt den Ordner unter dem eingestellten Sammelordner an und gibt den Pfad
@@ -201,7 +242,9 @@ function regelLernen(kontoId, von, ordner) {
 async function ordnerAnlegen(konto, name) {
   const e = einstellungen();
   const pfad = e.eltern ? [e.eltern, name] : name;
-  return imap.ordnerAnlegenPfad(zugang(konto), pfad);
+  const angelegt = await imap.ordnerAnlegenPfad(zugang(konto), pfad);
+  cacheVerwerfen(konto.id);
+  return angelegt;
 }
 
 function inKatalog(kontoId, pfad, quelle, beschreibung = null) {
@@ -313,6 +356,8 @@ module.exports = {
   ausPostfachEinlesen,
   regelLernen,
   aufloesen,
+  ordnerExistiert,
+  cacheVerwerfen,
   ordnerAnlegen,
   inKatalog,
   vorschlagMerken,

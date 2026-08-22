@@ -2,6 +2,35 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [2.7.0.3] - 2026-08-22 (Build 40) — *Fix: Abgekündigtes Gemini-Modell und fehlende Zielordner*
+
+Beide Fehler kamen aus der Fehlerliste des Testservers, nicht aus dem Schreibtisch.
+
+### Bugfixes
+
+- **Der tägliche Digest scheiterte jeden Morgen.** Workflow 02 lief noch auf
+  `gemini-2.5-flash-lite`; Google antwortet darauf mit *„This model is no longer available to new
+  users"*. Der Patcher hob das Modell zwar an, erkannte die Knoten aber am **Namen** — und hieß
+  einer `Gemini zusammenfassen` statt `Gemini klassifizieren`, blieb er stehen. Dazu wurde
+  `geminiRequestReparieren` nur für die Workflows 01 und 04 aufgerufen, 02 also nie angefasst.
+  Jetzt werden die Knoten an ihrer **Adresse** erkannt (dasselbe Muster wie bei
+  `panelKnotenVerdrahten`), und die Reparatur läuft über alle Workflows.
+- **Der KI-Assistent für eigene Aktionen** stand auf demselben abgekündigten Modell
+  (`services/aktionenKi.js`) und hätte mit derselben Meldung abgebrochen.
+- **Ein fehlender Zielordner riss den ganzen Lauf ab.** Der Verschiebe-Knoten meldete
+  `9 NO [TRYCREATE] No folder Newsletter`, n8n brach die Ausführung ab und die Mail blieb
+  unbearbeitet liegen — im Panel war davon nichts zu sehen. Das Panel prüft jetzt vor der
+  Rückgabe, ob der Ordner im Postfach existiert; fehlt er, bleibt die Mail im Posteingang und
+  steht mit genau dieser Begründung in der Sortier-Inbox. Die Ordnerliste wird dafür je Konto
+  60 Sekunden zwischengespeichert, sonst käme auf jede Mail eine eigene IMAP-Verbindung.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migrationen**: keine.
+- **n8n-Workflow-Kompatibilität**: **Synchronisieren erforderlich**, damit Workflow 02 das neue
+  Modell bekommt. Die mitgelieferte Vorlage `02-daily-digest.json` ist ebenfalls aktualisiert.
+- **Neustart**: ausreichend.
+
 ## [2.7.0.2] - 2026-08-22 (Build 39) — *Fix: Die KI schlug nie einen neuen Themen-Ordner vor*
 
 ### Bugfixes
