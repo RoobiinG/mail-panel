@@ -258,9 +258,13 @@ export default function Sortierung() {
   // Die offenen Mails nach Absender-Domain buendeln. Genau hier liegt die
   // Arbeitsersparnis: 20 Mails von accounts.google.com sind ein Handgriff,
   // nicht zwanzig.
+  const gefilterteInbox = aktivesKonto 
+    ? inbox.filter(m => m.konto_id === aktivesKonto) 
+    : inbox;
+
   const gruppen = (() => {
     const map = new Map();
-    for (const mail of inbox) {
+    for (const mail of gefilterteInbox) {
       const d = domainVon(mail.von) || '(ohne Absender)';
       if (!map.has(d)) map.set(d, { domain: d, mails: [], absender: new Set() });
       const g = map.get(d);
@@ -538,9 +542,9 @@ export default function Sortierung() {
               <span className="text-[11px] font-normal text-panel-muted hidden sm:inline">
                 nach Absender-Domain gebündelt
               </span>
-              {inbox.length > 0 && (
+              {gefilterteInbox.length > 0 && (
                 <span className="bg-panel-accent text-white text-xs px-2 py-0.5 rounded-full">
-                  {inbox.length}
+                  {gefilterteInbox.length}
                 </span>
               )}
             </h2>
@@ -548,7 +552,7 @@ export default function Sortierung() {
           </div>
           
           <div className="flex-1 overflow-auto max-h-[500px]">
-            {inbox.length === 0 ? (
+            {gefilterteInbox.length === 0 ? (
               <div className="p-8 text-center text-panel-muted flex flex-col items-center gap-2">
                 <CheckCircle2 size={32} className="text-green-500/50" />
                 <p className="text-sm">Nichts offen — alle Mails wurden automatisch einsortiert.</p>

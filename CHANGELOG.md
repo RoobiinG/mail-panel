@@ -2,6 +2,18 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [2.8.2.0] - 2026-08-22 (Build 44) — *Filter Inbox by Account*
+
+### Features
+
+- **Sortier-Inbox nach Postfach gefiltert.** Wenn links in den Sortier-Regeln ein bestimmtes Postfach ausgewählt ist, zeigt die Sortier-Inbox auf der rechten Seite jetzt nur noch die E-Mails, die auch zu diesem Postfach gehören. So sieht man beim Sortieren nicht mehr die Mails anderer Konten.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migrationen**: keine.
+- **n8n-Workflow-Kompatibilität**: unverändert.
+- **Neustart**: ausreichend.
+
 ## [2.8.1.0] - 2026-08-22 (Build 43) — *Einzelregeln zu Domain-Regeln zusammenfassen*
 
 ### Features
