@@ -86,12 +86,26 @@ async function workflowSpeichern(id, workflow) {
 async function workflowAktivieren(id, aktiv) {
   try {
     const pfad = aktiv ? 'activate' : 'deactivate';
-    // Ohne Rumpf setzt axios "application/x-www-form-urlencoded" — das lehnt die
-    // n8n-API mit "unsupported media type" ab. Deshalb leeres JSON mitschicken.
-    const { data } = await client(ZEITLIMIT_SCHREIBEN).post(`/workflows/${id}/${pfad}`, {}, {
-      headers: { 'Content-Type': 'application/json' },
+    const basis = (settings.hole('n8n_url') || 'http://n8n:5678').replace(/\/$/, '');
+    const key = settings.hole('n8n_api_key');
+
+    // Nativ fetch nutzen, um Axios-Probleme mit Content-Type und Body zu umgehen.
+    // n8n (Fastify) lehnt {} inzwischen mit "Bad request - please check your parameters" ab.
+    const response = await fetch(`${basis}/api/v1/workflows/${id}/${pfad}`, {
+      method: 'POST',
+      headers: {
+        'X-N8N-API-KEY': key,
+        'Accept': 'application/json'
+      },
+      signal: AbortSignal.timeout(ZEITLIMIT_SCHREIBEN)
     });
-    return data;
+
+    if (!response.ok) {
+      const fehlertext = await response.text().catch(() => response.statusText);
+      throw new Error(`n8n-API antwortete mit ${response.status}: ${fehlertext}`);
+    }
+
+    return await response.json();
   } catch (err) {
     throw fehler(err, `Workflow ${id} konnte nicht ${aktiv ? 'aktiviert' : 'deaktiviert'} werden`);
   }

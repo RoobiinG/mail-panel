@@ -2,6 +2,18 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [2.8.2.1] - 2026-08-22 (Build 45) — *Fix: n8n Workflow-Aktivierung*
+
+### Bugfixes
+
+- **Workflows ließen sich nicht mehr über das Panel aktivieren/deaktivieren.** Die n8n-API hat neuere Validierungsregeln für Body-Payloads. Da der bisherige Axios-Aufruf ein leeres Objekt `{}` gesendet hat, um einem Content-Type-Fehler aus dem Weg zu gehen, lehnte n8n die Anfrage jetzt mit "Bad request - please check your parameters" ab. Die Aktivierung nutzt jetzt die native `fetch`-API, womit ein vollständig leerer Body ohne störende Header verschickt werden kann, was von n8n wieder problemlos akzeptiert wird.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migrationen**: keine.
+- **n8n-Workflow-Kompatibilität**: unverändert.
+- **Neustart**: ausreichend.
+
 ## [2.8.2.0] - 2026-08-22 (Build 44) — *Filter Inbox by Account*
 
 ### Features
