@@ -15,13 +15,13 @@
 // ${...} — der Prompt wird mit + zusammengesetzt, und das Backtick der
 // Code-Fence steht im erzeugten Code als Unicode-Escape.
 
-const MARKE = '// PANEL:THEMEN v1';
+const MARKE = '// PANEL:THEMEN v2';
 
 // ─── "Prüfung auswerten" ─────────────────────────────────────────────────────
 // Fuehrt die Antwort des Panels mit der Mail zusammen UND baut den Gemini-Prompt.
 // Der Prompt entsteht erst hier, weil erst diese Antwort den Themen-Katalog des
 // Kontos mitbringt. __NORMALISIERER__ wird je Workflow ersetzt.
-const PRUEFUNG_AUSWERTEN = String.raw`// PANEL:THEMEN v1
+const PRUEFUNG_AUSWERTEN = String.raw`// PANEL:THEMEN v2
 // Ergebnis der Panel-Pruefung mit der Mail zusammenfuehren und den Gemini-Prompt
 // bauen. Whitelist beendet die Pruefung sofort, Blacklist geht ohne KI in die
 // Quarantaene.
@@ -44,14 +44,15 @@ if (themen.aktiv) {
     .map(function (o) { return '- ' + o.name + (o.beschreibung ? ' — ' + o.beschreibung : ''); })
     .join('\n') || '(noch keiner angelegt)';
   const neuRegel = themen.neue_ordner
-    ? '- Passt keiner davon und das Thema kommt erkennbar oefter vor, antworte "NEU:<Ordnername>". Der Name ist ein einzelnes deutsches Wort, hoechstens 20 Zeichen, nur Buchstaben, Zahlen, Leerzeichen und Bindestriche.'
-    : '- Neue Ordner sind nicht erlaubt. Passt keiner der vorhandenen, setze null.';
+    ? '- Passt keiner davon inhaltlich, benenne das Thema selbst und antworte "NEU:<Ordnername>". Nimm einen kurzen, allgemeinen Oberbegriff, unter den auch kuenftige Mails zum selben Thema passen — also "Games" statt "Steam Sommer-Sale", "Reisen" statt "Fluege nach Rom". Auf Deutsch, hoechstens 20 Zeichen, nur Buchstaben, Zahlen, Leerzeichen und Bindestriche.'
+    : '- Passt keiner davon, setze null. Neue Ordner sind nicht erlaubt.';
   themenBlock = '\n\nVorhandene Themen-Ordner:\n' + liste
-    + '\n\nBestimme zusaetzlich das Feld "ordner":\n'
-    + '- Passt einer der vorhandenen Ordner zum Inhalt, nimm ihn genau so, wie er oben steht.\n'
+    + '\n\nBestimme zusaetzlich das Feld "ordner" — den Themen-Ordner, in den diese Mail gehoert:\n'
+    + '- Passt einer der vorhandenen Ordner inhaltlich, nimm ihn genau so, wie er oben steht.\n'
     + neuRegel + '\n'
-    + '- Bist du unsicher oder passt nichts, setze null. Lieber null als geraten.\n'
-    + '- "konfidenz" ist deine Sicherheit von 0.0 bis 1.0.';
+    + '- Setze null nur, wenn die Mail kein erkennbares Sachthema hat: reine Werbung ohne Bezug, Systemmeldungen, kurze persoenliche Nachrichten.\n'
+    + '- Das Sachthema zaehlt, nicht die Form. Ein Newsletter ueber Spiele gehoert nach "Games", nicht in einen Ordner namens "Newsletter".\n'
+    + '- "konfidenz" ist deine Sicherheit beim Ordner, 0.0 bis 1.0.';
 }
 
 const promptText = 'Du bist ein E-Mail-Klassifizierer. Analysiere die folgende E-Mail und antworte NUR mit einem JSON-Objekt in exakt diesem Format:\n'
@@ -93,7 +94,7 @@ return {
 `;
 
 // ─── "Antwort parsen" ────────────────────────────────────────────────────────
-const ANTWORT_PARSEN = String.raw`// PANEL:THEMEN v1
+const ANTWORT_PARSEN = String.raw`// PANEL:THEMEN v2
 // Gemini-Antwort auswerten. Der Zielordner ist hier nur die Kategorie-
 // Entscheidung — endgueltig entscheidet das Panel im Knoten "Einsortieren", denn
 // nur dort laesst sich ein Ordnername pruefen und ein fehlender Ordner anlegen.
@@ -142,7 +143,7 @@ return {
 // ─── "Blacklist: Quarantäne" ─────────────────────────────────────────────────
 // Bis v2.6 stand hier der Ordnername fest — wer die Quarantaene umbenannt hatte,
 // bekam eine Mail in einen Ordner, den es nicht gibt.
-const BLACKLIST_QUARANTAENE = String.raw`// PANEL:THEMEN v1
+const BLACKLIST_QUARANTAENE = String.raw`// PANEL:THEMEN v2
 // Blacklist-Treffer: ohne KI direkt in die Quarantaene
 const m = $json;
 return {
@@ -158,7 +159,7 @@ return {
 `;
 
 // ─── "Virus: Quarantäne" ─────────────────────────────────────────────────────
-const VIRUS_QUARANTAENE = String.raw`// PANEL:THEMEN v1
+const VIRUS_QUARANTAENE = String.raw`// PANEL:THEMEN v2
 // Malware im Anhang: ohne KI direkt in die Quarantaene
 const m = $('__NORMALISIERER__').item.json;
 return {

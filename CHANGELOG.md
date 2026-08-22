@@ -2,6 +2,28 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [2.7.0.2] - 2026-08-22 (Build 39) — *Fix: Die KI schlug nie einen neuen Themen-Ordner vor*
+
+### Bugfixes
+
+- **Der Prompt verlangte Unmögliches.** Er ließ einen neuen Ordner nur vorschlagen, wenn das Thema
+  „erkennbar öfter vorkommt" — das kann ein Modell aus einer einzelnen Mail nicht beurteilen, also
+  antwortete es sicherheitshalber `null`. Im Test auf dem Testserver landete ein Steam-Newsletter
+  dadurch in `Newsletter` statt in einem Games-Ordner: genau der Fall, für den das Feature gebaut
+  wurde. Die Anweisung lautet jetzt, das Thema der Mail selbst zu benennen und dafür einen
+  allgemeinen Oberbegriff zu wählen (`Games`, nicht `Steam Sommer-Sale`); `null` bleibt den Mails
+  ohne erkennbares Sachthema vorbehalten. Zusätzlich steht ausdrücklich im Prompt, dass das
+  Sachthema zählt und nicht die Form — ein Newsletter über Spiele gehört nach `Games`.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migrationen**: keine.
+- **n8n-Workflow-Kompatibilität**: **Synchronisieren zwingend erforderlich.** Die Marke der
+  Code-Knoten steigt von `// PANEL:THEMEN v1` auf `v2`, damit der Patcher die schon umgestellten
+  Knoten noch einmal anfasst — sonst käme der neue Prompt nie an. Wer *Prüfung auswerten* oder
+  *Antwort parsen* seit v2.7.0.0 von Hand angepasst hat, verliert diese Änderung dabei.
+- **Neustart**: ausreichend.
+
 ## [2.7.0.1] - 2026-08-22 (Build 38) — *Fix: Synchronisieren bricht nicht mehr auf halber Strecke ab*
 
 ### Bugfixes
