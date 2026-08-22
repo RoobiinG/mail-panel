@@ -256,6 +256,33 @@ if (!rollenMigration) {
     .run(new Date().toISOString());
 }
 
+// ─── Einmalige Bereinigung: Dubletten in der Sortier-Inbox ───────────────────
+//
+// Bis v2.7.0.0 schrieb /api/internal/sort jede Mail ohne Regel-Treffer in die
+// Sortier-Inbox — bei jedem Lauf erneut. Wer die Bestands-Triage mehrfach
+// gestartet hat, fand dieselbe Mail dort bis zu einem Dutzend Mal. Seither
+// schreibt nur noch /einsortieren hinein und aktualisiert vorhandene Zeilen.
+//
+// Der Altbestand wird nicht geloescht, sondern auf "ignoriert" gesetzt: Die
+// juengste Zeile je Konto und UID bleibt offen, die aelteren verschwinden nur
+// aus der Ansicht und lassen sich jederzeit wieder ansehen.
+const inboxMigration = db.prepare("SELECT value FROM settings WHERE key = 'migration_sortinbox_dubletten'").get();
+if (!inboxMigration) {
+  const info = db.prepare(`
+    UPDATE sort_inbox SET status = 'ignoriert'
+    WHERE status = 'offen' AND uid IS NOT NULL AND konto_id IS NOT NULL AND id NOT IN (
+      SELECT MAX(id) FROM sort_inbox
+      WHERE status = 'offen' AND uid IS NOT NULL AND konto_id IS NOT NULL
+      GROUP BY konto_id, uid
+    )
+  `).run();
+  db.prepare("INSERT INTO settings (key, value) VALUES ('migration_sortinbox_dubletten', ?)")
+    .run(new Date().toISOString());
+  if (info.changes > 0) {
+    console.log(`[db] Sortier-Inbox: ${info.changes} doppelte Zeile(n) auf "ignoriert" gesetzt.`);
+  }
+}
+
 // ─── Default-Einstellungen beim ersten Start ─────────────────────────────────
 const defaults = {
   dnsbl_listen: JSON.stringify(['zen.spamhaus.org', 'bl.spamcop.net', 'b.barracudacentral.org']),

@@ -2,6 +2,27 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [2.7.0.4] - 2026-08-22 (Build 41) — *Fix: Dubletten in der Sortier-Inbox aufräumen*
+
+### Bugfixes
+
+- **Die Sortier-Inbox füllte sich mit Kopien derselben Mail.** Bis v2.7.0.0 schrieb
+  `/api/internal/sort` jede Mail ohne Regel-Treffer dort hinein — bei **jedem** Lauf erneut. Wer
+  die Bestands-Triage mehrfach gestartet hat (und genau dazu ist sie da), fand dieselbe Mail bis
+  zu einem Dutzend Mal in der Liste. Auf dem Testserver waren von 304 offenen Einträgen 239
+  überzählig. Neue Dubletten entstehen seit v2.7.0.0 nicht mehr; für den Altbestand läuft jetzt
+  einmalig eine Bereinigung.
+  **Es wird dabei nichts gelöscht:** Die jüngste Zeile je Konto und UID bleibt offen, die älteren
+  bekommen den Status *ignoriert* und verschwinden nur aus der Ansicht.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migrationen**: eine einmalige Bereinigung von `sort_inbox`, abgesichert über den Schlüssel
+  `migration_sortinbox_dubletten` — sie läuft genau einmal und fasst später hinzugekommene
+  Einträge nicht mehr an.
+- **n8n-Workflow-Kompatibilität**: unverändert, kein Sync nötig.
+- **Neustart**: ausreichend — die Bereinigung läuft beim Start.
+
 ## [2.7.0.3] - 2026-08-22 (Build 40) — *Fix: Abgekündigtes Gemini-Modell und fehlende Zielordner*
 
 Beide Fehler kamen aus der Fehlerliste des Testservers, nicht aus dem Schreibtisch.
