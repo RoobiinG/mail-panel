@@ -461,6 +461,16 @@ selbst bauen:
 docker compose up -d --build panel
 ```
 
+> **Nur mit vollständigem, aktuellem Quellstand bauen.** `--build` erzeugt das Image aus dem
+> Ordner, in dem du stehst, und legt es unter demselben Namen ab wie das fertige Image aus der
+> Registry. Liegen dort ältere Dateien, läuft danach genau dieser ältere Stand — auch wenn ein
+> `docker compose pull` vorher etwas Neues geholt hat. Zum Zurückholen des Registry-Stands:
+>
+> ```bash
+> docker pull ghcr.io/roobiing/mail-panel:latest
+> docker compose up -d --force-recreate --no-build panel
+> ```
+
 ## Sichern
 
 Sichere die Volumes `n8n_data`, `n8n_db_data` und `panel_data`. In `panel_data` liegen die
@@ -497,6 +507,7 @@ nötig — der kostet für dieses Aufkommen Centbeträge.
 | Google-Verbindung bricht mit „Fehler 403: access_denied“ ab | Die App in der Google Cloud Console steht auf Status *Testing*. Die eigene E-Mail-Adresse muss dort unter **OAuth-Zustimmungsbildschirm → Testnutzer** eingetragen werden. |
 | Passkey lässt sich nicht anlegen | Hinter einem Reverse Proxy muss `ALLOWED_ORIGIN` auf die Panel-Adresse gesetzt sein |
 | Panel zeigt nach dem Update die alte Versionsnummer | Browser-Cache — mit `Strg+F5` neu laden |
+| Seiten bleiben leer, viele Aufrufe enden in 404 („Cannot GET /api/…") | Frontend und Backend stammen aus verschiedenen Ständen. Fast immer die Folge eines `docker compose up -d --build` mit unvollständigem Quellstand. Prüfen mit `docker exec mail-panel grep -c '^router\.' src/routes/sortierung.js`, dann `docker pull ghcr.io/roobiing/mail-panel:latest` und `docker compose up -d --force-recreate --no-build panel` |
 | Nach dem Update ist man abgemeldet | Einmalig und beabsichtigt: Seit v2.8.0.0 liegt die Anmeldung an anderer Stelle. Wer über einen Neustart des Browsers hinweg angemeldet bleiben will, setzt beim Anmelden den Haken **Angemeldet bleiben** |
 | Man bleibt scheinbar angemeldet, aber nichts lädt mehr | War bis v2.8.0.0 der Fall, wenn die Sitzung ablief. Seither wird sauber abgemeldet und die Anmeldemaske nennt den Grund |
 | Synchronisieren läuft in einen Timeout, n8n meldet „Maximum number of connections from user+IP exceeded" | Dein Mailserver begrenzt die gleichzeitigen IMAP-Verbindungen (bei Dovecot `mail_max_userip_connections`, ab Werk oft 10). n8n baut beim Speichern alle Trigger neu auf und läuft ins Limit; der Aufruf kommt dann nie zurück. `docker compose restart n8n` gibt die alten Verbindungen frei, danach klappt der Sync. Dauerhaft: das Limit am Mailserver anheben |

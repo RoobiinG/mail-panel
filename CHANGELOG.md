@@ -2,6 +2,25 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [2.8.3.0] - 2026-08-22 (Build 46) — *Doku: Warnung vor dem Selbstbauen auf dem Server*
+
+### Änderungen
+
+- **`docker compose up -d --build` kann die Anwendung zurückdrehen** — das steht jetzt in der
+  Anleitung. `--build` erzeugt das Image aus dem Ordner, in dem man steht, und legt es unter
+  demselben Namen ab wie das fertige Image aus der Registry. Liegen dort ältere Dateien, läuft
+  danach dieser ältere Stand, auch wenn vorher ein `docker compose pull` etwas Neues geholt hat.
+  Auf dem Testserver führte das zu einem Frontend von Build 44 mit einem Backend vom 13. August:
+  Die Hälfte der API-Routen antwortete mit `Cannot GET /api/…`, Dashboard und Sortierseite blieben
+  leer, während die Datenbank völlig in Ordnung war.
+- **Neuer Eintrag in der Fehlertabelle** für genau dieses Bild (leere Seiten, 404 auf API-Aufrufe)
+  samt Prüfbefehl und dem Weg zurück:
+  `docker pull …` und `docker compose up -d --force-recreate --no-build panel`.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migrationen**: keine. **n8n-Workflows**: unverändert, kein Sync nötig. Reine Doku-Änderung.
+
 ## [2.8.2.1] - 2026-08-22 (Build 45) — *Fix: n8n Workflow-Aktivierung*
 
 ### Bugfixes
