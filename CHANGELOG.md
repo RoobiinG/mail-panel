@@ -2,6 +2,31 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [2.8.4.0] - 2026-08-24 (Build 47) — *Systemordner kommen nicht mehr in den Themen-Katalog*
+
+### Bugfixes
+
+- **Gmails Ansichten landeten als mögliche Sortierziele im Katalog.** „Aus Postfach einlesen"
+  übernahm `[Gmail]`, `[Gmail]/Alle Nachrichten`, `[Gmail]/Markiert` und `[Gmail]/Wichtig` wie
+  gewöhnliche Ordner. Das sind aber keine Ordner, sondern Ansichten — hätte die KI eines davon
+  gewählt, wäre die Mail scheinbar verschwunden, und `[Gmail]` selbst kann als `\Noselect`-Knoten
+  überhaupt keine Nachrichten aufnehmen.
+  Der bisherige Filter verglich **Namen** gegen eine Liste deutscher und englischer Systemordner —
+  an Gmails Benennung, die sich nach der Kontosprache richtet, ging er vorbei. Jetzt entscheidet
+  der Mailserver selbst: Alles, was eine IMAP-Sonderrolle trägt (`\All`, `\Trash`, `\Sent`,
+  `\Drafts`, `\Junk`, `\Flagged`, `\Important`, `\Archive`) oder als `\Noselect` / `\NonExistent`
+  ausgewiesen ist, kommt nicht in den Katalog. Was übersprungen wurde, steht im Log.
+- **Altbestand wird mit aufgeräumt:** „Aus Postfach einlesen" sperrt solche Einträge, wenn sie
+  früher schon hineingeraten sind. Gelöscht wird nichts — sie bleiben sichtbar, werden aber nie
+  befüllt.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migrationen**: keine. Bestehende Katalog-Einträge werden erst beim nächsten
+  *Aus Postfach einlesen* gesperrt, nicht automatisch beim Start.
+- **n8n-Workflow-Kompatibilität**: unverändert, kein Sync nötig.
+- **Neustart**: ausreichend.
+
 ## [2.8.3.0] - 2026-08-22 (Build 46) — *Doku: Warnung vor dem Selbstbauen auf dem Server*
 
 ### Änderungen

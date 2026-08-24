@@ -393,7 +393,12 @@ router.post('/katalog/einlesen', async (req, res) => {
   const konto = kontoHolen(req.body?.konto_id);
   if (!konto) return res.status(400).json({ error: 'Das Konto existiert nicht.' });
   try {
-    res.json(await themen.ausPostfachEinlesen(konto));
+    const ergebnis = await themen.ausPostfachEinlesen(konto);
+    // Systemordner, die vor v2.8.4.0 in den Katalog gerutscht sind, dabei
+    // gleich stilllegen — sonst bliebe "[Gmail]/Alle Nachrichten" ein
+    // moegliches Ziel, obwohl es nur eine Ansicht ist.
+    const gesperrt = await themen.systemordnerSperren(konto);
+    res.json({ ...ergebnis, gesperrt });
   } catch (err) {
     res.status(502).json({ error: err.message });
   }

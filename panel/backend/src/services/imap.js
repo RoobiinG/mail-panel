@@ -173,6 +173,35 @@ async function anhaengeHolen({ ordner = 'INBOX', uid, ...konto }) {
   }
 }
 
+// Die Ordner eines Postfachs mit ihren IMAP-Kennzeichnungen.
+//
+// Nur der Pfad reicht nicht: Gmail liefert "[Gmail]/Alle Nachrichten",
+// "[Gmail]/Markiert" und "[Gmail]/Wichtig" wie gewoehnliche Ordner aus, obwohl
+// es Ansichten sind — dort etwas hineinzuschieben geht schief oder laesst die
+// Mail verschwinden. "[Gmail]" selbst traegt \Noselect und kann ueberhaupt
+// keine Nachrichten aufnehmen. Erkennbar ist das nur an specialUse und den
+// Flags, nicht am Namen: Der ist je nach Sprache des Kontos anders.
+async function ordnerDetails(konto) {
+  const client = verbindung(konto);
+  try {
+    await client.connect();
+    return (await client.list()).map((o) => ({
+      pfad: o.path,
+      name: o.name,
+      spezial: o.specialUse || null,
+      flags: [...(o.flags || [])],
+      // Noselect und NonExistent sind reine Zwischenknoten im Ordnerbaum und
+      // koennen keine Nachrichten aufnehmen. Die Flags kommen mit fuehrendem
+      // Backslash — den schneiden wir zum Vergleich ab.
+      auswaehlbar: ![...(o.flags || [])].some(
+        (f) => ['noselect', 'nonexistent'].includes(String(f).slice(1).toLowerCase()),
+      ),
+    }));
+  } finally {
+    try { await client.logout(); } catch { /* Verbindung war schon zu */ }
+  }
+}
+
 // Legt einen Ordner an und gibt den Pfad zurueck, den der Server vergeben hat.
 // `pfad` darf ein Array sein ([Eltern, Kind]) — dann setzt imapflow das
 // Trennzeichen des Servers selbst ein (bei Dovecot meist "/", bei anderen ".").
@@ -266,6 +295,7 @@ module.exports = {
   ordnerAnlegen,
   ordnerErstellen,
   ordnerAnlegenPfad,
+  ordnerDetails,
   mailVerschieben,
   mailsVerschieben,
   anhaengeHolen,

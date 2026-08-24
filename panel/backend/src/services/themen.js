@@ -134,7 +134,7 @@ function zugang(konto) {
  * Struktur ein, die der Nutzer laengst hat, statt eine zweite danebenzubauen.
  */
 async function ausPostfachEinlesen(konto) {
-  const ergebnis = await imap.testVerbindung({ ...konto, ...zugang(konto) });
+  const ordner = await imap.ordnerDetails({ ...konto, ...zugang(konto) });
   const gesperrteNamen = reserviert(konto);
   const vorhanden = new Set(katalog(konto.id, { auchGesperrte: true }).map((o) => o.ordner));
 
@@ -142,15 +142,59 @@ async function ausPostfachEinlesen(konto) {
     "INSERT OR IGNORE INTO konto_ordner (konto_id, ordner, quelle) VALUES (?, ?, 'imap')",
   );
   const neu = [];
-  for (const pfad of ergebnis.ordner || []) {
-    if (vorhanden.has(pfad)) continue;
-    const letztes = String(pfad).split(/[/.]/).pop();
-    if (gesperrteNamen.has(String(pfad).toLowerCase())) continue;
+  const uebersprungen = [];
+  for (const o of ordner) {
+    if (vorhanden.has(o.pfad)) continue;
+
+    // Der Server sagt selbst, was Papierkorb, Entwuerfe, "Alle Nachrichten"
+    // oder ein blosser Zwischenknoten ist. Darauf zu hoeren ist zuverlaessiger
+    // als Namen zu raten: Gmail nennt seine Ansichten je nach Kontosprache
+    // anders ("[Gmail]/Alle Nachrichten", "[Gmail]/All Mail", ...), und
+    // hineinschieben laesst sich dort ohnehin nichts Sinnvolles.
+    if (o.spezial) { uebersprungen.push(`${o.pfad} (${o.spezial})`); continue; }
+    if (!o.auswaehlbar) { uebersprungen.push(`${o.pfad} (kein Zielordner)`); continue; }
+
+    const letztes = String(o.pfad).split(/[/.]/).pop();
+    if (gesperrteNamen.has(String(o.pfad).toLowerCase())) continue;
     if (gesperrteNamen.has(letztes.toLowerCase())) continue;
-    einfuegen.run(konto.id, pfad);
-    neu.push(pfad);
+
+    einfuegen.run(konto.id, o.pfad);
+    neu.push(o.pfad);
   }
-  return { ok: true, neu, gesamt: katalog(konto.id, { auchGesperrte: true }).length };
+  if (uebersprungen.length) {
+    loggen('info', 'themen',
+      `${konto.name}: ${uebersprungen.length} Systemordner nicht in den Katalog übernommen — ${uebersprungen.join(', ')}`);
+  }
+  return {
+    ok: true,
+    neu,
+    uebersprungen,
+    gesamt: katalog(konto.id, { auchGesperrte: true }).length,
+  };
+}
+
+/**
+ * Nimmt Systemordner, die frueher versehentlich in den Katalog geraten sind,
+ * wieder heraus. Sie werden nicht geloescht, sondern gesperrt — sichtbar bleibt
+ * damit, dass es sie gibt, befuellt werden sie nie.
+ * @returns {Promise<string[]>} die gesperrten Pfade
+ */
+async function systemordnerSperren(konto) {
+  const ordner = await imap.ordnerDetails({ ...konto, ...zugang(konto) });
+  const heikel = new Set(
+    ordner.filter((o) => o.spezial || !o.auswaehlbar).map((o) => o.pfad),
+  );
+  const sperren = db.prepare('UPDATE konto_ordner SET gesperrt = 1 WHERE id = ?');
+  const gesperrt = [];
+  for (const eintrag of katalog(konto.id, { auchGesperrte: true })) {
+    if (eintrag.gesperrt || !heikel.has(eintrag.ordner)) continue;
+    sperren.run(eintrag.id);
+    gesperrt.push(eintrag.ordner);
+  }
+  if (gesperrt.length) {
+    loggen('info', 'themen', `${konto.name}: ${gesperrt.length} Systemordner im Katalog gesperrt — ${gesperrt.join(', ')}`);
+  }
+  return gesperrt;
 }
 
 // ─── Regeln lernen ───────────────────────────────────────────────────────────
@@ -373,6 +417,7 @@ module.exports = {
   fuerPrompt,
   imKatalog,
   ausPostfachEinlesen,
+  systemordnerSperren,
   regelLernen,
   aufloesen,
   ordnerExistiert,
