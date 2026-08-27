@@ -2,6 +2,36 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [2.9.1.0] - 2026-08-27 (Build 53) — *Abhängigkeiten nachgezogen*
+
+Vier Pakete hingen bei ihrer Hauptversion zurück. Keines hatte eine bekannte Lücke — das hier ist
+Wartung, damit der Abstand nicht so groß wird, dass ein Update später riskant ist.
+
+### Änderungen
+
+| Paket | von → nach | Anmerkung |
+|---|---|---|
+| `bcryptjs` | 2.4.3 → ^3.0.3 | **Bestehende Passwörter funktionieren weiter** — vorab geprüft |
+| `better-sqlite3` | ^12.2.0 → ^13.0.3 | natives Modul, wird beim Abbild-Bau übersetzt |
+| `dotenv` | ^16.4.5 → ^17.4.2 | `config({ quiet: true })`, sonst ein Hinweis in jedem Start-Log |
+| `express-rate-limit` | ^7.3.1 → ^8.6.2 | `max:` heißt jetzt `limit:` — drei Stellen angepasst |
+
+**Zum Passwort-Wechsel im Detail**, weil daran die Anmeldung hängt: Vorab in einem eigenen
+Container geprüft, dass ein mit 2.4.3 erzeugter Hash von 3.0.3 weiterhin verifiziert wird und ein
+falsches Passwort weiterhin abgelehnt. Ebenfalls geprüft, dass `require('bcryptjs')` die
+Funktionen direkt liefert — Version 3 ist ESM-first, und ein `.default` davor hätte jede Anmeldung
+lahmgelegt. Neu vergebene Passwörter tragen künftig das Präfix `$2b$` statt `$2a$`; beides ist
+gültiges bcrypt und wird gegenseitig verstanden.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migrationen**: keine. Gespeicherte Passwort-Hashes bleiben unverändert gültig.
+- **n8n-Workflow-Kompatibilität**: unverändert, kein Sync nötig.
+- **Neustart**: ausreichend.
+- **`express` bleibt bewusst bei 4.** Der Sprung auf 5 tauscht `path-to-regexp` und ändert das
+  Verhalten des Query-Parsers; die SPA-Rückfallroute ist ein regulärer Ausdruck. Das bekommt einen
+  eigenen Durchgang mit eigener Prüfung.
+
 ## [2.9.0.1] - 2026-08-27 (Build 52) — *Fix: vite mit hoher Schwachstelle*
 
 ### Bugfixes

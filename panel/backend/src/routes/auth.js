@@ -10,7 +10,7 @@ const router = express.Router();
 // Brute-Force-Bremse: max. 10 Login-Versuche pro Viertelstunde und IP
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  limit: 10,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Zu viele Login-Versuche — bitte 15 Minuten warten.' },

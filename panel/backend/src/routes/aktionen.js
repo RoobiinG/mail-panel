@@ -45,7 +45,7 @@ router.get('/', (req, res) => {
 // begrenzt, deshalb eine Obergrenze pro Panel-Benutzer.
 const entwurfLimiter = rateLimit({
   windowMs: 60_000,
-  max: 10,
+  limit: 10,
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => String(req.user?.id || req.ip),

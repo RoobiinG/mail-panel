@@ -1,4 +1,6 @@
-require('dotenv').config();
+// quiet: true — dotenv 17 gibt sonst bei jedem Start einen Hinweis aus, der im
+// Container-Log nur Rauschen ist.
+require('dotenv').config({ quiet: true });
 // Schlüssel bereitstellen, bevor irgendetwas sie liest (erzeugt sie beim
 // Erststart selbst, damit die Installation ohne .env auskommt)
 require('./secrets').laden();
@@ -88,7 +90,8 @@ app.use('/api/google', auth, rechtErforderlich('einstellungen'), googleRoutes);
 const rateLimit = require('express-rate-limit');
 const clientLogLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 30,
+  // Seit express-rate-limit 8 heisst die Obergrenze "limit"; "max" wurde entfernt.
+  limit: 30,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Zu viele Fehlermeldungen — bitte kurz warten.' },
