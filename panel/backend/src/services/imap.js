@@ -254,7 +254,47 @@ async function mailVerschieben({ uid, von = 'INBOX', nach, ...konto }) {
     await client.connect();
     const schloss = await client.getMailboxLock(String(von));
     try {
-      return await client.messageMove(String(nummer), String(nach), { uid: true });
+      const ergebnis = await client.messageMove(String(nummer), String(nach), { uid: true });
+      // messageMove meldet keinen Fehler, wenn die UID in diesem Ordner gar
+      // nicht existiert — es passiert dann einfach nichts. Wer sich auf das
+      // stille Gelingen verlaesst, meldet dem Nutzer einen Umzug, den es nie
+      // gab. Deshalb wird hier geprueft, ob wirklich etwas bewegt wurde.
+      const bewegt = ergebnis?.uidMap instanceof Map
+        ? ergebnis.uidMap.size
+        : Object.keys(ergebnis?.uidMap || {}).length;
+      if (!bewegt) {
+        throw new Error(`Keine Nachricht mit UID ${nummer} in "${von}" gefunden.`);
+      }
+      return ergebnis;
+    } finally {
+      schloss.release();
+    }
+  } finally {
+    try { await client.logout(); } catch { /* Verbindung war schon zu */ }
+  }
+}
+
+// Sucht eine Mail in einem bestimmten Ordner ueber Absender und Betreff.
+//
+// Warum nicht einfach die gespeicherte UID nehmen? Weil IMAP die UIDs **je
+// Ordner** vergibt. Sobald eine Mail vom Posteingang in den Zielordner
+// gewandert ist, hat sie dort eine andere Nummer — die alte zeigt entweder ins
+// Leere oder, schlimmer, auf eine ganz andere Nachricht. Ein Verschieben ueber
+// die alte UID meldet dann klaglos Erfolg und tut nichts.
+//
+// @returns {Promise<number[]>} gefundene UIDs, neueste zuletzt
+async function mailsSuchen({ ordner, von, betreff, ...konto }) {
+  const client = verbindung(konto);
+  try {
+    await client.connect();
+    const schloss = await client.getMailboxLock(String(ordner));
+    try {
+      const kriterien = {};
+      if (von) kriterien.from = String(von);
+      if (betreff) kriterien.subject = String(betreff);
+      if (!kriterien.from && !kriterien.subject) return [];
+      const treffer = await client.search(kriterien, { uid: true });
+      return Array.isArray(treffer) ? treffer : [];
     } finally {
       schloss.release();
     }
@@ -290,8 +330,14 @@ async function mailsVerschieben({ mails, von = 'INBOX', nach, ...konto }) {
           continue;
         }
         try {
-          await client.messageMove(String(nummer), String(nach), { uid: true });
-          verschoben.push(mail);
+          const ergebnis = await client.messageMove(String(nummer), String(nach), { uid: true });
+          // Auch hier gilt: Eine nicht vorhandene UID ergibt keinen Fehler,
+          // sondern schlicht keine Bewegung. Das darf nicht als Erfolg zaehlen.
+          const bewegt = ergebnis?.uidMap instanceof Map
+            ? ergebnis.uidMap.size
+            : Object.keys(ergebnis?.uidMap || {}).length;
+          if (bewegt) verschoben.push(mail);
+          else fehler.push({ uid: mail.uid, grund: `nicht in "${von}" gefunden` });
         } catch (err) {
           fehler.push({ uid: mail.uid, grund: err.message });
         }
@@ -313,6 +359,7 @@ module.exports = {
   ordnerDetails,
   mailVerschieben,
   mailsVerschieben,
+  mailsSuchen,
   anhaengeHolen,
   STANDARD,
 };

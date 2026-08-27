@@ -214,23 +214,39 @@ router.post('/korrigieren', async (req, res) => {
       return res.status(502).json({ error: `Zielordner nicht nutzbar: ${err.message}` });
     }
 
-    // 2. Die Mail selbst umziehen — aus dem falschen Ordner, nicht aus der INBOX
+    // 2. Die Mail selbst umziehen.
+    //
+    // Nicht ueber die gespeicherte UID: Die stammt aus dem Posteingang, und IMAP
+    // vergibt UIDs je Ordner. Im Zielordner zeigt sie ins Leere — oder auf eine
+    // ganz andere Nachricht, die dann faelschlich verschoben wuerde. Deshalb
+    // wird die Mail dort ueber Absender und Betreff gesucht.
     let verschoben = false;
     let hinweis = null;
-    if (eintrag.uid) {
-      try {
-        await imap.mailVerschieben({
-          ...themen.zugang(konto), uid: eintrag.uid, von: eintrag.zielordner, nach: ziel,
-        });
+    try {
+      const zugang = themen.zugang(konto);
+      const treffer = await imap.mailsSuchen({
+        ...zugang,
+        ordner: eintrag.zielordner,
+        von: sortierung.adresse(eintrag.von),
+        betreff: eintrag.betreff || undefined,
+      });
+
+      if (treffer.length === 0) {
+        hinweis = `In "${eintrag.zielordner}" war diese Mail nicht mehr zu finden — `
+          + 'vermutlich schon von Hand verschoben oder gelöscht. Die Regel gilt trotzdem.';
+      } else {
+        // Bei mehreren Treffern die juengste nehmen: Wiederkehrende Newsletter
+        // haben denselben Betreff, gemeint ist die zuletzt einsortierte.
+        const uid = Math.max(...treffer);
+        await imap.mailVerschieben({ ...zugang, uid, von: eintrag.zielordner, nach: ziel });
         verschoben = true;
-      } catch (err) {
-        // Mail schon von Hand bewegt oder geloescht — die Regel ist trotzdem wertvoll
-        hinweis = `Die Mail selbst ließ sich nicht verschieben (${err.message}). Die Regel wurde angelegt.`;
-        loggen('warn', 'sortierung', `Korrektur: ${hinweis}`);
+        if (treffer.length > 1) {
+          hinweis = `${treffer.length} Mails passten zu Absender und Betreff — verschoben wurde die neueste.`;
+        }
       }
-    } else {
-      hinweis = 'Zu dieser Mail ist keine UID gespeichert — sie stammt aus der Zeit vor v2.9.2.0. '
-        + 'Verschoben wurde nichts, die Regel gilt ab jetzt.';
+    } catch (err) {
+      hinweis = `Die Mail selbst ließ sich nicht verschieben (${err.message}). Die Regel wurde angelegt.`;
+      loggen('warn', 'sortierung', `Korrektur: ${hinweis}`);
     }
 
     // 3. Aus der Korrektur lernen

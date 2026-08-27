@@ -2,6 +2,31 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.0.0.1] - 2026-08-27 (Build 55) — *Fix: Korrektur meldete Erfolg, ohne zu verschieben*
+
+### Bugfixes
+
+- **Die Korrektur-Schleife verschob nichts und meldete trotzdem Erfolg.** Aufgefallen im
+  End-to-End-Test: Das Panel antwortete `verschoben: true`, die Ordnerstände blieben aber
+  unverändert.
+
+  Ursache: **IMAP vergibt UIDs je Ordner.** Im Log steht die UID aus dem Posteingang; sobald die
+  Mail in den Zielordner gewandert ist, hat sie dort eine andere. Die alte zeigt ins Leere — oder,
+  bei entsprechender Belegung, auf eine **völlig andere Nachricht**, die dann fälschlich
+  verschoben worden wäre. Die Korrektur sucht die Mail jetzt im Zielordner über Absender und
+  Betreff; passen mehrere (wiederkehrende Newsletter), wird die neueste genommen und das gesagt.
+
+- **`messageMove` meldet keinen Fehler, wenn die UID nicht existiert** — es passiert schlicht
+  nichts. Beide Verschiebe-Wege prüfen jetzt die `uidMap` der Antwort und zählen nur, was
+  tatsächlich bewegt wurde. Das betraf auch den Massenumzug beim Stapel-Sortieren: Dort wären
+  nicht gefundene Mails als verschoben gemeldet worden.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migrationen**: keine. Die Spalte `quarantine_log.uid` bleibt — sie dokumentiert, aus
+  welcher Nachricht der Eintrag stammt, wird für das Verschieben aber nicht mehr benutzt.
+- **n8n-Workflow-Kompatibilität**: unverändert, kein Sync nötig. **Neustart**: ausreichend.
+
 ## [3.0.0.0] - 2026-08-27 (Build 54) — *Feature: Korrektur-Schleife*
 
 > Die zweite Stelle bleibt laut Versionsschema einstellig. Nach `2.9` läuft sie über, deshalb
