@@ -2,6 +2,24 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [2.8.4.1] - 2026-08-24 (Build 48) — *Fix: Gmails „Wichtig" blieb ein mögliches Sortierziel*
+
+### Bugfixes
+
+- **Nicht jede Sonderrolle steht in `specialUse`.** Der Filter aus v2.8.4.0 fing `[Gmail]`,
+  `[Gmail]/Alle Nachrichten` und `[Gmail]/Markiert` ab, ließ aber **`[Gmail]/Wichtig`** durch:
+  Gmail weist diesen Ordner nur über das LIST-Flag `\Important` aus, nicht über `specialUse`.
+  Aufgefallen ist das beim Scharfschalten auf dem Testserver — drei von vier Ansichten wurden
+  gesperrt, die vierte blieb ein erlaubtes Ziel. Jetzt zählen beide Quellen, und die bekannten
+  Rollen (`\All`, `\Archive`, `\Drafts`, `\Flagged`, `\Junk`, `\Sent`, `\Trash`, `\Important`,
+  `\Inbox`) werden einheitlich behandelt, egal wo der Server sie hinschreibt.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migrationen**: keine. Bestehende Katalog-Einträge werden beim nächsten
+  *Aus Postfach einlesen* nachträglich gesperrt.
+- **n8n-Workflow-Kompatibilität**: unverändert, kein Sync nötig. **Neustart**: ausreichend.
+
 ## [2.8.4.0] - 2026-08-24 (Build 47) — *Systemordner kommen nicht mehr in den Themen-Katalog*
 
 ### Bugfixes

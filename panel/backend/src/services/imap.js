@@ -181,22 +181,37 @@ async function anhaengeHolen({ ordner = 'INBOX', uid, ...konto }) {
 // Mail verschwinden. "[Gmail]" selbst traegt \Noselect und kann ueberhaupt
 // keine Nachrichten aufnehmen. Erkennbar ist das nur an specialUse und den
 // Flags, nicht am Namen: Der ist je nach Sprache des Kontos anders.
+// Sonderrollen nach RFC 6154 plus die Erweiterungen, die Gmail benutzt.
+// Wichtig: Nicht jede davon steht in `specialUse`. Gmail weist "Wichtig" nur
+// ueber das LIST-Flag \Important aus — wer nur specialUse liest, uebersieht es
+// und laesst damit eine Ansicht als Sortierziel zu.
+const SONDERROLLEN = new Set([
+  'all', 'archive', 'drafts', 'flagged', 'junk', 'sent', 'trash',
+  'important', 'inbox', 'noselect', 'nonexistent',
+]);
+
+// Flags kommen mit fuehrendem Backslash ("\Important") — den schneiden wir ab.
+const rolle = (wert) => String(wert || '').replace(/^\\/, '').toLowerCase();
+
 async function ordnerDetails(konto) {
   const client = verbindung(konto);
   try {
     await client.connect();
-    return (await client.list()).map((o) => ({
-      pfad: o.path,
-      name: o.name,
-      spezial: o.specialUse || null,
-      flags: [...(o.flags || [])],
-      // Noselect und NonExistent sind reine Zwischenknoten im Ordnerbaum und
-      // koennen keine Nachrichten aufnehmen. Die Flags kommen mit fuehrendem
-      // Backslash — den schneiden wir zum Vergleich ab.
-      auswaehlbar: ![...(o.flags || [])].some(
-        (f) => ['noselect', 'nonexistent'].includes(String(f).slice(1).toLowerCase()),
-      ),
-    }));
+    return (await client.list()).map((o) => {
+      const flags = [...(o.flags || [])];
+      const ausFlags = flags.map(rolle).find((f) => SONDERROLLEN.has(f)) || null;
+      const gefunden = o.specialUse ? rolle(o.specialUse) : ausFlags;
+      return {
+        pfad: o.path,
+        name: o.name,
+        // Der Rollenname ohne Backslash, oder null fuer einen gewoehnlichen Ordner
+        spezial: gefunden && gefunden !== 'noselect' && gefunden !== 'nonexistent' ? gefunden : null,
+        flags,
+        // Noselect und NonExistent sind reine Zwischenknoten im Ordnerbaum und
+        // koennen ueberhaupt keine Nachrichten aufnehmen.
+        auswaehlbar: !flags.map(rolle).some((f) => f === 'noselect' || f === 'nonexistent'),
+      };
+    });
   } finally {
     try { await client.logout(); } catch { /* Verbindung war schon zu */ }
   }
