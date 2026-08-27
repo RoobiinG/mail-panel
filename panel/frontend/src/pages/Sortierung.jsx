@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Plus, Trash2, CheckCircle2, XCircle, AlertCircle, Inbox, Tag, ArrowRight,
   FolderTree, Sparkles, Lock, Unlock, RefreshCw, Check, Wand2,
-  ChevronRight, ChevronDown, Layers, AtSign
+  ChevronRight, ChevronDown, Layers, AtSign, History, Undo2
 } from 'lucide-react';
 
 // "Name <a@b.de>" -> "a@b.de" bzw. "b.de"
@@ -52,6 +52,12 @@ export default function Sortierung() {
 
   // Einzelregeln, die sich zu einer Domain-Regel zusammenfassen lassen
   const [zusammenfassbar, setZusammenfassbar] = useState([]);
+
+  // Was die KI zuletzt entschieden hat — und die Korrektur dazu
+  const [entscheidungen, setEntscheidungen] = useState([]);
+  const [korrekturOffen, setKorrekturOffen] = useState(null);   // log_id
+  const [korrekturOrdner, setKorrekturOrdner] = useState('');
+  const [korrekturRegel, setKorrekturRegel] = useState('domain');
 
   const ladenInit = async () => {
     try {
@@ -112,6 +118,39 @@ export default function Sortierung() {
     } catch { /* leer */ }
   };
 
+  const entscheidungenLaden = async (kontoId) => {
+    if (!kontoId) return;
+    try {
+      const { data } = await api.get(`/sortierung/entscheidungen?konto_id=${kontoId}&limit=25`);
+      setEntscheidungen(data || []);
+    } catch { /* leer */ }
+  };
+
+  const korrigieren = async (eintrag) => {
+    const ziel = korrekturOrdner.trim();
+    if (!ziel) return alert('Bitte den richtigen Ordner angeben.');
+    try {
+      const { data } = await api.post('/sortierung/korrigieren', {
+        log_id: eintrag.id, zielordner: ziel, regelTyp: korrekturRegel,
+      });
+      const teile = [];
+      teile.push(data.verschoben ? `Mail nach „${ziel}" verschoben.` : 'Mail nicht verschoben.');
+      if (data.regel) {
+        teile.push(`Regel [${data.regel.typ}] ${data.regel.muster} ${data.regel.aktualisiert ? 'geändert' : 'angelegt'}.`);
+      }
+      if (data.nachsortiert?.verschoben) teile.push(`${data.nachsortiert.verschoben} wartende Mail(s) mitsortiert.`);
+      if (data.hinweis) teile.push(data.hinweis);
+      alert(teile.join('\n'));
+      setKorrekturOffen(null);
+      setKorrekturOrdner('');
+      entscheidungenLaden(aktivesKonto);
+      regelnLaden(aktivesKonto);
+      inboxLaden();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Fehler bei der Korrektur');
+    }
+  };
+
   const vorschlaegeLaden = async () => {
     try {
       const { data } = await api.get('/sortierung/vorschlaege');
@@ -119,7 +158,11 @@ export default function Sortierung() {
     } catch { /* leer */ }
   };
 
-  useEffect(() => { regelnLaden(aktivesKonto); katalogLaden(aktivesKonto); }, [aktivesKonto]);
+  useEffect(() => {
+    regelnLaden(aktivesKonto);
+    katalogLaden(aktivesKonto);
+    entscheidungenLaden(aktivesKonto);
+  }, [aktivesKonto]);
   useEffect(() => { vorschlaegeLaden(); }, []);
 
   // ─── THEMEN-KATALOG ─────────────────────────────────────────────────────────
@@ -363,6 +406,101 @@ export default function Sortierung() {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* ══ Letzte Entscheidungen — hier wird die Sortierung besser ══ */}
+      {entscheidungen.length > 0 && (
+        <div className="card !p-0 overflow-hidden">
+          <div className="p-4 border-b border-panel-border bg-panel-card/50 flex items-center gap-2">
+            <History size={18} className="text-panel-accent" />
+            <h2 className="font-medium">Letzte Entscheidungen</h2>
+            <span className="text-[11px] text-panel-muted hidden sm:inline">
+              War etwas falsch? Ein Klick verschiebt die Mail und merkt sich die Korrektur.
+            </span>
+          </div>
+          <div className="overflow-auto max-h-[380px]">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-panel-border text-left text-panel-muted text-xs bg-panel-bg/30">
+                  <th className="py-2 px-4">Absender</th>
+                  <th className="py-2 px-4">Betreff</th>
+                  <th className="py-2 px-4">Thema</th>
+                  <th className="py-2 px-4">Gelandet in</th>
+                  <th className="py-2 px-4"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {entscheidungen.map(e => (
+                  <React.Fragment key={e.id}>
+                    <tr className="border-b border-panel-border/50 hover:bg-panel-bg/30 transition-colors">
+                      <td className="py-2 px-4 truncate max-w-[200px]" title={e.von}>{e.von}</td>
+                      <td className="py-2 px-4 truncate max-w-[240px] text-panel-muted" title={e.betreff}>
+                        {e.betreff || '(kein Betreff)'}
+                      </td>
+                      <td className="py-2 px-4 text-xs whitespace-nowrap">
+                        {e.thema
+                          ? <>{e.thema}{e.konfidenz != null && <span className="text-panel-muted"> ({Math.round(e.konfidenz * 100)} %)</span>}</>
+                          : <span className="text-panel-muted">{e.kategorie || '—'}</span>}
+                      </td>
+                      <td className="py-2 px-4 font-mono text-panel-accent whitespace-nowrap">
+                        {e.korrigiert_zu
+                          ? <><span className="line-through text-panel-muted">{e.zielordner}</span> → {e.korrigiert_zu}</>
+                          : e.zielordner}
+                      </td>
+                      <td className="py-2 px-4 text-right whitespace-nowrap">
+                        {!e.korrigiert_zu && (
+                          <button
+                            onClick={() => {
+                              setKorrekturOffen(korrekturOffen === e.id ? null : e.id);
+                              setKorrekturOrdner('');
+                              setKorrekturRegel('domain');
+                            }}
+                            className="btn-ghost !py-1 !px-2 text-xs flex items-center gap-1 ml-auto"
+                            title="Diese Mail gehört woanders hin"
+                          >
+                            <Undo2 size={14} /> War falsch
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                    {korrekturOffen === e.id && (
+                      <tr className="bg-panel-bg/50">
+                        <td colSpan={5} className="px-4 py-3">
+                          <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+                            <input
+                              type="text"
+                              autoFocus
+                              placeholder={`Richtiger Ordner statt „${e.zielordner}"`}
+                              value={korrekturOrdner}
+                              onChange={ev => setKorrekturOrdner(ev.target.value)}
+                              list="ordner-vorschlaege"
+                              className="flex-1 text-sm"
+                            />
+                            <select
+                              value={korrekturRegel}
+                              onChange={ev => setKorrekturRegel(ev.target.value)}
+                              className="text-sm bg-panel-bg"
+                            >
+                              <option value="domain">Merken: alles von @{domainVon(e.von)}</option>
+                              <option value="absender">Merken: nur {adresse(e.von)}</option>
+                              <option value="keine">Nur diese Mail, nichts merken</option>
+                            </select>
+                            <button onClick={() => korrigieren(e)} className="btn !py-1.5 !px-3 text-sm whitespace-nowrap">
+                              Verschieben &amp; merken
+                            </button>
+                            <button onClick={() => setKorrekturOffen(null)} className="btn-ghost !py-1.5 !px-2 text-sm">
+                              Abbrechen
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

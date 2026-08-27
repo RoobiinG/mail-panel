@@ -227,6 +227,10 @@ const migrations = [
   'ALTER TABLE sort_inbox ADD COLUMN ki_grund TEXT',
   'ALTER TABLE quarantine_log ADD COLUMN thema TEXT',
   'ALTER TABLE quarantine_log ADD COLUMN konfidenz REAL',
+  // Ohne die UID laesst sich eine falsch einsortierte Mail im Postfach nicht
+  // wiederfinden — und ohne das gibt es keine Korrektur.
+  'ALTER TABLE quarantine_log ADD COLUMN uid TEXT',
+  'ALTER TABLE quarantine_log ADD COLUMN korrigiert_zu TEXT',
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch { /* Spalte existiert schon */ }

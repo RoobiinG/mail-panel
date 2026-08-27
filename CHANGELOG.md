@@ -2,6 +2,45 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.0.0.0] - 2026-08-27 (Build 54) — *Feature: Korrektur-Schleife*
+
+> Die zweite Stelle bleibt laut Versionsschema einstellig. Nach `2.9` läuft sie über, deshalb
+> springt die erste Stelle — ein reiner Überlaufzähler, kein Bruch in der Anwendung.
+
+### Features
+
+- **„War falsch" — und die Sortierung lernt daraus.** Bisher sah man eine Fehlentscheidung, schob
+  die Mail von Hand im Mailprogramm um, und die KI traf beim nächsten Mal dieselbe Entscheidung.
+  Auf der Seite *Sortierung* steht jetzt eine Liste **Letzte Entscheidungen** mit Absender,
+  Betreff, erkanntem Thema samt Sicherheit und Zielordner. Ein Klick auf *War falsch* öffnet die
+  Korrektur: richtiger Ordner eintragen, wählen was gemerkt werden soll — und das Panel
+  - **verschiebt die Mail** aus dem falschen in den richtigen Ordner (per IMAP, aus dem
+    Zielordner heraus, nicht aus dem Posteingang),
+  - **legt eine Regel an** für den Absender oder die ganze Domain; zeigt eine bestehende Regel auf
+    den falschen Ordner, wird sie umgebogen statt eine zweite danebenzustellen,
+  - **zieht alles Wartende nach**, was zur neuen Regel passt.
+
+  Ist die Mail inzwischen von Hand verschoben oder gelöscht worden, wird das gemeldet — die Regel
+  entsteht trotzdem, denn die ist der eigentliche Gewinn.
+
+### Bugfixes
+
+- **Die Bremse für KI-Entwürfe war über IPv6 umgehbar.** Ihr Schlüsselgenerator nutzte `req.ip`
+  direkt; damit bekommt jede einzelne IPv6-Adresse einen eigenen Zähler, und wer ein Präfix hat
+  (die meisten Anschlüsse), konnte durch Adresswechsel beliebig viele Entwürfe erzeugen und so das
+  Gemini-Kontingent verbrennen. Jetzt fasst `ipKeyGenerator` ein ganzes `/56` zu einem Schlüssel
+  zusammen. Aufgefallen ist das durch eine Warnung von `express-rate-limit 8` — die Anmelde-Bremse
+  war nie betroffen, sie nutzt den Standardgenerator.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migrationen**: zwei neue Spalten in `quarantine_log` (`uid`, `korrigiert_zu`). Laufen beim
+  Start automatisch.
+- **Ältere Einträge lassen sich nicht vollständig korrigieren:** Ihnen fehlt die `uid`, weil die
+  erst ab dieser Version mitgeschrieben wird. Für sie entsteht die Regel, die Mail selbst bleibt
+  liegen — das Panel sagt das dazu.
+- **n8n-Workflow-Kompatibilität**: unverändert, kein Sync nötig. **Neustart**: ausreichend.
+
 ## [2.9.1.0] - 2026-08-27 (Build 53) — *Abhängigkeiten nachgezogen*
 
 Vier Pakete hingen bei ihrer Hauptversion zurück. Keines hatte eine bekannte Lücke — das hier ist

@@ -1,6 +1,6 @@
 // Eigene Aktionen: anlegen, prüfen, in n8n bauen.
 const express = require('express');
-const rateLimit = require('express-rate-limit');
+const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const db      = require('../db');
 const schema  = require('../services/aktionenSchema');
 const ki      = require('../services/aktionenKi');
@@ -48,7 +48,12 @@ const entwurfLimiter = rateLimit({
   limit: 10,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => String(req.user?.id || req.ip),
+  // Angemeldete Nutzer zaehlen ueber ihre ID. Faellt die aus, zaehlt die
+  // Adresse — dann aber ueber ipKeyGenerator. Ohne ihn bekaeme jede einzelne
+  // IPv6-Adresse einen eigenen Zaehler, und wer ein Praefix hat (die meisten
+  // Anschluesse), koennte die Bremse durch Adresswechsel beliebig umgehen.
+  // Der Helfer fasst ein ganzes /56 zu einem Schluessel zusammen.
+  keyGenerator: (req) => (req.user?.id ? `user:${req.user.id}` : ipKeyGenerator(req.ip)),
   message: { ok: false, fehler: 'Zu viele Entwürfe hintereinander — bitte kurz warten.' },
 });
 

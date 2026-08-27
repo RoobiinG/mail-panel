@@ -162,14 +162,15 @@ router.get('/config', (req, res) => {
 // Aufgerufen von /log und von /einsortieren.
 function triageProtokollieren(b) {
   db.prepare(`
-    INSERT INTO quarantine_log (konto, von, betreff, kategorie, spam_score, zielordner, kurzfassung, list_unsubscribe, virus_name, dnsbl_treffer, thema, konfidenz)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO quarantine_log (konto, von, betreff, kategorie, spam_score, zielordner, kurzfassung, list_unsubscribe, virus_name, dnsbl_treffer, thema, konfidenz, uid)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     String(b.konto), String(b.von), b.betreff ?? null, b.kategorie ?? null,
     b.spam_score != null ? Number(b.spam_score) : null, b.zielordner ?? null,
     b.kurzfassung ?? null, b.list_unsubscribe ?? null, b.virus_name ?? null,
     b.dnsbl_treffer ? JSON.stringify(b.dnsbl_treffer) : null,
     b.thema ?? null, b.konfidenz != null ? Number(b.konfidenz) : null,
+    b.uid != null ? String(b.uid) : null,
   );
 
   // Newsletter-Absender fuer die Abbestellen-Seite mitzaehlen

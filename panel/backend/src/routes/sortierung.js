@@ -164,6 +164,121 @@ router.post('/ignorieren', (req, res) => {
   }
 });
 
+// ─── LETZTE ENTSCHEIDUNGEN UND KORREKTUR ─────────────────────────────────────
+//
+// Bisher sah man eine Fehlentscheidung, korrigierte sie von Hand im
+// Mailprogramm — und die KI traf sie beim naechsten Mal genauso. Hier wird
+// daraus eine Rueckmeldung: Die Mail zieht um, und aus der Korrektur entsteht
+// eine Regel, die kuenftig vor der KI greift.
+
+// GET /api/sortierung/entscheidungen?konto_id=1&limit=30
+router.get('/entscheidungen', (req, res) => {
+  const konto = kontoLaden(req.query.konto_id);
+  if (!konto) return res.status(400).json({ error: 'konto_id fehlt oder unbekannt.' });
+  const anzahl = Math.min(100, Math.max(1, Number(req.query.limit) || 30));
+  try {
+    res.json(db.prepare(`
+      SELECT id, von, betreff, kategorie, thema, konfidenz, zielordner, kurzfassung,
+             uid, korrigiert_zu, created_at
+      FROM quarantine_log
+      WHERE konto = ? AND zielordner IS NOT NULL
+      ORDER BY id DESC LIMIT ?
+    `).all(konto.name, anzahl));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/sortierung/korrigieren
+// { log_id, zielordner, regelTyp: 'domain'|'absender'|'keine' }
+router.post('/korrigieren', async (req, res) => {
+  const { log_id, zielordner, regelTyp = 'domain' } = req.body || {};
+  if (!log_id || !zielordner) return res.status(400).json({ error: 'log_id und zielordner sind Pflicht.' });
+
+  const eintrag = db.prepare('SELECT * FROM quarantine_log WHERE id = ?').get(Number(log_id));
+  if (!eintrag) return res.status(404).json({ error: 'Eintrag nicht gefunden.' });
+  const konto = db.prepare('SELECT * FROM accounts WHERE name = ?').get(eintrag.konto);
+  if (!konto) return res.status(400).json({ error: `Konto "${eintrag.konto}" existiert nicht mehr.` });
+
+  const ziel = String(zielordner).trim();
+  if (ziel === eintrag.zielordner) {
+    return res.status(400).json({ error: 'Das ist der Ordner, in dem die Mail schon liegt.' });
+  }
+
+  try {
+    // 1. Zielordner sicherstellen
+    try {
+      const neu = await imap.ordnerErstellen({ ...konto, ...themen.zugang(konto) }, ziel);
+      if (neu) loggen('info', 'sortierung', `Ordner "${ziel}" für ${konto.name} angelegt (Korrektur).`);
+    } catch (err) {
+      return res.status(502).json({ error: `Zielordner nicht nutzbar: ${err.message}` });
+    }
+
+    // 2. Die Mail selbst umziehen — aus dem falschen Ordner, nicht aus der INBOX
+    let verschoben = false;
+    let hinweis = null;
+    if (eintrag.uid) {
+      try {
+        await imap.mailVerschieben({
+          ...themen.zugang(konto), uid: eintrag.uid, von: eintrag.zielordner, nach: ziel,
+        });
+        verschoben = true;
+      } catch (err) {
+        // Mail schon von Hand bewegt oder geloescht — die Regel ist trotzdem wertvoll
+        hinweis = `Die Mail selbst ließ sich nicht verschieben (${err.message}). Die Regel wurde angelegt.`;
+        loggen('warn', 'sortierung', `Korrektur: ${hinweis}`);
+      }
+    } else {
+      hinweis = 'Zu dieser Mail ist keine UID gespeichert — sie stammt aus der Zeit vor v2.9.2.0. '
+        + 'Verschoben wurde nichts, die Regel gilt ab jetzt.';
+    }
+
+    // 3. Aus der Korrektur lernen
+    let regel = null;
+    if (regelTyp !== 'keine') {
+      const typ = regelTyp === 'absender' ? 'absender' : 'domain';
+      const muster = typ === 'domain' ? sortierung.domain(eintrag.von) : sortierung.adresse(eintrag.von);
+      if (muster) {
+        const vorhanden = db.prepare(
+          'SELECT id, zielordner FROM sort_rules WHERE konto_id = ? AND typ = ? AND muster = ?',
+        ).get(konto.id, typ, muster);
+        if (vorhanden) {
+          // Eine bestehende Regel zeigte auf den falschen Ordner — die wird umgebogen,
+          // sonst korrigiert man dieselbe Mail immer wieder.
+          db.prepare('UPDATE sort_rules SET zielordner = ? WHERE id = ?').run(ziel, vorhanden.id);
+          regel = { typ, muster, zielordner: ziel, aktualisiert: true };
+        } else {
+          db.prepare(`
+            INSERT INTO sort_rules (konto_id, typ, muster, zielordner, erstellt_von)
+            VALUES (?, ?, ?, ?, ?)
+          `).run(konto.id, typ, muster, ziel, req.user.id);
+          regel = { typ, muster, zielordner: ziel, aktualisiert: false };
+        }
+      }
+    }
+
+    // 4. Was noch wartet und dazu passt, gleich mitnehmen
+    let nachsortiert = { treffer: 0, verschoben: 0, fehler: [] };
+    if (regel) {
+      try {
+        nachsortiert = await sortierung.bestandAnwenden(konto, regel);
+      } catch (err) {
+        loggen('warn', 'sortierung', `Nachsortieren nach Korrektur fehlgeschlagen: ${err.message}`);
+      }
+    }
+
+    db.prepare('UPDATE quarantine_log SET korrigiert_zu = ? WHERE id = ?').run(ziel, eintrag.id);
+    themen.cacheVerwerfen(konto.id);
+    loggen('info', 'sortierung',
+      `Korrektur: ${eintrag.von} von "${eintrag.zielordner}" nach "${ziel}"`
+      + (regel ? ` — Regel [${regel.typ}] ${regel.muster}` : ' — ohne Regel'));
+
+    res.json({ ok: true, verschoben, hinweis, regel, nachsortiert });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
 // ─── REGELN ZUSAMMENFASSEN ───────────────────────────────────────────────────
 //
 // Wer eine Weile von Hand sortiert hat, sammelt Einzelregeln fuer denselben
