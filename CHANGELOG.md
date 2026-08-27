@@ -2,7 +2,10 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
-## [2.9.0.0] - 2026-08-27 (Build 50) — *Sicherheits-Härtung*
+## [2.9.0.0] - 2026-08-27 (Build 51) — *Sicherheits-Härtung*
+
+> Build 50 scheiterte am Frontend-Build (eine react-router-Version, die es nicht gibt) und wurde
+> nie veröffentlicht. Build 51 ist die erste ausgelieferte Fassung dieser Version.
 
 Ergebnis einer Durchsicht von Abhängigkeiten, Angriffsfläche und Container-Aufbau.
 Die Backend-Abhängigkeiten hatten dabei **0 Schwachstellen** (`npm audit`); die folgenden Punkte
@@ -22,10 +25,19 @@ sind Härtung, keine ausgenutzten Lücken.
 
 ### Bugfixes
 
-- **react-router: zwei moderate Advisories** (`react-router-dom 6.30.4`). Betrifft uns davon der
-  Open Redirect über einen Backslash in `<Link>`/`useNavigate` — das Panel leitet beim Abmelden
-  um. Angehoben auf die gepatchte `^6.31.1`; **kein** Sprung auf 7, der brächte Breaking Changes
-  ohne Gewinn.
+- **react-router auf die letzte 6.x** (`6.30.4` → `^6.30.6`). `npm audit` meldet für 6.x zwei
+  moderate Advisories; nachgeprüft ist **keines davon hier erreichbar**:
+  - *Open Redirect über einen Backslash in `<Link>`/`useNavigate`* setzt ein Navigationsziel
+    voraus, das ein Angreifer beeinflussen kann. Im Panel sind alle Ziele feste Zeichenketten im
+    Quelltext — weder Nutzereingaben noch Mailinhalte erreichen ein `to=` oder `navigate()`. Das
+    Abmelden läuft über `window.location` und damit gar nicht durch den Router.
+  - *Constructor Injection bei der SSR-Hydration* betrifft serverseitiges Rendern, das es hier
+    nicht gibt.
+
+  Ein Sprung auf 7 wäre nötig, um die Advisories formal loszuwerden — der Fix kam erst in 7.18.0,
+  ein gepatchtes 6.x existiert nicht. Das ist ein Hauptversionswechsel für eine Lücke, die in
+  diesem Programm nicht erreichbar ist; er bleibt als eigener Schritt vorgemerkt. Wer künftig ein
+  Navigationsziel aus Daten baut, muss ihn vorziehen.
 - **Der Container lief als root.** Jetzt läuft das Panel als Benutzer `node`. Ein Startskript
   richtet vorher das Datenverzeichnis her und gibt die Rechte dann ab — nötig, weil das Volume
   bei bestehenden Installationen root gehört.
