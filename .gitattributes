@@ -1,0 +1,17 @@
+# Zeilenenden festnageln.
+#
+# Entwickelt wird unter Windows, gebaut wird in Alpine-Containern. Eine Datei
+# mit CRLF, die dort als Skript laufen soll, scheitert mit der irrefuehrenden
+# Meldung "not found" — gemeint ist dann nicht das Skript, sondern der
+# Interpreter aus der ersten Zeile.
+*.sh   text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+Dockerfile text eol=lf
+
+# Quellcode und Doku duerfen im Arbeitsverzeichnis Windows-Zeilenenden haben,
+# im Repository liegen sie einheitlich mit LF.
+*.js   text
+*.jsx  text
+*.json text
+*.md   text

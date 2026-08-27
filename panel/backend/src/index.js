@@ -4,6 +4,7 @@ require('dotenv').config();
 require('./secrets').laden();
 
 const express     = require('express');
+const helmet      = require('helmet');
 const cors        = require('cors');
 const compression = require('compression');
 const path        = require('path');
@@ -18,6 +19,43 @@ const panelLog = require('./services/panelLog');
 const app = express();
 // Reverse Proxy (Nginx Proxy Manager) fuer korrekte Client-IPs und express-rate-limit vertrauen
 app.set('trust proxy', 1);
+
+// ─── Sicherheits-Kopfzeilen ──────────────────────────────────────────────────
+//
+// Das JWT liegt im localStorage bzw. sessionStorage. Eine einzige XSS-Luecke
+// wuerde damit eine ganze Sitzung aushaendigen — die Content-Security-Policy ist
+// die wirksamste Bremse dagegen. Sie kann hier eng sein: Das Frontend laedt
+// weder Schriften noch Skripte von fremden Adressen, und dangerouslySetInnerHTML
+// kommt nirgends vor.
+//
+// 'unsafe-inline' ist nur bei style-src noetig: React setzt Inline-Styles, und
+// recharts erzeugt sie zur Laufzeit. Fuer Skripte bleibt es aus — genau dort
+// zaehlt es.
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: false,
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", 'data:'],
+      fontSrc: ["'self'", 'data:'],
+      connectSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+      frameAncestors: ["'none'"],
+    },
+  },
+  // Greift nur ueber HTTPS; hinter einem Reverse Proxy ist genau das der Fall.
+  strictTransportSecurity: { maxAge: 31536000, includeSubDomains: true },
+  referrerPolicy: { policy: 'same-origin' },
+  // Verraet sonst die eingesetzte Technik
+  hidePoweredBy: true,
+  // Das Panel laedt keine fremden Ressourcen — die Standardwerte wuerden hier
+  // nur Verwirrung stiften, wenn spaeter doch mal ein Bild eingebunden wird.
+  crossOriginEmbedderPolicy: false,
+}));
 
 // CORS: Frontend wird vom selben Origin ausgeliefert — Cross-Origin bleibt aus
 app.use(cors({ origin: false }));

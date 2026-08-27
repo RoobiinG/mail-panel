@@ -15,7 +15,14 @@ ENV NODE_ENV=production \
     DATA_DIR=/app/data
 WORKDIR /app/backend
 COPY panel/backend/package.json ./
-RUN apk add --no-cache python3 make g++ && npm install --omit=dev --no-audit --no-fund
+# better-sqlite3 wird beim Installieren uebersetzt und braucht dafuer eine
+# Werkzeugkette. Die bleibt NICHT im fertigen Abbild liegen — sonst traegt jeder
+# Container dauerhaft einen Compiler mit sich herum, ohne ihn je zu brauchen.
+# su-exec bleibt dauerhaft: Damit gibt das Startskript die Rechte ab.
+RUN apk add --no-cache su-exec \
+ && apk add --no-cache --virtual .bauwerkzeug python3 make g++ \
+ && npm install --omit=dev --no-audit --no-fund \
+ && apk del .bauwerkzeug
 COPY panel/backend/ ./
 COPY workflows/ /app/workflows/
 COPY --from=frontend /build/dist /app/frontend/dist
@@ -23,4 +30,11 @@ COPY --from=frontend /build/dist /app/frontend/dist
 # SQLite-Datenbank liegt im Volume
 VOLUME /app/data
 EXPOSE 3002
-CMD ["node", "src/index.js"]
+
+# Nicht als root laufen. Der Benutzer "node" ist in den offiziellen Abbildern
+# bereits angelegt. Das Datenverzeichnis muss ihm gehoeren, sonst kann das Panel
+# seine Datenbank nicht schreiben — deshalb legt der Start es an und uebergibt
+# es, bevor er die Rechte abgibt.
+COPY panel/start.sh /usr/local/bin/start.sh
+RUN chmod +x /usr/local/bin/start.sh && chown -R node:node /app
+CMD ["/usr/local/bin/start.sh"]

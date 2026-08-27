@@ -2,6 +2,49 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [2.9.0.0] - 2026-08-27 (Build 50) — *Sicherheits-Härtung*
+
+Ergebnis einer Durchsicht von Abhängigkeiten, Angriffsfläche und Container-Aufbau.
+Die Backend-Abhängigkeiten hatten dabei **0 Schwachstellen** (`npm audit`); die folgenden Punkte
+sind Härtung, keine ausgenutzten Lücken.
+
+### Features
+
+- **Sicherheits-Kopfzeilen über `helmet`.** Das Panel lieferte bisher **keine** einzige:
+  keine `Content-Security-Policy`, kein `X-Frame-Options`, kein `X-Content-Type-Options`, kein
+  `Referrer-Policy` — dafür `X-Powered-By: Express`. Das wiegt hier schwerer als anderswo, weil
+  die Anmeldung als JWT im Browser-Speicher liegt: Eine XSS-Lücke hätte eine ganze Sitzung
+  ausgehändigt.
+  Die CSP konnte streng ausfallen, weil das Frontend weder Skripte noch Schriften von fremden
+  Adressen lädt und `dangerouslySetInnerHTML` nirgends vorkommt: `default-src 'self'`,
+  `script-src 'self'` (**ohne** `unsafe-inline`), `object-src 'none'`, `frame-ancestors 'none'`.
+  `'unsafe-inline'` gibt es nur bei `style-src` — React und recharts setzen Inline-Styles.
+
+### Bugfixes
+
+- **react-router: zwei moderate Advisories** (`react-router-dom 6.30.4`). Betrifft uns davon der
+  Open Redirect über einen Backslash in `<Link>`/`useNavigate` — das Panel leitet beim Abmelden
+  um. Angehoben auf die gepatchte `^6.31.1`; **kein** Sprung auf 7, der brächte Breaking Changes
+  ohne Gewinn.
+- **Der Container lief als root.** Jetzt läuft das Panel als Benutzer `node`. Ein Startskript
+  richtet vorher das Datenverzeichnis her und gibt die Rechte dann ab — nötig, weil das Volume
+  bei bestehenden Installationen root gehört.
+- **Die Werkzeugkette blieb im fertigen Abbild liegen.** `python3`, `make` und `g++` werden nur
+  zum Übersetzen von `better-sqlite3` gebraucht und danach wieder entfernt.
+- **Zeilenenden festgenagelt** (`.gitattributes`): Skripte und Dockerfile liegen im Repository
+  immer mit LF. Ein `start.sh` mit CRLF scheitert in Alpine mit der irreführenden Meldung
+  „not found".
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migrationen**: keine. **n8n-Workflows**: unverändert, kein Sync nötig.
+- **Neustart**: erforderlich. **Beim ersten Start nach dem Update übergibt der Container das
+  Datenverzeichnis an den Benutzer `node`** — das dauert je nach Größe einen Moment und steht im
+  Log. Danach läuft das Panel ohne root-Rechte.
+- **Wer eigene Erweiterungen ins Frontend eingebaut hat**, die Skripte oder Schriften von fremden
+  Adressen laden, muss die CSP in `panel/backend/src/index.js` entsprechend erweitern — sonst
+  blockiert der Browser sie.
+
 ## [2.8.5.0] - 2026-08-27 (Build 49) — *Schärferer Prompt, gelassenerer Sync*
 
 ### Änderungen
