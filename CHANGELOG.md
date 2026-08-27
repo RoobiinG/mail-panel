@@ -2,6 +2,38 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [2.9.0.1] - 2026-08-27 (Build 52) — *Fix: vite mit hoher Schwachstelle*
+
+### Bugfixes
+
+- **`vite` von `^5.2.11` auf `^6.4.3`.** Die Prüfung meldete für `vite <= 6.4.2` drei Advisories,
+  eines davon **hoch**: Path Traversal in der `.map`-Behandlung optimierter Abhängigkeiten,
+  Umgehung von `server.fs.deny` über Windows-Alternativpfade, und NTLMv2-Hash-Preisgabe über
+  UNC-Pfade unter Windows.
+
+  **Betroffen ist der Entwicklungsserver, nicht die Auslieferung.** `vite` ist eine reine
+  Build-Abhängigkeit; im fertigen Abbild steckt nur das gebaute Frontend, kein vite. Wer das Panel
+  betreibt, war nie exponiert. Wer daran **entwickelt**, schon: Zwei der drei Lücken sind
+  Windows-spezifisch und greifen, während `npm run dev` läuft.
+
+  Angehoben wurde auf die kleinste Fassung, die es behebt — `6.4.3` statt des von npm
+  vorgeschlagenen Sprungs auf 8. `@vitejs/plugin-react 4.7.0` deckt `vite ^6` bereits ab und
+  bleibt unverändert; die Build-Konfiguration nutzt nichts, was sich zwischen 5 und 6 geändert hat.
+
+### Hinweis zur Messung
+
+Der Befund war in einer eigenen Prüfung zunächst **nicht** zu sehen: `npm audit` unter Node 22
+(npm 10.9.8) meldete null hohe, unter Node 20 (npm 10.8.2, wie die CI) dagegen eine. Dazu kommt,
+dass das Projekt **keine `package-lock.json` mitführt** — wer gegen eine lokal vorhandene prüft,
+misst einen Baum, der so nie gebaut wird. Maßgeblich ist die frische Auflösung mit der
+Node-Version der CI.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migrationen**: keine. **n8n-Workflows**: unverändert, kein Sync nötig. **Neustart**: ausreichend.
+- **Wer lokal entwickelt**, sollte `node_modules` im Frontend einmal neu aufbauen, damit die alte
+  vite-Fassung verschwindet.
+
 ## [2.9.0.0] - 2026-08-27 (Build 51) — *Sicherheits-Härtung*
 
 > Build 50 scheiterte am Frontend-Build (eine react-router-Version, die es nicht gibt) und wurde
