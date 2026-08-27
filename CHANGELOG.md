@@ -2,6 +2,35 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [2.8.5.0] - 2026-08-27 (Build 49) — *Schärferer Prompt, gelassenerer Sync*
+
+### Änderungen
+
+- **Die KI weiß jetzt, welche Ordnernamen vergeben sind.** Im Betrieb schlug sie bei Werbemails
+  von Plesk und Wargaming als Thema `Newsletter` vor — ein reservierter Kategoriename, der
+  abgewiesen wird. Der Themen-Vorschlag verpuffte damit und die Mail blieb liegen; das Modell
+  konnte es schlicht nicht wissen. Der Prompt nennt die Kategorie-Ordner des Kontos jetzt
+  ausdrücklich und weist an, in solchen Fällen `null` zu setzen, damit die Kategorie greift.
+
+### Bugfixes
+
+- **Ein Zeitlimit beim Speichern galt als Fehlschlag, obwohl gespeichert wurde.** n8n registriert
+  beim Sichern eines Workflows die Trigger neu und läuft dabei in das Verbindungslimit des
+  Mailservers (bei Dovecot `mail_max_userip_connections`, ab Werk 10). Die HTTP-Antwort kommt dann
+  nie — der Workflow ist aber gespeichert. Das Panel sieht jetzt nach dem Zeitlimit nach, ob die
+  Änderung angekommen ist, und meldet in dem Fall Erfolg. Bleibt es ein echter Fehlschlag, nennt
+  die Meldung die wahrscheinliche Ursache und den Ausweg (`docker compose restart n8n`) — das
+  stand bisher nur im README, wo im Ernstfall niemand nachschaut.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migrationen**: keine.
+- **n8n-Workflow-Kompatibilität**: **Synchronisieren zwingend erforderlich.** Die Marke der
+  Code-Knoten steigt von `// PANEL:THEMEN v2` auf `v3`, damit der Patcher den neuen Prompt
+  einsetzt. Wer *Prüfung auswerten* oder *Antwort parsen* von Hand angepasst hat, verliert das
+  dabei.
+- **Neustart**: ausreichend.
+
 ## [2.8.4.1] - 2026-08-24 (Build 48) — *Fix: Gmails „Wichtig" blieb ein mögliches Sortierziel*
 
 ### Bugfixes

@@ -68,17 +68,49 @@ async function workflowErstellen(workflow) {
   }
 }
 
+// Antwortet n8n nicht mehr, heisst das nicht, dass nichts passiert ist.
+//
+// Beobachtet auf dem Testserver: n8n registriert beim Speichern die Trigger neu
+// und laeuft dabei in das Verbindungslimit des Mailservers (bei Dovecot
+// mail_max_userip_connections, ab Werk 10). Die Antwort kommt dann nie — der
+// Workflow ist aber gespeichert. Wer das als Fehlschlag meldet, schickt den
+// Nutzer auf die Suche nach einem Problem, das keines ist.
+//
+// Deshalb: Nach einem Zeitlimit nachsehen, ob die Aenderung angekommen ist.
+function knotenNamen(workflow) {
+  return (workflow.nodes || []).map((k) => String(k.name)).sort().join('|');
+}
+
 // n8n akzeptiert beim Update nur diese vier Felder
 async function workflowSpeichern(id, workflow) {
+  const rumpf = {
+    name: workflow.name,
+    nodes: workflow.nodes,
+    connections: workflow.connections,
+    settings: workflow.settings || { executionOrder: 'v1' },
+  };
   try {
-    const { data } = await client(ZEITLIMIT_SCHREIBEN).put(`/workflows/${id}`, {
-      name: workflow.name,
-      nodes: workflow.nodes,
-      connections: workflow.connections,
-      settings: workflow.settings || { executionOrder: 'v1' },
-    });
+    const { data } = await client(ZEITLIMIT_SCHREIBEN).put(`/workflows/${id}`, rumpf);
     return data;
   } catch (err) {
+    const zeitlimit = err.code === 'ECONNABORTED' || /timeout/i.test(err.message || '');
+    if (zeitlimit) {
+      try {
+        const jetzt = await workflowHolen(id);
+        if (knotenNamen(jetzt) === knotenNamen(workflow)) {
+          console.warn(
+            `Workflow ${id}: n8n hat nicht geantwortet, die Änderung ist aber gespeichert — `
+            + 'meist das IMAP-Verbindungslimit des Mailservers.',
+          );
+          return jetzt;
+        }
+      } catch { /* Nachsehen ging auch schief — dann bleibt es ein Fehler */ }
+      throw new Error(
+        `Workflow ${id} konnte nicht gespeichert werden: n8n hat nicht geantwortet. `
+        + 'Häufigste Ursache ist das IMAP-Verbindungslimit deines Mailservers — '
+        + '"docker compose restart n8n" gibt die Verbindungen frei, danach klappt das Synchronisieren.',
+      );
+    }
     throw fehler(err, `Workflow ${id} konnte nicht gespeichert werden`);
   }
 }

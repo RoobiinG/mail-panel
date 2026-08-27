@@ -50,6 +50,9 @@ function themenKatalog(kontoName) {
       konfidenz_min: e.konfidenz,
       neue_ordner: e.anlegen !== 'aus',
       ordner: themen.fuerPrompt(konto.id),
+      // Namen, die als Thema nichts verloren haben — sonst schlaegt die KI
+      // "Newsletter" vor, was hier abgewiesen wird und den Vorschlag verpuffen laesst.
+      verboten: themen.kategorieOrdner(konto),
     };
   } catch {
     return aus;

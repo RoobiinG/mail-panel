@@ -44,6 +44,17 @@ const SYSTEMORDNER = [
   'postausgang', 'templates', 'vorlagen', 'notes', 'notizen',
 ];
 
+/**
+ * Die fuenf Kategorie-Ordner dieses Kontos — eingetragen oder Standard.
+ *
+ * Die KI muss sie kennen: Ohne diese Liste schlaegt sie bei Werbemails brav
+ * "Newsletter" als Thema vor, was hier als reservierter Name abgewiesen wird.
+ * Der Themen-Vorschlag ist damit verpufft und die Mail bleibt liegen.
+ */
+function kategorieOrdner(konto = {}) {
+  return Object.entries(imap.STANDARD).map(([feld, standard]) => konto[feld] || standard);
+}
+
 function reserviert(konto = {}) {
   const namen = new Set(SYSTEMORDNER);
   for (const [feld, standard] of Object.entries(imap.STANDARD)) {
@@ -413,6 +424,7 @@ module.exports = {
   einstellungen,
   ordnerNormalisieren,
   reserviert,
+  kategorieOrdner,
   katalog,
   fuerPrompt,
   imKatalog,
