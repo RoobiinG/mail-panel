@@ -106,8 +106,14 @@ export default function Konten() {
   const synchronisieren = async () => {
     setMeldung('Synchronisiere…');
     try {
-      await api.post('/konten/sync');
-      setMeldung('Workflows sind auf dem aktuellen Stand.');
+      const { data } = await api.post('/konten/sync');
+      // Der Sync hat bisher immer "alles gut" gemeldet, auch wenn er einen
+      // Workflow mangels Einstellungen übersprungen hat. Genau das blieb bei
+      // Workflow 03 monatelang unbemerkt.
+      const hinweise = (data?.sync || []).map(e => e?.hinweis).filter(Boolean);
+      setMeldung(hinweise.length
+        ? `Workflows aktualisiert — aber: ${hinweise.join(' ')}`
+        : 'Workflows sind auf dem aktuellen Stand.');
     } catch (err) {
       setMeldung(err.response?.data?.error || 'Sync fehlgeschlagen.');
     }

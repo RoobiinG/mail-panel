@@ -814,7 +814,23 @@ async function newsletterSynchronisieren(konten) {
     throw new Error(`Knoten "${ANKER.newsletter.trigger}" fehlt im Workflow 03 — bitte die mitgelieferte Vorlage importieren.`);
   }
 
-  konten.forEach((konto, i) => {
+  // Ohne gesetzte Ordner wird fuer dieses Konto gar kein Knoten gebaut.
+  //
+  // Frueher fielen die Namen still auf "Newsletter" und "Archiv" zurueck. Hat
+  // das Postfach diese Ordner nicht — und die wenigsten haben sie —, lief der
+  // Workflow woechentlich gegen ins Leere und niemand erfuhr davon. Lieber gar
+  // nicht aufraeumen als so tun, als wuerde man.
+  const uebersprungen = [];
+  const passend = konten.filter((konto) => {
+    const fehlt = [];
+    if (!String(konto.folder_newsletter || '').trim()) fehlt.push('Newsletter-Ordner');
+    if (!String(konto.folder_archive || '').trim()) fehlt.push('Archiv-Ordner');
+    if (fehlt.length === 0) return true;
+    uebersprungen.push(`${konto.name}: ${fehlt.join(' und ')} nicht gesetzt`);
+    return false;
+  });
+
+  passend.forEach((konto, i) => {
     const y = 100 + i * 180;
     const suchen = altNewsletterKnoten(konto, [260, y]);
     // Das Suchkriterium steht im Knoten, damit es in n8n sichtbar bleibt
@@ -826,8 +842,20 @@ async function newsletterSynchronisieren(konten) {
   });
 
   await n8n.workflowSpeichern(info.id, workflow);
-  if (info.active) await n8n.workflowAktivieren(info.id, true);
-  return { workflow: info.name, konten: konten.length };
+  // Ohne ein einziges eingerichtetes Konto hat der Workflow nichts zu tun. Ihn
+  // dann eingeschaltet zu lassen, taeuscht eine Aufraeum-Automatik nur vor.
+  if (info.active && passend.length === 0) {
+    await n8n.workflowAktivieren(info.id, false);
+  } else if (info.active) {
+    await n8n.workflowAktivieren(info.id, true);
+  }
+
+  const ergebnis = { workflow: info.name, konten: passend.length };
+  if (uebersprungen.length) {
+    ergebnis.hinweis = `Ohne Newsletter- und Archiv-Ordner läuft das wöchentliche Aufräumen nicht — `
+      + `unter Konten eintragen. Übersprungen: ${uebersprungen.join('; ')}.`;
+  }
+  return ergebnis;
 }
 
 // Synchronisiert die KI- und Telegram-Einstellungen in die Workflows

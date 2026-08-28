@@ -2,6 +2,31 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.0.0.3] - 2026-08-28 (Build 57) — *Fix: Workflow 03 räumte ins Leere*
+
+### Bugfixes
+
+- **Das wöchentliche Newsletter-Aufräumen lief gegen Ordner, die es nicht gab.** Fehlten am Konto
+  der Newsletter- oder der Archiv-Ordner, fielen die Namen still auf `Newsletter` und `Archiv`
+  zurück. Die wenigsten Postfächer haben genau diese Ordner — der Workflow suchte also Woche für
+  Woche in einem Ordner, den es nicht gibt, und niemand erfuhr davon.
+
+  Jetzt wird für ein Konto ohne diese Angaben **gar kein Knoten** gebaut. Lieber nicht aufräumen
+  als so tun, als würde man. Bleibt kein einziges Konto übrig, schaltet sich der Workflow ab,
+  statt eine Automatik vorzutäuschen, die nichts tut.
+
+- **Der Konten-Sync meldete „alles gut", auch wenn er einen Workflow übersprungen hatte.** Die
+  Hinweise, die er dabei erzeugt, wurden verworfen. Genau deshalb blieb der Punkt oben so lange
+  unbemerkt. Sie stehen jetzt in der Rückmeldung auf der Konten-Seite.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migration:** Nein.
+- **n8n-Workflows:** Workflow 03 wird beim nächsten Konten-Sync neu gebaut. Wer Newsletter- und
+  Archiv-Ordner gesetzt hat, merkt nichts; wer sie nicht gesetzt hat, bei dem verschwinden die
+  wirkungslosen Knoten und der Workflow schaltet sich ab.
+- **Sitzungen/Neustart:** Keine Auswirkung.
+
 ## [3.0.0.2] - 2026-08-28 (Build 56) — *Fix: Sortier-Inbox zeigte Karteileichen*
 
 ### Bugfixes
