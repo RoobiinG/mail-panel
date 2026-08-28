@@ -351,8 +351,34 @@ async function mailsVerschieben({ mails, von = 'INBOX', nach, ...konto }) {
   return { verschoben, fehler };
 }
 
+// Welche UIDs liegen gerade wirklich in diesem Ordner?
+//
+// Gebraucht wird das, weil eine gespeicherte UID nur so lange etwas wert ist,
+// wie die Mail auch dort liegt: UIDs gelten je Ordner. Wandert eine Mail
+// weiter, zeigt die gespeicherte Nummer ins Leere — jeder Verschiebe-Versuch
+// scheitert dann stumm, statt einen Fehler zu werfen.
+async function uidsAuflisten({ ordner = 'INBOX', ...konto }) {
+  const client = verbindung(konto);
+  try {
+    await client.connect();
+    const schloss = await client.getMailboxLock(String(ordner));
+    try {
+      const da = new Set();
+      // Ein leerer Ordner laesst sich nicht abrufen — imapflow wirft dann.
+      if (!client.mailbox || client.mailbox.exists === 0) return da;
+      for await (const m of client.fetch('1:*', { uid: true })) da.add(Number(m.uid));
+      return da;
+    } finally {
+      schloss.release();
+    }
+  } finally {
+    try { await client.logout(); } catch { /* Verbindung war schon zu */ }
+  }
+}
+
 module.exports = {
   testVerbindung,
+  uidsAuflisten,
   ordnerAnlegen,
   ordnerErstellen,
   ordnerAnlegenPfad,

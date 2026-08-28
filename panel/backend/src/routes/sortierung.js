@@ -83,8 +83,38 @@ router.delete('/regeln/:id', (req, res) => {
 // ─── SORTIER-INBOX ───────────────────────────────────────────────────────────
 
 // GET /api/sortierung/inbox — Offene Mails aus der Inbox
-router.get('/inbox', (req, res) => {
+// Wann wurde zuletzt mit dem Postfach abgeglichen? Ohne Drosselung machte jeder
+// Klick auf "Aktualisieren" eine neue IMAP-Verbindung auf — und Mailserver
+// begrenzen die (Dovecot standardmaessig auf zehn je Adresse).
+const abgleichZuletzt = new Map();
+const ABGLEICH_PAUSE = 60 * 1000;
+
+async function inboxAbgleichen() {
+  const konten = db.prepare(`
+    SELECT DISTINCT a.* FROM accounts a
+    JOIN sort_inbox i ON i.konto_id = a.id
+    WHERE i.status = 'offen'
+  `).all();
+  for (const konto of konten) {
+    const zuletzt = abgleichZuletzt.get(konto.id) || 0;
+    if (Date.now() - zuletzt < ABGLEICH_PAUSE) continue;
+    abgleichZuletzt.set(konto.id, Date.now());
+    try {
+      await sortierung.abgleichen(konto);
+    } catch (err) {
+      // Ist das Postfach gerade nicht erreichbar, wird die Liste eben ungeprueft
+      // angezeigt — das ist besser als eine Fehlermeldung statt der Liste.
+      loggen('warn', 'sortierung', `Abgleich mit ${konto.name} nicht moeglich: ${err.message}`);
+    }
+  }
+}
+
+router.get('/inbox', async (req, res) => {
   try {
+    // Erst mit dem Postfach abgleichen: Eintraege zu Mails, die den Posteingang
+    // laengst verlassen haben, gehoeren nicht in die Liste. Sie liessen sich nie
+    // verschieben und tauchten trotzdem bei jedem Laden wieder auf.
+    await inboxAbgleichen();
     // Hole alle offene Mails, sowie Kontonamen für die Dropdowns
     const inbox = db.prepare(`
       SELECT i.*, a.id AS account_id, a.name AS account_name

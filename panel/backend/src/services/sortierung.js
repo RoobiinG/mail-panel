@@ -105,47 +105,135 @@ function pruefeRegeln(kontoId, von, betreff) {
  * @param {object} [opt]  { nurZaehlen: true } liefert nur die Trefferzahl
  * @returns {Promise<{treffer: number, verschoben: number, fehler: string[]}>}
  */
-async function bestandAnwenden(konto, regel, opt = {}) {
-  const offen = db.prepare(
-    "SELECT * FROM sort_inbox WHERE konto_id = ? AND status = 'offen'",
-  ).all(konto.id);
-  const passende = offen.filter((m) => passt(regel, m.von, m.betreff));
+// Eine UID ist nur als ganze Zahl vergleichbar. Aeltere Zeilen tragen sie als
+// "28.0", neuere als "28" — als Text sind das zwei verschiedene Dinge, und
+// genau daran ist die Dubletten-Erkennung bisher vorbeigelaufen.
+function uidZahl(roh) {
+  const n = Number(roh);
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : null;
+}
 
-  if (opt.nurZaehlen) return { treffer: passende.length, verschoben: 0, fehler: [] };
-  if (passende.length === 0) return { treffer: 0, verschoben: 0, fehler: [] };
+// Die Sortier-Inbox mit dem Postfach abgleichen.
+//
+// Eine Zeile darin ist nur so lange gueltig, wie die Mail auch noch im
+// Posteingang liegt. Wird sie vorher woanders einsortiert — von Hand, von der
+// KI oder von einem frueheren Stapel —, dann zeigt die gespeicherte UID ins
+// Leere, denn UIDs gelten je Ordner. Solche Zeilen scheiterten bisher bei
+// jedem Verschieben aufs Neue und blieben trotzdem stehen: Sie blaehten die
+// Liste auf, verfaelschten die Zaehler und erzeugten die "X Fehler".
+//
+// Gibt zurueck, wie viele Zeilen geschlossen wurden.
+async function abgleichen(konto, opt = {}) {
+  const themen = require('./themen');
+  const imap = require('./imap');
+  const offen = db.prepare(
+    "SELECT id, uid FROM sort_inbox WHERE konto_id = ? AND status = 'offen'",
+  ).all(konto.id);
+  if (offen.length === 0) return 0;
+
+  const daSet = opt.vorhanden || await imap.uidsAuflisten({ ...themen.zugang(konto), ordner: 'INBOX' });
+
+  const schliessen = db.prepare(
+    "UPDATE sort_inbox SET status = 'ignoriert', vorschlag = ? WHERE id = ?",
+  );
+  let geschlossen = 0;
+  const gesehen = new Set();
+  for (const zeile of offen) {
+    const nummer = uidZahl(zeile.uid);
+    // Ohne UID oder nicht mehr im Posteingang: Die Zeile ist nicht mehr
+    // verwertbar. Eine zweite Zeile zur selben UID ist eine Dublette.
+    if (nummer === null || !daSet.has(nummer)) {
+      schliessen.run('(nicht mehr im Posteingang)', zeile.id);
+      geschlossen++;
+    } else if (gesehen.has(nummer)) {
+      schliessen.run('(Dublette)', zeile.id);
+      geschlossen++;
+    } else {
+      gesehen.add(nummer);
+    }
+  }
+  if (geschlossen > 0) {
+    loggen('info', 'sortierung',
+      `${konto.name}: ${geschlossen} Sortier-Inbox-Eintrag/Eintraege geschlossen — die Mails liegen nicht mehr im Posteingang.`);
+  }
+  return geschlossen;
+}
+
+async function bestandAnwenden(konto, regel, opt = {}) {
+  const alle = db.prepare(
+    "SELECT * FROM sort_inbox WHERE konto_id = ? AND status = 'offen'",
+  ).all(konto.id).filter((m) => passt(regel, m.von, m.betreff));
+
+  // Die Vorschau zaehlt, was der Nutzer erwartet: Mails, nicht Zeilen. Ohne die
+  // Entdopplung verspricht sie mehr, als der Stapel dann bewegt.
+  if (opt.nurZaehlen) {
+    const uids = new Set(alle.map((m) => uidZahl(m.uid)).filter((n) => n !== null));
+    return { treffer: uids.size, verschoben: 0, fehler: [] };
+  }
+  if (alle.length === 0) return { treffer: 0, verschoben: 0, fehler: [] };
 
   // Verzoegert laden: themen zieht selbst sortierung herein
   const themen = require('./themen');
   const imap = require('./imap');
   const zugang = themen.zugang(konto);
 
+  // Dubletten und Zeilen ohne UID gleich hier abraeumen — sie kosten sonst je
+  // einen sinnlosen IMAP-Versuch. Bewusst ohne zweite Verbindung: Der Abgleich
+  // mit dem Postfach faellt beim Verschieben von selbst ab (siehe unten), und
+  // eine zusaetzliche Verbindung liefe waehrend eines Workflow-Laufs leicht in
+  // das Verbindungslimit des Mailservers.
+  const schliessen = db.prepare(
+    "UPDATE sort_inbox SET status = 'ignoriert', vorschlag = ? WHERE id = ?",
+  );
+  let veraltet = 0;
+  const gesehen = new Set();
+  const passende = [];
+  for (const mail of alle) {
+    const nummer = uidZahl(mail.uid);
+    if (nummer === null) { schliessen.run('(ohne UID nicht auffindbar)', mail.id); veraltet++; }
+    else if (gesehen.has(nummer)) { schliessen.run('(Dublette)', mail.id); veraltet++; }
+    else { gesehen.add(nummer); passende.push(mail); }
+  }
+  if (passende.length === 0) return { treffer: 0, verschoben: 0, fehler: [], veraltet };
+
   // Alles ueber eine einzige Verbindung — sonst laeuft ein groesserer Stapel in
   // das Verbindungslimit des Mailservers.
-  const mitUid = passende.filter((m) => m.uid);
   const { verschoben: erledigt, fehler: probleme } = await imap.mailsVerschieben({
-    ...zugang, mails: mitUid, von: 'INBOX', nach: regel.zielordner,
+    ...zugang, mails: passende, von: 'INBOX', nach: regel.zielordner,
   });
 
   const abhaken = db.prepare("UPDATE sort_inbox SET status = 'zugeordnet', vorschlag = ? WHERE id = ?");
   for (const mail of erledigt) abhaken.run(regel.zielordner, mail.id);
-  // Zeilen ohne UID lassen sich im Postfach nicht wiederfinden. Sie werden
-  // trotzdem abgehakt, sonst bleiben sie fuer immer in der Liste stehen.
-  for (const mail of passende.filter((m) => !m.uid)) abhaken.run(regel.zielordner, mail.id);
+
+  // Eine Mail, die nicht mehr im Posteingang liegt, ist kein Fehler, den der
+  // Nutzer beheben koennte — sie wurde vorher schon einsortiert. Frueher blieb
+  // so eine Zeile 'offen' stehen und scheiterte bei jedem Versuch aufs Neue.
+  const fehler = [];
+  for (const p of probleme) {
+    const zeile = passende.find((m) => String(m.uid) === String(p.uid));
+    if (/nicht in/.test(p.grund) && zeile) {
+      schliessen.run('(nicht mehr im Posteingang)', zeile.id);
+      veraltet++;
+    } else {
+      fehler.push(`${zeile ? zeile.von : `UID ${p.uid}`}: ${p.grund}`);
+    }
+  }
 
   const verschoben = erledigt.length;
-  const fehler = probleme.map((p) => `UID ${p.uid}: ${p.grund}`);
-
-  if (verschoben > 0 || fehler.length > 0) {
+  if (verschoben > 0 || fehler.length > 0 || veraltet > 0) {
     loggen('info', 'sortierung',
       `Regel [${regel.typ}] ${regel.muster} → ${regel.zielordner}: ${verschoben} von ${passende.length} Mail(s) nachsortiert`
+      + (veraltet ? `, ${veraltet} veraltete Eintraege geschlossen` : '')
       + (fehler.length ? `, ${fehler.length} Fehler` : ''));
   }
-  return { treffer: passende.length, verschoben, fehler };
+  return { treffer: passende.length, verschoben, fehler, veraltet };
 }
 
 module.exports = {
   pruefeRegeln,
   bestandAnwenden,
+  abgleichen,
+  uidZahl,
   passt,
   adresse,
   domain,

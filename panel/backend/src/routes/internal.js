@@ -270,13 +270,21 @@ router.post('/einsortieren', async (req, res) => {
     // Kein Ziel: Die Mail bleibt im Posteingang und taucht in der Sortier-Inbox
     // auf — mit dem Vorschlag, den die KI gemacht hat, und dem Grund dafuer.
     if (!ordner && konto) {
-      const uidText = b.uid != null ? String(b.uid) : null;
+      // Die UID immer als ganze Zahl ablegen. Frueher landete sie mal als "28",
+      // mal als "28.0" in der Spalte — als Text sind das zwei verschiedene
+      // Werte, und genau daran ist die Dubletten-Erkennung vorbeigelaufen: Die
+      // Sortier-Inbox fuellte sich mit Mehrfach-Eintraegen derselben Mail.
+      const uidText = sortierung.uidZahl(b.uid) !== null
+        ? String(sortierung.uidZahl(b.uid))
+        : (b.uid != null ? String(b.uid) : null);
       // Die Bestands-Triage laesst man mehrfach laufen — dieselbe Mail darf
       // dabei nicht jedes Mal neu in der Sortier-Inbox auftauchen. Stattdessen
       // wird der Eintrag mit dem frischen KI-Vorschlag aktualisiert.
       const schonDa = uidText
-        ? db.prepare("SELECT id FROM sort_inbox WHERE konto_id = ? AND uid = ? AND status = 'offen'")
-          .get(konto.id, uidText)
+        ? db.prepare(
+          "SELECT id FROM sort_inbox WHERE konto_id = ? AND status = 'offen'"
+          + ' AND CAST(uid AS INTEGER) = CAST(? AS INTEGER)',
+        ).get(konto.id, uidText)
         : null;
       if (schonDa) {
         db.prepare(

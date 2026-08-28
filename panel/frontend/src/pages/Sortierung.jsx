@@ -336,8 +336,20 @@ export default function Sortierung() {
         zielordner,
         regelMerken: typ !== 'keine',
       });
-      const fehler = data.fehler?.length ? ` (${data.fehler.length} Fehler)` : '';
-      alert(`${data.verschoben} von ${data.treffer} Mail(s) nach „${zielordner}" verschoben${fehler}.`);
+      // Eine nackte Fehlerzahl hilft niemandem weiter — sie sagt nicht, was zu
+      // tun ist. Veraltete Eintraege sind ausserdem gar kein Fehler: Die Mail
+      // wurde vorher schon einsortiert, der Eintrag war nur noch ein Rest.
+      const teile = [`${data.verschoben} von ${data.treffer} Mail(s) nach „${zielordner}" verschoben.`];
+      if (data.veraltet) {
+        teile.push(`${data.veraltet} Eintrag/Einträge lagen nicht mehr im Posteingang `
+          + '(vorher schon einsortiert) und wurden aus der Liste entfernt.');
+      }
+      if (data.fehler?.length) {
+        const liste = data.fehler.slice(0, 5).map(f => `• ${f}`).join('\n');
+        const rest = data.fehler.length > 5 ? `\n… und ${data.fehler.length - 5} weitere` : '';
+        teile.push(`Nicht verschoben:\n${liste}${rest}`);
+      }
+      alert(teile.join('\n\n'));
       inboxLaden();
       regelnLaden(aktivesKonto);
       katalogLaden(aktivesKonto);
@@ -734,12 +746,17 @@ export default function Sortierung() {
                           value={gruppenOrdner[gruppe.domain] || ''}
                           onChange={e => setGruppenOrdner(p => ({ ...p, [gruppe.domain]: e.target.value }))}
                           list="ordner-vorschlaege"
-                          className="flex-1 text-sm"
+                          className="flex-1 min-w-0 sm:min-w-[10rem] text-sm"
                         />
+                        {/* Formularelemente sind global auf w-full gestellt. Nimmt
+                            die Auswahl das nicht zurück, beansprucht sie die ganze
+                            Zeile und quetscht das Ordner-Feld auf wenige Pixel —
+                            genau das war der Fehler. Das min-w-0 oben gehört dazu:
+                            flex-1 geht sonst nicht unter die Breite des Inhalts. */}
                         <select
                           value={typ}
                           onChange={e => setGruppenTyp(p => ({ ...p, [gruppe.domain]: e.target.value }))}
-                          className="text-sm bg-panel-bg"
+                          className="text-sm bg-panel-bg w-full sm:!w-auto shrink-0"
                           title="Was soll sich das Panel für die Zukunft merken?"
                         >
                           <option value="domain">Regel: ganze Domain</option>

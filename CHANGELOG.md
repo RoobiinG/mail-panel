@@ -2,6 +2,61 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.0.0.2] - 2026-08-28 (Build 56) — *Fix: Sortier-Inbox zeigte Karteileichen*
+
+### Bugfixes
+
+Drei Symptome, eine Ursache — deshalb ein Eintrag.
+
+- **„X von Y verschoben (4 Fehler)" bei jedem Versuch aufs Neue.** Die gescheiterten Mails lagen
+  gar nicht mehr im Posteingang: Sie waren vorher schon einsortiert worden. Die gespeicherte UID
+  gilt nur für den Posteingang und trifft danach nichts mehr — der Umzug scheiterte, die Zeile
+  blieb aber auf `offen` stehen und scheiterte beim nächsten Mal wieder. Eine Sackgasse, aus der
+  man als Nutzer nicht herauskam.
+
+  Ursache dahinter ist ein Wettlauf: Die Bestands-Triage braucht wegen der 4-Sekunden-Drossel bei
+  100 Mails rund sieben Minuten. Wird in dieser Zeit von Hand sortiert, meldet der Lauf am Ende
+  Mails zurück, die den Posteingang längst verlassen haben.
+
+  Solche Zeilen werden jetzt als erledigt geschlossen statt als Fehler gezählt — sie sind keiner:
+  Die Mail ist ja bereits am Ziel.
+
+- **Dieselbe Mail stand mehrfach in der Liste.** Die Prüfung auf schon vorhandene Einträge
+  verglich die UID als **Text**. Ältere Zeilen tragen sie als `28.0`, neuere als `28` — für
+  SQLite zwei verschiedene Werte, also wurde jedes Mal ein neuer Eintrag angelegt. Der Vergleich
+  läuft jetzt über `CAST(uid AS INTEGER)`, die UID wird beim Schreiben auf eine ganze Zahl
+  normalisiert, und eine Migration begradigt den Bestand in `sort_inbox` und `quarantine_log`.
+  Dadurch waren auch die Zähler falsch: Die Gruppe „7 Mails" enthielt in Wahrheit vier.
+
+- **Die Liste gleicht sich jetzt mit dem Postfach ab.** Beim Laden der Sortier-Inbox wird je Konto
+  geprüft, welche UIDs wirklich im Posteingang liegen; alles andere fliegt raus. Gedrosselt auf
+  einmal pro Minute je Konto, damit nicht jeder Klick eine IMAP-Verbindung kostet — Mailserver
+  begrenzen die (Dovecot standardmäßig auf zehn je Adresse).
+
+- **Das Feld für den Zielordner war auf wenige Pixel zusammengequetscht** und damit unbenutzbar.
+  Formularelemente stehen im Panel global auf `w-full`; die Regel-Auswahl daneben nahm sich
+  dadurch die ganze Zeile. Sie nimmt das jetzt ab Breite `sm` zurück, das Eingabefeld bekommt
+  `min-w-0`.
+
+- **Die Meldung nach dem Stapel-Umzug nennt jetzt Ross und Reiter** — welche Mail nicht bewegt
+  wurde und warum, statt nur einer Zahl. Veraltete Einträge werden getrennt ausgewiesen, weil sie
+  kein Fehler sind.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migration:** Ja, aber ohne Schemaänderung. Ein einmaliges `UPDATE` begradigt vorhandene
+  UID-Werte der Form `28.0` in `sort_inbox` und `quarantine_log`. Läuft beim Start, ist
+  wiederholbar und braucht keine Handgriffe.
+- **n8n-Workflows:** Unverändert. Kein Neuimport, kein Sync nötig — die Code-Knoten sind nicht
+  betroffen, die Marke bleibt `PANEL:THEMEN v3`.
+- **Sitzungen/Neustart:** Keine Auswirkung, niemand wird abgemeldet.
+- **Sichtbare Folge beim ersten Aufruf:** Die Sortier-Inbox wird beim ersten Laden nach dem
+  Ausrollen deutlich kürzer. Das ist beabsichtigt — die verschwundenen Einträge waren Dubletten
+  und Mails, die längst einsortiert sind. Es geht dabei keine Mail verloren; geschlossen werden
+  nur Panel-Einträge, nie etwas im Postfach.
+- **IMAP-Last:** Ein zusätzlicher, kurzer Verbindungsaufbau je Konto und Minute beim Betrachten
+  der Sortierseite.
+
 ## [3.0.0.1] - 2026-08-27 (Build 55) — *Fix: Korrektur meldete Erfolg, ohne zu verschieben*
 
 ### Bugfixes

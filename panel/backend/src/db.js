@@ -236,6 +236,19 @@ for (const sql of migrations) {
   try { db.exec(sql); } catch { /* Spalte existiert schon */ }
 }
 
+// Einmalig: krumme UIDs begradigen. Aeltere Zeilen tragen die UID als "28.0",
+// neuere als "28". Als Text sind das zwei verschiedene Werte — die Pruefung auf
+// schon vorhandene Eintraege lief daran vorbei, und dieselbe Mail landete
+// mehrfach in der Sortier-Inbox.
+try {
+  db.exec(`
+    UPDATE sort_inbox SET uid = CAST(CAST(uid AS INTEGER) AS TEXT)
+    WHERE uid IS NOT NULL AND uid LIKE '%.%';
+    UPDATE quarantine_log SET uid = CAST(CAST(uid AS INTEGER) AS TEXT)
+    WHERE uid IS NOT NULL AND uid LIKE '%.%';
+  `);
+} catch { /* Tabelle noch nicht da */ }
+
 // ─── Admin-Rolle fest einbauen (nicht lösch-/bearbeitbar) ────────────────────
 const ADMIN_RECHTE = JSON.stringify({
   konten: true, listen: true, einstellungen: true, benutzer: true,
