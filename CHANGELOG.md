@@ -2,6 +2,19 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.1.0.1] - 2026-08-28 (Build 59) — *Fix: Build 58 ließ sich nicht bauen*
+
+### Bugfixes
+
+- **Falscher Import-Pfad in der neuen Sicherungs-Seite.** `Sicherung.jsx` holte `api` aus
+  `../lib/api`; die Datei liegt aber unter `src/api.js`, so wie es alle anderen Seiten auch
+  machen. Der Docker-Build von Build 58 scheiterte daran, es wurde also **kein Image erzeugt** —
+  3.1.0.0 ist nie irgendwo gelaufen.
+
+  Damit das nicht wieder erst in der CI auffällt, prüft ein Skript im Arbeitsverzeichnis jetzt
+  vor dem Commit, ob sich **jeder relative Import** im Frontend auflösen lässt. Das dauert eine
+  Sekunde, der fehlgeschlagene CI-Lauf dagegen mehrere Minuten.
+
 ## [3.1.0.0] - 2026-08-28 (Build 58) — *Postfach-Sicherung*
 
 ### Features

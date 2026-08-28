@@ -3,7 +3,7 @@ import {
   HardDriveDownload, ShieldCheck, Play, PlugZap, AlertTriangle,
   CheckCircle2, Loader2, KeyRound, Server, Info,
 } from 'lucide-react';
-import api from '../lib/api';
+import api from '../api';
 
 // Postfach-Sicherung: alle Mails verschlüsselt auf einen FTP-Server.
 //
