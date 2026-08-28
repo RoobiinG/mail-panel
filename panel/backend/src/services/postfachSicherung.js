@@ -239,6 +239,27 @@ async function ordnerNachMbox(client, ordner, zielDatei, gesehen, opt) {
 
 // ─── Archiv bauen ───────────────────────────────────────────────────────────
 
+// Eine Datei an den offenen tar-Strom haengen.
+//
+// Bewusst nicht ueber pipeline(): Das haengt bei jedem Aufruf Ereignis-Zuhoerer
+// an denselben Zielstrom und entfernt sie nicht wieder, weil der Strom offen
+// bleiben muss. Bei zwoelf Ordnern warnt Node schon, bei fuenfzig waere es ein
+// echtes Leck. Hier wird stattdessen in Stuecken geschrieben und dabei der
+// Rueckstau beachtet, damit auch grosse Ordner nicht den Speicher fuellen.
+function anhaengen(ziel, quelle) {
+  return new Promise((fertig, schief) => {
+    const lesen = fs.createReadStream(quelle);
+    lesen.on('error', schief);
+    lesen.on('data', (stueck) => {
+      if (!ziel.write(stueck)) {
+        lesen.pause();
+        ziel.once('drain', () => lesen.resume());
+      }
+    });
+    lesen.on('end', fertig);
+  });
+}
+
 async function archivBauen(konten, zielTar, opt) {
   await fsp.mkdir(ARBEIT, { recursive: true });
   const tar = fs.createWriteStream(zielTar);
@@ -283,7 +304,7 @@ async function archivBauen(konten, zielTar, opt) {
 
           const pfad = `${dateiName(konto.name)}/${dateiName(box.path)}.mbox`;
           await schreibe(tarKopf(pfad, erg.bytes, Date.now()));
-          await pipeline(fs.createReadStream(temp), tar, { end: false });
+          await anhaengen(tar, temp);
           await schreibe(auffuellen(erg.bytes));
           await fsp.rm(temp, { force: true });
         }

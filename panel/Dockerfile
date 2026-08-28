@@ -25,6 +25,10 @@ RUN apk add --no-cache su-exec \
  && apk del .bauwerkzeug
 COPY panel/backend/ ./
 COPY workflows/ /app/workflows/
+# Das Wiederherstellungs-Skript gehoert ins Image: Wer nur den Container hat und
+# eine Sicherung zurueckholen will, kommt sonst nicht heran. Es braucht selbst
+# nichts ausser Node — kein Panel, keine Datenbank, keine Pakete.
+COPY panel/wiederherstellen.js /app/wiederherstellen.js
 COPY --from=frontend /build/dist /app/frontend/dist
 
 # SQLite-Datenbank liegt im Volume

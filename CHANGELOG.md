@@ -2,6 +2,25 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.1.0.2] - 2026-08-28 (Build 60) — *Nachzügler zur Postfach-Sicherung*
+
+### Bugfixes
+
+- **Ereignis-Zuhörer sammelten sich beim Packen an.** Jeder Ordner wurde mit `pipeline()` an den
+  offenen tar-Strom gehängt; weil der Strom offen bleiben muss, räumt Node die Zuhörer dabei nicht
+  wieder ab. Schon bei zwölf Ordnern warnte er, bei fünfzig wäre es ein echtes Leck geworden.
+  Angehängt wird jetzt in Stücken mit Rückstau-Beachtung — das hält den Speicherbedarf auch bei
+  großen Ordnern klein.
+
+- **`wiederherstellen.js` liegt jetzt im Image** (`/app/wiederherstellen.js`). Wer nur den
+  Container hat und eine Sicherung zurückholen will, kam sonst nicht an das Skript heran.
+
+### Geprüft
+
+Probelauf gegen die echten Postfächer: 77 Mails gesichert, 77 im Postfach vorhanden, 77 nach dem
+Auspacken wieder da. 55 Gmail-Dubletten aus „Alle Nachrichten" korrekt übersprungen. Falsches
+Passwort und nachträglich verändertes Archiv werden abgewiesen.
+
 ## [3.1.0.1] - 2026-08-28 (Build 59) — *Fix: Build 58 ließ sich nicht bauen*
 
 ### Bugfixes
