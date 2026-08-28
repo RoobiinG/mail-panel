@@ -7,6 +7,7 @@ import Dashboard from './pages/Dashboard';
 import Konten from './pages/Konten';
 import Listen from './pages/Listen';
 import Einstellungen from './pages/Einstellungen';
+import Sicherung from './pages/Sicherung';
 import Platzhalter from './pages/Platzhalter';
 import Quarantaene from './pages/Quarantaene';
 import Rspamd from './pages/Rspamd';
@@ -48,6 +49,7 @@ export default function App() {
         <Route path="rspamd" element={<Rspamd />} />
         <Route path="workflows" element={<Workflows />} />
         <Route path="einstellungen" element={<Einstellungen />} />
+        <Route path="sicherung" element={<Sicherung />} />
         <Route path="benutzer" element={<Benutzer />} />
         <Route path="sortierung" element={<Sortierung />} />
         <Route path="logs" element={<Logs />} />

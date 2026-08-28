@@ -77,6 +77,9 @@ app.use('/api/dashboard', auth, rechtErforderlich('dashboard'), require('./route
 app.use('/api/benutzer', auth, rechtErforderlich('benutzer'), require('./routes/benutzer'));
 app.use('/api/rollen', auth, rechtErforderlich('benutzer'), require('./routes/rollen'));
 app.use('/api/sortierung', auth, rechtErforderlich('sortierung'), require('./routes/sortierung'));
+// Die Postfach-Sicherung hängt am Einstellungs-Recht: Wer den FTP-Zugang und
+// das Archiv-Passwort setzen darf, verwaltet ohnehin die Zugänge des Panels.
+app.use('/api/sicherung', auth, rechtErforderlich('einstellungen'), require('./routes/sicherung'));
 app.use('/api/workflows', auth, rechtErforderlich('workflows'), require('./routes/workflows'));
 app.use('/api/aktionen', auth, rechtErforderlich('workflows'), require('./routes/aktionen'));
 // Google ruft die Rueckkehr-Adresse im Browser auf — die kann keine Anmeldung
@@ -115,4 +118,8 @@ app.listen(PORT, () => {
   console.log(`Mail-Panel-Backend läuft auf Port ${PORT}`);
   // Container-Health-Check alle 5 Minuten starten
   panelLog.containerHealthCheckStarten();
+  // Postfach-Sicherung: stuendlich nachsehen, ob ein Lauf faellig ist. Der
+  // Zeitpunkt des letzten Laufs steht in den Einstellungen, nicht im
+  // Arbeitsspeicher — ein Neustart verschiebt den Zeitplan deshalb nicht.
+  require('./services/postfachSicherung').zeitplanStarten();
 });

@@ -2,6 +2,71 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.1.0.0] - 2026-08-28 (Build 58) — *Postfach-Sicherung*
+
+### Features
+
+- **Ganze Postfächer sichern.** Neue Seite *Verwaltung → Sicherung*. Das Panel holt alle Mails
+  aller Konten über IMAP, packt sie zusammen, verschlüsselt das Archiv und legt es auf einen
+  FTP-Server. Gelesen wird nur — im Postfach ändert sich dabei nichts.
+
+- **Verschlüsselt, bevor etwas den Server verlässt.** AES-256-GCM, der Schlüssel wird mit scrypt
+  aus einem Passwort abgeleitet. Auf dem FTP-Server liegt danach der vollständige Mailbestand;
+  wer dort Zugriff hat — der Anbieter, ein Mitbenutzer, ein Angreifer — kann damit nichts
+  anfangen. GCM erkennt zusätzlich jede nachträgliche Veränderung: Ein beschädigtes oder
+  manipuliertes Archiv fällt beim Öffnen auf, statt halb ausgepackt zu werden.
+
+- **Das Archiv ist ohne das Panel zu öffnen.** Es ist ein gewöhnliches `tar.gz` mit je einer
+  `.mbox`-Datei pro Ordner — mbox liest jedes Mailprogramm. Dazu liegt `panel/wiederherstellen.js`
+  bei: ein eigenständiges Skript, das nur Node braucht, keine Pakete, keine Datenbank, kein
+  laufendes Panel. Im Kopf des Skripts steht das Dateiformat ausgeschrieben, sodass man notfalls
+  auch mit `openssl` herankommt. Eine Sicherung, die sich nur mit der Software öffnen lässt, die
+  gerade ausgefallen ist, wäre keine.
+
+- **Jede Sicherung liest sich selbst gegen.** Vor dem Hochladen wird das fertige Archiv wieder
+  entschlüsselt und mit dem Ausgangsstand verglichen. Schlägt das fehl, wird nichts hochgeladen
+  und der Lauf als Fehler gemeldet.
+
+- **Probelauf.** Baut und prüft das Archiv, lädt aber nichts hoch und setzt den Zeitplan nicht
+  zurück. Damit lässt sich die Sicherung ausprobieren, bevor überhaupt ein FTP-Zugang eingerichtet
+  ist.
+
+- **FTPS ist Standard, einfaches FTP möglich.** Ohne TLS geht das FTP-Passwort im Klartext durchs
+  Netz; das Archiv bleibt zwar verschlüsselt, der Zugang zum Server aber nicht. Die Oberfläche
+  sagt das an der Stelle, an der man den Haken entfernt.
+
+- **Zeitplan ohne neuen Zeitplaner.** Stündlich wird nachgesehen, ob der letzte Lauf lange genug
+  her ist; der Zeitpunkt steht in den Einstellungen, nicht im Arbeitsspeicher. Ein Neustart
+  verschiebt den Plan deshalb nicht. Standard ist wöchentlich, acht Stände werden aufgehoben,
+  ältere räumt das Panel auf dem FTP-Server weg.
+
+- **Dubletten überspringen.** Gmail führt jede Nachricht zusätzlich in „Alle Nachrichten". Ohne
+  diese Bereinigung läge jede Mail doppelt im Archiv. Die echten Ordner werden zuerst gesichert,
+  damit eine Mail dort landet, wo sie einsortiert ist, und nicht im Sammelordner.
+
+### Technisches
+
+- Neue Abhängigkeit: `basic-ftp` (^6.2.1) — zieht selbst nichts nach und wird erst geladen, wenn
+  wirklich hochgeladen wird. Das `tar` schreibt das Panel selbst (rund fünfzig Zeilen ustar);
+  dafür lohnt keine Abhängigkeit, die man dauerhaft auf Sicherheitslücken beobachten muss.
+- Neu: `services/postfachSicherung.js`, `routes/sicherung.js`, `pages/Sicherung.jsx`,
+  `panel/wiederherstellen.js`.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migration:** Nein. Nur neue Schlüssel in `settings`, die beim ersten Speichern entstehen.
+- **n8n-Workflows:** Unverändert. Die Sicherung läuft vollständig im Panel, kein Sync nötig.
+- **Sitzungen/Neustart:** Keine Auswirkung.
+- **Ohne Einrichtung passiert nichts.** Der Zeitplan bleibt still, solange Archiv-Passwort und
+  FTP-Zugang fehlen; die Bibliothek wird dann gar nicht erst geladen.
+- **Platzbedarf:** Beim Lauf entstehen unter `/app/data/sicherung-arbeit` kurzzeitig
+  unverschlüsselte Zwischenstände in der Größe des Postfachs. Sie werden in jedem Fall wieder
+  gelöscht, auch wenn der Lauf scheitert.
+- **Rechte:** Die Seite hängt am Recht `einstellungen`.
+- **Das Archiv-Passwort ist nicht wiederherstellbar.** Geht es verloren, ist keine ältere
+  Sicherung mehr zu öffnen. Es wird verschlüsselt gespeichert und nie an die Oberfläche
+  zurückgegeben.
+
 ## [3.0.0.3] - 2026-08-28 (Build 57) — *Fix: Workflow 03 räumte ins Leere*
 
 ### Bugfixes

@@ -32,6 +32,23 @@ const FELDER = {
   google_client_secret: { env: 'GOOGLE_CLIENT_SECRET', geheim: true },
   google_refresh_token: { geheim: true },
   google_kalender_id:   { geheim: false, standard: 'primary' },
+  // Postfach-Sicherung: verschlüsseltes Archiv aller Mails auf einen FTP-Server.
+  // Das Archiv-Passwort ist der Schlüssel zu allem, was dort liegt — geht es
+  // verloren, ist keine Sicherung mehr zu öffnen. Es steht deshalb verschlüsselt
+  // in der Datenbank und wird nie an die Oberfläche zurückgegeben.
+  sicherung_aktiv:        { env: 'SICHERUNG_AKTIV', geheim: false },
+  sicherung_passwort:     { env: 'SICHERUNG_PASSWORT', geheim: true },
+  sicherung_ftp_host:     { env: 'SICHERUNG_FTP_HOST', geheim: false },
+  sicherung_ftp_port:     { env: 'SICHERUNG_FTP_PORT', geheim: false, standard: '21' },
+  sicherung_ftp_user:     { env: 'SICHERUNG_FTP_USER', geheim: false },
+  sicherung_ftp_passwort: { env: 'SICHERUNG_FTP_PASSWORT', geheim: true },
+  sicherung_ftp_pfad:     { env: 'SICHERUNG_FTP_PFAD', geheim: false, standard: '/' },
+  sicherung_ftp_tls:      { env: 'SICHERUNG_FTP_TLS', geheim: false, standard: '1' },
+  sicherung_ftp_tls_unsicher: { geheim: false },
+  sicherung_behalten:     { geheim: false, standard: '8' },
+  sicherung_intervall:    { geheim: false, standard: '168' },
+  sicherung_dubletten:    { geheim: false, standard: '1' },
+  sicherung_letzter_lauf: { geheim: false },
 };
 
 function hole(key) {

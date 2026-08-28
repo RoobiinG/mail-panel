@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Mail, ShieldAlert, ListChecks, Newspaper, Filter,
   Workflow, FolderInput, Settings, Users, FileWarning,
-  ChevronLeft, ChevronRight, Inbox,
+  ChevronLeft, ChevronRight, Inbox, HardDriveDownload,
 } from 'lucide-react';
 import { angemeldeterBenutzer } from '../../lib/auth';
 
@@ -27,6 +27,8 @@ export const navItems = [
 
   { section: 'Verwaltung' },
   { to: '/einstellungen', icon: Settings,    label: 'Einstellungen',    id: 'einstellungen' },
+  // Haengt am selben Recht wie die Einstellungen — dort werden die Zugaenge gepflegt.
+  { to: '/sicherung',     icon: HardDriveDownload, label: 'Sicherung',  id: 'einstellungen' },
   { to: '/benutzer',      icon: Users,       label: 'Benutzer & Rollen', id: 'benutzer' },
   { to: '/logs',          icon: FileWarning, label: 'Logs',              id: 'logs' },
 ];
