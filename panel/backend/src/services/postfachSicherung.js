@@ -432,6 +432,15 @@ async function lauf({ nurKonten = null, trockenlauf = false } = {}) {
       );
     }
     const bericht = await archivBauen(konten, tarDatei, e);
+    // Kam von keinem einzigen Konto etwas an, gibt es nichts zu sichern. Ein
+    // leeres Archiv hochzuladen wäre schlimmer als ein Fehlschlag: Es würde
+    // einen älteren, brauchbaren Stand aus der Aufbewahrung verdrängen.
+    if (bericht.every((b) => !b.mails)) {
+      const gruende = bericht.filter((b) => b.fehler).map((b) => `${b.konto}: ${b.fehler}`);
+      throw new Error(gruende.length
+        ? `Kein einziges Konto war erreichbar — ${gruende.join('; ')}`
+        : 'In keinem Konto wurde eine Mail gefunden.');
+    }
     await pipeline(fs.createReadStream(tarDatei), zlib.createGzip({ level: 9 }), fs.createWriteStream(packDatei));
     await verschluesselnNach(packDatei, fertig, e.passwort);
 
@@ -451,8 +460,17 @@ async function lauf({ nurKonten = null, trockenlauf = false } = {}) {
     const { geloescht } = trockenlauf ? { geloescht: 0 } : await hochladen(fertig, name, e);
 
     const mails = bericht.reduce((s, b) => s + (b.mails || 0), 0);
+
+    // Ein Konto, das nicht erreichbar war, fehlt vollständig im Archiv. Das
+    // darf niemals als sauberer Erfolg durchgehen: Wer sich auf die Sicherung
+    // verlässt, merkt es sonst erst, wenn er sie braucht. Genau so ist es am
+    // 02.09. passiert — der Dovecot-Container war seit Tagen aus, die Sicherung
+    // meldete trotzdem "fertig".
+    const gescheitert = bericht.filter((b) => b.fehler);
     const ergebnis = {
       ok: true,
+      unvollstaendig: gescheitert.length > 0,
+      fehlendeKonten: gescheitert.map((b) => `${b.konto}: ${b.fehler}`),
       datei: name,
       groesse,
       mails,
@@ -465,10 +483,13 @@ async function lauf({ nurKonten = null, trockenlauf = false } = {}) {
     // Ein Trockenlauf ist kein Sicherungsstand — er darf den Zeitplan nicht
     // zurücksetzen, sonst faellt die naechste echte Sicherung aus.
     if (!trockenlauf) settings.setze('sicherung_letzter_lauf', JSON.stringify(ergebnis));
-    loggen('info', 'sicherung',
+    loggen(gescheitert.length ? 'warn' : 'info', 'sicherung',
       `Postfach-Sicherung${trockenlauf ? ' (Trockenlauf)' : ''} ${name}: ${mails} Mails, `
       + `${(groesse / 1048576).toFixed(1)} MB, `
-      + `${ergebnis.dauer}s${geloescht ? `, ${geloescht} alte Stände entfernt` : ''}.`);
+      + `${ergebnis.dauer}s${geloescht ? `, ${geloescht} alte Stände entfernt` : ''}`
+      + (gescheitert.length
+        ? `. UNVOLLSTÄNDIG — nicht gesichert: ${ergebnis.fehlendeKonten.join('; ')}`
+        : '.'));
     return ergebnis;
   } catch (err) {
     const ergebnis = { ok: false, fehler: err.message, zeitpunkt: new Date().toISOString() };

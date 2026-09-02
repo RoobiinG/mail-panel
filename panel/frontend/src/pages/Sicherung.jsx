@@ -100,8 +100,11 @@ export default function Sicherung() {
       const konten = (data.konten || [])
         .map((k) => `${k.konto}: ${k.fehler ? `FEHLER ${k.fehler}` : `${k.mails} Mails`}`).join(' · ');
       setMeldung({
-        art: 'gut',
-        text: `${trockenlauf ? 'Probe' : 'Sicherung'} fertig: ${data.mails} Mails, ${mb(data.groesse)}, `
+        art: data.unvollstaendig ? 'hinweis' : 'gut',
+        text: (data.unvollstaendig
+          ? `UNVOLLSTÄNDIG — nicht gesichert: ${(data.fehlendeKonten || []).join('; ')}. `
+          : '')
+          + `${trockenlauf ? 'Probe' : 'Sicherung'} fertig: ${data.mails} Mails, ${mb(data.groesse)}, `
           + `${data.dauer} s. ${konten}`
           + (trockenlauf ? ' — nichts hochgeladen, die Datei liegt im Arbeitsverzeichnis.' : ''),
       });
@@ -149,6 +152,15 @@ export default function Sicherung() {
           <p className="text-sm text-panel-muted">Noch nie gelaufen.</p>
         ) : letzter.ok ? (
           <div className="text-sm space-y-1">
+            {letzter.unvollstaendig && (
+              <div className="flex items-start gap-2 text-panel-red bg-panel-red/10 p-2 rounded mb-2">
+                <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+                <span>
+                  <strong>Unvollständig.</strong> Diese Postfächer fehlen im Archiv:{' '}
+                  {(letzter.fehlendeKonten || []).join('; ')}
+                </span>
+              </div>
+            )}
             <div><span className="text-panel-muted">Wann:</span>{' '}
               {new Date(letzter.zeitpunkt).toLocaleString('de-DE')}
               {letzter.trockenlauf && <span className="text-panel-muted"> (Probe)</span>}</div>

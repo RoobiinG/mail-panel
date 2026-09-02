@@ -2,6 +2,32 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.2.0.1] - 2026-09-02 (Build 62) — *Fix: Sicherung verschwieg ein fehlendes Postfach*
+
+### Bugfixes
+
+- **Eine Sicherung, der ein ganzes Postfach fehlt, meldete sich als fertig.** Aufgefallen beim
+  Nachmessen: Der Probelauf gab `ok: true` und „56 Mails" zurück, obwohl das Dovecot-Konto
+  überhaupt nicht erreichbar war und mit null Mails im Bericht stand. Wer sich darauf verlässt,
+  merkt den Verlust erst, wenn er die Sicherung braucht.
+
+  Der Lauf trägt jetzt `unvollstaendig` samt Begründung je Konto. Die Oberfläche zeigt das rot
+  über dem letzten Stand, und der Logeintrag wechselt von `info` auf `warn`. Hochgeladen wird
+  weiterhin — ein Teilstand ist mehr wert als keiner —, aber er ist als solcher gekennzeichnet.
+
+- **Kam von keinem einzigen Konto etwas an, wurde ein leeres Archiv erzeugt und hochgeladen.**
+  Das ist schlimmer als ein Fehlschlag, weil es über die Aufbewahrungsgrenze einen älteren,
+  brauchbaren Stand verdrängt hätte. Jetzt bricht der Lauf mit den Gründen ab.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migration:** Nein. `sicherung_letzter_lauf` bekommt zwei zusätzliche Felder; ältere
+  Einträge ohne sie werden weiterhin angezeigt.
+- **n8n-Workflows:** Unverändert.
+- **Betrieb:** Am Testserver war der `dovecot`-Container seit vier Tagen aus — als einziger
+  Container mit der Neustart-Regel `no`. Er wurde gestartet und auf `unless-stopped` gesetzt,
+  wie alle anderen.
+
 ## [3.2.0.0] - 2026-09-02 (Build 61) — *Keine Browser-Dialoge mehr*
 
 ### Features
