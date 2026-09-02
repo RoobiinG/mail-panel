@@ -147,12 +147,21 @@ function starten(app, port, fertig) {
 
   // Ein TLS-Handshake beginnt immer mit 0x16. Daran lässt sich schon am ersten
   // Byte erkennen, wohin die Verbindung gehört — beides auf demselben Port.
+  //
+  // Die Form ist heikel, bitte nicht "vereinfachen": Es MUSS read(1) sein und
+  // nicht once('data'). Mit once('data') erreichen die zurückgelegten Bytes die
+  // TLS-Schicht nicht, der Handshake wartet ewig, und der Aufruf über https
+  // hängt einfach — ohne Fehler, ohne Log. Genau so ist Build 66 entstanden.
+  // Der Test in test/tls.test.js fährt deshalb einen echten Server hoch.
   const weiche = net.createServer((verbindung) => {
-    verbindung.once('data', (erstes) => {
+    verbindung.on('error', () => { /* abgebrochene Verbindungen sind normal */ });
+    const schauen = () => {
+      const erstes = verbindung.read(1);
+      if (erstes === null) { verbindung.once('readable', schauen); return; }
       verbindung.unshift(erstes);
       (erstes[0] === 0x16 ? sicher : umleitung).emit('connection', verbindung);
-    });
-    verbindung.on('error', () => { /* abgebrochene Verbindungen sind normal */ });
+    };
+    verbindung.once('readable', schauen);
   });
 
   weiche.listen(port, () => fertig({ tls: true, quelle: z.quelle, neu: z.neu, namen: z.namen }));

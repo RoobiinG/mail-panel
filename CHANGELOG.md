@@ -2,6 +2,23 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.5.0.1] - 2026-09-02 (Build 67) — *Fix: HTTPS hing beim Handshake*
+
+### Bugfixes
+
+- **Der Aufruf über `https://` blieb hängen.** Kein Fehler, kein Logeintrag — die Verbindung
+  wartete einfach ewig. Ursache war die Weiche, die anhand des ersten Bytes zwischen HTTPS und
+  einer HTTP-Umleitung unterscheidet: Sie las das Byte mit `once('data')`. In dieser Form
+  erreichen die zurückgelegten Bytes die TLS-Schicht nicht, und der Handshake kommt nie
+  zustande. Mit `read(1)` funktioniert es. Der Unterschied ist im Quelltext vermerkt, damit
+  ihn niemand wegvereinfacht.
+
+- **Build 66 hat trotzdem ein Image erzeugt.** Der Testlauf war rot, aber Testlauf und
+  Image-Build hängen nicht zusammen — der Build lief unbeeindruckt durch und veröffentlichte
+  ein Abbild, dessen Oberfläche über HTTPS nicht erreichbar war. **Dieses Image bitte nicht
+  benutzen.** Genau die Verkettung der beiden Abläufe stand als offene Entscheidung im
+  Changelog von Build 64; hier ist der Beleg, warum sie fehlt.
+
 ## [3.5.0.0] - 2026-09-02 (Build 66) — *HTTPS ab Werk, MIT-Lizenz*
 
 ### Features
