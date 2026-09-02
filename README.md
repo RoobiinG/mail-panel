@@ -46,13 +46,35 @@ Repository auf den Server holen (oder die Dateien in ein Docker-Panel wie Dockha
 Portainer einfügen) und in den Ordner wechseln. Dann:
 
 ```bash
+./einrichten.sh
 docker compose up -d
 ```
 
-Das war's an Konfiguration. Alle Schlüssel erzeugen n8n und das Panel beim ersten Start
-selbst und legen sie in ihren Volumes ab. Eine `.env` brauchst du nur, wenn du Ports,
-Zeitzone oder die öffentliche n8n-Adresse ändern willst — dann `.env.example` nach `.env`
-kopieren und anpassen.
+**Was `einrichten.sh` macht:** Der Stack bringt ClamAV (Virenscan) und unbound
+(DNS-Resolver für die Spam-Listen) mit. Auf vielen Servern gibt es beides schon —
+**Mailcow zum Beispiel liefert beide mit**. Ein zweites ClamAV daneben kostet rund
+1,5 GB Arbeitsspeicher, ohne irgendetwas zu können, was das vorhandene nicht könnte.
+
+Das Skript sieht deshalb einmal nach, was läuft, fragt nach, und trägt das Ergebnis in
+die `.env` ein:
+
+| Gefunden | Was eingetragen wird |
+|---|---|
+| nichts (frischer Server) | `COMPOSE_PROFILES=clamav,unbound` — der Stack startet beide selbst |
+| `clamd-mailcow` o.ä. | `CLAMD_HOST=clamd-mailcow`, das eigene ClamAV bleibt aus |
+| ClamAV auf dem Host (Port 3310) | `CLAMD_HOST=172.17.0.1` |
+
+Läuft ein fremder Dienst in einem eigenen Docker-Netz, nennt das Skript den einen Befehl,
+mit dem das Panel dort hineinkommt (`docker network connect …`) — auf Wunsch führt es ihn
+gleich aus.
+
+Du kannst das Skript überspringen und stattdessen `.env.example` nach `.env` kopieren und
+von Hand ausfüllen; alles, was es setzt, ist dort erklärt. Ohne `.env` startet der Stack
+**ohne** ClamAV und unbound, weil beide hinter Compose-Profilen stehen.
+
+Sonst ist an Konfiguration nichts nötig: Alle Schlüssel erzeugen n8n und das Panel beim
+ersten Start selbst und legen sie in ihren Volumes ab. Ports, Zeitzone und die öffentliche
+n8n-Adresse stehen ebenfalls in der `.env`.
 
 Beim ersten Start passieren drei Dinge, die etwas dauern:
 

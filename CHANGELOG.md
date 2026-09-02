@@ -2,6 +2,49 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.4.0.0] - 2026-09-02 (Build 65) — *Nicht installieren, was schon da ist*
+
+### Features
+
+- **ClamAV und unbound werden nicht mehr blind mitinstalliert.** Beide sind auf vielen
+  Servern längst vorhanden — Mailcow liefert sie mit. Ein zweites ClamAV daneben kostet rund
+  **1,5 GB Arbeitsspeicher**, ohne irgendetwas zu können, was das vorhandene nicht könnte, und
+  zwar ausgerechnet auf der Maschine, die die Post ausliefert.
+
+  Neu ist `einrichten.sh`: Es sieht einmal nach, was läuft, fragt nach und schreibt das
+  Ergebnis in die `.env`. Danach genügt in jedem Fall ein schlichtes `docker compose up -d`.
+
+  | Gefunden | Was eingetragen wird |
+  |---|---|
+  | nichts | `COMPOSE_PROFILES=clamav,unbound` — der Stack startet beide selbst |
+  | ein fremder ClamAV-Container | `CLAMD_HOST=<name>`, das eigene bleibt aus |
+  | ClamAV auf dem Host (Port 3310) | `CLAMD_HOST=172.17.0.1` |
+
+  Liegt ein gefundener Dienst in einem eigenen Docker-Netz, nennt das Skript den
+  `docker network connect`-Befehl, mit dem das Panel dort hineinkommt — auf Wunsch führt es
+  ihn gleich aus. Ohne Terminal sagt es nur, was zu tun ist, und startet von sich aus nichts:
+  Ein unbeaufsichtigtes Skript soll keine Dienste hochfahren.
+
+  Die beiden Dienste stehen dafür hinter Compose-Profilen. Wer die `.env` von Hand pflegt,
+  findet alles in `.env.example` erklärt.
+
+### Aufräumen
+
+- **`update.tar.gz` aus dem Repository entfernt.** Ein versehentlich eingechecktes Archiv des
+  Repositorys selbst (244 KB). Steht jetzt in `.gitignore`.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migration:** Nein.
+- **n8n-Workflows:** Unverändert.
+- **Bestehende Installationen:** `docker compose up -d` **ohne** `.env` startet ClamAV und
+  unbound ab jetzt **nicht** mehr — sie hängen an Profilen. Wer sie weiter mitlaufen lassen
+  will, legt eine `.env` mit `COMPOSE_PROFILES=clamav,unbound` an oder ruft einmal
+  `./einrichten.sh` auf. Bereits laufende Container bleiben davon unberührt, bis das nächste
+  `docker compose up -d` sie abräumt.
+- **Virenscan:** Ohne erreichbares ClamAV wird nicht gescannt; das Panel meldet das im Log als
+  Warnung und sortiert weiter.
+
 ## [3.3.0.0] - 2026-09-02 (Build 64) — *Testlauf*
 
 ### Features

@@ -129,10 +129,17 @@ services:
   # ─── ClamAV: Virenscan für Mail-Anhänge (nur intern) ────────────────────────
   # Braucht ~1,5 GB RAM. Die Signaturen liegen im Volume und werden vom
   # Container selbst aktuell gehalten.
+  #
+  # Steht hinter einem Profil, weil viele Server ClamAV schon haben — Mailcow
+  # zum Beispiel liefert es mit. Ein zweites daneben zu starten kostet den
+  # Speicher zweimal, ohne etwas zu können, was das erste nicht könnte.
+  # `./einrichten.sh` sieht nach, was vorhanden ist, und trägt entweder das
+  # Profil oder CLAMD_HOST in die .env ein. Danach genügt `docker compose up -d`.
   clamav:
     image: clamav/clamav:latest
     container_name: clamav
     restart: unless-stopped
+    profiles: ["clamav"]
     volumes:
       - clamav_db:/var/lib/clamav
     networks:
@@ -140,10 +147,12 @@ services:
 
   # ─── unbound: DNS-Resolver für die DNSBL-Abfragen (nur intern) ──────────────
   # Nötig, weil Spamhaus & Co. Anfragen über öffentliche Resolver blockieren.
+  # Dasselbe Profil-Verfahren wie bei ClamAV, aus demselben Grund.
   unbound:
     image: mvance/unbound:latest
     container_name: unbound
     restart: unless-stopped
+    profiles: ["unbound"]
     networks:
       - internal
 
