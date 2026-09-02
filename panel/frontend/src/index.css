@@ -37,6 +37,12 @@ textarea {
          transition-colors duration-150;
 }
 
+/* Einblendungen der Meldungen (siehe components/ui/Meldungen.jsx) */
+@keyframes einblenden {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 input[type='checkbox'], input[type='radio'] {
   @apply accent-panel-accent cursor-pointer;
 }

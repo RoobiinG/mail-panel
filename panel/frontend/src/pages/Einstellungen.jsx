@@ -5,6 +5,7 @@ import {
   Link, Wifi, TestTube2, User, Settings2, FolderTree,
 } from 'lucide-react';
 import api from '../api';
+import { useMelden } from '../components/ui/Meldungen';
 
 // ─── Gemeinsame Styles ────────────────────────────────────────────────────────
 
@@ -240,6 +241,7 @@ const DIENSTE_TESTS = [
 // ─── Haupt-Seite ──────────────────────────────────────────────────────────────
 
 export default function Einstellungen() {
+  const { nachfragen } = useMelden();
   const [tab, setTab]         = useState('verbindungen');
   const [settings, setSettings] = useState(null);
   const [dnsblText, setDnsblText] = useState('');
@@ -311,7 +313,11 @@ export default function Einstellungen() {
   };
 
   const deletePasskey = async (id) => {
-    if (!confirm('Passkey wirklich löschen?')) return;
+    if (!(await nachfragen({
+      titel: 'Passkey löschen?',
+      text: 'Dieses Gerät meldet sich danach wieder mit Benutzername und Passwort an.',
+      bestaetigen: 'Löschen', gefaehrlich: true,
+    }))) return;
     try { await api.delete(`/passkeys/${id}`); await loadPasskeys(); setPkMeldung('Passkey gelöscht'); }
     catch { setPkMeldung('Fehler beim Löschen'); }
   };

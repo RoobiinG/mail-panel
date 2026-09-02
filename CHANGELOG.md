@@ -2,6 +2,50 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.2.0.0] - 2026-09-02 (Build 61) — *Keine Browser-Dialoge mehr*
+
+### Features
+
+- **`alert()` und `confirm()` sind restlos verschwunden.** 24 Meldungen und 10 Rückfragen liefen
+  bisher über die grauen Kästen des Browsers. Die reißen einen aus der Arbeit, sehen auf jedem
+  System anders aus, blockieren die ganze Seite und stellen dem Text ungefragt den Hostnamen des
+  Servers voran.
+
+  An ihrer Stelle steht jetzt `components/ui/Meldungen.jsx`:
+  - `melden(text, art)` blendet unten rechts eine Karte im Panel-Stil ein, die von selbst wieder
+    verschwindet — Fehler bleiben doppelt so lange stehen wie Erfolgsmeldungen, weil man sie
+    lesen will.
+  - `nachfragen({…})` stellt die Rückfrage als Dialog im Panel-Stil und liefert ein Versprechen,
+    sodass die Aufrufstelle lesbar bleibt. Escape bricht ab, Enter bestätigt. Löschungen sind rot
+    hervorgehoben und beschreiben jetzt die Folge, statt nur „wirklich löschen?" zu fragen.
+
+### Bugfixes
+
+- **„Verbindung prüfen" und „Probelauf" arbeiteten auf dem gespeicherten Stand, nicht auf dem
+  Formular.** Wer seine FTP-Zugangsdaten eintippte und gleich auf Prüfen drückte, bekam
+  „Noch nicht vollständig: FTP-Server, FTP-Benutzer, FTP-Passwort" — obwohl alles sichtbar im
+  Formular stand. Das sah aus, als ließe sich nichts speichern. Beide Schaltflächen übernehmen
+  die Angaben jetzt zuerst. Aus demselben Grund ist „Jetzt sichern" nicht mehr gesperrt, solange
+  nur der gespeicherte Stand unvollständig ist.
+
+- **Ein Schreibfehler im Arbeitsverzeichnis meldete sich als „Datei nicht gefunden".** Der
+  Schreibstrom hatte keinen Fehler-Zuhörer; sein Fehlschlag fiel erst weiter unten beim `stat()`
+  auf — an einer Stelle, die auf die falsche Fährte führt. Jetzt wird der Fehler dort gemeldet,
+  wo er entsteht. Zusätzlich prüft der Lauf vorab, ob das Panel im Arbeitsverzeichnis überhaupt
+  schreiben darf, und nennt im Fehlerfall den Befehl, der es geraderückt.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migration:** Nein.
+- **n8n-Workflows:** Unverändert.
+- **Sitzungen/Neustart:** Keine Auswirkung.
+- **Sichtbare Änderung:** Alle Rückmeldungen erscheinen ab jetzt in der Seite statt im Browser.
+  Wer Löschungen bisher blind mit Enter bestätigt hat, sollte kurz hinsehen — der neue Dialog
+  bestätigt zwar ebenfalls mit Enter, benennt aber die Folge.
+- **Rechte auf dem Datenträger:** Wurde `/app/data` einmal von einem Wartungsbefehl als root
+  angelegt, kann der als `node` laufende Dienst dort nicht schreiben. Geraderücken mit
+  `docker exec -u root mail-panel chown -R node:node /app/data`.
+
 ## [3.1.0.2] - 2026-08-28 (Build 60) — *Nachzügler zur Postfach-Sicherung*
 
 ### Bugfixes

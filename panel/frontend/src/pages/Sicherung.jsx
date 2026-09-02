@@ -49,14 +49,25 @@ export default function Sicherung() {
     onChange: (e) => setForm((f) => ({ ...f, [name]: e.target.checked })),
   });
 
+  // Gibt zurück, was noch fehlt — oder null, wenn das Speichern schiefging.
+  // Prüfen und Sichern arbeiten auf dem gespeicherten Stand, nicht auf dem
+  // Formular. Wer seine Zugangsdaten eintippt und gleich auf "Verbindung
+  // prüfen" drückt, bekäme sonst die Meldung, es sei nichts eingetragen —
+  // obwohl alles sichtbar im Formular steht. Deshalb speichert jede dieser
+  // Schaltflächen zuerst.
+  const uebernehmen = async () => {
+    const nutzlast = { ...form };
+    if (passwort) nutzlast.passwort = passwort;
+    if (ftpPasswort) nutzlast.ftpPasswort = ftpPasswort;
+    const { data } = await api.post('/sicherung', nutzlast);
+    setPasswort(''); setFtpPasswort('');
+    return data;
+  };
+
   const speichern = async () => {
     setAktion('speichern'); setMeldung(null);
     try {
-      const nutzlast = { ...form };
-      if (passwort) nutzlast.passwort = passwort;
-      if (ftpPasswort) nutzlast.ftpPasswort = ftpPasswort;
-      const { data } = await api.post('/sicherung', nutzlast);
-      setPasswort(''); setFtpPasswort('');
+      const data = await uebernehmen();
       setMeldung(data.fehlt?.length
         ? { art: 'hinweis', text: `Gespeichert. Zum Sichern fehlt noch: ${data.fehlt.join(', ')}.` }
         : { art: 'gut', text: 'Gespeichert.' });
@@ -69,6 +80,7 @@ export default function Sicherung() {
   const testen = async () => {
     setAktion('testen'); setMeldung(null);
     try {
+      await uebernehmen();
       const { data } = await api.post('/sicherung/test');
       setMeldung({
         art: 'gut',
@@ -83,6 +95,7 @@ export default function Sicherung() {
   const starten = async (trockenlauf) => {
     setAktion(trockenlauf ? 'probe' : 'sichern'); setMeldung(null);
     try {
+      await uebernehmen();
       const { data } = await api.post('/sicherung/starten', { trockenlauf });
       const konten = (data.konten || [])
         .map((k) => `${k.konto}: ${k.fehler ? `FEHLER ${k.fehler}` : `${k.mails} Mails`}`).join(' · ');
@@ -271,9 +284,9 @@ export default function Sicherung() {
           title="Baut und prüft das Archiv, lädt aber nichts hoch">
           <ShieldCheck size={15} /> {aktion === 'probe' ? 'Läuft …' : 'Probelauf'}
         </button>
-        <button onClick={() => starten(false)} disabled={laeuft || stand?.fehlt?.length > 0}
+        <button onClick={() => starten(false)} disabled={laeuft}
           className="btn flex items-center gap-1 disabled:opacity-50"
-          title={stand?.fehlt?.length ? `Es fehlt noch: ${stand.fehlt.join(', ')}` : 'Jetzt sichern und hochladen'}>
+          title="Speichert die Angaben und lädt eine Sicherung hoch">
           <Play size={15} /> {aktion === 'sichern' ? 'Sichert …' : 'Jetzt sichern'}
         </button>
       </div>

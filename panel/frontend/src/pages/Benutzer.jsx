@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Users, Shield, Clock, Plus, Edit2, Trash2, CheckCircle2, XCircle } from 'lucide-react';
 import api from '../api';
+import { useMelden } from '../components/ui/Meldungen';
 
 const BEREICHE = [
   { id: 'dashboard', label: 'Dashboard' },
@@ -17,6 +18,7 @@ const BEREICHE = [
 ];
 
 export default function BenutzerVerwaltung() {
+  const { melden, nachfragen } = useMelden();
   const [tab, setTab] = useState('benutzer'); // benutzer, rollen, authlog
 
   const [benutzer, setBenutzer] = useState([]);
@@ -74,17 +76,20 @@ export default function BenutzerVerwaltung() {
       setUserModal({ offen: false });
       laden();
     } catch (err) {
-      alert(err.response?.data?.error || 'Fehler beim Speichern');
+      melden(err.response?.data?.error || 'Fehler beim Speichern', 'fehler');
     }
   };
 
   const userLoeschen = async (id) => {
-    if (!confirm('Benutzer wirklich löschen?')) return;
+    if (!(await nachfragen({
+      titel: 'Benutzer löschen?', text: 'Der Zugang wird sofort ungültig.',
+      bestaetigen: 'Löschen', gefaehrlich: true,
+    }))) return;
     try {
       await api.delete(`/benutzer/${id}`);
       laden();
     } catch (err) {
-      alert(err.response?.data?.error || 'Fehler beim Löschen');
+      melden(err.response?.data?.error || 'Fehler beim Löschen', 'fehler');
     }
   };
 
@@ -102,17 +107,20 @@ export default function BenutzerVerwaltung() {
       setRollenModal({ offen: false });
       laden();
     } catch (err) {
-      alert(err.response?.data?.error || 'Fehler beim Speichern');
+      melden(err.response?.data?.error || 'Fehler beim Speichern', 'fehler');
     }
   };
 
   const rolleLoeschen = async (id) => {
-    if (!confirm('Rolle wirklich löschen?')) return;
+    if (!(await nachfragen({
+      titel: 'Rolle löschen?', text: 'Benutzer mit dieser Rolle verlieren ihre Rechte.',
+      bestaetigen: 'Löschen', gefaehrlich: true,
+    }))) return;
     try {
       await api.delete(`/rollen/${id}`);
       laden();
     } catch (err) {
-      alert(err.response?.data?.error || 'Fehler beim Löschen');
+      melden(err.response?.data?.error || 'Fehler beim Löschen', 'fehler');
     }
   };
 

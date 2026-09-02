@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Plus, Trash2, Pencil, RefreshCw, CheckCircle2, XCircle, Loader2, X } from 'lucide-react';
 import api from '../api';
+import { useMelden } from '../components/ui/Meldungen';
 
 const LEER = { name: '', host: '', port: 993, username: '', passwort: '', tlsUnsicher: false };
 
@@ -24,6 +25,7 @@ const VORLAGEN = [
 ];
 
 export default function Konten() {
+  const { nachfragen } = useMelden();
   const [konten, setKonten] = useState(null);
   const [formular, setFormular] = useState(null); // null = zu, sonst Konto-Entwurf
   const [test, setTest] = useState(null);         // null | 'laeuft' | {ok} | {error}
@@ -92,7 +94,11 @@ export default function Konten() {
   };
 
   const loeschen = async (konto) => {
-    if (!window.confirm(`Konto „${konto.name}" wirklich entfernen? Die Knoten in n8n werden zurückgebaut, Mails bleiben unangetastet.`)) return;
+    if (!(await nachfragen({
+      titel: `Konto „${konto.name}" entfernen?`,
+      text: 'Die Knoten in n8n werden zurückgebaut. Im Postfach bleibt alles unangetastet.',
+      bestaetigen: 'Entfernen', gefaehrlich: true,
+    }))) return;
     setMeldung('');
     try {
       await api.delete(`/konten/${konto.id}`);

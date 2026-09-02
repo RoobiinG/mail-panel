@@ -3,10 +3,19 @@ import { Sidebar } from './Sidebar';
 import { Header } from './Header';
 import { MobileNav } from './MobileNav';
 import { useIsMobile } from '../../hooks/useIsMobile';
+import { MeldungsAnbieter } from '../ui/Meldungen';
 
 // Aufbau wie im Überwachungs-Panel: am Rechner Sidebar plus Kopfzeile,
 // am Handy Kopfzeile oben und Tab-Leiste unten.
 export default function Layout() {
+  return (
+    <MeldungsAnbieter>
+      <Geruest />
+    </MeldungsAnbieter>
+  );
+}
+
+function Geruest() {
   const isMobile = useIsMobile();
 
   if (isMobile) {

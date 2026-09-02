@@ -5,6 +5,7 @@ import {
   Copy, Check, Square, CheckSquare,
 } from 'lucide-react';
 import api from '../api';
+import { useMelden } from '../components/ui/Meldungen';
 
 // ─── Hilfsfunktionen ─────────────────────────────────────────────────────────
 
@@ -168,6 +169,7 @@ function LogEntry({ log, selected, onToggle }) {
 // ─── Haupt-Seite ──────────────────────────────────────────────────────────────
 
 export default function Logs() {
+  const { nachfragen } = useMelden();
   const [logs,    setLogs]    = useState([]);
   const [total,   setTotal]   = useState(0);
   const [laedt,   setLaedt]   = useState(false);
@@ -246,7 +248,10 @@ export default function Logs() {
 
   const auswahlLoeschen = async () => {
     if (!ausgewaehlt.size) return;
-    if (!confirm(`${ausgewaehlt.size} Eintrag(e) wirklich löschen?`)) return;
+    if (!(await nachfragen({
+      titel: 'Einträge löschen?', text: `${ausgewaehlt.size} Eintrag(e) werden entfernt.`,
+      bestaetigen: 'Löschen', gefaehrlich: true,
+    }))) return;
     await api.delete('/logs/bulk', { data: { ids: [...ausgewaehlt] } }).catch(() => {});
     await laden();
     quellenLaden();
@@ -276,7 +281,10 @@ export default function Logs() {
   // ── Alle löschen ─────────────────────────────────────────────────────────────
 
   const alleLoeschen = async () => {
-    if (!confirm('Alle Panel-Logs wirklich löschen?')) return;
+    if (!(await nachfragen({
+      titel: 'Alle Logs löschen?', text: 'Der gesamte Verlauf wird entfernt. Das lässt sich nicht rückgängig machen.',
+      bestaetigen: 'Alle löschen', gefaehrlich: true,
+    }))) return;
     await api.delete('/logs').catch(() => {});
     setLogs([]);
     setTotal(0);

@@ -4,6 +4,7 @@ import {
   FolderTree, Sparkles, Lock, Unlock, RefreshCw, Check, Wand2,
   ChevronRight, ChevronDown, Layers, AtSign, History, Undo2
 } from 'lucide-react';
+import { useMelden } from '../components/ui/Meldungen';
 
 // "Name <a@b.de>" -> "a@b.de" bzw. "b.de"
 const adresse = (von) => {
@@ -21,6 +22,7 @@ const REGEL_TYPEN = {
 };
 
 export default function Sortierung() {
+  const { melden, nachfragen } = useMelden();
   const [konten, setKonten] = useState([]);
   const [aktivesKonto, setAktivesKonto] = useState('');
   
@@ -94,7 +96,9 @@ export default function Sortierung() {
     const text = `${gruppe.regeln.length} Einzelregeln durch eine Regel für @${gruppe.domain} ersetzen?\n\n`
       + gruppe.regeln.map(r => `  ${r.muster}`).join('\n')
       + `\n\nDie neue Regel deckt auch alle künftigen Adressen dieser Domain ab.`;
-    if (!confirm(text)) return;
+    if (!(await nachfragen({
+      titel: 'Regeln zusammenfassen?', text, bestaetigen: 'Zusammenfassen',
+    }))) return;
     try {
       const { data } = await api.post('/sortierung/regeln/zusammenfassen', {
         konto_id: aktivesKonto, domain: gruppe.domain, zielordner: gruppe.zielordner,
@@ -102,11 +106,11 @@ export default function Sortierung() {
       const dazu = data.nachsortiert?.verschoben
         ? ` Dabei wurden ${data.nachsortiert.verschoben} wartende Mail(s) mitsortiert.`
         : '';
-      alert(`${data.ersetzt} Regeln zu einer Domain-Regel zusammengefasst.${dazu}`);
+      melden(`${data.ersetzt} Regeln zu einer Domain-Regel zusammengefasst.${dazu}`);
       regelnLaden(aktivesKonto);
       inboxLaden();
     } catch (err) {
-      alert(err.response?.data?.error || 'Fehler beim Zusammenfassen');
+      melden(err.response?.data?.error || 'Fehler beim Zusammenfassen', 'fehler');
     }
   };
 
@@ -128,7 +132,7 @@ export default function Sortierung() {
 
   const korrigieren = async (eintrag) => {
     const ziel = korrekturOrdner.trim();
-    if (!ziel) return alert('Bitte den richtigen Ordner angeben.');
+    if (!ziel) return melden('Bitte den richtigen Ordner angeben.', 'hinweis');
     try {
       const { data } = await api.post('/sortierung/korrigieren', {
         log_id: eintrag.id, zielordner: ziel, regelTyp: korrekturRegel,
@@ -140,14 +144,14 @@ export default function Sortierung() {
       }
       if (data.nachsortiert?.verschoben) teile.push(`${data.nachsortiert.verschoben} wartende Mail(s) mitsortiert.`);
       if (data.hinweis) teile.push(data.hinweis);
-      alert(teile.join('\n'));
+      melden(teile.join('\n'));
       setKorrekturOffen(null);
       setKorrekturOrdner('');
       entscheidungenLaden(aktivesKonto);
       regelnLaden(aktivesKonto);
       inboxLaden();
     } catch (err) {
-      alert(err.response?.data?.error || 'Fehler bei der Korrektur');
+      melden(err.response?.data?.error || 'Fehler bei der Korrektur', 'fehler');
     }
   };
 
@@ -178,7 +182,7 @@ export default function Sortierung() {
       setKatalogModal({ offen: false, ordner: '', beschreibung: '' });
       katalogLaden(aktivesKonto);
     } catch (err) {
-      alert(err.response?.data?.error || 'Fehler beim Speichern');
+      melden(err.response?.data?.error || 'Fehler beim Speichern', 'fehler');
     }
   };
 
@@ -187,17 +191,21 @@ export default function Sortierung() {
       await api.put(`/sortierung/katalog/${id}`, felder);
       katalogLaden(aktivesKonto);
     } catch (err) {
-      alert(err.response?.data?.error || 'Fehler beim Ändern');
+      melden(err.response?.data?.error || 'Fehler beim Ändern', 'fehler');
     }
   };
 
   const katalogEntfernen = async (id) => {
-    if (!confirm('Aus dem Katalog nehmen? Der Ordner im Postfach bleibt bestehen.')) return;
+    if (!(await nachfragen({
+      titel: 'Aus dem Katalog nehmen?',
+      text: 'Der Ordner im Postfach bleibt bestehen — es wird nichts verschoben oder gelöscht.',
+      bestaetigen: 'Entfernen', gefaehrlich: true,
+    }))) return;
     try {
       await api.delete(`/sortierung/katalog/${id}`);
       katalogLaden(aktivesKonto);
     } catch (err) {
-      alert(err.response?.data?.error || 'Fehler beim Entfernen');
+      melden(err.response?.data?.error || 'Fehler beim Entfernen', 'fehler');
     }
   };
 
@@ -221,9 +229,9 @@ export default function Sortierung() {
     try {
       const { data } = await api.post(`/sortierung/vorschlaege/${id}/freigeben`);
       vorschlaegeLaden(); katalogLaden(aktivesKonto); inboxLaden();
-      if (data.wartend) alert(`Ordner "${data.ordner}" angelegt. ${data.verschoben} von ${data.wartend} wartenden Mails einsortiert.`);
+      if (data.wartend) melden(`Ordner "${data.ordner}" angelegt. ${data.verschoben} von ${data.wartend} wartenden Mails einsortiert.`);
     } catch (err) {
-      alert(err.response?.data?.error || 'Fehler beim Freigeben');
+      melden(err.response?.data?.error || 'Fehler beim Freigeben', 'fehler');
     }
   };
 
@@ -232,7 +240,7 @@ export default function Sortierung() {
       await api.post(`/sortierung/vorschlaege/${id}/ablehnen`);
       vorschlaegeLaden();
     } catch (err) {
-      alert(err.response?.data?.error || 'Fehler beim Ablehnen');
+      melden(err.response?.data?.error || 'Fehler beim Ablehnen', 'fehler');
     }
   };
 
@@ -257,17 +265,21 @@ export default function Sortierung() {
       setRegelModal({ offen: false, typ: 'absender', muster: '', zielordner: '' });
       regelnLaden(aktivesKonto);
     } catch (err) {
-      alert(err.response?.data?.error || 'Fehler beim Speichern');
+      melden(err.response?.data?.error || 'Fehler beim Speichern', 'fehler');
     }
   };
 
   const regelLoeschen = async (id) => {
-    if (!confirm('Regel löschen?')) return;
+    if (!(await nachfragen({
+      titel: 'Regel löschen?',
+      text: 'Künftige Mails werden dann wieder von der KI einsortiert.',
+      bestaetigen: 'Löschen', gefaehrlich: true,
+    }))) return;
     try {
       await api.delete(`/sortierung/regeln/${id}`);
       regelnLaden(aktivesKonto);
     } catch (err) {
-      alert(err.response?.data?.error || 'Fehler beim Löschen');
+      melden(err.response?.data?.error || 'Fehler beim Löschen', 'fehler');
     }
   };
 
@@ -275,7 +287,7 @@ export default function Sortierung() {
 
   const zuordnen = async (mailId) => {
     const zielordner = ordnerWahl[mailId];
-    if (!zielordner) return alert('Bitte einen Zielordner angeben.');
+    if (!zielordner) return melden('Bitte einen Zielordner angeben.', 'hinweis');
     // '' | 'absender' | 'domain' — das Backend versteht beide Regeltypen
     const anlegen = regelAnlegenWahl[mailId] || false;
 
@@ -292,7 +304,7 @@ export default function Sortierung() {
       }
       inboxLaden();
     } catch (err) {
-      alert(err.response?.data?.error || 'Fehler beim Zuordnen');
+      melden(err.response?.data?.error || 'Fehler beim Zuordnen', 'fehler');
     }
   };
 
@@ -319,9 +331,9 @@ export default function Sortierung() {
 
   const stapelZuordnen = async (gruppe) => {
     const zielordner = (gruppenOrdner[gruppe.domain] || '').trim();
-    if (!zielordner) return alert('Bitte einen Zielordner angeben.');
+    if (!zielordner) return melden('Bitte einen Zielordner angeben.', 'hinweis');
     const kontoId = gruppe.mails[0]?.konto_id;
-    if (!kontoId) return alert('Zu diesen Mails ist kein Konto hinterlegt.');
+    if (!kontoId) return melden('Zu diesen Mails ist kein Konto hinterlegt.', 'hinweis');
 
     // Standard: Domain-Regel, wenn mehrere Absender darin stecken
     const typ = gruppenTyp[gruppe.domain] || (gruppe.absender.size > 1 ? 'domain' : 'absender');
@@ -349,12 +361,12 @@ export default function Sortierung() {
         const rest = data.fehler.length > 5 ? `\n… und ${data.fehler.length - 5} weitere` : '';
         teile.push(`Nicht verschoben:\n${liste}${rest}`);
       }
-      alert(teile.join('\n\n'));
+      melden(teile.join('\n\n'));
       inboxLaden();
       regelnLaden(aktivesKonto);
       katalogLaden(aktivesKonto);
     } catch (err) {
-      alert(err.response?.data?.error || 'Fehler beim Sortieren');
+      melden(err.response?.data?.error || 'Fehler beim Sortieren', 'fehler');
     } finally {
       setGruppeLaeuft('');
     }
@@ -365,7 +377,7 @@ export default function Sortierung() {
       await api.post('/sortierung/ignorieren', { id: mailId });
       inboxLaden();
     } catch (err) {
-      alert(err.response?.data?.error || 'Fehler beim Ignorieren');
+      melden(err.response?.data?.error || 'Fehler beim Ignorieren', 'fehler');
     }
   };
 

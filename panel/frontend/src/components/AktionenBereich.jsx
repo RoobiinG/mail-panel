@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Sparkles, Plus, Trash2, Loader2, AlertTriangle, X } from 'lucide-react';
 import api from '../api';
+import { useMelden } from './ui/Meldungen';
 
 // Formular für eine Aktion. Es zeigt genau das, was gespeichert wird — egal ob
 // die KI den Entwurf geliefert hat oder man alles selbst einträgt.
@@ -122,6 +123,7 @@ function AktionsFormular({ schema, entwurf, onSpeichern, onAbbrechen, fehler, la
 }
 
 export default function AktionenBereich() {
+  const { nachfragen } = useMelden();
   const [schema, setSchema] = useState(null);
   const [aktionen, setAktionen] = useState([]);
   const [beschreibung, setBeschreibung] = useState('');
@@ -180,7 +182,11 @@ export default function AktionenBereich() {
     laden();
   };
   const loeschen = async (a) => {
-    if (!window.confirm(`Aktion „${a.name}" entfernen?`)) return;
+    if (!(await nachfragen({
+      titel: `Aktion „${a.name}" entfernen?`,
+      text: 'Der zugehörige Knoten in n8n wird zurückgebaut. Mails bleiben unangetastet.',
+      bestaetigen: 'Entfernen', gefaehrlich: true,
+    }))) return;
     await api.delete(`/aktionen/${a.id}`).catch(() => {});
     laden();
   };

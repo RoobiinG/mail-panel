@@ -213,6 +213,12 @@ async function ordnerNachMbox(client, ordner, zielDatei, gesehen, opt) {
   const schloss = await client.getMailboxLock(ordner).catch(() => null);
   if (!schloss) return { mails: 0, uebersprungen: 0, bytes: 0 };
   const aus = fs.createWriteStream(zielDatei);
+  // Ohne diesen Zuhoerer bleibt ein Schreibfehler unbemerkt, und der Lauf
+  // scheitert erst weiter unten beim stat() mit "Datei nicht gefunden" — eine
+  // Meldung, die auf die falsche Faehrte fuehrt. Genau das ist am 02.09.
+  // passiert, als dem Arbeitsverzeichnis die Schreibrechte fehlten.
+  let schreibFehler = null;
+  aus.on('error', (err) => { schreibFehler = err; });
   let mails = 0; let uebersprungen = 0;
   try {
     if (client.mailbox.exists > 0) {
@@ -233,6 +239,7 @@ async function ordnerNachMbox(client, ordner, zielDatei, gesehen, opt) {
     schloss.release();
     await new Promise((f) => aus.end(f));
   }
+  if (schreibFehler) throw schreibFehler;
   const bytes = (await fsp.stat(zielDatei)).size;
   return { mails, uebersprungen, bytes };
 }
@@ -410,6 +417,20 @@ async function lauf({ nurKonten = null, trockenlauf = false } = {}) {
 
   try {
     await fsp.mkdir(ARBEIT, { recursive: true });
+    // Das Verzeichnis liegt im Datenträger und überlebt Neustarts. Wurde es
+    // einmal von einem Wartungsbefehl als root angelegt, kann der Dienst — der
+    // als "node" läuft — dort nichts mehr schreiben. Lieber hier klar sagen,
+    // was zu tun ist, als mitten im Lauf an einer irreführenden Stelle zu
+    // scheitern.
+    try {
+      await fsp.access(ARBEIT, fs.constants.W_OK);
+    } catch {
+      throw new Error(
+        `Das Arbeitsverzeichnis ${ARBEIT} gehört nicht dem Panel-Benutzer — dort lässt sich nichts `
+        + 'schreiben. Auf dem Server einmal ausführen: '
+        + 'docker exec -u root mail-panel chown -R node:node /app/data',
+      );
+    }
     const bericht = await archivBauen(konten, tarDatei, e);
     await pipeline(fs.createReadStream(tarDatei), zlib.createGzip({ level: 9 }), fs.createWriteStream(packDatei));
     await verschluesselnNach(packDatei, fertig, e.passwort);
