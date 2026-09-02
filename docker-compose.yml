@@ -114,9 +114,17 @@ services:
       # Zugangsdaten für n8n, Mailcow und Safe Browsing trägst du im Panel unter
       # Einstellungen ein — dafür sind hier keine Variablen nötig.
       - N8N_URL=http://n8n:5678
-      - CLAMD_HOST=clamav
-      - UNBOUND_HOST=unbound
+      # Fest verdrahtet waeren diese beiden ein stiller Widerspruch zu
+      # einrichten.sh: Das Skript traegt einen vorhandenen Dienst in die .env
+      # ein, und compose ueberschriebe ihn hier sofort wieder.
+      - CLAMD_HOST=${CLAMD_HOST:-clamav}
+      - UNBOUND_HOST=${UNBOUND_HOST:-unbound}
       - TZ=${TZ:-Europe/Berlin}
+      # HTTPS auf dem eigenen Port — Erklaerung in .env.example
+      - TLS_MODUS=${TLS_MODUS:-}
+      - TLS_CERT=${TLS_CERT:-}
+      - TLS_KEY=${TLS_KEY:-}
+      - PANEL_HOST=${PANEL_HOST:-}
     volumes:
       - panel_data:/app/data
     ports:

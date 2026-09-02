@@ -2,6 +2,43 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.5.0.2] - 2026-09-02 (Build 68) — *Fix: Einstellungen, die es gar nicht gab*
+
+### Bugfixes
+
+Zwei Löcher derselben Art — beschrieben, aber wirkungslos:
+
+- **Die HTTPS-Einstellungen kamen nie im Container an.** `.env.example` erklärte `TLS_CERT`,
+  `TLS_KEY`, `TLS_MODUS` und `PANEL_HOST`; die `docker-compose.yml` reichte keine davon durch.
+  Wer sie eingetragen hätte, wäre auf eine Einstellung hereingefallen, die es nicht gab — der
+  Container hätte weiter sein selbst erzeugtes Zertifikat benutzt, ohne ein Wort dazu.
+
+- **`CLAMD_HOST` und `UNBOUND_HOST` standen mit festem Wert in der compose-Datei.** Damit war
+  `einrichten.sh` aus Build 65 **wirkungslos**: Das Skript trägt einen gefundenen Dienst in die
+  `.env` ein, und compose überschrieb ihn eine Zeile später wieder mit `clamav`. Die ganze
+  Erkennung lief ins Leere.
+
+### Features
+
+- **Ein Test hält Beschreibung und Aufbau ab jetzt zusammen** (`test/konfiguration.test.js`).
+  Er prüft, dass jede in `.env.example` beschriebene Variable in der `docker-compose.yml`
+  tatsächlich benutzt wird, dass nichts fest verdrahtet ist, was `einrichten.sh` setzen soll,
+  dass ClamAV und unbound hinter Profilen stehen, dass eine Lizenz existiert — und dass in den
+  ausgelieferten Dateien keine echten Adressen oder Zugangsdaten stehen. Letzteres, weil man
+  nicht zurückholt, was einmal veröffentlicht ist.
+
+  Gegengeprüft: Mit dem wieder eingebauten Fehler schlägt er an und benennt beide Variablen.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migration:** Nein. **n8n-Workflows:** Unverändert.
+- **Ab jetzt wirken die Einstellungen wirklich.** Wer `TLS_MODUS=aus` oder ein eigenes
+  Zertifikat einträgt, bekommt auch das Verhalten dazu. Wer bisher nichts eingetragen hat,
+  merkt nichts.
+- **`docker compose up -d` allein genügt nicht** — Compose liest die geänderte Datei erst beim
+  nächsten Aufruf im Projektordner. Bestehende Installationen: Datei aktualisieren, dann
+  `docker compose up -d`.
+
 ## [3.5.0.1] - 2026-09-02 (Build 67) — *Fix: HTTPS hing beim Handshake*
 
 ### Bugfixes
