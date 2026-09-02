@@ -2,6 +2,27 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.2.0.2] - 2026-09-02 (Build 63) — *Fix: „(control socket)" sagte niemandem etwas*
+
+### Bugfixes
+
+- **FTP-Fehler kamen unübersetzt aus der Bibliothek durch.** Ein falscher Port meldete sich als
+  `Timeout (control socket)` — eine Meldung, aus der niemand ableiten kann, was zu tun ist. Der
+  konkrete Anlass: Bei Hetzner-Storage-Boxen ist **Port 23 der SSH-Zugang**, FTP läuft auf **21**.
+  Wer 23 einträgt, landet auf OpenSSH, und die Bibliothek wartet vergeblich auf eine FTP-Begrüßung.
+
+  Die Verbindungsprüfung hört jetzt zuerst hin, was auf dem Port antwortet. Meldet sich dort SSH,
+  steht das wörtlich in der Fehlermeldung — samt Hinweis auf Port 21. Auch die übrigen Fälle sind
+  übersetzt: Name nicht auflösbar, Verbindung abgelehnt, Zugangsdaten abgelehnt, Zertifikat nicht
+  überprüfbar (mit Hinweis auf den passenden Haken), Zugriff auf das Verzeichnis verweigert.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migration:** Nein.
+- **n8n-Workflows:** Unverändert.
+- **Verhalten:** Die Verbindungsprüfung baut eine zusätzliche, sehr kurze Verbindung auf, um die
+  Begrüßung zu lesen. Beim regulären Hochladen passiert das nur im Fehlerfall.
+
 ## [3.2.0.1] - 2026-09-02 (Build 62) — *Fix: Sicherung verschwieg ein fehlendes Postfach*
 
 ### Bugfixes

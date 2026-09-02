@@ -331,6 +331,54 @@ async function archivBauen(konten, zielTar, opt) {
 
 // ─── Hochladen ──────────────────────────────────────────────────────────────
 
+// Was auf dem Port antwortet, verrät oft schon alles.
+//
+// Der Anlass: Bei Hetzner-Storage-Boxen ist Port 23 der SSH-Zugang, FTP läuft
+// auf 21. Wer 23 einträgt, landet auf OpenSSH, und die FTP-Bibliothek wartet
+// vergeblich auf eine Begrüßung — herauskommt "Timeout (control socket)". Diese
+// Meldung sagt niemandem, was zu tun ist.
+function begruessungLesen(host, port, ms = 6000) {
+  return new Promise((fertig) => {
+    const net = require('net');
+    const s = net.createConnection({ host, port: Number(port), timeout: ms });
+    const schluss = (wert) => { try { s.destroy(); } catch { /* egal */ } fertig(wert); };
+    s.on('data', (d) => schluss(String(d).split('\n')[0].trim()));
+    s.on('timeout', () => schluss(null));
+    s.on('error', (err) => schluss({ fehler: err.code || err.message }));
+  });
+}
+
+// Übersetzt die Fehler der FTP-Bibliothek in etwas, mit dem man weiterkommt.
+function ftpFehlerDeuten(err, e, begruessung) {
+  const text = String(err?.message || err);
+  if (typeof begruessung === 'string' && /^SSH-/.test(begruessung)) {
+    return new Error(
+      `Auf Port ${e.port} antwortet ein SSH-Dienst, kein FTP-Server ("${begruessung}"). `
+      + 'FTP läuft üblicherweise auf Port 21 — bei Hetzner-Storage-Boxen ist 23 der SSH-Zugang.',
+    );
+  }
+  if (/control socket|Timeout/i.test(text)) {
+    return new Error(
+      `Der Server auf ${e.host}:${e.port} hat sich nicht wie ein FTP-Server gemeldet (${text}). `
+      + 'Meist stimmt der Port nicht — FTP und FTPS laufen üblicherweise auf 21.',
+    );
+  }
+  if (/ENOTFOUND|EAI_AGAIN/.test(text)) return new Error(`Der Servername "${e.host}" ist nicht auflösbar.`);
+  if (/ECONNREFUSED/.test(text)) return new Error(`${e.host}:${e.port} nimmt keine Verbindung an — Port zu oder falsch.`);
+  if (/ETIMEDOUT|EHOSTUNREACH/.test(text)) return new Error(`${e.host}:${e.port} antwortet nicht — Firewall oder falscher Port.`);
+  if (/^530|Login (incorrect|authentication failed)|not logged in/i.test(text)) {
+    return new Error('Benutzername oder Passwort wurde abgelehnt.');
+  }
+  if (/certificate|self.signed|unable to verify/i.test(text)) {
+    return new Error(
+      `Das TLS-Zertifikat von ${e.host} ließ sich nicht überprüfen (${text}). `
+      + 'Bei einem selbst ausgestellten Zertifikat hilft der Haken "Zertifikat nicht prüfen".',
+    );
+  }
+  if (/^550/.test(text)) return new Error(`Der Server verweigert den Zugriff auf "${e.pfad}" (${text}).`);
+  return new Error(text);
+}
+
 async function hochladen(datei, name, e) {
   // Verzögert laden: Ohne eingerichtete Sicherung wird die Bibliothek nie
   // gebraucht, und das Panel soll auch ohne sie starten können.
@@ -363,6 +411,8 @@ async function hochladen(datei, name, e) {
       }
     }
     return { geloescht };
+  } catch (err) {
+    throw ftpFehlerDeuten(err, e, await begruessungLesen(e.host, e.port).catch(() => null));
   } finally {
     client.close();
   }
@@ -374,6 +424,9 @@ async function verbindungTesten() {
   if (fehlt.includes('FTP-Server') || fehlt.includes('FTP-Benutzer') || fehlt.includes('FTP-Passwort')) {
     throw new Error(`Noch nicht vollständig: ${fehlt.join(', ')}.`);
   }
+  // Erst hinhören, dann verbinden — so lässt sich ein falscher Port benennen,
+  // statt ihn als Zeitüberschreitung durchgehen zu lassen.
+  const begruessung = await begruessungLesen(e.host, e.port);
   const { Client } = require('basic-ftp');
   const client = new Client(30000);
   try {
@@ -388,7 +441,10 @@ async function verbindungTesten() {
       verschluesselt: e.tls,
       pfad: await client.pwd(),
       vorhandeneStaende: staende.length,
+      begruessung: typeof begruessung === 'string' ? begruessung : null,
     };
+  } catch (err) {
+    throw ftpFehlerDeuten(err, e, begruessung);
   } finally {
     client.close();
   }
