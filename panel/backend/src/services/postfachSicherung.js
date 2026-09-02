@@ -200,12 +200,19 @@ function verbindung(zugang) {
 // Ordnernamen wie "[Gmail]/Alle Nachrichten" müssen einen Dateinamen ergeben,
 // der in einem tar nichts kaputt macht — insbesondere keine Pfadwechsel.
 function dateiName(roh) {
-  return String(roh)
+  const bereinigt = String(roh)
     .replace(/[/\\]/g, '_')
     .replace(/[^\p{L}\p{N} ._&-]/gu, '')
+    // Zwei aufeinanderfolgende Punkte haben in einem Archivpfad nichts zu
+    // suchen. Ohne Schrägstriche wäre daraus zwar kein Verzeichniswechsel
+    // geworden, aber ein Archiv soll auch dann harmlos sein, wenn es jemand
+    // mit einem anderen Werkzeug auspackt als unserem.
+    .replace(/\.{2,}/g, '.')
     .replace(/\s+/g, ' ')
     .trim()
-    .slice(0, 60) || 'Ordner';
+    .slice(0, 60);
+  // Ein Name, der nur noch aus Trennzeichen besteht, ist keiner.
+  return /[\p{L}\p{N}]/u.test(bereinigt) ? bereinigt : 'Ordner';
 }
 
 // Schreibt einen IMAP-Ordner als mbox-Datei und meldet, was drin gelandet ist.
@@ -599,4 +606,5 @@ module.exports = {
   zeitplanStarten, faellig,
   // für Tests und wiederherstellen.js
   verschluesselnNach, entschluesselnNach, tarKopf, mboxEntschaerfen, dateiName,
+  ftpFehlerDeuten,
 };

@@ -1,0 +1,39 @@
+name: Tests
+
+# Der Testlauf hält fest, was schon einmal schiefgegangen ist: Absender-
+# Fälschungen, doppelte Sortier-Inbox-Einträge, Mails, die als verschoben
+# gemeldet wurden ohne es zu sein, und Archive, die sich nicht mehr öffnen
+# lassen. Läuft er nicht durch, soll gar kein Image entstehen.
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'panel/backend/**'
+      - '.github/workflows/tests.yml'
+  pull_request:
+    paths:
+      - 'panel/backend/**'
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Code auschecken
+        uses: actions/checkout@v7
+
+      - name: Node einrichten
+        uses: actions/setup-node@v4
+        with:
+          # Dieselbe Hauptversion wie im Image (siehe panel/Dockerfile), sonst
+          # prüft die CI etwas anderes als das, was später läuft.
+          node-version: '22'
+
+      - name: Abhängigkeiten installieren
+        working-directory: panel/backend
+        # better-sqlite3 ist ein natives Modul und wird hier übersetzt.
+        run: npm install --no-audit --no-fund
+
+      - name: Tests
+        working-directory: panel/backend
+        run: npm test

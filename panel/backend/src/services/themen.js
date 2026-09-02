@@ -74,6 +74,15 @@ function ordnerNormalisieren(roh, konto = {}) {
   let name = String(roh ?? '').trim();
   if (!name) return null;
 
+  // Steuerzeichen fliegen raus, BEVOR Leerraum zusammengefasst wird.
+  //
+  // Sonst wird aus "Ordner\r\nA001 DELETE INBOX" durch das Glaetten unten ein
+  // "Ordner A001 DELETE INBOX" — ein Name, der jede weitere Pruefung besteht,
+  // obwohl er eingeschleusten Text enthielt. Dass imapflow Ordnernamen ohnehin
+  // quotiert, macht das nicht harmlos: Eine Abwehr darf sich nicht darauf
+  // verlassen, dass die naechste Schicht sauber arbeitet.
+  if (/[\u0000-\u001F\u007F]/.test(name)) return null;
+
   // "NEU:Games" ist die vereinbarte Form fuer einen Vorschlag
   name = name.replace(/^NEU\s*:\s*/i, '').trim();
   // Anfuehrungszeichen, die das Modell gern mitliefert

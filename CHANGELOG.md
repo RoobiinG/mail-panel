@@ -2,6 +2,60 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.3.0.0] - 2026-09-02 (Build 64) — *Testlauf*
+
+### Features
+
+- **76 automatisierte Tests**, ausführbar mit `npm test` im Backend, und eine CI-Stufe, die sie
+  bei jeder Änderung an `panel/backend/` laufen lässt. Bisher gab es keine einzige Prüfung, die
+  von selbst anschlägt — jeder Fehler der letzten Woche wurde mit einem Wegwerf-Skript gefunden,
+  das danach verschwand. Damit konnte jeder dieser Fehler jederzeit zurückkommen, ohne dass es
+  jemand bemerkt.
+
+  Die Sammlung ist kein Selbstzweck, sondern das Gedächtnis des Projekts: **Jeder Fall darin
+  stand einmal für einen echten Fehler.**
+
+  | Datei | Was festgehalten wird |
+  |---|---|
+  | `sortierung.test.js` | Absender-Erkennung, Domain-Vergleich, UID-Normalisierung |
+  | `themen.test.js` | die Ordnernamen-Prüfung gegen eingeschleuste Vorschläge |
+  | `sicherung.test.js` | Verschlüsselung hin und zurück, mbox, tar, FTP-Fehlertexte |
+  | `bestand.test.js` | der Stapel-Umzug samt Dubletten und veralteten Einträgen |
+
+  Besonders festgezurrt sind die Fälle, die im Betrieb nicht auffallen, weil nichts kracht:
+  ein gefälschter Anzeigename (`"rechnung@sparkasse.de" <betrueger@boese.example>`), eine
+  angehängte Fremddomain (`example.com.boese.example`), `"28"` gegen `"28.0"`, und eine Mail,
+  die nicht mehr im Posteingang liegt und trotzdem als verschoben gemeldet wurde.
+
+  Die IMAP-Schicht wird für die Tests ersetzt, nicht aufgerufen — ein Test, der einen echten
+  Mailserver braucht, läuft in der CI nicht, und ein Test, der nicht läuft, schützt vor nichts.
+
+### Bugfixes — beide vom neuen Testlauf gefunden
+
+- **Steuerzeichen im Ordnernamen wurden geglättet statt abgewiesen.** Aus
+  `"Ordner\r\nA001 DELETE INBOX"` machte das Zusammenfassen von Leerraum ein
+  `"Ordner A001 DELETE INBOX"` — ein Name, der jede weitere Prüfung besteht, obwohl er
+  eingeschleusten Text enthielt. Steuerzeichen führen jetzt sofort zur Ablehnung, **bevor**
+  irgendetwas geglättet wird. Dass imapflow Ordnernamen ohnehin quotiert, macht das nicht
+  harmlos: Eine Abwehr darf sich nicht darauf verlassen, dass die nächste Schicht sauber
+  arbeitet.
+
+- **Der Dateiname im Sicherungsarchiv ließ `..` stehen.** Ohne Schrägstriche wäre daraus kein
+  Verzeichniswechsel geworden, aber ein Archiv soll auch dann harmlos sein, wenn es jemand mit
+  einem anderen Werkzeug auspackt als unserem. Doppelte Punkte werden jetzt zusammengezogen,
+  und ein Name, der nur noch aus Trennzeichen besteht, wird zu „Ordner".
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migration:** Nein. Die Tests legen ihre eigene Datenbank in einem Wegwerf-Ordner an
+  (`DATA_DIR`) und fassen keine vorhandenen Daten an.
+- **n8n-Workflows:** Unverändert.
+- **CI:** Neue Datei `.github/workflows/tests.yml`, Node 22 wie im Image. Der Image-Build läuft
+  weiterhin unabhängig — wer will, dass ein roter Testlauf den Build verhindert, muss die beiden
+  Workflows verketten.
+- **Ordnernamen:** Die KI kann ab jetzt keine Namen mehr mit Steuerzeichen vorschlagen. Bestehende
+  Ordner sind nicht betroffen; es wird nichts umbenannt.
+
 ## [3.2.0.2] - 2026-09-02 (Build 63) — *Fix: „(control socket)" sagte niemandem etwas*
 
 ### Bugfixes
