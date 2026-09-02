@@ -248,10 +248,70 @@ vier Sekunden gedrosselt, damit das Freikontingent reicht: 300 Mails brauchen et
 
 # Optionale Erweiterungen
 
-## HTTPS über einen Reverse Proxy
+## HTTPS
 
-Dringend empfohlen, sobald der Server aus dem Internet erreichbar ist — sonst gehen deine
-Panel-Anmeldung und alle Mail-Zugangsdaten unverschlüsselt über die Leitung.
+**Das Panel spricht von sich aus HTTPS — du musst nichts einrichten.** Beim ersten Start
+erzeugt es ein eigenes Zertifikat und legt es im Volume ab. Rufst du versehentlich `http://`
+auf, wirst du auf `https://` umgeleitet; beides läuft über denselben Port.
+
+Der Browser warnt beim ersten Besuch, weil niemand für ein selbst erzeugtes Zertifikat bürgt.
+Die Verbindung ist trotzdem verschlüsselt — niemand liest dein Passwort mit. Einmal
+durchklicken genügt.
+
+### Ein echtes Zertifikat hinterlegen
+
+Wenn du eine Domain hast, ist das die bessere Wahl: keine Warnung mehr. Zertifikat und
+Schlüssel ins Panel einhängen und beides in der `.env` eintragen:
+
+```yaml
+# in docker-compose.yml beim Dienst "panel"
+volumes:
+  - panel_data:/app/data
+  - /etc/letsencrypt/live/panel.example.org:/tls:ro
+```
+
+```bash
+# in .env
+TLS_CERT=/tls/fullchain.pem
+TLS_KEY=/tls/privkey.pem
+```
+
+Beides muss gesetzt sein oder beides leer bleiben — nur eines von beiden bricht den Start
+mit einer klaren Meldung ab, statt stillschweigend auf das selbst erzeugte zurückzufallen.
+
+Soll im selbst erzeugten Zertifikat dein Name stehen, setze `PANEL_HOST=panel.example.org`.
+
+### Eine Ausnahme, die du kennen solltest
+
+n8n ruft das Panel im Docker-Netz über `http://panel:3002` auf. Dieser eine Pfad
+(`/api/internal/…`) wird deshalb **nicht** umgeleitet und bleibt unverschlüsselt erreichbar.
+Er ist durch ein eigenes Geheimnis geschützt und für Maschinen gedacht. Wer auch das nicht im
+Klartext haben will, gibt den Port gar nicht erst nach außen frei:
+
+```bash
+# in .env
+PANEL_PORT=127.0.0.1:3002
+```
+
+### Mit einem Reverse Proxy davor (Nginx Proxy Manager & Co.)
+
+**Das funktioniert ohne Zutun.** Reicht dein Proxy die Kopfzeile `X-Forwarded-Proto: https`
+weiter — Nginx Proxy Manager, Traefik und Caddy tun das von Haus aus —, erkennt das Panel,
+dass außen bereits verschlüsselt wurde, und leitet nicht um. Trag als Ziel schlicht
+`http://<server>:3002` ein.
+
+Das ist kein Schönheitsfehler, sondern wichtig: Ohne diese Erkennung schickte die Umleitung
+den Browser mit `https://<name>:3002` **am Proxy vorbei** direkt auf den Port — und verriete
+dabei die interne Adresse.
+
+Sauberer ist trotzdem, die eigene Verschlüsselung abzuschalten, wenn ohnehin ein Proxy davor
+steht. Dann verschlüsselt nicht zweimal hintereinander jemand dasselbe:
+
+```bash
+# in .env
+TLS_MODUS=aus
+PANEL_PORT=127.0.0.1:3002   # dazu: Port gar nicht erst nach außen freigeben
+```
 
 1. DNS: A-Records für z. B. `panel.example.org` und `n8n.example.org` auf die Server-IP.
 2. Den Reverse Proxy auf `http://<server>:3002` bzw. `:5678` zeigen lassen.

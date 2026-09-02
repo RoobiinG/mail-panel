@@ -19,7 +19,9 @@ COPY panel/backend/package.json ./
 # Werkzeugkette. Die bleibt NICHT im fertigen Abbild liegen — sonst traegt jeder
 # Container dauerhaft einen Compiler mit sich herum, ohne ihn je zu brauchen.
 # su-exec bleibt dauerhaft: Damit gibt das Startskript die Rechte ab.
-RUN apk add --no-cache su-exec \
+# openssl bleibt dauerhaft: Damit erzeugt das Panel beim ersten Start sein
+# eigenes TLS-Zertifikat, wenn keines hinterlegt ist (siehe services/tls.js).
+RUN apk add --no-cache su-exec openssl \
  && apk add --no-cache --virtual .bauwerkzeug python3 make g++ \
  && npm install --omit=dev --no-audit --no-fund \
  && apk del .bauwerkzeug

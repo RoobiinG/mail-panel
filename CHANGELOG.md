@@ -2,6 +2,71 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.5.0.0] - 2026-09-02 (Build 66) — *HTTPS ab Werk, MIT-Lizenz*
+
+### Features
+
+- **Das Panel spricht auf seinem eigenen Port HTTPS — ohne dass jemand etwas einrichtet.**
+  Bisher stand im README nur „stell dir einen Reverse Proxy davor". Wer das nicht tat, tippte
+  sein Panel-Passwort über eine offene Leitung, und das Panel verwaltet IMAP-Zugangsdaten und
+  zeigt Mailinhalte.
+
+  Drei Betriebsarten:
+
+  | Umgebung | Verhalten |
+  |---|---|
+  | nichts gesetzt (Standard) | erzeugt beim ersten Start ein eigenes Zertifikat im Volume |
+  | `TLS_CERT` + `TLS_KEY` | benutzt genau diese Dateien (z. B. Let's Encrypt eingehängt) |
+  | `TLS_MODUS=aus` | schlichtes HTTP — für alle, die schon einen Proxy davor haben |
+
+  Nur eines von `TLS_CERT`/`TLS_KEY` zu setzen bricht den Start mit einer klaren Meldung ab,
+  statt stillschweigend auf das selbst erzeugte Zertifikat zurückzufallen — sonst liefe jemand
+  mit einem Behelfszertifikat, obwohl er ein echtes hinterlegen wollte.
+
+- **Wer `http://` eingibt, wird umgeleitet.** Auf demselben Port: Ein TLS-Handshake beginnt
+  immer mit dem Byte `0x16`, daran lässt sich schon an der ersten Zustellung erkennen, wohin
+  die Verbindung gehört. Niemand starrt auf Kauderwelsch, weil er das `s` vergessen hat.
+
+- **Eine Ausnahme, bewusst:** `/api/internal/…` bleibt über HTTP erreichbar. n8n ruft das Panel
+  im Docker-Netz über `http://panel:3002` auf — diese Adresse steht in den Workflow-Vorlagen
+  und in jedem bereits eingerichteten Workflow. Würde sie umgeleitet, bräche bei jeder
+  bestehenden Installation die Sortierung, sobald jemand das Update einspielt, ohne vorher zu
+  synchronisieren. Und zwar lautlos. Die Schnittstelle ist durch ein eigenes Geheimnis
+  geschützt; wer auch sie nicht offen haben will, setzt `PANEL_PORT=127.0.0.1:3002`.
+
+- **MIT-Lizenz** (`LICENSE`). Ohne sie darf ein veröffentlichtes Projekt rechtlich niemand
+  benutzen.
+
+- **Hinter einem Reverse Proxy wird nicht umgeleitet.** Reicht der Proxy
+  `X-Forwarded-Proto: https` weiter — Nginx Proxy Manager, Traefik und Caddy tun das von Haus
+  aus —, bedient das Panel die Anfrage einfach. Ohne diese Erkennung schickte die Umleitung
+  den Browser mit `https://<name>:3002` **am Proxy vorbei** direkt auf den Port und verriete
+  dabei die interne Adresse.
+
+- **Sechs weitere Tests** (`test/tls.test.js`, jetzt 82 insgesamt). Sie fahren einen echten
+  Server hoch und reden mit ihm — bei einer Verschlüsselung nützt es wenig zu prüfen, ob eine
+  Funktion „durchläuft".
+
+### Geändert
+
+- **HSTS nur noch bei einem echten Zertifikat.** Der Kopfzeile folgend ruft ein Browser die
+  Adresse ein Jahr lang ausschließlich über HTTPS auf. Bei einem selbst erzeugten Zertifikat
+  wäre das eine Falle: Wer später auf HTTP zurückgeht oder einen Proxy davorsetzt, käme ein
+  Jahr lang nicht mehr an sein Panel.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migration:** Nein.
+- **n8n-Workflows:** Unverändert, und das ist der Grund für die Ausnahme oben. Kein Sync nötig.
+- **Die Adresse ändert sich:** Das Panel ist nach dem Update unter **`https://…:3002`**
+  erreichbar statt `http://…:3002`. Der alte Aufruf leitet weiter, es geht also nichts
+  verloren — aber Lesezeichen zeigen auf die Umleitung.
+- **Beim ersten Start nach dem Update** entsteht `/app/data/tls/panel.{crt,key}`. Das Erzeugen
+  dauert einen Moment; im Log steht, für welche Namen das Zertifikat gilt.
+- **Image:** `openssl` ist neu im Abbild — damit erzeugt das Panel das Zertifikat.
+- **Wer schon einen Reverse Proxy hat**, setzt `TLS_MODUS=aus`. Sonst verschlüsseln Proxy und
+  Panel dasselbe zweimal hintereinander.
+
 ## [3.4.0.0] - 2026-09-02 (Build 65) — *Nicht installieren, was schon da ist*
 
 ### Features

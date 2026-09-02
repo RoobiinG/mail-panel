@@ -49,8 +49,13 @@ app.use(helmet({
       frameAncestors: ["'none'"],
     },
   },
-  // Greift nur ueber HTTPS; hinter einem Reverse Proxy ist genau das der Fall.
-  strictTransportSecurity: { maxAge: 31536000, includeSubDomains: true },
+  // HSTS weist den Browser an, diese Adresse ein Jahr lang NUR ueber HTTPS
+  // aufzurufen. Bei einem selbst erzeugten Zertifikat waere das eine Falle: Wer
+  // spaeter auf HTTP zurueckgeht oder einen Proxy davorsetzt, kaeme ein Jahr
+  // lang nicht mehr an sein Panel. Deshalb nur bei einem echten Zertifikat.
+  strictTransportSecurity: (process.env.TLS_CERT && process.env.TLS_KEY)
+    ? { maxAge: 31536000, includeSubDomains: true }
+    : false,
   referrerPolicy: { policy: 'same-origin' },
   // Verraet sonst die eingesetzte Technik
   hidePoweredBy: true,
@@ -114,8 +119,22 @@ app.get(/^(?!\/api\/).*/, (req, res) => res.sendFile(path.join(distPfad, 'index.
 app.use(panelLog.expressErrorHandler);
 
 const PORT = parseInt(process.env.PORT || '3002', 10);
-app.listen(PORT, () => {
-  console.log(`Mail-Panel-Backend läuft auf Port ${PORT}`);
+const tls = require('./services/tls');
+tls.starten(app, PORT, (art) => {
+  if (!art.tls) {
+    console.log(`Mail-Panel-Backend läuft auf Port ${PORT} — OHNE Verschlüsselung.`);
+    console.log('  Das ist nur richtig, wenn ein Reverse Proxy davorsteht, der TLS übernimmt.');
+  } else if (art.quelle === 'eigene') {
+    console.log(`Mail-Panel-Backend läuft auf https://…:${PORT} (hinterlegtes Zertifikat)`);
+  } else {
+    if (art.neu) {
+      console.log(`Eigenes TLS-Zertifikat erzeugt für: ${(art.namen || []).join(', ')}`);
+      console.log('  Der Browser wird davor warnen — niemand bürgt für ein selbst erzeugtes');
+      console.log('  Zertifikat. Die Verbindung ist trotzdem verschlüsselt. Ein echtes');
+      console.log('  Zertifikat trägst du über TLS_CERT und TLS_KEY ein.');
+    }
+    console.log(`Mail-Panel-Backend läuft auf https://…:${PORT} (eigenes Zertifikat)`);
+  }
   // Container-Health-Check alle 5 Minuten starten
   panelLog.containerHealthCheckStarten();
   // Postfach-Sicherung: stuendlich nachsehen, ob ein Lauf faellig ist. Der
