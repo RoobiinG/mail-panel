@@ -2,6 +2,35 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.7.1.0] - 2026-09-03 (Build 74) — *KI-Budget: die Entscheidungsstelle*
+
+### Features (Teil 1 von 2)
+
+- **Der Budget-Wächter** (`services/budget.js`) entscheidet, welche Mails heute noch an die KI
+  dürfen — die harte Grenze, nicht mehr nur die Anzeige aus Build 73. Zwei Regeln: Schon einmal
+  eingeordnete Mails (in der Sortier-Inbox oder frisch im Quarantäne-Log) kosten kein Budget
+  mehr; vom Rest so viele, wie das Tagesbudget noch hergibt.
+
+  Damit verbrennt ein zweiter Lauf am selben Tag kein Budget für die Mails, die beim ersten Lauf
+  unsicher waren und liegen blieben — genau das war die Gefahr bei einem großen Altbestand.
+
+- **Zwei interne Endpunkte** für Workflow 04: `/api/internal/budget` (welche Plätze dürfen?) und
+  `/api/internal/budget-filter` (gibt die erlaubten Mails direkt zurück). Beide sind durch das
+  Panel-Geheimnis geschützt wie die übrigen Prüfdienste.
+
+- **Zehn Tests** (`test/budget.test.js`) spielen den Tagesdeckel, das Anrechnen bereits
+  verbrauchter Aufrufe und das Überspringen liegengebliebener Mails durch — inklusive des Falls
+  „zweiter Lauf am selben Tag".
+
+**Teil 2 (folgt):** Der Budget-Knoten wird in Workflow 04 zwischen das Sammeln und die
+KI-Abfrage eingesetzt, sodass die Grenze auch wirklich greift. Dieser Schritt berührt den
+Workflow-Graphen und wird erst nach einem End-to-End-Beweis auf dem Testserver fest verankert.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migration:** Nein. **n8n-Workflows:** In diesem Schritt noch unverändert — die Endpunkte
+  sind vorhanden, aber bis Teil 2 ruft sie niemand. Der Betrieb ändert sich dadurch nicht.
+
 ## [3.7.0.0] - 2026-09-03 (Build 73) — *Dashboard: Betrieb und Sortier-Fortschritt*
 
 ### Features

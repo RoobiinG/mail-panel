@@ -7,6 +7,7 @@ const safebrowsing = require('../services/safebrowsing');
 const clamav  = require('../services/clamav');
 const google  = require('../services/google');
 const sortierung = require('../services/sortierung');
+const budget  = require('../services/budget');
 const themen  = require('../services/themen');
 const imap    = require('../services/imap');
 const { entschluesseln } = require('../services/crypto');
@@ -84,6 +85,31 @@ router.post('/sort', (req, res) => {
 
 // Ein Aufruf prüft alles, was das Panel über eine Mail sagen kann.
 // Reihenfolge ist bewusst: Whitelist gewinnt immer, dann Blacklist, dann DNSBL.
+// Budget-Wächter: Vor dem Gemini-Aufruf fragt der Sammel-Knoten von Workflow 04
+// hier, welche seiner Mails heute noch drankommen. Siehe services/budget.js.
+// Wie /budget, gibt aber die erlaubten Mails komplett zurück — der Budget-Knoten
+// in Workflow 04 reicht sie direkt an Gemini weiter. Grosszuegiges Limit, weil
+// der ganze Bestand auf einmal ankommen kann.
+router.post('/budget-filter', express.json({ limit: '25mb' }), (req, res) => {
+  try {
+    res.json(budget.filtern((req.body || {}).mails));
+  } catch (err) {
+    console.error('Budget-Filter-Fehler:', err.message);
+    res.status(500).json({ error: err.message, mails: [] });
+  }
+});
+
+router.post('/budget', express.json({ limit: '512kb' }), (req, res) => {
+  try {
+    res.json(budget.entscheiden((req.body || {}).kandidaten));
+  } catch (err) {
+    // Scheitert das Panel hier, soll die Triage lieber nichts tun als das
+    // Tageslimit sprengen — der Sammel-Knoten wertet ein Fehlen als "keine".
+    console.error('Budget-Fehler:', err.message);
+    res.status(500).json({ error: err.message, erlaubt: [] });
+  }
+});
+
 router.post('/check', async (req, res) => {
   const { von = '', ip = null, links = [], konto = null } = req.body || {};
   const ergebnis = {
