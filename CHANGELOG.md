@@ -2,6 +2,35 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.6.0.1] - 2026-09-03 (Build 70) — *Erst prüfen, dann bauen*
+
+### Geändert
+
+- **Ein roter Testlauf verhindert jetzt den Image-Bau.** Bis hierher liefen beide nebeneinander.
+  Am 2026-09-02 hat das zugeschlagen: Der Testlauf von Build 66 war rot, der Bau lief
+  unbeeindruckt durch und veröffentlichte ein Abbild, dessen Oberfläche über HTTPS nicht
+  erreichbar war. Grüner Haken am Repository, kaputtes Image in der Registry.
+
+  Der Testlauf ist deshalb als Stufe `test` in `docker-build.yml` gewandert, und `build` hängt
+  über `needs: test` daran. Schlägt er fehl, entsteht kein Image.
+
+- **`tests.yml` läuft auf master nur noch für Dateien, die kein Image erzeugen** —
+  `docker-compose.yml`, `.env.example`, `einrichten.sh`, `LICENSE`. Sonst würde auf jedem Push
+  doppelt geprüft. Für Pull Requests bleibt er wie gehabt.
+
+- **Der Bau springt jetzt auch bei Änderungen an `docker-compose.yml` und `.env.example` an.**
+  `konfiguration.test.js` vergleicht genau diese beiden miteinander und hätte sonst nie
+  angeschlagen, wenn jemand nur eine davon ändert.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migration:** Nein. **n8n-Workflows:** Unverändert. **Panel-Code:** Unverändert.
+- **Ausrollen dauert länger:** Vor jedem Image laufen erst die Tests (rund eine halbe Minute
+  mit Installation der Abhängigkeiten).
+- **Ein kaputter Test blockiert ab jetzt das Ausrollen.** Das ist der Zweck. Wer in einem
+  Notfall daran vorbei muss, kann den Bau von Hand über *Actions → Docker Image bauen & pushen →
+  Run workflow* starten — auch dann läuft die Teststufe zuerst.
+
 ## [3.6.0.0] - 2026-09-02 (Build 69) — *Aufsicht*
 
 ### Der Anlass

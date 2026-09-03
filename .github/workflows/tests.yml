@@ -4,15 +4,27 @@ name: Tests
 # Fälschungen, doppelte Sortier-Inbox-Einträge, Mails, die als verschoben
 # gemeldet wurden ohne es zu sein, und Archive, die sich nicht mehr öffnen
 # lassen. Läuft er nicht durch, soll gar kein Image entstehen.
+# Auf master läuft der Testlauf NICHT hier, sondern als vorgeschaltete Stufe in
+# docker-build.yml — dort verhindert er im Fehlerfall den Image-Bau. Hier bleibt
+# er für Pull Requests und für den Aufruf von Hand, wo kein Abbild entsteht.
 on:
+  # Auf master nur für die Dateien, die kein Image erzeugen, aber trotzdem
+  # geprüft gehören: konfiguration.test.js vergleicht .env.example mit der
+  # docker-compose.yml und würde sonst nie anschlagen, wenn jemand nur eine
+  # von beiden ändert.
   push:
     branches: [master]
     paths:
-      - 'panel/backend/**'
+      - 'docker-compose.yml'
+      - '.env.example'
+      - 'einrichten.sh'
+      - 'LICENSE'
       - '.github/workflows/tests.yml'
   pull_request:
     paths:
       - 'panel/backend/**'
+      - 'docker-compose.yml'
+      - '.env.example'
   workflow_dispatch:
 
 jobs:

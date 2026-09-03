@@ -7,6 +7,8 @@ on:
     branches: [master]
     paths:
       - 'panel/**'
+      - 'docker-compose.yml'
+      - '.env.example'
       - '.github/workflows/docker-build.yml'
   workflow_dispatch:
 
@@ -18,7 +20,39 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # ─── Erst prüfen, dann bauen ────────────────────────────────────────────────
+  #
+  # Bis Build 68 liefen Testlauf und Image-Bau nebeneinander. Am 2026-09-02 hat
+  # das zugeschlagen: Der Testlauf von Build 66 war rot, der Bau lief
+  # unbeeindruckt durch und veröffentlichte ein Abbild, dessen Oberfläche über
+  # HTTPS nicht erreichbar war. Ein grüner Haken am Repository, ein kaputtes
+  # Image in der Registry.
+  #
+  # Der Testlauf steht deshalb jetzt DAVOR und nicht daneben. Schlägt er fehl,
+  # entsteht kein Image.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Code auschecken
+        uses: actions/checkout@v7
+
+      - name: Node einrichten
+        uses: actions/setup-node@v4
+        with:
+          # Dieselbe Hauptversion wie im Abbild (siehe panel/Dockerfile), sonst
+          # prüft die CI etwas anderes als das, was später läuft.
+          node-version: '22'
+
+      - name: Abhängigkeiten installieren
+        working-directory: panel/backend
+        run: npm install --no-audit --no-fund
+
+      - name: Tests
+        working-directory: panel/backend
+        run: npm test
+
   build:
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read
