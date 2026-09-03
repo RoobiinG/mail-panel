@@ -2,6 +2,20 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.8.0.1] - 2026-09-03 (Build 77) — *Fix: Ordner-Kette bei mehreren Belegen je Lauf*
+
+- **Bug (bei der Durchsicht gefunden, vor dem ersten echten Mehrfach-Lauf):** Der erste
+  Ordner-Knoten der Beleg-Kette (`Belege`) hatte `executeOnce=true`. In n8n verarbeitet ein
+  solcher Knoten nur das **erste** Item und gibt genau eines weiter — der Item-Strom schrumpfte
+  damit auf einen Anhang, bevor die dynamischen Ordner-Knoten (Firma/Aktenzeichen) liefen. Bei
+  mehreren Belegen in **einem** Workflow-07-Lauf (Alltag bei der Bestands-Triage) wären die
+  Ordner der übrigen Belege nie angelegt worden; deren Upload wäre ins Leere gelaufen (nur
+  `onError` hätte den Absturz verhindert).
+- **Fix:** Ist der **Gesamtpfad** dynamisch, läuft nun **kein** Knoten der Kette mehr nur einmal —
+  auch der statische Anfang nicht. Das mehrfache Anlegen von `Belege` ist harmlos
+  (`onError:continueRegularOutput` schluckt „existiert schon"). Statische Pfade bleiben
+  `executeOnce` und damit sparsam. Ein zusätzlicher Test nagelt beides fest.
+
 ## [3.8.0.0] - 2026-09-03 (Build 76) — *Belege automatisch nach Nextcloud — lesen, prüfen, einsortieren*
 
 ### Features

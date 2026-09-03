@@ -141,7 +141,15 @@ const PRO_ITEM = /\$json\.(firma|aktenzeichen|beleg_t2|beleg_t3|von|betreff|kate
 // Nextcloud legt beim Hochladen keine fehlenden Ordner an — deshalb je Ebene
 // ein eigener Knoten. Existiert der Ordner schon, meldet der Knoten einen
 // Fehler, der bewusst ignoriert wird.
-function ordnerKnoten(aktion, teilPfad, nummer, position, credentialId) {
+//
+// `dynamisch` = enthält der GESAMTE Zielpfad einen Pro-Anhang-Platzhalter? Wenn ja,
+// darf KEIN Knoten der Kette nur einmal laufen — auch nicht der statische Anfang
+// (z.B. "Belege"). Denn ein `executeOnce`-Knoten in n8n verarbeitet nur das erste
+// Item und gibt genau eines weiter; er würde den Item-Strom auf einen Anhang kürzen,
+// und die Ordner aller weiteren Belege eines Laufs entstünden nie. Fehlt der Wert,
+// entscheidet der Teilpfad allein (für Aufrufer ausserhalb der Kette / Tests).
+function ordnerKnoten(aktion, teilPfad, nummer, position, credentialId, dynamisch) {
+  const einmal = dynamisch === undefined ? !PRO_ITEM.test(teilPfad) : !dynamisch;
   return {
     parameters: {
       resource: 'folder',
@@ -153,8 +161,8 @@ function ordnerKnoten(aktion, teilPfad, nummer, position, credentialId) {
     type: 'n8n-nodes-base.nextCloud',
     typeVersion: 1,
     position,
-    // Statischer Pfad: einmal genügt. Dynamischer Pfad: je Anhang.
-    executeOnce: !PRO_ITEM.test(teilPfad),
+    // Statischer Gesamtpfad: einmal genügt. Dynamischer: jeder Knoten je Anhang.
+    executeOnce: einmal,
     alwaysOutputData: true,
     onError: 'continueRegularOutput',
     credentials: credentialId
@@ -473,11 +481,14 @@ async function synchronisieren() {
       workflow.connections[wenn.name] = { main: [[{ node: beleg.name, type: 'main', index: 0 }], []] };
 
       const teile = pfadSaeubern(a.konfig.ordner).split('/').filter(Boolean);
+      // Ist der Gesamtpfad dynamisch (Firma/Aktenzeichen …)? Dann darf kein
+      // Ordner-Knoten der Kette den Item-Strom auf einen Anhang kürzen.
+      const dynamisch = PRO_ITEM.test(ausdruck(pfadSaeubern(a.konfig.ordner)));
       let vorheriger = beleg.name;
       let x = 700;
       teile.forEach((_, tiefe) => {
         const bisher = ausdruck(teile.slice(0, tiefe + 1).join('/')).replace(/^=/, '');
-        const knoten = ordnerKnoten(a, bisher, tiefe + 1, [x, y], nextcloudCred);
+        const knoten = ordnerKnoten(a, bisher, tiefe + 1, [x, y], nextcloudCred, dynamisch);
         workflow.nodes.push(knoten);
         workflow.connections[vorheriger] = { main: [[{ node: knoten.name, type: 'main', index: 0 }]] };
         vorheriger = knoten.name;

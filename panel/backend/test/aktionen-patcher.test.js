@@ -71,6 +71,13 @@ describe('ordnerKnoten: executeOnce', () => {
     assert.equal(ist('Belege/{{ $json.beleg_t2 }}'), false);
     assert.equal(ist('{{ $json.aktenzeichen }}'), false);
   });
+  // Der wichtige Fall: der statische Anfang "Belege" darf bei dynamischem
+  // Gesamtpfad NICHT executeOnce sein, sonst kürzt er den Item-Strom auf einen
+  // Anhang und die Ordner der übrigen Belege eines Laufs entstehen nie.
+  test('dynamischer Gesamtpfad ⇒ auch der statische Anfang läuft je Anhang', () => {
+    assert.equal(patcher.ordnerKnoten(AKTION, 'Belege', 1, [0, 0], null, true).executeOnce, false);
+    assert.equal(patcher.ordnerKnoten(AKTION, 'Belege', 1, [0, 0], null, false).executeOnce, true);
+  });
 });
 
 describe('belegBereitstellenKnoten', () => {
