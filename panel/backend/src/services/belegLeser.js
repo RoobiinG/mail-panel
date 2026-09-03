@@ -43,6 +43,29 @@ function heuteGelesen() {
   } catch { return 0; }
 }
 
+// ─── Aufraeumen ─────────────────────────────────────────────────────────────
+// beleg_ablage dient nur der Dedupe (26 h) und der Anzeige (letzte 7 Tage). Alles
+// Aeltere ist Ballast. 30 Tage bleiben als grosszuegiger Puffer stehen.
+const BEHALTEN_TAGE = 30;
+
+function aufraeumen(tage = BEHALTEN_TAGE) {
+  try {
+    return db.prepare("DELETE FROM beleg_ablage WHERE created_at < datetime('now', ?)")
+      .run(`-${Number(tage) || BEHALTEN_TAGE} days`).changes;
+  } catch { return 0; }
+}
+
+// Gedrosselt statt per Dauer-Timer: laeuft hoechstens alle 6 Stunden mit, wenn
+// ohnehin Belege verarbeitet werden. Kein Aufraeumen ohne Betrieb — dann waechst
+// die Tabelle aber auch nicht.
+let letzteReinigung = 0;
+function vielleichtAufraeumen() {
+  const jetzt = Date.now();
+  if (jetzt - letzteReinigung < 6 * 60 * 60 * 1000) return;
+  letzteReinigung = jetzt;
+  aufraeumen();
+}
+
 // ─── Saeuberung: alles, was in einen Datei-/Ordnernamen darf ────────────────
 function sauberFirma(wert) {
   const s = String(wert || '')
@@ -207,6 +230,7 @@ async function fragGemini(pdfBase64) {
  * @returns {Promise<{speichern,dokumenttyp,firma,datum,aktenzeichen,quelle}>}
  */
 async function auslesen(eingang = {}) {
+  vielleichtAufraeumen(); // gedrosselt: haelt beleg_ablage klein, ohne Dauer-Timer
   const e = {
     konto: eingang.konto ?? null,
     von: eingang.von ?? null,
@@ -240,6 +264,6 @@ async function auslesen(eingang = {}) {
 }
 
 module.exports = {
-  auslesen, entscheiden, heuristik, tagesbudget, heuteGelesen,
+  auslesen, entscheiden, heuristik, tagesbudget, heuteGelesen, aufraeumen,
   sauberFirma, firmaAus, sauberAktenzeichen, sauberDatum,
 };

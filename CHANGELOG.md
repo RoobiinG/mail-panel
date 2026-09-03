@@ -2,6 +2,19 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.8.1.0] - 2026-09-03 (Build 78) — *Aufräumen von beleg_ablage + Body-Limit angeglichen*
+
+- **`beleg_ablage` räumt sich selbst auf.** Die Tabelle dient nur der Dedupe (26 h) und der
+  Anzeige (letzte 7 Tage) — alles Ältere ist Ballast. `belegLeser.aufraeumen()` löscht Zeilen
+  älter als 30 Tage. Läuft **gedrosselt beim Verarbeiten mit** (höchstens alle 6 Stunden), statt
+  über einen Dauer-Timer — kein zusätzlicher Hintergrundprozess, und ohne Betrieb wächst die
+  Tabelle ohnehin nicht.
+- **Fix: Body-Limit für `/api/internal/budget-filter` angeglichen.** Der globale JSON-Parser
+  deckelt bei 1 MB und lief **vor** dem 25-MB-Parser der Route — bei einem sehr großen Bestand
+  hätte er die Mail-Liste vorher als „zu groß" abgewiesen. Der Pfad ist jetzt (wie
+  `beleg-auslesen`) vom globalen Parser ausgenommen und parst selbst. Der aktive Budget-Weg
+  (`/budget`, nur schlanke Metadaten) war praktisch nicht betroffen; jetzt ist es sauber.
+
 ## [3.8.0.1] - 2026-09-03 (Build 77) — *Fix: Ordner-Kette bei mehreren Belegen je Lauf*
 
 - **Bug (bei der Durchsicht gefunden, vor dem ersten echten Mehrfach-Lauf):** Der erste

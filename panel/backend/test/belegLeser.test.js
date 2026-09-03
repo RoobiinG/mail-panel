@@ -107,3 +107,16 @@ describe('auslesen: Dedupe und Deckel', () => {
     assert.equal(zeilen(), vorher, 'ein vorübergehender Fehler darf die Entscheidung nicht 26h festnageln');
   });
 });
+
+describe('Aufraeumen', () => {
+  test('löscht nur Zeilen älter als N Tage', () => {
+    seed({ konto: 'FRISCH' }); // heute
+    db.prepare(`INSERT INTO beleg_ablage (konto, von, betreff, dateiname, dokumenttyp, gespeichert, quelle, created_at)
+      VALUES ('ALT','x','y','z.pdf','rechnung',1,'ki', datetime('now','-40 days'))`).run();
+    assert.equal(zeilen(), 2);
+    const weg = leser.aufraeumen(30);
+    assert.equal(weg, 1, 'nur die 40 Tage alte Zeile');
+    assert.equal(zeilen(), 1);
+    assert.equal(db.prepare('SELECT konto FROM beleg_ablage').get().konto, 'FRISCH');
+  });
+});

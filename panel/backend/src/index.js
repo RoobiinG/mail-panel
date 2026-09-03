@@ -68,12 +68,17 @@ app.use(helmet({
 app.use(cors({ origin: false }));
 app.use(compression());
 // Der globale JSON-Parser deckelt bei 1 MB — gut gegen aufgeblähte Anfragen.
-// Der Beleg-Leser bekommt aber PDFs als base64 (schnell mehrere MB) und bringt
-// dafür seinen eigenen 25-MB-Parser mit. Liefe der globale zuerst, wiese er die
-// Anfrage vorher als „zu groß" ab. Deshalb überspringt er genau diesen Pfad.
+// Einige interne n8n-Endpunkte brauchen aber große Rümpfe (ein PDF als base64,
+// die ganze Mail-Liste eines Bestands-Laufs) und bringen ihren eigenen, größeren
+// Parser mit. Liefe der globale zuerst, wiese er sie vorher als „zu groß" ab.
+// Deshalb überspringt er genau diese Pfade — jeder von ihnen parst selbst.
+const EIGENER_PARSER = new Set([
+  '/api/internal/beleg-auslesen', // PDF als base64 (25 MB)
+  '/api/internal/budget-filter',  // volle Mail-Liste des Bestands (25 MB)
+]);
 const globalJson = express.json({ limit: '1mb' });
 app.use((req, res, next) => {
-  if (req.path === '/api/internal/beleg-auslesen') return next();
+  if (EIGENER_PARSER.has(req.path)) return next();
   return globalJson(req, res, next);
 });
 
