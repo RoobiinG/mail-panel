@@ -69,10 +69,19 @@ describe('Die Routen des Panels lassen sich mounten', () => {
     // nicht sagt, woran es liegt.
     const timerVorher = process.getActiveResourcesInfo().filter((r) => r === 'Timeout').length;
 
+    // Drei Dateien exportieren mehr als nur den Router (google, logs, passkeys
+    // liefern zusätzlich einzelne Handler, die index.js separat einhängt).
+    // Der Router steckt dann unter .router.
+    const routerAus = (modul) => (typeof modul === 'function' ? modul : modul?.router);
+
     for (const datei of dateien) {
       const app = express();
+      const modul = require(`../src/routes/${datei}`);
+      const router = routerAus(modul);
+      assert.equal(typeof router, 'function',
+        `routes/${datei} exportiert keinen Router — weder direkt noch als .router`);
       assert.doesNotThrow(() => {
-        app.use('/api/probe', require(`../src/routes/${datei}`));
+        app.use('/api/probe', router);
       }, `routes/${datei} lässt sich nicht mounten`);
     }
 
