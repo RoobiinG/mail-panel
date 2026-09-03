@@ -134,7 +134,11 @@ export default function AktionenBereich() {
   const [speichert, setSpeichert] = useState(false);
   const [meldung, setMeldung] = useState('');
 
-  const laden = () => api.get('/aktionen').then((r) => setAktionen(r.data)).catch(() => setAktionen([]));
+  // Die automatische Beleg-Ablage (schluessel 'belege_auto') wird über die eigene
+  // Karte unter Sortierung gesteuert — hier gehört sie nicht in die Liste.
+  const laden = () => api.get('/aktionen')
+    .then((r) => setAktionen((r.data || []).filter((a) => a.schluessel !== 'belege_auto')))
+    .catch(() => setAktionen([]));
   useEffect(() => {
     api.get('/aktionen/schema').then((r) => setSchema(r.data)).catch(() => {});
     laden();

@@ -67,7 +67,15 @@ app.use(helmet({
 // CORS: Frontend wird vom selben Origin ausgeliefert — Cross-Origin bleibt aus
 app.use(cors({ origin: false }));
 app.use(compression());
-app.use(express.json({ limit: '1mb' }));
+// Der globale JSON-Parser deckelt bei 1 MB — gut gegen aufgeblähte Anfragen.
+// Der Beleg-Leser bekommt aber PDFs als base64 (schnell mehrere MB) und bringt
+// dafür seinen eigenen 25-MB-Parser mit. Liefe der globale zuerst, wiese er die
+// Anfrage vorher als „zu groß" ab. Deshalb überspringt er genau diesen Pfad.
+const globalJson = express.json({ limit: '1mb' });
+app.use((req, res, next) => {
+  if (req.path === '/api/internal/beleg-auslesen') return next();
+  return globalJson(req, res, next);
+});
 
 // Express 5 laesst req.body undefined, wenn kein Parser gegriffen hat — in
 // Express 4 war es ein leeres Objekt. Ein Dutzend Routen schreibt

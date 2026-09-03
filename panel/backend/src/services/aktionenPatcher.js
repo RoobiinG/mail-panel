@@ -22,6 +22,14 @@ const PLATZHALTER = {
   '{{betreff}}':   '{{ $json.betreff }}',
   '{{konto}}':     '{{ $json.konto }}',
   '{{kategorie}}': '{{ $json.kategorie }}',
+  // Vom Beleg-Knoten gesetzt (aus dem Absender bzw. beim Auslesen aus dem PDF):
+  '{{firma}}':        '{{ $json.firma }}',
+  '{{datum}}':        '{{ $json.datum }}',
+  '{{aktenzeichen}}': '{{ $json.aktenzeichen }}',
+  // Interne Bausteine des Beleg-Presets (Ordner je Vorgang) — nicht in der UI.
+  '{{beleg_t1}}':     '{{ $json.beleg_t1 }}',
+  '{{beleg_t2}}':     '{{ $json.beleg_t2 }}',
+  '{{beleg_t3}}':     '{{ $json.beleg_t3 }}',
 };
 
 // Alles, was wie ein Ausdruck aussieht, aber keiner unserer Platzhalter ist,
@@ -69,6 +77,9 @@ function jsPlatzhalter(text, quelle) {
     '{{betreff}}':   `\${${quelle}.betreff}`,
     '{{konto}}':     `\${${quelle}.konto}`,
     '{{kategorie}}': `\${${quelle}.kategorie}`,
+    '{{firma}}':        `\${${quelle}.firma}`,
+    '{{datum}}':        `\${${quelle}.datum}`,
+    '{{aktenzeichen}}': `\${${quelle}.aktenzeichen}`,
   };
   // Rückwärts-Anführungszeichen würden das Template beenden, ${…} beliebigen
   // Code einschleusen — beides wird entfernt, bevor die Platzhalter kommen.
@@ -121,6 +132,12 @@ function bedingungsKnoten(aktion, bedingung, position) {
 
 // ─── Aktion → Knoten ────────────────────────────────────────────────────────
 
+// Enthält ein Pfad einen Wert, der von Anhang zu Anhang wechselt (Firma,
+// Aktenzeichen, Absender …)? Dann darf der Ordner-Knoten NICHT nur einmal laufen —
+// sonst würde bei mehreren Absendern/Vorgängen in einem Lauf nur der erste Ordner
+// angelegt und der Rest liefe ins Leere. $now und $json.konto sind pro Lauf stabil.
+const PRO_ITEM = /\$json\.(firma|aktenzeichen|beleg_t2|beleg_t3|von|betreff|kategorie|dateiname)\b/;
+
 // Nextcloud legt beim Hochladen keine fehlenden Ordner an — deshalb je Ebene
 // ein eigener Knoten. Existiert der Ordner schon, meldet der Knoten einen
 // Fehler, der bewusst ignoriert wird.
@@ -136,7 +153,8 @@ function ordnerKnoten(aktion, teilPfad, nummer, position, credentialId) {
     type: 'n8n-nodes-base.nextCloud',
     typeVersion: 1,
     position,
-    executeOnce: true,
+    // Statischer Pfad: einmal genügt. Dynamischer Pfad: je Anhang.
+    executeOnce: !PRO_ITEM.test(teilPfad),
     alwaysOutputData: true,
     onError: 'continueRegularOutput',
     credentials: credentialId
@@ -145,36 +163,113 @@ function ordnerKnoten(aktion, teilPfad, nummer, position, credentialId) {
   };
 }
 
-// Teilt eine Mail mit mehreren Anhängen in ein Item je Anhang auf.
-// Der Nextcloud-Knoten kann immer nur eine Datei auf einmal hochladen.
-// Die Mail holen wir uns ausdrücklich vom Bedingungs-Knoten: Die Ordner-Knoten
-// davor liefern ihre eigene Antwort und hätten die Anhänge längst verworfen.
-function anhaengeAufteilenKnoten(aktion, position, quellKnotenName) {
+// Der Beleg-Knoten: teilt eine Mail in ein Item je Anhang, wirft alles weg, was
+// kein Beleg ist, und reichert firma/datum/aktenzeichen + Dateiname an.
+//
+// Warum je Anhang lesen und nicht je Mail: Einer Rechnungsmail liegt oft eine AGB
+// oder ein Logo bei — die sollen NICHT im Belege-Ordner landen. Nur PDFs kommen
+// überhaupt in Frage (Vorfilter, ohne KI), und mit "auslesen" entscheidet das
+// Panel je PDF, ob es ein aufbewahrenswerter Beleg ist.
+//
+// Die Mail holen wir vom Bedingungs-Knoten: dort liegen die Anhänge noch als
+// Binärdaten. Der Dateiname stammt vom Absender — ohne Säuberung könnte er mit
+// "/" oder ".." aus dem Zielordner ausbrechen.
+function belegDatenKnoten(aktion, konfig, quellKnotenName, position) {
+  const k = konfig || {};
+  const auslesen = Boolean(k.auslesen);
+  const geheim = process.env.PANEL_SECRET || '';
+  const nameRoh = String(k.dateiname || '').trim();
+  const nameAusdruck = nameRoh ? jsPlatzhalter(nameRoh, 'j') : 'rohOhne';
+
+  // Nur beim Auslesen: das PDF ans Panel schicken und Nicht-Belege verwerfen.
+  const leseBlock = auslesen ? String.raw`
+    try {
+      const r = await this.helpers.httpRequest({
+        method: 'POST', url: 'http://panel:3002/api/internal/beleg-auslesen',
+        headers: { 'X-Panel-Secret': __geheim, 'Content-Type': 'application/json' },
+        body: { konto: mail.json.konto, von: mail.json.von, betreff: mail.json.betreff, dateiname: fn, pdf_base64: datei.data },
+        json: true,
+      });
+      if (!r || r.speichern !== true) continue;
+      if (r.firma) firma = String(r.firma);
+      if (r.datum) datum = String(r.datum);
+      if (r.aktenzeichen) aktenzeichen = String(r.aktenzeichen);
+    } catch (e) { continue; }` : '';
+
+  // Nur beim Auslesen: eigener Ordner je Vorgang (Belege/Firma/Aktenzeichen),
+  // sonst nach Jahr (Belege/Jahr/Firma). Die drei Teile füllen {{beleg_t1..3}}.
+  const ordnerBlock = auslesen ? String.raw`
+    j.beleg_t1 = 'Belege';
+    if (aktenzeichen) { j.beleg_t2 = firma; j.beleg_t3 = aktenzeichen; }
+    else { j.beleg_t2 = (datum || '').slice(0, 4) || heute().slice(0, 4); j.beleg_t3 = firma; }` : '';
+
+  const jsCode = String.raw`// Vom Mail-Panel gepflegt, bitte nicht von Hand ändern.
+// Prüft je Anhang, ob es ein Beleg ist, und reichert firma/datum/aktenzeichen an.
+function sauberDatei(name) {
+  return String(name == null ? '' : name)
+    .replace(/[\\/:*?"<>|]/g, ' ')
+    .replace(/[\x00-\x1f]/g, '')
+    .replace(/\s+/g, ' ').trim().slice(0, 120) || 'beleg';
+}
+function firmaAus(von) {
+  const a = String(von || '').toLowerCase().match(/[^<\s]+@[^>\s]+/);
+  const dom = (a ? a[0].split('@')[1] : '').replace(/^(www|mail|email|smtp|mx|news|newsletter|mailer|send|bounce|reply|no-?reply)\./, '');
+  const t = dom.split('.').filter(Boolean);
+  let s;
+  if (t.length < 2) { s = t[0] || ''; }
+  else { const z = ['co','com','org','net','gov','ac']; const i = (z.indexOf(t[t.length - 2]) >= 0 && t.length >= 3) ? t.length - 3 : t.length - 2; s = t[i]; }
+  s = String(s || '').replace(/[äöü]/g, (c) => ({ 'ä': 'ae', 'ö': 'oe', 'ü': 'ue' }[c])).replace(/ß/g, 'ss').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+  return s || 'unbekannt';
+}
+const heute = () => new Date().toISOString().slice(0, 10);
+const istPdf = (d, fn) => String((d && d.mimeType) || '').toLowerCase().indexOf('pdf') >= 0 || /\.pdf$/i.test(String(fn || ''));
+const BLOCK = /agb|widerruf|datenschutz|teilnahmebedingung|nutzungsbedingung|hinweisblatt|prospekt|katalog|logo|signatur|unsubscribe/i;
+const __geheim = ${JSON.stringify(geheim)};
+const out = [];
+for (const mail of $('${quellKnotenName}').all()) {
+  const bin = mail.binary || {};
+  for (const prop of Object.keys(bin)) {
+    const datei = bin[prop];
+    const fn = String((datei && datei.fileName) || prop || 'anhang');
+    if (!istPdf(datei, fn)) continue;
+    if (BLOCK.test(fn)) continue;
+    const groesse = Number((datei && datei.fileSize) || 0);
+    if (groesse && groesse < 5000) continue;
+    let firma = firmaAus(mail.json.von);
+    let datum = heute();
+    let aktenzeichen = '';${leseBlock}
+    const j = Object.assign({}, mail.json, { firma, datum, aktenzeichen });${ordnerBlock}
+    const rohName = String(fn).split(/[\\/]/).pop();
+    const endung = (rohName.match(/\.[A-Za-z0-9]{1,8}$/) || [''])[0];
+    const rohOhne = rohName.slice(0, rohName.length - endung.length);
+    const basis = ${nameAusdruck};
+    j.dateiname = sauberDatei(basis) + endung;
+    out.push({ json: j, binary: { data: datei } });
+  }
+}
+return out;`;
+
+  return {
+    parameters: { mode: 'runOnceForAllItems', jsCode },
+    id: `${PRAEFIX}aktion-${aktion.id}-beleg`,
+    name: `Beleg lesen: ${aktion.name}`,
+    type: 'n8n-nodes-base.code',
+    typeVersion: 2,
+    position,
+  };
+}
+
+// Die Ordner-Knoten liefern ihre eigene Antwort und verlieren dabei die
+// Binärdaten. Für den Upload holen wir die vorbereiteten Anhänge deshalb direkt
+// vom Beleg-Knoten zurück (dieselbe Technik wie früher beim Aufteil-Knoten).
+function belegBereitstellenKnoten(aktion, belegDatenName, position) {
   return {
     parameters: {
       mode: 'runOnceForAllItems',
-      jsCode: `// Ein Item je Anhang, damit der Upload-Knoten sie einzeln bekommt.
-// Der Dateiname stammt aus der Mail und damit vom Absender — ohne Säuberung
-// könnte er mit "../" aus dem Zielordner ausbrechen.
-function sauberer(name) {
-  const roh = String(name || 'anhang').split(/[\\\\/]/).pop();
-  const geputzt = roh.replace(/^\\.+/, '').replace(/[\\x00-\\x1f]/g, '').trim();
-  return geputzt.slice(0, 120) || 'anhang';
-}
-
-const out = [];
-for (const item of $('${quellKnotenName}').all()) {
-  for (const [name, datei] of Object.entries(item.binary || {})) {
-    out.push({
-      json: { ...item.json, dateiname: sauberer(datei.fileName || name) },
-      binary: { data: datei },
-    });
-  }
-}
-return out;`,
+      jsCode: `// Anhänge (mit Binärdaten) nach den Ordner-Knoten wiederherstellen.\nreturn $('${belegDatenName}').all();`,
     },
-    id: `${PRAEFIX}aktion-${aktion.id}-anhaenge`,
-    name: `Anhänge: ${aktion.name}`,
+    id: `${PRAEFIX}aktion-${aktion.id}-bereit`,
+    name: `Anhang bereitstellen: ${aktion.name}`,
     type: 'n8n-nodes-base.code',
     typeVersion: 2,
     position,
@@ -182,7 +277,7 @@ return out;`,
 }
 
 function nextcloudDateiKnoten(aktion, konfig, position, credentialId) {
-  // Ordner kommt vom Nutzer (mit Platzhaltern), der Dateiname vom Aufteil-Knoten
+  // Ordner kommt vom Nutzer (mit Platzhaltern), der Dateiname vom Beleg-Knoten
   const ordner = ausdruck(pfadSaeubern(konfig.ordner)).replace(/^=/, '');
   return {
     parameters: {
@@ -370,28 +465,30 @@ async function synchronisieren() {
     workflow.connections[TRIGGER].main[0].push({ node: wenn.name, type: 'main', index: 0 });
 
     if (a.typ === 'nextcloud_datei') {
-      // Kette: Bedingung → Ordner je Ebene → Anhänge aufteilen → Hochladen
+      // Kette: Bedingung → Beleg lesen → Ordner je Ebene → Anhang bereitstellen → Hochladen.
+      // Der Beleg-Knoten fällt zuerst (er liest die Anhänge und wirft Nicht-Belege raus);
+      // die Ordner-Knoten bauen den Pfad aus den gelesenen Feldern.
+      const beleg = belegDatenKnoten(a, a.konfig, wenn.name, [480, y]);
+      workflow.nodes.push(beleg);
+      workflow.connections[wenn.name] = { main: [[{ node: beleg.name, type: 'main', index: 0 }], []] };
+
       const teile = pfadSaeubern(a.konfig.ordner).split('/').filter(Boolean);
-      let vorheriger = wenn.name;
-      let x = 480;
+      let vorheriger = beleg.name;
+      let x = 700;
       teile.forEach((_, tiefe) => {
         const bisher = ausdruck(teile.slice(0, tiefe + 1).join('/')).replace(/^=/, '');
         const knoten = ordnerKnoten(a, bisher, tiefe + 1, [x, y], nextcloudCred);
         workflow.nodes.push(knoten);
-        workflow.connections[vorheriger] = vorheriger === wenn.name
-          ? { main: [[{ node: knoten.name, type: 'main', index: 0 }], []] }
-          : { main: [[{ node: knoten.name, type: 'main', index: 0 }]] };
+        workflow.connections[vorheriger] = { main: [[{ node: knoten.name, type: 'main', index: 0 }]] };
         vorheriger = knoten.name;
         x += 220;
       });
 
-      const teilen = anhaengeAufteilenKnoten(a, [x, y], wenn.name);
+      const bereit = belegBereitstellenKnoten(a, beleg.name, [x, y]);
       const upload = nextcloudDateiKnoten(a, a.konfig, [x + 220, y], nextcloudCred);
-      workflow.nodes.push(teilen, upload);
-      workflow.connections[vorheriger] = vorheriger === wenn.name
-        ? { main: [[{ node: teilen.name, type: 'main', index: 0 }], []] }
-        : { main: [[{ node: teilen.name, type: 'main', index: 0 }]] };
-      workflow.connections[teilen.name] = { main: [[{ node: upload.name, type: 'main', index: 0 }]] };
+      workflow.nodes.push(bereit, upload);
+      workflow.connections[vorheriger] = { main: [[{ node: bereit.name, type: 'main', index: 0 }]] };
+      workflow.connections[bereit.name] = { main: [[{ node: upload.name, type: 'main', index: 0 }]] };
     } else if (a.typ === 'google_kalender') {
       const token = googleTokenKnoten(a, [480, y], panelCred);
       const termin = googleKalenderKnoten(a, a.konfig, [720, y], wenn.name);
@@ -416,4 +513,7 @@ async function synchronisieren() {
   return { workflow: info.name, aktionen: aktionen.length, veroeffentlicht };
 }
 
-module.exports = { synchronisieren, veroeffentlichen, ausdruck, pfadSaeubern };
+module.exports = {
+  synchronisieren, veroeffentlichen, ausdruck, pfadSaeubern,
+  belegDatenKnoten, belegBereitstellenKnoten, ordnerKnoten,
+};

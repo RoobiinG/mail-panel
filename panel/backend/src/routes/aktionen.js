@@ -139,4 +139,65 @@ router.post('/sync', async (req, res) => {
   }
 });
 
+// Der Bauplan der automatischen Beleg-Ablage. Es ist eine ganz normale Aktion —
+// nur vom Panel gepflegt (schluessel) und über den Schalter unter Sortierung
+// gesteuert. Ordner „Belege/Firma/Aktenzeichen" bzw. „Belege/Jahr/Firma" bauen
+// die {{beleg_t*}}-Bausteine im Beleg-Knoten. Kein hat_anhang nötig: Mails ohne
+// (PDF-)Anhang erzeugen im Beleg-Knoten schlicht nichts.
+const BELEG_PRESET = (auslesen) => ({
+  name: 'Belege automatisch in Nextcloud',
+  beschreibung: 'Legt Rechnungen und Bestellungen als Beleg in Nextcloud ab.',
+  typ: 'nextcloud_datei',
+  bedingung: {
+    verknuepfung: 'oder',
+    regeln: [
+      { feld: 'kategorie', vergleich: 'ist', wert: 'rechnung' },
+      { feld: 'kategorie', vergleich: 'ist', wert: 'bestellung' },
+    ],
+  },
+  konfig: {
+    ordner: '{{beleg_t1}}/{{beleg_t2}}/{{beleg_t3}}',
+    dateiname: '{{datum}} {{firma}} {{betreff}}',
+    nur_anhaenge: true,
+    auslesen: Boolean(auslesen),
+  },
+});
+
+// POST /api/aktionen/beleg-automatik — Automatik ein/aus (und Auslesen ein/aus)
+router.post('/beleg-automatik', async (req, res) => {
+  const an = req.body?.an !== false; // Vorgabe: einschalten
+  const auslesen = req.body?.auslesen !== false; // Vorgabe: mit Auslesen
+  try {
+    const vorhanden = db.prepare("SELECT id FROM aktionen WHERE schluessel = 'belege_auto'").get();
+
+    if (!an) {
+      // Ausschalten, aber die Zeile behalten — so kommen die Einstellungen wieder,
+      // wenn man später erneut einschaltet.
+      if (vorhanden) db.prepare('UPDATE aktionen SET aktiv = 0 WHERE id = ?').run(vorhanden.id);
+      return res.json({ ok: true, an: false, sync: await patcher.synchronisieren() });
+    }
+
+    const geprueft = schema.pruefe(BELEG_PRESET(auslesen));
+    if (!geprueft.ok) return res.status(500).json({ fehler: geprueft.fehler });
+    const a = geprueft.aktion;
+
+    if (vorhanden) {
+      db.prepare(`
+        UPDATE aktionen SET name = ?, beschreibung = ?, bedingung = ?, typ = ?, konfig = ?, aktiv = 1
+        WHERE id = ?
+      `).run(a.name, a.beschreibung, JSON.stringify(a.bedingung), a.typ, JSON.stringify(a.konfig), vorhanden.id);
+    } else {
+      db.prepare(`
+        INSERT INTO aktionen (name, beschreibung, bedingung, typ, konfig, aktiv, schluessel, erstellt_von)
+        VALUES (?, ?, ?, ?, ?, 1, 'belege_auto', ?)
+      `).run(a.name, a.beschreibung, JSON.stringify(a.bedingung), a.typ, JSON.stringify(a.konfig), req.user?.id ?? null);
+    }
+
+    res.json({ ok: true, an: true, auslesen, sync: await patcher.synchronisieren() });
+  } catch (err) {
+    loggen('error', 'backend:aktionen', `Beleg-Automatik fehlgeschlagen: ${err.message}`);
+    res.status(502).json({ fehler: [err.message] });
+  }
+});
+
 module.exports = router;

@@ -8,6 +8,7 @@ const clamav  = require('../services/clamav');
 const google  = require('../services/google');
 const sortierung = require('../services/sortierung');
 const budget  = require('../services/budget');
+const belegLeser = require('../services/belegLeser');
 const themen  = require('../services/themen');
 const imap    = require('../services/imap');
 const { entschluesseln } = require('../services/crypto');
@@ -107,6 +108,21 @@ router.post('/budget', express.json({ limit: '512kb' }), (req, res) => {
     // Tageslimit sprengen — der Sammel-Knoten wertet ein Fehlen als "keine".
     console.error('Budget-Fehler:', err.message);
     res.status(500).json({ error: err.message, erlaubt: [] });
+  }
+});
+
+// Beleg-Leser: Der Beleg-Knoten in Workflow 07 schickt ein PDF hierher. Das
+// Panel liest es per Gemini aus und entscheidet, OB es ein aufbewahrenswerter
+// Beleg ist (AGB/Werbung ⇒ nicht). Der Schluessel bleibt im Panel, wie beim
+// Google-Token. Grosses Limit, weil ein PDF als base64 mehrere MB haben kann.
+// Scheitert hier etwas, faellt der Leser auf eine Heuristik zurueck.
+router.post('/beleg-auslesen', express.json({ limit: '25mb' }), async (req, res) => {
+  try {
+    res.json(await belegLeser.auslesen(req.body || {}));
+  } catch (err) {
+    console.error('Beleg-Auslesen-Fehler:', err.message);
+    // Nichts ablegen ist besser als ein Fremd-PDF im Belege-Ordner.
+    res.status(500).json({ speichern: false, dokumenttyp: 'kein_beleg', fehler: err.message });
   }
 });
 

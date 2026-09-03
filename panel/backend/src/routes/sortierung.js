@@ -6,6 +6,8 @@ const { loggen } = require('../services/panelLog');
 const imap = require('../services/imap');
 const themen = require('../services/themen');
 const sortierung = require('../services/sortierung');
+const belegLeser = require('../services/belegLeser');
+const settings = require('../services/settings');
 const { entschluesseln } = require('../services/crypto');
 
 const router = express.Router();
@@ -636,6 +638,48 @@ router.post('/vorschlaege/:id/ablehnen', (req, res) => {
       .run(Number(req.params.id));
     if (info.changes === 0) return res.status(404).json({ error: 'Vorschlag nicht gefunden.' });
     res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/sortierung/belege — Zustand der Beleg-Ablage für die Sortierung-Karte:
+// ist die Automatik an, wie viele Belege heute gelesen/übersprungen wurden, und
+// die letzten Entscheidungen. So sieht man, was das Qualitäts-Gate herausgefiltert hat.
+router.get('/belege', (req, res) => {
+  try {
+    const preset = db.prepare("SELECT aktiv, konfig FROM aktionen WHERE schluessel = 'belege_auto'").get();
+    let auslesen = false;
+    try { auslesen = Boolean(JSON.parse(preset?.konfig || '{}').auslesen); } catch { /* egal */ }
+
+    const zahl = (sql) => { try { return db.prepare(sql).get().n; } catch { return 0; } };
+    const heuteWo = "created_at >= date('now','localtime')";
+    const woche = "created_at >= datetime('now','-7 days')";
+    const grenze = belegLeser.tagesbudget();
+    const heuteGelesen = belegLeser.heuteGelesen();
+
+    const nextcloudBereit = Boolean(settings.hole('nextcloud_url') && settings.hole('nextcloud_user') && settings.hole('nextcloud_passwort'));
+
+    const letzte = db.prepare(`
+      SELECT von, betreff, firma, aktenzeichen, dokumenttyp, gespeichert, dateiname, quelle, created_at
+      FROM beleg_ablage ORDER BY id DESC LIMIT 25
+    `).all().map((r) => ({ ...r, gespeichert: Boolean(r.gespeichert) }));
+
+    res.json({
+      automatik: { an: Boolean(preset?.aktiv), auslesen, eingerichtet: Boolean(preset) },
+      nextcloud_bereit: nextcloudBereit,
+      lesen: {
+        grenze,                                   // 0 = kein Deckel
+        heute: heuteGelesen,
+        rest: grenze ? Math.max(0, grenze - heuteGelesen) : null,
+        ausgeschoepft: grenze ? heuteGelesen >= grenze : false,
+        abgelegtHeute: zahl(`SELECT COUNT(*) n FROM beleg_ablage WHERE gespeichert = 1 AND ${heuteWo}`),
+        uebersprungenHeute: zahl(`SELECT COUNT(*) n FROM beleg_ablage WHERE gespeichert = 0 AND ${heuteWo}`),
+        abgelegt7: zahl(`SELECT COUNT(*) n FROM beleg_ablage WHERE gespeichert = 1 AND ${woche}`),
+        uebersprungen7: zahl(`SELECT COUNT(*) n FROM beleg_ablage WHERE gespeichert = 0 AND ${woche}`),
+      },
+      letzte,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

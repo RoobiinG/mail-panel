@@ -29,8 +29,10 @@ const TYPEN = {
   nextcloud_datei: {
     label: 'Anhang in Nextcloud ablegen',
     felder: {
-      ordner: { label: 'Zielordner', pflicht: true, platzhalter: 'Belege/{{jahr}}' },
+      ordner: { label: 'Zielordner', pflicht: true, platzhalter: 'Belege/{{jahr}}/{{firma}}' },
+      dateiname: { label: 'Dateiname (leer = Originalname)', platzhalter: '{{datum}} {{firma}} {{betreff}}' },
       nur_anhaenge: { label: 'Nur Anhänge (nicht die Mail selbst)', typ: 'boolean', standard: true },
+      auslesen: { label: 'Inhalt lesen & prüfen (Aktenzeichen, Datum, Firma — nur echte Belege)', typ: 'boolean', standard: false },
     },
   },
   nextcloud_kalender: {
@@ -56,8 +58,9 @@ const TYPEN = {
   },
 };
 
-// Platzhalter, die in Textfeldern erlaubt sind
-const PLATZHALTER = ['{{jahr}}', '{{monat}}', '{{tag}}', '{{absender}}', '{{betreff}}', '{{konto}}', '{{kategorie}}'];
+// Platzhalter, die in Textfeldern erlaubt sind. firma/datum/aktenzeichen füllt
+// der Beleg-Knoten in Workflow 07 (aus dem Absender bzw. beim Auslesen aus dem PDF).
+const PLATZHALTER = ['{{jahr}}', '{{monat}}', '{{tag}}', '{{absender}}', '{{betreff}}', '{{konto}}', '{{kategorie}}', '{{firma}}', '{{datum}}', '{{aktenzeichen}}'];
 
 /**
  * Prüft einen Aktions-Entwurf (egal ob von der KI oder vom Formular).

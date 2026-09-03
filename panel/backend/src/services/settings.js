@@ -17,6 +17,10 @@ const FELDER = {
   // Wie viele KI-Einordnungen pro Tag hoechstens? 0/leer = kein Deckel.
   // Schuetzt das Gemini-Tageslimit, wenn ein grosser Altbestand sortiert wird.
   gemini_tagesbudget:   { env: 'GEMINI_TAGESBUDGET', geheim: false, standard: '400' },
+  // Wie viele Belege pro Tag hoechstens per KI auslesen? 0/leer = kein Deckel.
+  // Eigener Topf, damit das Beleg-Lesen (services/belegLeser.js) nicht das
+  // Einordnungs-Budget leersaugt. Ist er voll, wird nur noch per Heuristik abgelegt.
+  beleg_lese_tagesbudget: { env: 'BELEG_LESE_TAGESBUDGET', geheim: false, standard: '200' },
   telegram_token:       { env: 'TELEGRAM_TOKEN', geheim: true },
   telegram_chat_id:     { env: 'TELEGRAM_CHAT_ID', geheim: false },
   // Postausgang für Workflow 06 (Newsletter abbestellen per Mail)

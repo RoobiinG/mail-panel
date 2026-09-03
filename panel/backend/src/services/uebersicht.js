@@ -12,6 +12,7 @@ const themen = require('./themen');
 const imap = require('./imap');
 const aufsicht = require('./aufsicht');
 const sicherung = require('./postfachSicherung');
+const belegLeser = require('./belegLeser');
 const { loggen } = require('./panelLog');
 
 // ─── Posteingangs-Stände, zwischengespeichert ────────────────────────────────
@@ -103,6 +104,19 @@ async function laden({ mitPosteingang = true } = {}) {
       korrigiert7,
       trefferquote: einordnungen7 > 0 ? Math.round((1 - korrigiert7 / einordnungen7) * 100) : null,
     },
+
+    // Belege: was heute/diese Woche nach Nextcloud ging und was das Gate aussortiert hat
+    belege: (() => {
+      const grenze = belegLeser.tagesbudget();
+      const gelesen = belegLeser.heuteGelesen();
+      return {
+        heute: zahl("SELECT COUNT(*) n FROM beleg_ablage WHERE gespeichert = 1 AND created_at >= date('now','localtime')"),
+        uebersprungenHeute: zahl("SELECT COUNT(*) n FROM beleg_ablage WHERE gespeichert = 0 AND created_at >= date('now','localtime')"),
+        woche: zahl("SELECT COUNT(*) n FROM beleg_ablage WHERE gespeichert = 1 AND created_at >= datetime('now','-7 days')"),
+        leseGrenze: grenze,           // 0 = kein Deckel
+        gelesenHeute: gelesen,
+      };
+    })(),
 
     // „Läuft alles?"
     aufsicht: aufsicht.letzterLauf(),

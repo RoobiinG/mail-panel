@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import {
   AlertTriangle, Inbox, Gauge, ShieldCheck, HardDriveDownload, Target,
-  CheckCircle2, XCircle, Workflow, ArrowRight,
+  CheckCircle2, XCircle, Workflow, ArrowRight, Archive,
 } from 'lucide-react';
 import api from '../api';
 
@@ -155,6 +155,8 @@ export default function Dashboard() {
         const quote = u.lernen.trefferquote;
         const b = u.budget;
         const budgetAnteil = b.grenze ? (b.heute / b.grenze) * 100 : 0;
+        const bl = u.belege;
+        const leseAnteil = bl?.leseGrenze ? (bl.gelesenHeute / bl.leseGrenze) * 100 : 0;
 
         return (
           <div className="space-y-4">
@@ -233,6 +235,40 @@ export default function Dashboard() {
                 )}
               </div>
             </div>
+
+            {/* Belege in Nextcloud */}
+            {bl && (
+              <div className="card">
+                <h2 className="font-medium flex items-center gap-2 mb-3">
+                  <Archive size={16} className="text-panel-accent" /> Belege in Nextcloud
+                </h2>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div>
+                    <div className="text-2xl font-bold text-emerald-500">{bl.heute}</div>
+                    <div className="text-[11px] text-panel-muted">heute abgelegt</div>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-panel-muted">{bl.uebersprungenHeute}</div>
+                    <div className="text-[11px] text-panel-muted">übersprungen (kein Beleg)</div>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-panel-text">{bl.woche}</div>
+                    <div className="text-[11px] text-panel-muted">letzte 7 Tage</div>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-panel-text">
+                      {bl.leseGrenze ? `${bl.gelesenHeute}/${bl.leseGrenze}` : bl.gelesenHeute}
+                    </div>
+                    <div className="text-[11px] text-panel-muted">heute gelesen</div>
+                  </div>
+                </div>
+                {bl.leseGrenze ? (
+                  <div className="mt-3">
+                    <Balken anteil={leseAnteil} ton={leseAnteil >= 100 ? 'rot' : leseAnteil > 80 ? 'warnung' : 'accent'} />
+                  </div>
+                ) : null}
+              </div>
+            )}
           </div>
         );
       })()}

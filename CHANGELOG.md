@@ -2,6 +2,48 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.8.0.0] - 2026-09-03 (Build 76) — *Belege automatisch nach Nextcloud — lesen, prüfen, einsortieren*
+
+### Features
+
+- **Ein Schalter unter Sortierung → „Belege in Nextcloud".** Ist er an, landet jede von der KI
+  erkannte Rechnung/Bestellung mit PDF-Anhang automatisch in Nextcloud — ohne Regel pro Shop.
+  Umgesetzt als ganz normale Aktion (`schluessel = 'belege_auto'`), gesteuert über die neue Karte.
+
+- **Inhalt lesen & prüfen (optional, für alle Belege).** Ein neuer Panel-Endpunkt
+  `POST /api/internal/beleg-auslesen` schickt das PDF an Gemini (`inline_data`) und bekommt
+  `{dokumenttyp, speichern, firma, datum, aktenzeichen}` zurück. Der Schlüssel bleibt im Panel
+  (wie beim Google-Token). Aus den Feldern baut der Workflow Ordner und Dateiname.
+
+- **Qualitäts-Gate: NUR echte Belege.** Rechnung, Bestellung, Mahnung, Kontoauszug, Vertrag,
+  Lieferschein → ablegen. **AGB, Widerrufsbelehrung, Werbung, Logos, Signaturen → NICHT.** Geprüft
+  wird **je Anhang**, damit eine AGB, die einer Rechnungsmail beiliegt, den Beleg nicht mitzieht.
+  Im Zweifel wird nicht abgelegt. Zusätzlich ein Vorfilter ohne KI: nur PDFs, Mini-Dateien und
+  offensichtliche Nicht-Belege (Dateiname) fallen vorab raus.
+
+- **Eigener Ordner je Vorgang.** Mit Aktenzeichen: `Belege/Firma/Aktenzeichen` (alle Briefe eines
+  Falls zusammen). Ohne: `Belege/Jahr/Firma`. Dateiname sprechend: `Datum Firma Betreff.pdf`.
+
+- **Drei Budget-Bremsen** schützen das Gemini-Tageslimit: eigener Lese-Deckel
+  (`beleg_lese_tagesbudget`, Standard 200), Deduplizierung (dieselbe Mail wird bei einem
+  Wiederhollauf nicht erneut gelesen) und ein konservativer Heuristik-Rückfall, wenn der Deckel
+  voll ist.
+
+- **Sichtbar:** Die Sortierung-Karte zeigt heute abgelegt / übersprungen / gelesen und die zuletzt
+  verarbeiteten Belege; das Dashboard bekommt eine Belege-Kachel.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migration:** Ja — neue Tabelle `beleg_ablage` und Spalte `aktionen.schluessel` (beide als
+  additive `CREATE IF NOT EXISTS` / `ALTER`, laufen automatisch beim Start).
+- **n8n-Workflow 07 ändert sich** beim nächsten Aktionen-Sync: für `nextcloud_datei`-Aktionen
+  entsteht die Kette `Wenn → Beleg lesen → Ordner je Ebene → Anhang bereitstellen → Hochladen`.
+  Die Ordner-Knoten laufen bei dynamischem Pfad nun je Anhang (`executeOnce=false`).
+- **Neuer Panel-Endpunkt** `/api/internal/beleg-auslesen` (nur mit `X-Panel-Secret`, wie Budget).
+- **Kosten:** Bei „Inhalt lesen" eine KI-Abfrage je neuem Beleg — durch Deckel/Dedupe begrenzt.
+- **Voraussetzung:** Nextcloud muss verbunden sein (Einstellungen → Nextcloud); sonst ist der
+  Schalter aus.
+
 ## [3.7.2.0] - 2026-09-03 (Build 75) — *KI-Budget: scharf geschaltet*
 
 ### Features (Teil 2 von 2 — der Deckel greift jetzt)

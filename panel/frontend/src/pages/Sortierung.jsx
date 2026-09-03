@@ -5,6 +5,7 @@ import {
   ChevronRight, ChevronDown, Layers, AtSign, History, Undo2
 } from 'lucide-react';
 import { useMelden } from '../components/ui/Meldungen';
+import BelegeKarte from '../components/BelegeKarte';
 
 // "Name <a@b.de>" -> "a@b.de" bzw. "b.de"
 const adresse = (von) => {
@@ -392,7 +393,10 @@ export default function Sortierung() {
       <datalist id="ordner-vorschlaege">
         {alleOrdner.map(o => <option key={o} value={o} />)}
       </datalist>
-      
+
+      {/* ══ Belege automatisch in Nextcloud ablegen ══ */}
+      <BelegeKarte />
+
       {/* ══ Vorschläge der KI: neue Ordner, die auf Freigabe warten ══ */}
       {vorschlaege.length > 0 && (
         <div className="card !p-0 overflow-hidden">

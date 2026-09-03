@@ -187,6 +187,29 @@ db.exec(`
     FOREIGN KEY(konto_id) REFERENCES accounts(id) ON DELETE CASCADE
   );
 
+  -- Beleg-Ablage: Protokoll dessen, was der Beleg-Leser (services/belegLeser.js)
+  -- aus PDF-Anhaengen gelesen und entschieden hat. Zwei Zwecke: Deduplizierung
+  -- (dieselbe Mail bei einem Wiederhollauf nicht erneut per KI lesen) und Anzeige
+  -- unter Sortierung/Dashboard (heute gelesen / uebersprungen). gespeichert=0 heisst:
+  -- geprueft, aber kein Beleg (AGB, Werbung, …) — landet NICHT in Nextcloud.
+  CREATE TABLE IF NOT EXISTS beleg_ablage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    konto TEXT,
+    von TEXT,
+    betreff TEXT,
+    dateiname TEXT,
+    dokumenttyp TEXT,
+    gespeichert INTEGER NOT NULL DEFAULT 0,
+    firma TEXT,
+    aktenzeichen TEXT,
+    datum TEXT,
+    -- 'ki' = wirklich per Gemini gelesen (zaehlt gegen das Lese-Budget),
+    -- 'heuristik' = ohne KI entschieden (Deckel voll / kein Schluessel).
+    quelle TEXT NOT NULL DEFAULT 'ki',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_beleg_created ON beleg_ablage(created_at);
+
   -- Ordner, die die KI vorgeschlagen hat und die auf eine Freigabe warten
   CREATE TABLE IF NOT EXISTS ordner_vorschlaege (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -231,6 +254,9 @@ const migrations = [
   // wiederfinden — und ohne das gibt es keine Korrektur.
   'ALTER TABLE quarantine_log ADD COLUMN uid TEXT',
   'ALTER TABLE quarantine_log ADD COLUMN korrigiert_zu TEXT',
+  // System-Presets unter den Aktionen markieren (z.B. die automatische
+  // Beleg-Ablage). NULL = vom Nutzer angelegt, sonst ein fester Schluessel.
+  'ALTER TABLE aktionen ADD COLUMN schluessel TEXT',
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch { /* Spalte existiert schon */ }
