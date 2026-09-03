@@ -64,13 +64,24 @@ die `.env` ein:
 | `clamd-mailcow` o.ä. | `CLAMD_HOST=clamd-mailcow`, das eigene ClamAV bleibt aus |
 | ClamAV auf dem Host (Port 3310) | `CLAMD_HOST=172.17.0.1` |
 
-Läuft ein fremder Dienst in einem eigenen Docker-Netz, nennt das Skript den einen Befehl,
-mit dem das Panel dort hineinkommt (`docker network connect …`) — auf Wunsch führt es ihn
-gleich aus.
+Läuft ein fremder Dienst in einem eigenen Docker-Netz, muss das Panel in dieses Netz. Das
+stellst du über **eine `.env`-Variable** ein: `PANEL_EXTERN_NETZ=<Netzname>` (Namen liefert
+`docker network ls`, bei Mailcow meist `mailcowdockerized_mailcow-network`). Die Compose hängt
+das Panel dann von selbst dort mit ein — kein `docker network connect` von Hand, kein Skript.
 
-Du kannst das Skript überspringen und stattdessen `.env.example` nach `.env` kopieren und
-von Hand ausfüllen; alles, was es setzt, ist dort erklärt. Ohne `.env` startet der Stack
-**ohne** ClamAV und unbound, weil beide hinter Compose-Profilen stehen.
+**Alles ohne Skript — der Weg für Docker-Panels wie Dockhand oder Portainer:** Statt
+`einrichten.sh` kannst du die drei Werte einfach in die `.env` (bzw. die Umgebungsvariablen
+deines Stack-Managers) schreiben; `.env.example` erklärt jeden davon:
+
+| Situation | Was in die `.env` |
+|---|---|
+| frischer Server, nichts vorhanden | `COMPOSE_PROFILES=clamav,unbound` — der Stack startet beide selbst |
+| Mailcow o.ä. schon da, mitbenutzen | `COMPOSE_PROFILES=` (leer), dazu `CLAMD_HOST=clamd-mailcow`, `UNBOUND_HOST=unbound-mailcow` und `PANEL_EXTERN_NETZ=<Mailcow-Netz>` |
+| erstmal ohne Virenscan | `COMPOSE_PROFILES=` (leer) und die drei anderen weglassen — das Panel läuft, der Scan bleibt aus |
+
+Ohne jede `.env` startet der Stack **ohne** ClamAV und unbound (beide hinter Profilen); Panel,
+n8n und Datenbank laufen trotzdem. Das Skript `einrichten.sh` bleibt als Bequemlichkeit — es
+erkennt Vorhandenes und trägt genau diese Werte für dich ein —, ist aber nicht nötig.
 
 Sonst ist an Konfiguration nichts nötig: Alle Schlüssel erzeugen n8n und das Panel beim
 ersten Start selbst und legen sie in ihren Volumes ab. Ports, Zeitzone und die öffentliche

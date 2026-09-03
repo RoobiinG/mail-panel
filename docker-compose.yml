@@ -114,9 +114,10 @@ services:
       # Zugangsdaten für n8n, Mailcow und Safe Browsing trägst du im Panel unter
       # Einstellungen ein — dafür sind hier keine Variablen nötig.
       - N8N_URL=http://n8n:5678
-      # Fest verdrahtet waeren diese beiden ein stiller Widerspruch zu
-      # einrichten.sh: Das Skript traegt einen vorhandenen Dienst in die .env
-      # ein, und compose ueberschriebe ihn hier sofort wieder.
+      # Virenscan und DNS-Resolver: per .env auf einen vorhandenen Dienst zeigen
+      # (z.B. Mailcow) oder beim mitgelieferten lassen. Damit das Panel einen
+      # fremden Dienst per Namen erreicht, muss es in dessen Netz — dafuer
+      # PANEL_EXTERN_NETZ setzen (siehe unten und .env.example).
       - CLAMD_HOST=${CLAMD_HOST:-clamav}
       - UNBOUND_HOST=${UNBOUND_HOST:-unbound}
       - TZ=${TZ:-Europe/Berlin}
@@ -137,6 +138,10 @@ services:
       - n8n
     networks:
       - internal
+      # Zusätzlich ein optionales, bereits vorhandenes Netz (z.B. das von Mailcow),
+      # damit das Panel dessen ClamAV/unbound per Containernamen erreicht. Ohne
+      # PANEL_EXTERN_NETZ ist das die Standard-Bridge — folgenlos.
+      - extern
 
   # ─── ClamAV: Virenscan für Mail-Anhänge (nur intern) ────────────────────────
   # Braucht ~1,5 GB RAM. Die Signaturen liegen im Volume und werden vom
@@ -170,6 +175,13 @@ services:
 
 networks:
   internal:
+  # Ein bereits vorhandenes Netz, an das sich das Panel zusätzlich hängt, um dort
+  # ClamAV/unbound (z.B. von Mailcow) mitzubenutzen. Der Name kommt aus der .env;
+  # ohne Angabe ist es die Standard-Bridge, die es immer gibt — dann passiert
+  # nichts weiter. So bleibt die eine Compose für alle gleich, ganz ohne Skript.
+  extern:
+    external: true
+    name: ${PANEL_EXTERN_NETZ:-bridge}
 
 volumes:
   n8n_data:

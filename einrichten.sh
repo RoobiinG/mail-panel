@@ -137,28 +137,19 @@ setze COMPOSE_PROFILES "$PROFILE"
 [ -n "$GEFUNDEN_CLAMAV" ] && setze CLAMD_HOST "$GEFUNDEN_CLAMAV"
 [ -n "$GEFUNDEN_UNBOUND" ] && setze UNBOUND_HOST "$GEFUNDEN_UNBOUND"
 
+# Liegt ein fremder Dienst in einem eigenen Docker-Netz, hängt sich das Panel
+# über PANEL_EXTERN_NETZ dort mit ein — die Compose erledigt das von selbst, kein
+# "docker network connect" mehr nötig. Ein Netz genügt: Die Dienste eines Stacks
+# (z.B. Mailcow) liegen im selben Netz.
+if [ -n "$NETZE" ]; then
+  erstes=${NETZE%% *}
+  setze PANEL_EXTERN_NETZ "$erstes"
+  case "$NETZE" in
+    *" "*) sage "  Hinweis: mehrere Netze gefunden ($NETZE) — PANEL_EXTERN_NETZ fasst eines; bei Bedarf von Hand ergänzen." ;;
+  esac
+fi
+
 sage ''
 sage '=== So geht es weiter ==='
 sage '  docker compose up -d'
-if [ -n "$NETZE" ]; then
-  sage ''
-  sage '  Danach einmalig, damit das Panel die vorhandenen Dienste erreicht:'
-  for netz in $NETZE; do
-    sage "    docker network connect $netz mail-panel"
-  done
-  sage ''
-  if frage_handlung '  Soll ich das nach dem Start gleich übernehmen?'; then
-    sage '  Wird nach "docker compose up -d" ausgeführt …'
-    # Im Verzeichnis des Skripts, nicht dort, wo es aufgerufen wurde — sonst
-    # findet Compose die docker-compose.yml nicht.
-    cd "$(dirname "$0")" || exit 1
-    docker compose up -d
-    for netz in $NETZE; do
-      docker network connect "$netz" mail-panel 2>/dev/null \
-        && sage "    verbunden: $netz" \
-        || sage "    war schon verbunden: $netz"
-    done
-    sage ''
-    sage '  Fertig. Das Panel läuft.'
-  fi
-fi
+[ -n "$NETZE" ] && sage '  (Dank PANEL_EXTERN_NETZ hängt sich das Panel selbst ins richtige Netz — nichts weiter nötig.)'

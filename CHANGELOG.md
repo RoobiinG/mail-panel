@@ -2,6 +2,28 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.8.1.1] - 2026-09-03 (Build 79) — *Hilfsdienste komplett über die .env steuerbar (kein Skript nötig)*
+
+- **`einrichten.sh` ist nicht mehr nötig — alles geht über die `.env`.** Wichtig für Docker-Panels
+  wie Dockhand oder Portainer, in denen man keine Shell-Skripte ausführt: Compose einfügen, ein
+  paar `.env`-Werte setzen, deployen.
+- **Neu: `PANEL_EXTERN_NETZ`.** Damit hängt sich das Panel an ein bereits vorhandenes Docker-Netz
+  (z.B. das von Mailcow) und erreicht dessen ClamAV/unbound per Containernamen — **deklarativ in
+  der Compose**, ohne `docker network connect` von Hand. Ohne Angabe ist es die Standard-Bridge
+  (immer vorhanden, folgenlos), also **eine Compose für alle**, ganz ohne Zuschnitt.
+- **Drei klare Wege in `.env.example` und README** dokumentiert: (A) frischer Server →
+  `COMPOSE_PROFILES=clamav,unbound`; (B) Vorhandene mitbenutzen → Profile leer +
+  `CLAMD_HOST`/`UNBOUND_HOST` + `PANEL_EXTERN_NETZ`; (C) erstmal ohne Virenscan → Profile leer.
+- **`einrichten.sh` bleibt** als Bequemlichkeit, schreibt jetzt aber `PANEL_EXTERN_NETZ` in die
+  `.env`, statt einen manuellen `docker network connect` zu verlangen.
+
+### System-Auswirkungen
+
+- **Kein Codeeinfluss aufs Panel** — reine Deployment-/Konfigurationsänderung
+  (`docker-compose.yml`, `.env.example`, README, `einrichten.sh`).
+- **Bestehende Installationen:** Die zusätzliche `extern`-Netz-Zeile ist folgenlos, solange
+  `PANEL_EXTERN_NETZ` leer ist (Standard-Bridge). Nichts zu tun.
+
 ## [3.8.1.0] - 2026-09-03 (Build 78) — *Aufräumen von beleg_ablage + Body-Limit angeglichen*
 
 - **`beleg_ablage` räumt sich selbst auf.** Die Tabelle dient nur der Dedupe (26 h) und der
