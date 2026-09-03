@@ -26,7 +26,20 @@ Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
   das alte Verhalten wieder her — ein Ausgleich an einer Stelle ist nachvollziehbar, zwölf
   verstreute Änderungen sind es nicht.
 
-- **Neun Tests** (`test/express.test.js`, jetzt 109 insgesamt) probieren die Fallen aus, statt
+### Bugfix nebenbei
+
+- **Drei Timer hielten den Node-Prozess offen.** `routes/google.js` und `routes/passkeys.js`
+  starten beim Laden einen Aufräum-Timer für ihre Merkzettel, `panelLog` einen für die
+  Container-Prüfung — alle drei ohne `unref()`. Im Betrieb fällt das nicht auf, weil der Server
+  ohnehin läuft. Beim Beenden schon: Der Prozess endet nie von selbst.
+
+  Aufgefallen ist es, weil der neue Test alle Routendateien lädt — und der CI-Lauf daraufhin
+  nicht scheiterte, sondern **zehn Minuten hing**, bis GitHub ihn abbrach. Ein Hänger ist die
+  unangenehmste Art zu scheitern, weil er nicht sagt, woran es liegt. Der Test prüft das jetzt
+  ausdrücklich über `process.getActiveResourcesInfo()`, statt sich auf eine Zeitüberschreitung
+  zu verlassen.
+
+- **Zehn Tests** (`test/express.test.js`, jetzt 109 insgesamt) probieren die Fallen aus, statt
   sie zu vermuten: jede Routendatei wird an eine App gemountet (dort wirft `path-to-regexp`,
   beim Start, nicht beim Aufruf), der SPA-Rückfall wird über echte HTTP-Anfragen geprüft, und
   `req.body` wird ohne Rumpf, mit falschem Typ und mit richtigem Rumpf durchgespielt.

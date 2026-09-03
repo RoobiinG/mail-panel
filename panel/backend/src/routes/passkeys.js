@@ -60,10 +60,13 @@ const getRpName = () => 'Mail-Panel';
 
 // In-Memory Challenge-Store mit 5-Min-TTL
 const challenges = new Map(); // key → { challenge, userId?, expiresAt }
-setInterval(() => {
+// unref, aus demselben Grund wie in routes/google.js: Sonst haelt dieser Timer
+// den Prozess offen, und ein Testlauf, der dieses Modul laedt, endet nie.
+const aufraeumer = setInterval(() => {
   const now = Date.now();
   for (const [k, v] of challenges) { if (v.expiresAt < now) challenges.delete(k); }
 }, 60_000);
+if (aufraeumer.unref) aufraeumer.unref();
 
 // ─── Passkey-Registrierung (erfordert auth) ───────────────────────────────────
 

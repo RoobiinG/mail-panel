@@ -87,8 +87,10 @@ let healthCheckInterval = null;
 
 function containerHealthCheckStarten(intervallMs = 5 * 60 * 1000) {
   // Beim Start einmal sofort pruefen (verzoegert, damit die Container hochfahren koennen)
-  setTimeout(() => containerHealthCheck(), 30000);
+  const erster = setTimeout(() => containerHealthCheck(), 30000);
+  if (erster.unref) erster.unref();
   healthCheckInterval = setInterval(() => containerHealthCheck(), intervallMs);
+  if (healthCheckInterval.unref) healthCheckInterval.unref();
 }
 
 async function containerHealthCheck() {

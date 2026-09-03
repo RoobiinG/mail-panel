@@ -61,12 +61,25 @@ describe('Die Routen des Panels lassen sich mounten', () => {
       .filter((d) => d.endsWith('.js'));
     assert.ok(dateien.length >= 10, `nur ${dateien.length} Routendateien gefunden?`);
 
+    // Nebenbei mitgeprüft: Kein Modul darf beim Laden einen Timer starten, der
+    // den Prozess offen hält. Zwei taten es (routes/google.js und
+    // routes/passkeys.js räumen ihre Merkzettel auf) — der Testlauf lief
+    // daraufhin nicht in einen Fehler, sondern hing zehn Minuten, bis die CI
+    // ihn abbrach. Ein Hänger ist die unangenehmste Art zu scheitern, weil er
+    // nicht sagt, woran es liegt.
+    const timerVorher = process.getActiveResourcesInfo().filter((r) => r === 'Timeout').length;
+
     for (const datei of dateien) {
       const app = express();
       assert.doesNotThrow(() => {
         app.use('/api/probe', require(`../src/routes/${datei}`));
       }, `routes/${datei} lässt sich nicht mounten`);
     }
+
+    const timerNachher = process.getActiveResourcesInfo().filter((r) => r === 'Timeout').length;
+    assert.equal(timerNachher, timerVorher,
+      'Ein Routenmodul startet beim Laden einen Timer ohne unref() — '
+      + 'damit endet der Prozess nie, und der Testlauf hängt statt zu scheitern.');
   });
 });
 

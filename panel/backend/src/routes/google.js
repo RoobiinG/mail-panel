@@ -8,10 +8,15 @@ const router = express.Router();
 
 // Kurzlebige Merkzettel gegen untergeschobene Rücksprünge (CSRF)
 const laufende = new Map();
-setInterval(() => {
+// unref: Ein Timer, der beim Laden des Moduls startet, haelt sonst den ganzen
+// Node-Prozess am Leben — auch wenn sonst nichts mehr zu tun ist. Im Betrieb
+// faellt das nicht auf, weil der Server ohnehin laeuft; beim Beenden und in
+// Tests schon: Der Prozess endet dann einfach nie.
+const aufraeumer = setInterval(() => {
   const jetzt = Date.now();
   for (const [k, v] of laufende) if (v.gueltigBis < jetzt) laufende.delete(k);
 }, 60_000);
+if (aufraeumer.unref) aufraeumer.unref();
 
 // GET /api/google/status — für die Einstellungen-Seite
 router.get('/status', (req, res) => {
