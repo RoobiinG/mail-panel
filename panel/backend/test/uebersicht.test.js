@@ -1,0 +1,113 @@
+// Die Dashboard-Übersicht rechnet aus, was man beim täglichen Blick sehen will.
+// Hier wird geprüft, dass die Zahlen stimmen — falsche Zahlen auf einem
+// Dashboard sind schlimmer als keine, weil man ihnen glaubt.
+const { test, describe, beforeEach } = require('node:test');
+const assert = require('node:assert/strict');
+require('./umgebung');
+
+// IMAP ersetzen: kein echtes Postfach in der CI.
+const imapPfad = require.resolve('../src/services/imap');
+const imapStub = {
+  STANDARD: {},
+  antwort: new Map(),
+  async uidsAuflisten({ ordner }) {
+    void ordner;
+    if (imapStub.wirft) throw new Error('Postfach nicht erreichbar');
+    return imapStub.naechste ?? new Set();
+  },
+};
+require.cache[imapPfad] = {
+  id: imapPfad, filename: imapPfad, loaded: true, children: [], paths: [], exports: imapStub,
+};
+
+const db = require('../src/db');
+const settings = require('../src/services/settings');
+const { verschluesseln } = require('../src/services/crypto');
+const uebersicht = require('../src/services/uebersicht');
+
+function konto(name) {
+  db.prepare(`INSERT INTO accounts (name, host, port, username, password_enc, aktiv)
+    VALUES (?, 'h', 993, 'u', ?, 1)`).run(name, verschluesseln('x'));
+}
+function log({ von = 'a@b.de', kat = 'clean', ziel = 'Games', korr = null, alter = 0 }) {
+  const id = db.prepare(`INSERT INTO quarantine_log (konto, von, kategorie, zielordner, korrigiert_zu)
+    VALUES ('K', ?, ?, ?, ?)`).run(von, kat, ziel, korr).lastInsertRowid;
+  if (alter) db.prepare("UPDATE quarantine_log SET created_at = datetime('now', ?) WHERE id = ?")
+    .run(`-${alter} days`, id);
+  return id;
+}
+
+beforeEach(() => {
+  db.exec('DELETE FROM accounts; DELETE FROM quarantine_log; DELETE FROM sort_inbox; DELETE FROM sort_rules;');
+  db.prepare("DELETE FROM settings WHERE key IN ('gemini_tagesbudget')").run();
+  uebersicht.cacheVerwerfen();
+  imapStub.wirft = false; imapStub.naechste = new Set();
+});
+
+describe('KI-Tagesbudget', () => {
+  test('heute verbrauchte Einordnungen werden gezählt', () => {
+    log({}); log({}); log({ alter: 2 }); // zwei heute, eine vor zwei Tagen
+    assert.equal(uebersicht.heuteVerbraucht(), 2);
+  });
+
+  test('Budget mit Grenze rechnet Rest und Ausschöpfung', async () => {
+    settings.setze('gemini_tagesbudget', '5');
+    log({}); log({}); log({});
+    const u = await uebersicht.laden({ mitPosteingang: false });
+    assert.equal(u.budget.grenze, 5);
+    assert.equal(u.budget.heute, 3);
+    assert.equal(u.budget.rest, 2);
+    assert.equal(u.budget.ausgeschoepft, false);
+  });
+
+  test('aufgebrauchtes Budget wird erkannt', async () => {
+    settings.setze('gemini_tagesbudget', '2');
+    log({}); log({}); log({});
+    const u = await uebersicht.laden({ mitPosteingang: false });
+    assert.equal(u.budget.ausgeschoepft, true);
+    assert.equal(u.budget.rest, 0, 'nie negativ');
+  });
+
+  test('ausdrücklich auf 0 gesetzt heißt kein Deckel', async () => {
+    settings.setze('gemini_tagesbudget', '0');
+    log({});
+    const u = await uebersicht.laden({ mitPosteingang: false });
+    assert.equal(u.budget.grenze, 0);
+    assert.equal(u.budget.rest, null);
+    assert.equal(u.budget.ausgeschoepft, false);
+  });
+});
+
+describe('Trefferquote', () => {
+  test('korrigierte Einordnungen senken die Quote', async () => {
+    for (let i = 0; i < 10; i++) log({});     // 10 einsortiert
+    log({ korr: 'Sport' }); log({ korr: 'Sport' }); // 2 davon korrigiert -> 12 gesamt, 2 falsch
+    const u = await uebersicht.laden({ mitPosteingang: false });
+    assert.equal(u.lernen.einordnungen7, 12);
+    assert.equal(u.lernen.korrigiert7, 2);
+    assert.equal(u.lernen.trefferquote, Math.round((1 - 2 / 12) * 100));
+  });
+
+  test('ohne Einordnungen keine erfundene Quote', async () => {
+    const u = await uebersicht.laden({ mitPosteingang: false });
+    assert.equal(u.lernen.trefferquote, null);
+  });
+});
+
+describe('Posteingangs-Rückstand', () => {
+  test('summiert erreichbare Postfächer', async () => {
+    konto('Eins'); konto('Zwei');
+    imapStub.naechste = new Set([1, 2, 3]);
+    const u = await uebersicht.laden();
+    assert.equal(u.posteingang.konten.length, 2);
+    assert.equal(u.posteingang.wartendGesamt, 6, '3 + 3');
+  });
+
+  test('ein nicht erreichbares Postfach lässt die Übersicht nicht scheitern', async () => {
+    konto('Kaputt');
+    imapStub.wirft = true;
+    const u = await uebersicht.laden();
+    assert.equal(u.posteingang.konten[0].erreichbar, false);
+    assert.equal(u.posteingang.wartendGesamt, 0, 'unlesbare zählen nicht mit');
+  });
+});

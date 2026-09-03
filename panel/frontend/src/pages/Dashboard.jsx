@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { AlertTriangle } from 'lucide-react';
+import {
+  AlertTriangle, Inbox, Gauge, ShieldCheck, HardDriveDownload, Target,
+  CheckCircle2, XCircle, Workflow, ArrowRight,
+} from 'lucide-react';
 import api from '../api';
 
 const COLORS = {
@@ -10,23 +13,62 @@ const COLORS = {
   Viren: '#8B5CF6'  // violet-500
 };
 
+// Eine Statuskachel: Farbe und Symbol sagen auf einen Blick, ob es gut steht.
+function StatusKachel({ icon: Icon, titel, wert, unter, ton = 'neutral' }) {
+  const toene = {
+    gut:     'border-emerald-500/30 bg-emerald-500/5',
+    warnung: 'border-yellow-600/40 bg-yellow-500/5',
+    schlecht:'border-panel-red/40 bg-panel-red/5',
+    neutral: 'border-panel-border',
+  };
+  const icons = {
+    gut: 'text-emerald-500', warnung: 'text-yellow-500',
+    schlecht: 'text-panel-red', neutral: 'text-panel-accent',
+  };
+  return (
+    <div className={`card !p-4 border ${toene[ton]}`}>
+      <div className="flex items-center gap-2 text-xs text-panel-muted mb-1">
+        <Icon size={15} className={icons[ton]} /> {titel}
+      </div>
+      <div className="text-2xl font-bold text-panel-text leading-tight">{wert}</div>
+      {unter && <div className="text-[11px] text-panel-muted mt-0.5">{unter}</div>}
+    </div>
+  );
+}
+
+// Ein schmaler Fortschrittsbalken.
+function Balken({ anteil, ton = 'accent' }) {
+  const farbe = { accent: 'bg-panel-accent', warnung: 'bg-yellow-500', rot: 'bg-panel-red', gruen: 'bg-emerald-500' }[ton];
+  return (
+    <div className="h-2 rounded-full bg-panel-border/50 overflow-hidden">
+      <div className={`h-full rounded-full ${farbe} transition-[width] duration-500`}
+        style={{ width: `${Math.max(0, Math.min(100, anteil))}%` }} />
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const [stats, setStats] = useState(null);
   const [n8n, setN8n] = useState(null);
   const [aufsicht, setAufsicht] = useState(null);
+  const [uebersicht, setUebersicht] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const laden = async () => {
     try {
-      const [stRes, n8nRes, aufRes] = await Promise.all([
+      const [stRes, n8nRes, aufRes, ueRes] = await Promise.all([
         api.get('/dashboard/stats'),
         api.get('/dashboard/n8n-status'),
         // Die Aufsicht darf das Dashboard nicht mitreißen, wenn sie klemmt.
         api.get('/aufsicht').catch(() => ({ data: null })),
+        // Die Übersicht fragt Postfächer ab und kann kurz dauern — sie darf den
+        // Rest nicht aufhalten und nicht scheitern lassen.
+        api.get('/dashboard/uebersicht').catch(() => ({ data: null })),
       ]);
       setStats(stRes.data);
       setN8n(n8nRes.data);
       setAufsicht(aufRes.data);
+      setUebersicht(ueRes.data);
     } catch (err) {
       console.error(err);
     } finally {
@@ -100,6 +142,100 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+
+      {/* Betrieb & Sortierung — der tägliche Blick */}
+      {uebersicht && (() => {
+        const u = uebersicht;
+        const auf = u.aufsicht;
+        const aufTon = !auf ? 'neutral' : (auf.ok ? 'gut' : 'schlecht');
+        const aufWert = !auf ? '—' : (auf.n8nErreichbar === false ? 'n8n weg'
+          : auf.ok ? 'Alles läuft' : `${auf.abweichungen?.filter(a => !a.behoben).length || 0} Störung`);
+        const sich = u.sicherung;
+        const sichTon = !sich?.eingerichtet ? 'warnung' : (sich.letzter?.ok ? 'gut' : (sich.letzter ? 'schlecht' : 'neutral'));
+        const quote = u.lernen.trefferquote;
+        const b = u.budget;
+        const budgetAnteil = b.grenze ? (b.heute / b.grenze) * 100 : 0;
+
+        return (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <StatusKachel icon={ShieldCheck} titel="Aufsicht" ton={aufTon} wert={aufWert}
+                unter={auf ? `zuletzt ${new Date(auf.zeitpunkt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}` : 'noch nicht geprüft'} />
+              <StatusKachel icon={Target} titel="Trefferquote (7 T.)"
+                ton={quote == null ? 'neutral' : quote >= 90 ? 'gut' : quote >= 75 ? 'warnung' : 'schlecht'}
+                wert={quote == null ? '—' : `${quote} %`}
+                unter={`${u.lernen.einordnungen7} einsortiert, ${u.lernen.korrigiert7} korrigiert`} />
+              <StatusKachel icon={HardDriveDownload} titel="Sicherung" ton={sichTon}
+                wert={!sich?.eingerichtet ? 'offen' : sich.letzter?.ok ? 'aktuell' : sich.letzter ? 'Fehler' : 'bereit'}
+                unter={sich?.letzter ? `${sich.letzter.mails} Mails, ${new Date(sich.letzter.zeitpunkt).toLocaleDateString('de-DE')}` : 'kein Lauf'} />
+              <StatusKachel icon={Inbox} titel="Wartet auf dich"
+                ton={u.posteingang.offeneEntscheidungen > 0 ? 'warnung' : 'gut'}
+                wert={u.posteingang.offeneEntscheidungen}
+                unter="Mails ohne Zuordnung" />
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Sortier-Fortschritt je Postfach */}
+              <div className="card">
+                <h2 className="font-medium flex items-center gap-2 mb-3">
+                  <Inbox size={16} className="text-panel-accent" /> Sortier-Rückstand
+                </h2>
+                {u.posteingang.konten.length === 0 ? (
+                  <p className="text-sm text-panel-muted">Kein Postfach eingerichtet.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {u.posteingang.konten.map((k) => (
+                      <div key={k.konto_id}>
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className="font-medium">{k.konto}</span>
+                          <span className={k.erreichbar ? 'text-panel-muted' : 'text-panel-red'}>
+                            {k.erreichbar ? `${k.wartend} im Posteingang` : 'nicht erreichbar'}
+                          </span>
+                        </div>
+                        {k.erreichbar && (
+                          <Balken anteil={k.wartend === 0 ? 100 : Math.max(4, 100 - Math.min(100, k.wartend))}
+                            ton={k.wartend === 0 ? 'gruen' : k.wartend > 50 ? 'warnung' : 'accent'} />
+                        )}
+                      </div>
+                    ))}
+                    <p className="text-xs text-panel-muted pt-1">
+                      Der Posteingang leert sich, während die Sortierung läuft. Ein voller
+                      Balken heißt: nichts liegt mehr ungeordnet.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* KI-Tagesbudget */}
+              <div className="card">
+                <h2 className="font-medium flex items-center gap-2 mb-3">
+                  <Gauge size={16} className="text-panel-accent" /> KI-Tagesbudget
+                </h2>
+                {b.grenze ? (
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-end">
+                      <span className="text-2xl font-bold">{b.heute}
+                        <span className="text-sm text-panel-muted font-normal"> / {b.grenze}</span></span>
+                      <span className="text-xs text-panel-muted">{b.rest} übrig heute</span>
+                    </div>
+                    <Balken anteil={budgetAnteil} ton={b.ausgeschoepft ? 'rot' : budgetAnteil > 80 ? 'warnung' : 'accent'} />
+                    <p className="text-xs text-panel-muted pt-1">
+                      {b.ausgeschoepft
+                        ? 'Heutiges Budget aufgebraucht — die Sortierung eines großen Bestands macht morgen weiter.'
+                        : 'So viele Mails ordnet die KI heute noch ein. Schützt das Gemini-Tageslimit.'}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-panel-muted">
+                    Kein Tagesbudget gesetzt — die KI ordnet ohne Deckel ein. Unter
+                    <span className="font-mono text-panel-accent"> Einstellungen</span> begrenzbar.
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

@@ -14,6 +14,9 @@ const FELDER = {
   // KI und Benachrichtigung: Das Panel legt daraus die Credentials in n8n an
   // (siehe workflowPatcher.kiUndBenachrichtigungenSynchronisieren).
   gemini_api_key:       { env: 'GEMINI_API_KEY', geheim: true },
+  // Wie viele KI-Einordnungen pro Tag hoechstens? 0/leer = kein Deckel.
+  // Schuetzt das Gemini-Tageslimit, wenn ein grosser Altbestand sortiert wird.
+  gemini_tagesbudget:   { env: 'GEMINI_TAGESBUDGET', geheim: false, standard: '400' },
   telegram_token:       { env: 'TELEGRAM_TOKEN', geheim: true },
   telegram_chat_id:     { env: 'TELEGRAM_CHAT_ID', geheim: false },
   // Postausgang für Workflow 06 (Newsletter abbestellen per Mail)

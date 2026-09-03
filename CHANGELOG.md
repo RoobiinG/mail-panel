@@ -2,6 +2,44 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.7.0.0] - 2026-09-03 (Build 73) — *Dashboard: Betrieb und Sortier-Fortschritt*
+
+### Features
+
+- **Das Dashboard zeigt jetzt auf einen Blick, ob alles läuft und wie weit die Sortierung ist.**
+  Neu oben: vier Statuskacheln (Aufsicht, Trefferquote der letzten 7 Tage, Sicherung, wartende
+  Entscheidungen) und darunter zwei Felder:
+
+  - **Sortier-Rückstand je Postfach** — wie viele Mails noch ungeordnet im Posteingang liegen,
+    mit einem Balken, der sich füllt, während die Sortierung aufräumt. Damit sieht man, wie weit
+    ein großer Bestand schon abgearbeitet ist.
+  - **KI-Tagesbudget** — wie viele Einordnungen die KI heute schon gemacht hat und wie viele noch
+    übrig sind, als Balken.
+
+- **Neue Einstellung `GEMINI_TAGESBUDGET`** (Standard 400). Sie ist die Grundlage für den
+  eigentlichen Deckel: Jede KI-Einordnung ist ein Gemini-Aufruf, und die Gratisstufe hat ein
+  Tageslimit. Das Dashboard zeigt den Verbrauch bereits; die **Durchsetzung** (dass ein großer
+  Altbestand nur einen Teil des Tageslimits verbraucht und am Folgetag weitermacht) kommt als
+  eigener, end-to-end geprüfter Schritt — sie berührt den Sammel-Knoten in Workflow 04, und
+  genau dieser Teil war schon zweimal die Quelle stiller Fehler.
+
+- **Neuer Endpunkt `GET /api/dashboard/uebersicht`** (`services/uebersicht.js`). Er trägt alles
+  zusammen — Posteingangs-Rückstand, Budget, Aufsicht, Sicherung, Trefferquote. Der IMAP-Teil ist
+  eine Minute zwischengespeichert, damit ein oft aktualisiertes Dashboard die Postfächer nicht
+  bei jedem Blick abfragt.
+
+- **Neun Tests** (`test/uebersicht.test.js`) prüfen die Zahlen — falsche Zahlen auf einem
+  Dashboard sind schlimmer als keine, weil man ihnen glaubt.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migration:** Nein. **n8n-Workflows:** Unverändert — die Durchsetzung des Budgets kommt
+  getrennt.
+- **Ein nicht erreichbares Postfach** lässt die Übersicht nicht scheitern, sondern wird als
+  „nicht erreichbar" ausgewiesen.
+- **Standardbudget 400/Tag:** Wer ohne Deckel arbeiten will, setzt `GEMINI_TAGESBUDGET=0`. Bis
+  die Durchsetzung steht, ist das Budget nur eine Anzeige, keine harte Grenze.
+
 ## [3.6.1.1] - 2026-09-03 (Build 72) — *Fix: falscher Alarm bei `npm test` im Container*
 
 ### Bugfixes

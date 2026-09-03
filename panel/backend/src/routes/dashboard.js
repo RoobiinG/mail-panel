@@ -1,5 +1,6 @@
 const express = require('express');
 const db = require('../db');
+const uebersicht = require('../services/uebersicht');
 
 const router = express.Router();
 
@@ -55,6 +56,16 @@ router.get('/stats', (req, res) => {
     });
   } catch (err) {
     console.error('DASHBOARD STATS ERROR:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Alles fürs Dashboard an einer Stelle — Posteingangs-Rückstand, KI-Budget,
+// Aufsicht, Sicherung, Trefferquote. Siehe services/uebersicht.js.
+router.get('/uebersicht', async (req, res) => {
+  try {
+    res.json(await uebersicht.laden({ mitPosteingang: req.query.leicht !== '1' }));
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
