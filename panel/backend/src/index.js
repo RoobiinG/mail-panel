@@ -69,6 +69,19 @@ app.use(cors({ origin: false }));
 app.use(compression());
 app.use(express.json({ limit: '1mb' }));
 
+// Express 5 laesst req.body undefined, wenn kein Parser gegriffen hat — in
+// Express 4 war es ein leeres Objekt. Ein Dutzend Routen schreibt
+// `const { ids } = req.body`; das ergaebe statt einer sauberen 400 einen
+// Absturz, sobald jemand ohne Rumpf oder mit falschem Content-Type anfragt.
+//
+// Deshalb hier einmal zentral das alte Verhalten wiederherstellen, statt es an
+// jeder einzelnen Stelle nachzuruesten: Ein Ausgleich an einer Stelle ist
+// nachvollziehbar, zwoelf verstreute Aenderungen sind es nicht.
+app.use((req, _res, next) => {
+  if (req.body === undefined) req.body = {};
+  next();
+});
+
 // ─── Routen ──────────────────────────────────────────────────────────────────
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/konten', auth, rechtErforderlich('konten'), require('./routes/konten'));

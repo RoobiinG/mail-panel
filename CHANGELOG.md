@@ -2,6 +2,49 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.6.1.0] - 2026-09-03 (Build 71) — *Express 5*
+
+### Geändert
+
+- **`express` 4.22 → 5.2.1.** Der letzte offene Punkt aus der Abhängigkeits-Runde, bewusst als
+  eigener Durchgang aufgehoben, weil Express 5 an drei Stellen anders arbeitet — und alle drei
+  fallen im Betrieb erst auf, wenn jemand die richtige Stelle trifft.
+
+  **Vorher durchgesehen statt hinterher repariert:**
+
+  | Bruchstelle | Befund |
+  |---|---|
+  | `path-to-regexp` v8 lehnt alte Routenmuster ab | Keine betroffen — alle Pfade sind schlichte Präfixe ohne `*` oder `:` |
+  | Entfernte Aufrufe (`res.send(status)`, `req.param()`, `app.del`, …) | Keiner im Projekt |
+  | `res.status()` wirft bei ungültigen Codes | Nur Standardcodes im Einsatz |
+  | Query-Parser wechselt von `extended` auf `simple` | `req.query` wird nur flach benutzt |
+  | **`req.body` ist `undefined` statt `{}`** | **Zehn Stellen betroffen** |
+
+- **Der `req.body`-Punkt ist zentral ausgeglichen**, nicht an zehn Stellen nachgerüstet. Routen
+  wie `const { ids } = req.body` hätten sonst einen Absturz statt einer sauberen 400 geliefert,
+  sobald jemand ohne Rumpf oder mit falschem Content-Type anfragt. Eine Zeile Middleware stellt
+  das alte Verhalten wieder her — ein Ausgleich an einer Stelle ist nachvollziehbar, zwölf
+  verstreute Änderungen sind es nicht.
+
+- **Neun Tests** (`test/express.test.js`, jetzt 109 insgesamt) probieren die Fallen aus, statt
+  sie zu vermuten: jede Routendatei wird an eine App gemountet (dort wirft `path-to-regexp`,
+  beim Start, nicht beim Aufruf), der SPA-Rückfall wird über echte HTTP-Anfragen geprüft, und
+  `req.body` wird ohne Rumpf, mit falschem Typ und mit richtigem Rumpf durchgespielt.
+
+  Der SPA-Rückfall ist ein regulärer Ausdruck (`/^(?!\/api\/).*/`). Ginge er kaputt, bekäme jede
+  Seite außer der Startseite eine 404 — die API liefe weiter, die Oberfläche wäre weg, und man
+  würde es zuerst dem Frontend anlasten.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migration:** Nein. **n8n-Workflows:** Unverändert.
+- **Abgelehnte Versprechen in Routen** landen in Express 5 automatisch beim Fehler-Handler. Das
+  ist eine Verbesserung: Bisher konnte ein vergessenes `catch` still verschwinden.
+- **`express-rate-limit` 8, `helmet` 8, `cors` und `compression`** sind mit Express 5 verträglich
+  und bleiben unverändert.
+- **Erstmals abgesichert durch die Verkettung aus Build 70:** Wären die Tests rot gewesen, hätte
+  es kein Image gegeben.
+
 ## [3.6.0.1] - 2026-09-03 (Build 70) — *Erst prüfen, dann bauen*
 
 ### Geändert
