@@ -2,6 +2,25 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.6.1.1] - 2026-09-03 (Build 72) — *Fix: falscher Alarm bei `npm test` im Container*
+
+### Bugfixes
+
+- **`npm test` im laufenden Container meldete einen Fehlschlag, den es nicht gab.** Der
+  Konfigurations-Test (`konfiguration.test.js`) vergleicht `.env.example` mit
+  `docker-compose.yml` — beide liegen im Repository-Wurzelverzeichnis, das **nicht** ins
+  Docker-Image kopiert wird. Im Container fehlen die Dateien also, und der `readFileSync` beim
+  Laden ließ die ganze Datei scheitern: `103 pass, 1 fail`, obwohl am Panel nichts falsch war.
+
+  Der Test überspringt sich jetzt sauber, wenn die Repo-Dateien fehlen (also im Image), und läuft
+  in der CI mit vollem Checkout unverändert. Wer `npm test` im Container aufruft, bekommt keinen
+  falschen Alarm mehr.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migration:** Nein. **n8n-Workflows:** Unverändert. **Verhalten des Panels:** Unverändert —
+  betrifft ausschließlich den Testlauf.
+
 ## [3.6.1.0] - 2026-09-03 (Build 71) — *Express 5*
 
 ### Geändert

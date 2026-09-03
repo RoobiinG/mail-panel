@@ -14,8 +14,18 @@ const fs = require('fs');
 const path = require('path');
 
 const WURZEL = path.resolve(__dirname, '../../..');
-const beispiel = fs.readFileSync(path.join(WURZEL, '.env.example'), 'utf8');
-const compose = fs.readFileSync(path.join(WURZEL, 'docker-compose.yml'), 'utf8');
+
+// Diese Prüfungen brauchen die Dateien aus dem Repository-Wurzelverzeichnis.
+// Im fertigen Docker-Image liegen sie nicht — dort wird nur panel/backend/
+// hineinkopiert, nicht .env.example und docker-compose.yml. Fehlen sie, werden
+// die Tests übersprungen statt zu scheitern: Ein `npm test` im Container soll
+// nicht wegen einer Prüfung Alarm schlagen, die dort gar nicht greifen kann.
+// In der CI (voller Checkout) laufen sie normal.
+const imRepo = fs.existsSync(path.join(WURZEL, '.env.example'))
+  && fs.existsSync(path.join(WURZEL, 'docker-compose.yml'));
+const beispiel = imRepo ? fs.readFileSync(path.join(WURZEL, '.env.example'), 'utf8') : '';
+const compose = imRepo ? fs.readFileSync(path.join(WURZEL, 'docker-compose.yml'), 'utf8') : '';
+const nurImRepo = { skip: imRepo ? false : 'nur im Repository, nicht im Docker-Image' };
 
 // Variablen, die Docker Compose selbst auswertet — sie tauchen deshalb nicht
 // als ${...} in der Datei auf und dürfen es auch nicht.
@@ -32,7 +42,7 @@ function variablenAus(text) {
 }
 
 describe('.env.example gegen docker-compose.yml', () => {
-  test('jede beschriebene Variable wird auch durchgereicht', () => {
+  test('jede beschriebene Variable wird auch durchgereicht', nurImRepo, () => {
     const fehlend = [];
     for (const name of variablenAus(beispiel)) {
       if (COMPOSE_EIGENE.has(name)) continue;
@@ -43,7 +53,7 @@ describe('.env.example gegen docker-compose.yml', () => {
       + 'wer sie einträgt, bekommt keine Wirkung: ' + fehlend.join(', '));
   });
 
-  test('nichts ist fest verdrahtet, was einrichten.sh setzen soll', () => {
+  test('nichts ist fest verdrahtet, was einrichten.sh setzen soll', nurImRepo, () => {
     // Das Einrichtungsskript trägt diese beiden in die .env ein. Stünden sie in
     // der compose-Datei mit festem Wert, überschriebe sie den Fund sofort.
     for (const name of ['CLAMD_HOST', 'UNBOUND_HOST']) {
@@ -53,7 +63,7 @@ describe('.env.example gegen docker-compose.yml', () => {
     }
   });
 
-  test('ClamAV und unbound hängen an Profilen', () => {
+  test('ClamAV und unbound hängen an Profilen', nurImRepo, () => {
     // Ohne Profil würden sie auf jedem Server mitlaufen, auch wo es sie schon
     // gibt — bei ClamAV sind das rund 1,5 GB Arbeitsspeicher für nichts.
     for (const dienst of ['clamav', 'unbound']) {
@@ -64,13 +74,13 @@ describe('.env.example gegen docker-compose.yml', () => {
 });
 
 describe('Das Projekt lässt sich veröffentlichen', () => {
-  test('es gibt eine Lizenz', () => {
+  test('es gibt eine Lizenz', nurImRepo, () => {
     const lizenz = path.join(WURZEL, 'LICENSE');
     assert.ok(fs.existsSync(lizenz), 'Ohne LICENSE darf niemand das Projekt benutzen');
     assert.match(fs.readFileSync(lizenz, 'utf8'), /MIT License/);
   });
 
-  test('keine echten Adressen oder Zugangsdaten in den ausgelieferten Dateien', () => {
+  test('keine echten Adressen oder Zugangsdaten in den ausgelieferten Dateien', nurImRepo, () => {
     // Was einmal veröffentlicht ist, holt niemand zurück.
     const verdaechtig = /robin-glaser|u463253|your-storagebox|\b45\.81\.\d+\.\d+\b/i;
     for (const datei of ['.env.example', 'docker-compose.yml', 'einrichten.sh', 'README.md']) {
