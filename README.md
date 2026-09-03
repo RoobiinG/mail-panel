@@ -374,6 +374,32 @@ Die KI macht daraus eine Regel und zeigt sie dir als Formular zur Kontrolle. Ers
 bestätigst, wird sie gespeichert und in n8n gebaut. Jedes Feld bleibt änderbar — ohne
 Gemini-Schlüssel füllst du das Formular einfach selbst aus.
 
+### Belege automatisch ablegen (der schnelle Weg)
+
+Für den häufigsten Fall — **Rechnungen und Bestellungen als PDF in die Nextcloud** — brauchst
+du keine eigene Regel zu bauen. Auf der Seite **Sortierung** gibt es die Karte **„Belege in
+Nextcloud"** mit einem Schalter. Einmal an, fertig: Sobald die KI eine Mail als Rechnung oder
+Bestellung mit PDF-Anhang erkennt, landet der Beleg von selbst in der Nextcloud.
+
+Ein zweiter Schalter, **„Inhalt lesen & prüfen"**, macht das Ganze schlau:
+
+- Die KI **liest das PDF** und zieht **Firma, Datum und Aktenzeichen** heraus.
+- Sie legt **nur echte Belege** ab. AGB, Widerrufsbelehrungen, Werbung, Logos und anderer
+  Beikram werden erkannt und **aussortiert** — geprüft wird je Anhang, damit eine beiliegende
+  AGB die Rechnung nicht mitzieht. Im Zweifel wird lieber nichts abgelegt.
+- Einsortiert wird nach `Belege/Firma/Aktenzeichen` (wenn ein Aktenzeichen erkannt wurde, z. B.
+  bei einem Inkasso-Vorgang) oder sonst `Belege/Jahr/Firma`, mit sprechendem Dateinamen
+  `Datum Firma Betreff.pdf`.
+
+Das Lesen kostet je Beleg eine KI-Abfrage; ein eigener **Tagesdeckel** (Standard 200, Variable
+`BELEG_LESE_TAGESBUDGET`) schützt das Gemini-Kontingent, und schon gelesene Belege werden nicht
+erneut geprüft. Die Karte zeigt „heute abgelegt / übersprungen / gelesen" und die zuletzt
+verarbeiteten Belege; auf dem Dashboard gibt es dazu eine eigene Kachel. Voraussetzung ist eine
+verbundene Nextcloud (siehe *Einstellungen → Ziele für eigene Aktionen*).
+
+Wer es feiner steuern will — nur bestimmte Absender, ein anderer Zielordner, ein Kalendereintrag
+statt einer Ablage — baut sich zusätzlich eine eigene Aktion wie unten beschrieben.
+
 | Ziel | Was du dafür brauchst |
 |---|---|
 | Anhang in Nextcloud ablegen | Adresse, Benutzer und **App-Passwort** unter *Einstellungen → Ziele für eigene Aktionen* |
@@ -382,8 +408,10 @@ Gemini-Schlüssel füllst du das Formular einfach selbst aus.
 | Beliebige Adresse aufrufen | die Adresse (Ziele im eigenen Netz werden abgelehnt) |
 
 In Textfeldern sind diese Platzhalter erlaubt: `{{jahr}}`, `{{monat}}`, `{{tag}}`,
-`{{absender}}`, `{{betreff}}`, `{{konto}}`, `{{kategorie}}`. Fehlende Ordner im Zielpfad
-legt das Panel beim Ablegen selbst an.
+`{{absender}}`, `{{betreff}}`, `{{konto}}`, `{{kategorie}}`. Ist bei einer Datei-Aktion
+**„Inhalt lesen & prüfen"** aktiv, kommen `{{firma}}`, `{{datum}}` und `{{aktenzeichen}}`
+hinzu — sie werden aus dem PDF gelesen. Ein optionales Feld **Dateiname** benennt die abgelegte
+Datei um (leer = Originalname). Fehlende Ordner im Zielpfad legt das Panel beim Ablegen selbst an.
 
 Für Nextcloud unbedingt ein App-Passwort verwenden (Nextcloud → Einstellungen → Sicherheit),
 nicht das Konto-Passwort.
@@ -520,6 +548,34 @@ Synchronisieren selbst in n8n an. Du musst dafür nichts eintragen.
 Unter **Benutzer & Rollen** legst du weitere Zugänge an und gibst ihnen einzelne Seiten frei
 oder verwehrst sie. Praktisch, wenn jemand nur die Quarantäne durchsehen, aber keine
 Einstellungen ändern soll.
+
+---
+
+# Vor dem Produktivbetrieb
+
+Für einen Testserver im eigenen Netz kannst du sofort loslegen. Bevor das Panel auf einem
+erreichbaren Server **echte Post** verwaltet, geh einmal diese Liste durch:
+
+- [ ] **Netz absichern — der wichtigste Punkt.** Standardmäßig sind Panel (`3002`) **und der
+  n8n-Editor (`5678`)** nach außen offen. Der n8n-Editor ist Vollzugriff auf die Automatisierung
+  und gehört nicht offen ins Internet. Setz einen **Reverse Proxy mit HTTPS** davor und schließ
+  die Ports, oder binde sie an `127.0.0.1` (`PANEL_PORT=127.0.0.1:3002`, dito n8n). Wie genau,
+  steht oben unter *Optionale Erweiterungen → HTTPS → Mit einem Reverse Proxy davor*.
+- [ ] **Starke Passwörter** für das Panel-Admin-Konto und das n8n-Owner-Konto; für das Panel
+  zusätzlich gern einen **Passkey** (Fingerabdruck/Sicherheitsschlüssel).
+- [ ] **Erst Trockenlauf, dann scharf** (Schritt 9): einschalten, im Log prüfen, ob Spam,
+  Newsletter und Rechnungen richtig erkannt werden, und erst dann ausschalten. So bewegt nichts
+  deine echte Post, bevor du zufrieden bist.
+- [ ] **Sicherung einrichten.** Die Volumes `panel_data`, `n8n_data` und `n8n_db_data` sichern —
+  in `panel_data` liegen die Schlüssel, ohne die keine gespeicherten Zugangsdaten mehr lesbar
+  sind. Zusätzlich die eingebaute **Postfach-Sicherung** (*Verwaltung → Sicherung*) einrichten,
+  wenn du verschlüsselte Kopien deiner Mails auf einen FTP-Server legen willst.
+- [ ] **Gemini-Tageslimit kennen.** Der KI-Free-Tier ist am Tag begrenzt (Fehler 429). Der
+  **Budget-Deckel** (Standard 400 Einordnungen/Tag, plus 200 fürs Beleg-Lesen) fängt das ab und
+  arbeitet einen großen Bestand über mehrere Tage ab. Bei viel Post ggf. auf den Paid Tier
+  (Centbeträge) oder ein lokales Ollama wechseln — dafür ist nur ein Knoten umzubiegen.
+- [ ] **Aufsicht anlassen.** Der Watchdog (`AUFSICHT_AKTIV`) prüft alle 15 Minuten, ob die
+  Workflows laufen, und schaltet sie nötigenfalls wieder ein — empfehlenswert im Dauerbetrieb.
 
 ---
 
