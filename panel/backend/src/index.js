@@ -86,6 +86,7 @@ app.use('/api/sortierung', auth, rechtErforderlich('sortierung'), require('./rou
 // das Archiv-Passwort setzen darf, verwaltet ohnehin die Zugänge des Panels.
 app.use('/api/sicherung', auth, rechtErforderlich('einstellungen'), require('./routes/sicherung'));
 app.use('/api/workflows', auth, rechtErforderlich('workflows'), require('./routes/workflows'));
+app.use('/api/aufsicht', auth, rechtErforderlich('workflows'), require('./routes/aufsicht'));
 app.use('/api/aktionen', auth, rechtErforderlich('workflows'), require('./routes/aktionen'));
 // Google ruft die Rueckkehr-Adresse im Browser auf — die kann keine Anmeldung
 // mitschicken und ist deshalb ueber den state-Parameter abgesichert.
@@ -141,4 +142,8 @@ tls.starten(app, PORT, (art) => {
   // Zeitpunkt des letzten Laufs steht in den Einstellungen, nicht im
   // Arbeitsspeicher — ein Neustart verschiebt den Zeitplan deshalb nicht.
   require('./services/postfachSicherung').zeitplanStarten();
+  // Aufsicht: Prueft, ob die Workflows tatsaechlich laufen. Ohne sie merkt
+  // niemand, wenn n8n einen abgeschaltet hat — es kracht nicht, es passiert
+  // nur nichts mehr.
+  require('./services/aufsicht').zeitplanStarten();
 });

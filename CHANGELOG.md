@@ -2,6 +2,63 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.6.0.0] - 2026-09-02 (Build 69) — *Aufsicht*
+
+### Der Anlass
+
+Die Sortierung war **sechs Tage lang aus**, und nichts hat es gemeldet. Gefunden nur, weil beim
+Nachmessen auffiel, dass die letzte KI-Entscheidung vom 27. August stammte. Der Ablauf, aus dem
+n8n-Log:
+
+1. Der `dovecot`-Container starb (Neustart-Regel `no`, inzwischen behoben).
+2. n8n wollte Workflow 01 aktivieren, der IMAP-Auslöser für Dovecot scheiterte mit
+   `getaddrinfo ENOTFOUND dovecot`.
+3. n8n rollte daraufhin die **ganze** Aktivierung zurück — auch den Gmail-Auslöser, dem nichts
+   fehlte. `Rolled back partial activation`.
+4. Nächster Versuch: `retry in 86400 seconds`. Einmal am Tag.
+
+**Ein einziges kurzzeitig nicht erreichbares Postfach schaltet die Sortierung für alle anderen
+mit ab.** Mit jedem weiteren Konto wird das wahrscheinlicher — und es kracht nicht, es passiert
+nur nichts mehr.
+
+### Features
+
+- **Neue Aufsicht** (`services/aufsicht.js`). Sie vergleicht alle 15 Minuten den Soll- mit dem
+  Ist-Zustand, schreibt Abweichungen ins Log und legt sie fürs Dashboard ab.
+
+- **Sie schaltet von selbst wieder ein**, statt auf n8ns Tagesrhythmus zu warten. Scheitert das,
+  wird n8ns Begründung mitgeschrieben — `ENOTFOUND dovecot` sagt schließlich präzise, welches
+  Postfach klemmt. Abschaltbar über `AUFSICHT_REPARIEREN=0`, dann meldet sie nur.
+
+- **Der Soll-Zustand kommt aus der Absicht, nicht aus einer Liste.** Was zuletzt bewusst
+  eingeschaltet war, soll laufen. Schaltest du im Panel etwas ab, wird das vermerkt und danach
+  nicht mehr angemahnt — sonst arbeitete die Aufsicht gegen dich. Beim allerersten Lauf gilt,
+  was gerade läuft.
+
+- **Auf dem Dashboard** steht eine rote Karte, wenn etwas nicht läuft, samt Grund und Zeitpunkt
+  der letzten Prüfung. Wurde etwas selbst repariert, erscheint ein gelber Hinweis — man soll
+  wissen, dass es einen Ausfall gab, auch wenn er behoben ist.
+
+- **Ist n8n selbst nicht erreichbar**, ist das der schwerste Fall und wird als solcher gemeldet.
+  Der Soll-Zustand bleibt dabei erhalten; sonst wäre nach einem Ausfall alles vergessen.
+
+- **Neun Tests** (`test/aufsicht.test.js`, jetzt 100 insgesamt) stellen genau den Fall vom
+  2. September nach: erkannt, behoben, Grund festgehalten, und bewusst Abgeschaltetes bleibt
+  unangetastet.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migration:** Nein, nur neue Schlüssel in `settings`.
+- **n8n-Workflows:** Unverändert, kein Sync nötig.
+- **Beim ersten Start nach dem Update** nimmt die Aufsicht den aktuellen Zustand als Soll auf.
+  Läuft zu diesem Zeitpunkt etwas nicht, das laufen sollte, gilt es fälschlich als gewollt —
+  deshalb einmal auf der Workflow-Seite nachsehen und über *Aufsicht → übernehmen* neu
+  aufnehmen, wenn nötig.
+- **Sie schaltet Workflows selbst wieder ein.** Wer das nicht will, setzt `AUFSICHT_REPARIEREN=0`
+  oder stellt es im Panel um.
+- **Erste Prüfung 90 Sekunden nach dem Start** — verzögert, weil n8n nach einem gemeinsamen
+  Neustart selbst noch hochfährt und sonst fälschlich als tot gälte.
+
 ## [3.5.0.2] - 2026-09-02 (Build 68) — *Fix: Einstellungen, die es gar nicht gab*
 
 ### Bugfixes

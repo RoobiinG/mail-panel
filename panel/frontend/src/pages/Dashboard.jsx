@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { AlertTriangle } from 'lucide-react';
 import api from '../api';
 
 const COLORS = {
@@ -12,16 +13,20 @@ const COLORS = {
 export default function Dashboard() {
   const [stats, setStats] = useState(null);
   const [n8n, setN8n] = useState(null);
+  const [aufsicht, setAufsicht] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const laden = async () => {
     try {
-      const [stRes, n8nRes] = await Promise.all([
+      const [stRes, n8nRes, aufRes] = await Promise.all([
         api.get('/dashboard/stats'),
-        api.get('/dashboard/n8n-status')
+        api.get('/dashboard/n8n-status'),
+        // Die Aufsicht darf das Dashboard nicht mitreißen, wenn sie klemmt.
+        api.get('/aufsicht').catch(() => ({ data: null })),
       ]);
       setStats(stRes.data);
       setN8n(n8nRes.data);
+      setAufsicht(aufRes.data);
     } catch (err) {
       console.error(err);
     } finally {
@@ -41,8 +46,45 @@ export default function Dashboard() {
     { name: 'Clean', value: stats.summen.whitelist }
   ].filter(d => d.value > 0);
 
+  // Was die Aufsicht zuletzt gefunden hat. Ein Ausfall soll ins Auge fallen —
+  // sechs Tage stille Sortierpause waren genug.
+  const befund = aufsicht?.letzterLauf;
+  const stoerung = befund && befund.ok === false;
+
   return (
     <div className="space-y-6">
+      {stoerung && (
+        <div className="card border-panel-red bg-panel-red/10 flex items-start gap-3">
+          <AlertTriangle size={20} className="text-panel-red mt-0.5 shrink-0" />
+          <div className="text-sm">
+            <div className="font-medium text-panel-red">
+              {befund.n8nErreichbar === false
+                ? 'n8n ist nicht erreichbar — es läuft gerade gar nichts.'
+                : 'Etwas läuft nicht, was laufen sollte.'}
+            </div>
+            {befund.fehler && <div className="text-panel-muted mt-1">{befund.fehler}</div>}
+            {(befund.abweichungen || []).filter(a => !a.behoben).map((a) => (
+              <div key={a.id} className="text-panel-muted mt-1">
+                • {a.text}{a.grund && <span className="block ml-3 text-xs">Grund von n8n: {a.grund}</span>}
+              </div>
+            ))}
+            <div className="text-xs text-panel-muted mt-2">
+              Zuletzt geprüft: {new Date(befund.zeitpunkt).toLocaleString('de-DE')}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {befund?.ok && befund.repariert?.length > 0 && (
+        <div className="card border-yellow-600/60 flex items-start gap-3 text-sm">
+          <AlertTriangle size={18} className="text-yellow-500 mt-0.5 shrink-0" />
+          <div>
+            <span className="font-medium">Wieder eingeschaltet:</span>{' '}
+            {befund.repariert.join(', ')} — war ausgefallen und läuft jetzt wieder.
+          </div>
+        </div>
+      )}
+
       <div className="flex justify-between items-end">
         <div>
           <p className="text-sm text-panel-muted mt-1">Überblick der letzten 30 Tage</p>

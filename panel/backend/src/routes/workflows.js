@@ -73,6 +73,9 @@ router.post('/:id/aktiv', async (req, res) => {
   const { aktiv } = req.body || {};
   try {
     const w = await n8n.workflowAktivieren(req.params.id, Boolean(aktiv));
+    // Der Aufsicht sagen, dass das so gewollt ist — sonst schaltet sie einen
+    // bewusst abgeschalteten Workflow beim naechsten Takt wieder ein.
+    require('../services/aufsicht').absichtMerken(req.params.id, Boolean(aktiv), w.name);
     res.json({ ok: true, aktiv: Boolean(w.active) });
   } catch (err) {
     // n8n nennt hier den Grund (fehlende Zugangsdaten, kein Trigger) — der hilft

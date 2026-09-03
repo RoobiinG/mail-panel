@@ -49,6 +49,12 @@ const FELDER = {
   sicherung_intervall:    { geheim: false, standard: '168' },
   sicherung_dubletten:    { geheim: false, standard: '1' },
   sicherung_letzter_lauf: { geheim: false },
+  // Aufsicht: prueft, ob die Workflows tatsaechlich laufen (services/aufsicht.js)
+  aufsicht_aktiv:         { env: 'AUFSICHT_AKTIV', geheim: false },
+  aufsicht_reparieren:    { env: 'AUFSICHT_REPARIEREN', geheim: false },
+  aufsicht_takt:          { env: 'AUFSICHT_TAKT', geheim: false, standard: '15' },
+  aufsicht_soll:          { geheim: false },
+  aufsicht_letzter_lauf:  { geheim: false },
 };
 
 function hole(key) {
