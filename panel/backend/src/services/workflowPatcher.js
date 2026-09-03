@@ -750,6 +750,58 @@ function quellenEintragen(code, konten) {
   );
 }
 
+// Setzt vor der KI-Abfrage den Budget-Wächter in den Sammel-Knoten von
+// Workflow 04. Der Sammel-Knoten ist die einzige Stelle, die ALLE Mails eines
+// Laufs auf einmal in der Hand hat — genau das braucht der Wächter, um „nur die
+// ersten N" zu entscheiden. Ein HTTP-Knoten feuert pro Mail einzeln und könnte
+// innerhalb eines Laufs nicht mitzählen.
+//
+// Der Aufruf läuft über `this.helpers.httpRequest` (auf dem Testserver
+// nachgewiesen) und trägt das Panel-Geheimnis mit — dasselbe, das ohnehin schon
+// als n8n-Credential hinterlegt ist, also kein neues Leck. Bei fehlendem Panel
+// wird bewusst NICHTS sortiert, statt das Tageslimit zu riskieren.
+//
+// Idempotent: ein vorhandener Block wird erst entfernt, dann frisch gesetzt,
+// damit ein erneuter Sync nicht zwei davon stapelt.
+const BUDGET_MARKE = '// PANEL:BUDGET v1';
+
+function budgetInSammeln(sammler) {
+  if (!sammler?.parameters?.jsCode) return;
+  const geheim = process.env.PANEL_SECRET || '';
+  let code = String(sammler.parameters.jsCode);
+
+  // Vorhandenen Block herausnehmen und das kanonische Ende wiederherstellen.
+  code = code.replace(/\n*\/\/ PANEL:BUDGET[\s\S]*$/, '\nreturn out;\n');
+  if (!/return out;\s*$/.test(`${code.replace(/\s+$/, '')}\n`)) return;
+
+  const block = [
+    `${BUDGET_MARKE} — vom Mail-Panel gepflegt, bitte nicht von Hand aendern.`,
+    '// Fragt vor der KI-Abfrage, welche Mails das Tagesbudget noch zulaesst.',
+    `const __geheim = ${JSON.stringify(geheim)};`,
+    'let __erlaubt = out;',
+    'try {',
+    '  const __r = await this.helpers.httpRequest({',
+    "    method: 'POST', url: 'http://panel:3002/api/internal/budget',",
+    "    headers: { 'X-Panel-Secret': __geheim, 'Content-Type': 'application/json' },",
+    '    body: { kandidaten: out.map((m) => ({ konto: m.json.konto, von: m.json.von, betreff: m.json.betreff })) },',
+    '    json: true,',
+    '  });',
+    '  if (__r && Array.isArray(__r.erlaubt)) {',
+    '    const __ok = new Set(__r.erlaubt);',
+    '    __erlaubt = out.filter((__m, __i) => __ok.has(__i));',
+    '  }',
+    '} catch (__e) {',
+    "  return [{ json: { hinweis: 'Budget-Pruefung nicht moeglich (' + (__e.message || __e) + ') — es wird nichts sortiert.' } }];",
+    '}',
+    'if (__erlaubt.length === 0) {',
+    "  return [{ json: { hinweis: 'KI-Tagesbudget aufgebraucht oder nichts Neues zu sortieren — morgen geht es weiter.' } }];",
+    '}',
+    'return __erlaubt;',
+  ].join('\n');
+
+  sammler.parameters.jsCode = code.replace(/return out;\s*$/, `${block}\n`);
+}
+
 async function bestandSynchronisieren(konten, credentialId, aktionenWorkflowId) {
   const info = await workflowSuchen(ANKER.bestand.workflowPraefix);
   const workflow = await n8n.workflowHolen(info.id);
@@ -782,6 +834,9 @@ async function bestandSynchronisieren(konten, credentialId, aktionenWorkflowId) 
   if (sammler.parameters?.jsCode) {
     sammler.parameters.jsCode = quellenEintragen(sammler.parameters.jsCode, konten);
   }
+  // KI-Tagesbudget: den Wächter vor die KI-Abfrage setzen (nur im Bestand,
+  // Workflow 04 — die laufende Post in Workflow 01 ist wenig und braucht das nicht).
+  budgetInSammeln(sammler);
 
   // Ausgang: Weiche + Verschiebe-Knoten wie in Workflow 01
   const weiche = weichenKnoten(konten, [1780, 20]);
@@ -1146,6 +1201,6 @@ async function basisSetup() {
 module.exports = {
   alleSynchronisieren, triageSynchronisieren, bestandSynchronisieren, newsletterSynchronisieren, basisSetup,
   // für Tests
-  panelKnotenEntfernen, quellenEintragen, triggerKnoten, setKnoten, bestandKnoten,
+  panelKnotenEntfernen, quellenEintragen, budgetInSammeln, triggerKnoten, setKnoten, bestandKnoten,
   themenKetteEinbauen, einsortierenKnoten,
 };

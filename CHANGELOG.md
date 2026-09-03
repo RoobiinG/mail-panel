@@ -2,6 +2,40 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.7.2.0] - 2026-09-03 (Build 75) — *KI-Budget: scharf geschaltet*
+
+### Features (Teil 2 von 2 — der Deckel greift jetzt)
+
+- **Der Budget-Wächter sitzt jetzt in Workflow 04, vor der KI-Abfrage.** Der Sammel-Knoten
+  fragt beim Panel, welche seiner Mails das Tagesbudget noch zulässt, und reicht nur die weiter.
+  Damit verbrennt ein großer Altbestand nicht mehr das ganze Gemini-Tageslimit an einem Tag —
+  er wird über mehrere Tage abgearbeitet, und der Fortschrittsbalken auf dem Dashboard füllt
+  sich Stück für Stück.
+
+- **Warum genau im Sammel-Knoten:** Er ist die einzige Stelle im Workflow, die alle Mails eines
+  Laufs auf einmal in der Hand hat — nur dort lässt sich „nur die ersten N" entscheiden. Ein
+  HTTP-Knoten feuert pro Mail einzeln und könnte innerhalb eines Laufs nicht mitzählen. Dass ein
+  Code-Knoten das Panel überhaupt anrufen kann (`this.helpers.httpRequest`), wurde vorher auf dem
+  Testserver mit einem Wegwerf-Workflow nachgewiesen — nicht angenommen.
+
+- **Bei nicht erreichbarem Panel wird nichts sortiert**, statt das Limit zu riskieren. Der
+  Sammel-Knoten meldet dann einen Hinweis und hört auf.
+
+- **Sieben Tests** (`test/budget-injektion.test.js`) nageln fest, was beim Einsetzen gelten muss:
+  Block gesetzt, Ende sauber, Geheimnis eingebettet, gültiges JavaScript, und — der Punkt, der
+  mich zweimal Zeit gekostet hat — **idempotent**: ein zweiter Sync stapelt keinen zweiten Block.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+
+- **DB-Migration:** Nein.
+- **n8n-Workflow 04 ändert sich:** Beim nächsten Konto-Sync bekommt der Sammel-Knoten den
+  Budget-Block. Wer nach dem Update *Konten → Synchronisieren* drückt (oder ein Konto ändert),
+  hat ihn; bis dahin läuft die Bestands-Triage wie bisher ohne Deckel. Workflow 01 (laufende
+  Post) bleibt unangetastet — dort ist das Volumen klein.
+- **Das Panel-Geheimnis steht danach im Sammel-Knoten** — dasselbe, das ohnehin als
+  n8n-Credential hinterlegt ist. Kein neuer Personenkreis bekommt dadurch Zugriff.
+- **Standardbudget 400/Tag.** Ohne Deckel arbeiten: `GEMINI_TAGESBUDGET=0`.
+
 ## [3.7.1.0] - 2026-09-03 (Build 74) — *KI-Budget: die Entscheidungsstelle*
 
 ### Features (Teil 1 von 2)
