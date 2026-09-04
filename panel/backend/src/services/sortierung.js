@@ -76,7 +76,10 @@ function pruefeRegeln(kontoId, von, betreff) {
       {
         // Zaehler hochsetzen
         db.prepare('UPDATE sort_rules SET treffer = treffer + 1 WHERE id = ?').run(regel.id);
-        return { ordner: regel.zielordner, regel_id: regel.id };
+        // aktion 'behalten': die Mail wird bewusst NICHT angefasst. Der Aufrufer
+        // muss das auswerten — ein leerer Zielordner darf nie als Verschiebe-
+        // Auftrag durchgehen.
+        return { ordner: regel.zielordner, regel_id: regel.id, aktion: regel.aktion || 'verschieben' };
       }
     }
 
@@ -229,8 +232,29 @@ async function bestandAnwenden(konto, regel, opt = {}) {
   return { treffer: passende.length, verschoben, fehler, veraltet };
 }
 
+
+/**
+ * Soll diese Mail bewusst unangetastet bleiben ("in Ruhe lassen")?
+ *
+ * Wie pruefeRegeln, aber OHNE den Trefferzaehler hochzusetzen: Beim Einsortieren
+ * wurde die Regel in /sort bereits gezaehlt — ein zweites Mal waere geschummelt.
+ * Es zaehlt die ERSTE passende Regel, genau wie bei pruefeRegeln.
+ */
+function istBehalten(kontoId, von, betreff) {
+  if (!kontoId) return false;
+  try {
+    for (const regel of db.prepare('SELECT * FROM sort_rules WHERE konto_id = ?').all(kontoId)) {
+      if (!passt(regel, von, betreff)) continue;
+      return (regel.aktion || 'verschieben') === 'behalten';
+    }
+  } catch (err) {
+    loggen('warn', 'backend:sortierung', `istBehalten fehlgeschlagen: ${err.message}`);
+  }
+  return false;
+}
 module.exports = {
   pruefeRegeln,
+  istBehalten,
   bestandAnwenden,
   abgleichen,
   uidZahl,

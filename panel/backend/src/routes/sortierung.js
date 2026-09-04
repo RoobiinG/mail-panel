@@ -27,7 +27,11 @@ router.get('/regeln', (req, res) => {
 // POST /api/sortierung/regeln — Neue Regel anlegen
 router.post('/regeln', async (req, res) => {
   const { konto_id, typ, muster, zielordner } = req.body || {};
-  if (!konto_id || !typ || !muster || !zielordner) {
+  // "In Ruhe lassen": eine Regel ganz ohne Zielordner — die Mail bleibt
+  // unangetastet liegen und wird auch nicht mehr zur Zuordnung vorgelegt.
+  const aktion = req.body?.aktion === 'behalten' ? 'behalten' : 'verschieben';
+  const ziel = aktion === 'behalten' ? '' : String(zielordner || '').trim();
+  if (!konto_id || !typ || !muster || (aktion === 'verschieben' && !ziel)) {
     return res.status(400).json({ error: 'Alle Felder müssen ausgefüllt sein.' });
   }
   if (!['absender', 'betreff', 'domain'].includes(typ)) {
@@ -39,9 +43,29 @@ router.post('/regeln', async (req, res) => {
   }
   try {
     const info = db.prepare(`
-      INSERT INTO sort_rules (konto_id, typ, muster, zielordner, erstellt_von)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(konto_id, typ, muster.trim(), zielordner.trim(), req.user.id);
+      INSERT INTO sort_rules (konto_id, typ, muster, zielordner, aktion, erstellt_von)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(konto_id, typ, muster.trim(), ziel, aktion, req.user.id);
+
+    // "In Ruhe lassen": nichts anlegen, nichts verschieben. Was schon in der
+    // Sortier-Inbox liegt und dazu passt, verschwindet aus der Liste — genau
+    // darum geht es bei dieser Regel.
+    if (aktion === 'behalten') {
+      let beruhigt = 0;
+      try {
+        const offen = db.prepare("SELECT id, von, betreff FROM sort_inbox WHERE konto_id = ? AND status = 'offen'").all(konto_id);
+        const setzen = db.prepare("UPDATE sort_inbox SET status = 'ignoriert' WHERE id = ?");
+        for (const m of offen) {
+          if (!sortierung.passt({ typ, muster }, m.von, m.betreff)) continue;
+          setzen.run(m.id);
+          beruhigt++;
+        }
+      } catch (err) {
+        loggen('warn', 'sortierung', `Sortier-Inbox konnte nicht bereinigt werden: ${err.message}`);
+      }
+      loggen('info', 'sortierung', `Ruhe-Regel [${typ}] ${muster.trim()} für ${konto.name} angelegt (${beruhigt} Einträge entfernt).`);
+      return res.json({ id: info.lastInsertRowid, status: 'ok', aktion, beruhigt });
+    }
 
     // Versuche den Zielordner direkt anzulegen (Best Effort)
     try {

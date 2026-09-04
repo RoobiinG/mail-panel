@@ -257,6 +257,10 @@ const migrations = [
   // System-Presets unter den Aktionen markieren (z.B. die automatische
   // Beleg-Ablage). NULL = vom Nutzer angelegt, sonst ein fester Schluessel.
   'ALTER TABLE aktionen ADD COLUMN schluessel TEXT',
+  // Sortier-Regeln koennen jetzt auch "nichts tun" heissen: 'verschieben' (wie
+  // bisher) oder 'behalten' — die Mail bleibt unangetastet im Posteingang und
+  // taucht auch nicht mehr in der Sortier-Inbox auf.
+  "ALTER TABLE sort_rules ADD COLUMN aktion TEXT NOT NULL DEFAULT 'verschieben'",
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch { /* Spalte existiert schon */ }

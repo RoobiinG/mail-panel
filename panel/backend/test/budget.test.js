@@ -9,6 +9,7 @@ require('./umgebung');
 const db = require('../src/db');
 const settings = require('../src/services/settings');
 const budget = require('../src/services/budget');
+const sortierung = require('../src/services/sortierung');
 
 function heuteLog(konto, von, betreff) {
   db.prepare("INSERT INTO quarantine_log (konto, von, betreff) VALUES (?, ?, ?)").run(konto, von, betreff);
@@ -21,7 +22,7 @@ const kand = (n, konto = 'K') =>
   Array.from({ length: n }, (_, i) => ({ konto, von: `abs${i}@x.de`, betreff: `Betreff ${i}` }));
 
 beforeEach(() => {
-  db.exec('DELETE FROM quarantine_log; DELETE FROM sort_inbox;');
+  db.exec('DELETE FROM quarantine_log; DELETE FROM sort_inbox; DELETE FROM sort_rules; DELETE FROM accounts;');
   db.prepare("DELETE FROM settings WHERE key='gemini_tagesbudget'").run();
 });
 
@@ -107,5 +108,46 @@ describe('Robustheit', () => {
     const e = budget.entscheiden(undefined);
     assert.deepEqual(e.erlaubt, []);
     assert.equal(e.gesamt, 0);
+  });
+});
+
+// "In Ruhe lassen": Regeln, die bewusst nichts tun. Sie duerfen weder KI-Budget
+// kosten noch die Mail bewegen — sonst waere die Zusage an den Nutzer gebrochen.
+describe('In Ruhe lassen', () => {
+  const kontoAnlegen = () => db.prepare(
+    "INSERT INTO accounts (name, host, port, username, password_enc, aktiv) VALUES ('K', 'h', 993, 'u', 'x', 1)",
+  ).run().lastInsertRowid;
+  const regel = (id, muster, aktion, ziel) => db.prepare(
+    'INSERT INTO sort_rules (konto_id, typ, muster, zielordner, aktion) VALUES (?, ?, ?, ?, ?)',
+  ).run(id, 'domain', muster, ziel || '', aktion);
+
+  test('so eine Mail kostet kein KI-Budget', () => {
+    settings.setze('gemini_tagesbudget', '100');
+    const id = kontoAnlegen();
+    regel(id, 'ruhe.de', 'behalten');
+    const e = budget.entscheiden([
+      { konto: 'K', von: 'a@ruhe.de', betreff: 'x' },
+      { konto: 'K', von: 'b@andere.de', betreff: 'y' },
+    ]);
+    assert.deepEqual(e.erlaubt, [1], 'nur die Mail ohne Ruhe-Regel darf zur KI');
+    assert.equal(e.uebersprungen.ruhe, 1);
+  });
+
+  test('istBehalten erkennt die Ruhe-Regel — und nur sie', () => {
+    const id = kontoAnlegen();
+    regel(id, 'ruhe.de', 'behalten');
+    regel(id, 'ziel.de', 'verschieben', 'Ordner');
+    assert.equal(sortierung.istBehalten(id, 'a@ruhe.de', ''), true);
+    assert.equal(sortierung.istBehalten(id, 'a@ziel.de', ''), false, 'normale Regel ist keine Ruhe-Regel');
+    assert.equal(sortierung.istBehalten(id, 'a@fremd.de', ''), false, 'ohne Treffer keine Ruhe');
+  });
+
+  test('zaehlt den Treffer nicht doppelt (istBehalten laesst den Zaehler in Ruhe)', () => {
+    const id = kontoAnlegen();
+    regel(id, 'ruhe.de', 'behalten');
+    sortierung.istBehalten(id, 'a@ruhe.de', '');
+    sortierung.istBehalten(id, 'a@ruhe.de', '');
+    const t = db.prepare('SELECT treffer FROM sort_rules WHERE konto_id = ?').get(id).treffer;
+    assert.equal(t, 0, 'die Pruefung beim Einsortieren darf nicht mitzaehlen');
   });
 });

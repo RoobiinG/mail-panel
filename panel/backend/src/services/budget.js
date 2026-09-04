@@ -20,6 +20,29 @@
 // Plätze — eindeutig, auch wenn zwei Mails gleich aussehen.
 const db = require('../db');
 const settings = require('./settings');
+const sortierung = require('./sortierung');
+
+// "In Ruhe lassen"-Regeln: Mails, die der Nutzer bewusst nicht angefasst haben
+// will, sollen gar nicht erst KI-Budget kosten. Die Regeln werden je Konto
+// EINMAL geladen — entscheiden() bekommt schnell mal hunderte Kandidaten, da
+// soll nicht jede Zeile die Datenbank erneut befragen.
+function ruhePruefer() {
+  const cache = new Map();
+  return (kontoName, von, betreff) => {
+    const name = String(kontoName || '');
+    if (!cache.has(name)) {
+      let regeln = [];
+      try {
+        const id = db.prepare('SELECT id FROM accounts WHERE name = ?').get(name)?.id;
+        if (id) regeln = db.prepare('SELECT * FROM sort_rules WHERE konto_id = ?').all(id);
+      } catch { regeln = []; }
+      cache.set(name, regeln);
+    }
+    // Erste passende Regel gewinnt — dieselbe Rangfolge wie in pruefeRegeln.
+    const treffer = cache.get(name).find((r) => sortierung.passt(r, von, betreff));
+    return Boolean(treffer) && (treffer.aktion || 'verschieben') === 'behalten';
+  };
+}
 
 function tagesbudget() {
   const n = Number(settings.hole('gemini_tagesbudget'));
@@ -66,9 +89,12 @@ function entscheiden(kandidaten) {
   const erlaubt = [];
   let uebersprungenGesehen = 0;
   let uebersprungenBudget = 0;
+  let uebersprungenRuhe = 0;
+  const inRuhe = ruhePruefer();
 
   for (let i = 0; i < liste.length; i++) {
     const k = liste[i] || {};
+    if (inRuhe(k.konto, k.von, k.betreff)) { uebersprungenRuhe++; continue; }
     if (schonGesehen(k.konto, k.von, k.betreff)) { uebersprungenGesehen++; continue; }
     if (erlaubt.length >= rest) { uebersprungenBudget++; continue; }
     erlaubt.push(i);
@@ -82,7 +108,7 @@ function entscheiden(kandidaten) {
       rest: grenze === 0 ? null : Math.max(0, grenze - verbraucht),
       unbegrenzt: grenze === 0,
     },
-    uebersprungen: { gesehen: uebersprungenGesehen, budget: uebersprungenBudget },
+    uebersprungen: { gesehen: uebersprungenGesehen, budget: uebersprungenBudget, ruhe: uebersprungenRuhe },
     gesamt: liste.length,
   };
 }

@@ -71,6 +71,13 @@ router.post('/sort', (req, res) => {
     const account = db.prepare('SELECT id FROM accounts WHERE name = ?').get(konto);
     if (account) {
       const match = sortierung.pruefeRegeln(account.id, von, betreff);
+      // "In Ruhe lassen": Die Mail bleibt, wo sie ist. Sie laeuft zwar noch durch
+      // den Workflow, wird aber am Ende (/einsortieren) nicht verschoben und
+      // landet auch nicht in der Sortier-Inbox. Wichtig: nie als 'verschieben'
+      // zurueckgeben — der Zielordner ist bei dieser Regelart leer.
+      if (match && match.aktion === 'behalten') {
+        return res.json({ aktion: 'inbox', behalten: true });
+      }
       if (match) {
         return res.json({ aktion: 'verschieben', ordner: match.ordner });
       }
@@ -265,8 +272,18 @@ router.post('/einsortieren', async (req, res) => {
     let grund = '';
     let ausThema = false;
 
+    // "In Ruhe lassen": eine eigene Regel sagt, diese Mail soll unangetastet
+    // bleiben. Sie sticht die KI-Einordnung — aber NICHT ziel_fest: Ein Virus
+    // oder Blacklist-Treffer gehoert in die Quarantaene, auch wenn der Absender
+    // sonst in Ruhe gelassen wird.
+    const inRuhe = !b.ziel_fest && konto
+      && sortierung.istBehalten(konto.id, b.von, b.betreff);
+
     if (b.ziel_fest) {
       grund = 'Spam, Blacklist oder Virus — Ziel steht fest';
+    } else if (inRuhe) {
+      ordner = null;
+      grund = 'Eigene Regel: bleibt unangetastet im Posteingang';
     } else if (konto) {
       const t = await themen.aufloesen({
         konto, vorschlag: b.thema, konfidenz: b.konfidenz, von: b.von,
@@ -311,7 +328,9 @@ router.post('/einsortieren', async (req, res) => {
 
     // Kein Ziel: Die Mail bleibt im Posteingang und taucht in der Sortier-Inbox
     // auf — mit dem Vorschlag, den die KI gemacht hat, und dem Grund dafuer.
-    if (!ordner && konto) {
+    // Ausser bei "in Ruhe lassen": Das ist eine bewusste Entscheidung des
+    // Nutzers, sie soll nicht jedes Mal erneut zur Zuordnung vorgelegt werden.
+    if (!ordner && konto && !inRuhe) {
       // Die UID immer als ganze Zahl ablegen. Frueher landete sie mal als "28",
       // mal als "28.0" in der Spalte — als Text sind das zwei verschiedene
       // Werte, und genau daran ist die Dubletten-Erkennung vorbeigelaufen: Die

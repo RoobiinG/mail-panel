@@ -284,11 +284,42 @@ export default function Sortierung() {
         typ: regelModal.typ,
         muster: regelModal.muster,
         zielordner: regelModal.zielordner,
+        aktion: regelModal.behalten ? 'behalten' : 'verschieben',
       });
-      setRegelModal({ offen: false, typ: 'absender', muster: '', zielordner: '' });
+      setRegelModal({ offen: false, typ: 'absender', muster: '', zielordner: '', behalten: false });
       regelnLaden(aktivesKonto);
     } catch (err) {
       melden(err.response?.data?.error || 'Fehler beim Speichern', 'fehler');
+    }
+  };
+
+  // "In Ruhe lassen": eine Regel, die nichts verschiebt. Die Mails bleiben im
+  // Posteingang und werden nicht mehr zur Zuordnung vorgelegt — für alles, was
+  // man weder sortiert noch ständig wiedersehen möchte.
+  const inRuheLassen = async (gruppe) => {
+    const wahl = gruppenTyp[gruppe.domain] || (gruppe.absender.size > 1 ? 'domain' : 'absender');
+    const typ = wahl === 'absender' ? 'absender' : 'domain';
+    const muster = typ === 'domain' ? gruppe.domain : adresse(gruppe.mails[0].von);
+    const kontoId = gruppe.mails[0]?.konto_id;
+    if (!kontoId) return melden('Zu diesen Mails ist kein Konto hinterlegt.', 'hinweis');
+    if (!(await nachfragen({
+      titel: 'In Ruhe lassen?',
+      text: `Mails von ${typ === 'domain' ? '@' + gruppe.domain : muster} werden künftig nicht mehr `
+        + 'verschoben und nicht mehr zur Zuordnung vorgelegt. Sie bleiben einfach im Posteingang liegen.',
+      bestaetigen: 'In Ruhe lassen',
+    }))) return;
+    setGruppeLaeuft(gruppe.domain);
+    try {
+      const { data } = await api.post('/sortierung/regeln', {
+        konto_id: kontoId, typ, muster, aktion: 'behalten',
+      });
+      melden(`Regel angelegt — ${data.beruhigt || 0} wartende Mail(s) aus der Liste genommen.`);
+      inboxLaden();
+      regelnLaden(aktivesKonto);
+    } catch (err) {
+      melden(err.response?.data?.error || 'Fehler beim Anlegen', 'fehler');
+    } finally {
+      setGruppeLaeuft('');
     }
   };
 
@@ -415,13 +446,13 @@ export default function Sortierung() {
       <datalist id="ordner-vorschlaege">
         {alleOrdner.map(o => <option key={o} value={o} />)}
       </datalist>
-      {/* â•â• Registerkarten: immer nur ein Bereich statt alles untereinander â•â• */}
+      {/* ══ Registerkarten: immer nur ein Bereich statt alles untereinander ══ */}
       <div className="card !p-2 flex flex-wrap gap-1">
         <TabKnopf aktiv={tab === 'sortieren'} onClick={() => setTab('sortieren')} icon={Inbox} zahl={gefilterteInbox.length}>
           Sortieren
         </TabKnopf>
         <TabKnopf aktiv={tab === 'vorschlaege'} onClick={() => setTab('vorschlaege')} icon={Sparkles} zahl={vorschlaege.length}>
-          VorschlÃ¤ge
+          Vorschläge
         </TabKnopf>
         <TabKnopf aktiv={tab === 'themen'} onClick={() => setTab('themen')} icon={FolderTree} zahl={katalog.length}>
           Themen-Ordner
@@ -729,7 +760,11 @@ export default function Sortierung() {
                         <div className="text-xs text-panel-muted">{REGEL_TYPEN[r.typ]}</div>
                         <div className="font-medium truncate max-w-[200px]" title={r.muster}>{r.muster}</div>
                       </td>
-                      <td className="py-3 px-4 font-mono text-panel-accent">{r.zielordner}</td>
+                      <td className="py-3 px-4 font-mono">
+                        {r.aktion === 'behalten'
+                          ? <span className="text-panel-muted italic">bleibt im Posteingang</span>
+                          : <span className="text-panel-accent">{r.zielordner}</span>}
+                      </td>
                       <td className="py-3 px-4 text-center text-xs text-panel-muted">{r.treffer}</td>
                       <td className="py-3 px-4 text-right">
                         <button onClick={() => regelLoeschen(r.id)} className="btn-ghost !px-2 text-panel-red" title="Löschen">
@@ -829,6 +864,14 @@ export default function Sortierung() {
                           className="btn !py-1.5 !px-3 text-sm flex items-center justify-center gap-1 whitespace-nowrap disabled:opacity-50"
                         >
                           <Layers size={14} /> {laeuft ? 'Läuft …' : `Alle ${gruppe.mails.length} verschieben`}
+                        </button>
+                        <button
+                          onClick={() => inRuheLassen(gruppe)}
+                          disabled={laeuft}
+                          className="btn-ghost !py-1.5 !px-3 text-sm whitespace-nowrap disabled:opacity-50"
+                          title="Diese Mails nie verschieben — sie bleiben im Posteingang und werden nicht mehr vorgelegt"
+                        >
+                          In Ruhe lassen
                         </button>
                       </div>
 
@@ -980,17 +1023,29 @@ export default function Sortierung() {
               />
             </label>
 
-            <label className="block space-y-1">
-              <span className="text-sm font-medium">Zielordner (IMAP)</span>
+            <label className="flex items-center gap-2 text-sm">
               <input
-                type="text" required
-                value={regelModal.zielordner}
-                onChange={e => setRegelModal(p => ({ ...p, zielordner: e.target.value }))}
-                list="ordner-vorschlaege"
-                className="w-full font-mono"
-                placeholder="z.B. Rechnungen"
+                type="checkbox"
+                className="w-auto"
+                checked={Boolean(regelModal.behalten)}
+                onChange={e => setRegelModal(p => ({ ...p, behalten: e.target.checked }))}
               />
+              <span>In Ruhe lassen — nicht verschieben, im Posteingang lassen</span>
             </label>
+
+            {!regelModal.behalten && (
+              <label className="block space-y-1">
+                <span className="text-sm font-medium">Zielordner (IMAP)</span>
+                <input
+                  type="text" required
+                  value={regelModal.zielordner}
+                  onChange={e => setRegelModal(p => ({ ...p, zielordner: e.target.value }))}
+                  list="ordner-vorschlaege"
+                  className="w-full font-mono"
+                  placeholder="z.B. Rechnungen"
+                />
+              </label>
+            )}
 
             <div className="flex gap-2 pt-4">
               <button type="button" onClick={() => setRegelModal({ offen: false })} className="btn-ghost flex-1">Abbrechen</button>

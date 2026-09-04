@@ -2,6 +2,26 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.8.4.0] - 2026-09-04 (Build 83) — *„In Ruhe lassen": Mails, die niemand anfassen soll*
+
+### Feature: Sortier-Regel, die bewusst nichts tut
+- Neben „verschiebe nach X" gibt es jetzt **„in Ruhe lassen"**: Die Mail bleibt unangetastet im
+  Posteingang, wird **nicht verschoben** und **nicht mehr zur Zuordnung vorgelegt**. Für alles,
+  was man weder einsortieren noch ständig wiedersehen will.
+- **Drei Wege dorthin:** der neue Knopf **„In Ruhe lassen"** direkt an einer Absender-Gruppe der
+  Sortier-Inbox (nimmt die wartenden Mails gleich aus der Liste), das Häkchen im Dialog *Neue
+  Regel*, und in der Regel-Übersicht steht bei solchen Regeln „bleibt im Posteingang".
+- **Sie kostet auch kein KI-Budget:** Der Budget-Wächter überspringt solche Mails im
+  Bestandslauf, bevor Gemini überhaupt gefragt wird.
+- **Eine Ausnahme mit Absicht:** Spam, Blacklist-Treffer und Viren haben weiter Vorrang — eine
+  Ruhe-Regel hält keinen Virus im Posteingang.
+- Umgesetzt **ohne Eingriff in die laufenden Workflows** (rein im Panel durchgesetzt), damit an
+  der bestehenden Post-Verarbeitung nichts wackelt. DB: neue Spalte `sort_rules.aktion`.
+
+### Fix: Zeichensalat in der Sortierung-Registerkarte
+- In Build 82 stand in der neuen Tab-Leiste „VorschlÃ¤ge" statt „Vorschläge" (Umlaute waren beim
+  Erzeugen falsch kodiert worden). Behoben — betraf nur die Beschriftung, nicht die Funktion.
+
 ## [3.8.3.0] - 2026-09-04 (Build 82) — *Sortierung-Seite aufgeräumt: Registerkarten*
 
 - **Die Sortierung-Seite zeigte alles auf einmal untereinander** — Belege-Karte, Ordner-Vorschläge
