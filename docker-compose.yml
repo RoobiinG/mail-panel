@@ -126,6 +126,9 @@ services:
       - TLS_CERT=${TLS_CERT:-}
       - TLS_KEY=${TLS_KEY:-}
       - PANEL_HOST=${PANEL_HOST:-}
+      # Hinter einem Reverse Proxy noetig, damit Passkeys sich registrieren lassen:
+      # die oeffentliche Panel-Adresse, z.B. https://panel.beispiel.de
+      - ALLOWED_ORIGIN=${ALLOWED_ORIGIN:-}
       # Aufsicht ueber die Workflows — Erklaerung in .env.example
       - AUFSICHT_AKTIV=${AUFSICHT_AKTIV:-}
       - AUFSICHT_REPARIEREN=${AUFSICHT_REPARIEREN:-}

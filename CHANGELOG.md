@@ -2,6 +2,16 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.8.1.2] - 2026-09-04 (Build 80) — *Fix: ALLOWED_ORIGIN wird an den Container durchgereicht*
+
+- **Bug:** Die README verlangt hinter einem Reverse Proxy `ALLOWED_ORIGIN` (sonst lassen sich
+  keine Passkeys registrieren), aber die `docker-compose.yml` reichte die Variable gar nicht an
+  den Panel-Container weiter. In der `.env` gesetzt, kam sie nie an.
+- **Fix:** `ALLOWED_ORIGIN=${ALLOWED_ORIGIN:-}` im Panel-Dienst ergänzt. Jetzt genügt der Eintrag
+  in der `.env`.
+- **`.env.example`:** eigener Abschnitt „Hinter einem Reverse Proxy" — `TLS_MODUS=aus` +
+  `ALLOWED_ORIGIN` + Hinweis zur Port-Erreichbarkeit (Proxy auf demselben vs. anderem Server).
+
 ## [3.8.1.1] - 2026-09-03 (Build 79) — *Hilfsdienste komplett über die .env steuerbar (kein Skript nötig)*
 
 - **`einrichten.sh` ist nicht mehr nötig — alles geht über die `.env`.** Wichtig für Docker-Panels
