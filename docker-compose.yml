@@ -99,10 +99,10 @@ services:
   # ─── Mail-Panel: Verwaltungsoberfläche + Prüfdienste ────────────────────────
   panel:
     image: ghcr.io/roobiing/mail-panel:latest
-    # Ist das fertige Image nicht verfügbar, baut Compose es aus dem Ordner panel/.
-    build:
-      context: .
-      dockerfile: panel/Dockerfile
+    # Bei jedem Start nach einer neueren Fassung sehen. Ohne das benutzt Compose
+    # ein bereits vorhandenes :latest einfach weiter — ein Update kaeme nie an.
+    # Selbst bauen statt ziehen: docker-compose.build.yml dazunehmen (siehe README).
+    pull_policy: always
     container_name: mail-panel
     restart: unless-stopped
     environment:

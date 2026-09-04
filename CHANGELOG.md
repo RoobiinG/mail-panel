@@ -2,6 +2,26 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.8.5.0] - 2026-09-04 (Build 84) — *Updates kommen an + Bestandslauf im Dashboard*
+
+### Fix: Compose zieht jetzt wirklich neue Fassungen
+- **Zwei Fallen auf einmal beseitigt.** Die `docker-compose.yml` hatte einen `build:`-Block als
+  Rückfall („kein Image da? dann bau es selbst"). In einem Docker-Panel wie **Dockhand oder
+  Portainer** scheitert das aber (`mkdir /root/.docker: read-only file system`) — und damit
+  scheiterte gleich das ganze Redeploy. Der Block ist raus.
+- **`pull_policy: always`** beim Panel-Dienst: Ohne das benutzt Compose ein bereits vorhandenes
+  `:latest` einfach weiter — ein Update wäre nie angekommen, egal wie oft man neu deployt.
+- **Selbst bauen geht weiter**, nur bewusst getrennt: neue `docker-compose.build.yml` als
+  Zusatzdatei (`-f docker-compose.yml -f docker-compose.build.yml up -d --build panel`).
+  README entsprechend angepasst.
+
+### Feature: „Bestand sortiert" auf dem Dashboard
+- Eine neue Kachel zeigt, **wann die Bestands-Triage zuletzt lief** („vor 3 Std."), wie viele
+  Mails dabei an die KI gingen und — wenn ein Zeitplan gesetzt ist — schlägt sie auf Gelb um,
+  falls der letzte Lauf länger als das doppelte Intervall her ist.
+- Der Zeitstempel kommt ohne Umweg über n8n: `/api/internal/budget` wird **ausschließlich** vom
+  Sammel-Knoten von Workflow 04 gerufen — jeder Aufruf *ist* ein Bestandslauf.
+
 ## [3.8.4.0] - 2026-09-04 (Build 83) — *„In Ruhe lassen": Mails, die niemand anfassen soll*
 
 ### Feature: Sortier-Regel, die bewusst nichts tut

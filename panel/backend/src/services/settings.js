@@ -67,6 +67,12 @@ const FELDER = {
   // Ungefaehrlich fuer die KI: der Budget-Deckel im Sammel-Knoten begrenzt die
   // Klassifizierungen pro Tag, schon Sortiertes kostet nichts.
   bestand_intervall:      { env: 'BESTAND_INTERVALL', geheim: false, standard: '0' },
+  // Wann lief die Bestands-Triage (Workflow 04) zuletzt und wie viel kam durch?
+  // Gesetzt beim Aufruf von /api/internal/budget — den ruft nur der Sammel-Knoten
+  // von WF04, jeder Aufruf ist also ein Bestandslauf. Reine Anzeige fuers Dashboard.
+  bestand_letzter_lauf:        { geheim: false },
+  bestand_letzter_lauf_anzahl: { geheim: false },
+  bestand_letzter_lauf_gesamt: { geheim: false },
 };
 
 function hole(key) {

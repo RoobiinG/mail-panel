@@ -118,6 +118,15 @@ async function laden({ mitPosteingang = true } = {}) {
       };
     })(),
 
+    // Bestands-Triage: wann wurde der Altbestand zuletzt angefasst? Gesetzt vom
+    // Budget-Waechter, den nur Workflow 04 ruft.
+    bestand: {
+      letzterLauf: settings.hole('bestand_letzter_lauf') || null,
+      verarbeitet: Number(settings.hole('bestand_letzter_lauf_anzahl')) || 0,
+      gesamt: Number(settings.hole('bestand_letzter_lauf_gesamt')) || 0,
+      intervallStunden: Number(settings.hole('bestand_intervall')) || 0,
+    },
+
     // „Läuft alles?"
     aufsicht: aufsicht.letzterLauf(),
     sicherung: (() => {

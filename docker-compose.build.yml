@@ -1,0 +1,23 @@
+# Panel aus dem Quellcode bauen statt das fertige Image zu ziehen.
+#
+# Der Normalfall ist das Ziehen — die docker-compose.yml holt das fertige Image
+# von ghcr.io. Wer stattdessen selbst bauen will (eigene Aenderungen, kein
+# Registry-Zugang), nimmt diese Datei zusaetzlich dazu:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build panel
+#
+# Voraussetzung: der VOLLSTAENDIGE Quellstand liegt daneben (Ordner panel/).
+# Nur mit einem unvollstaendigen Checkout zu bauen erzeugt ein Image, in dem
+# Frontend und Backend aus verschiedenen Staenden stammen — genau daher kamen
+# frueher leere Seiten und 404er auf /api/.
+#
+# Zurueck auf das fertige Image aus der Registry:
+#   docker compose pull panel && docker compose up -d --force-recreate panel
+
+services:
+  panel:
+    build:
+      context: .
+      dockerfile: panel/Dockerfile
+    # Beim Selbstbauen darf Compose nicht gleichzeitig ziehen wollen.
+    pull_policy: build

@@ -13,6 +13,21 @@ const COLORS = {
   Viren: '#8B5CF6'  // violet-500
 };
 
+// "vor 3 Std." statt einer nackten Uhrzeit — beim Blick aufs Dashboard will man
+// wissen, wie lange es her ist, nicht wann genau.
+function seit(iso) {
+  if (!iso) return null;
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return null;
+  const min = Math.floor(ms / 60000);
+  if (min < 1) return 'gerade eben';
+  if (min < 60) return `vor ${min} Min.`;
+  const std = Math.floor(min / 60);
+  if (std < 24) return `vor ${std} Std.`;
+  const tage = Math.floor(std / 24);
+  return `vor ${tage} ${tage === 1 ? 'Tag' : 'Tagen'}`;
+}
+
 // Eine Statuskachel: Farbe und Symbol sagen auf einen Blick, ob es gut steht.
 function StatusKachel({ icon: Icon, titel, wert, unter, ton = 'neutral' }) {
   const toene = {
@@ -156,11 +171,18 @@ export default function Dashboard() {
         const b = u.budget;
         const budgetAnteil = b.grenze ? (b.heute / b.grenze) * 100 : 0;
         const bl = u.belege;
+        // Bestands-Triage: laeuft der Zeitplan und ist der letzte Lauf lange her,
+        // stimmt etwas nicht — dann faellt die Kachel auf.
+        const bes = u.bestand;
+        const besAlterStd = bes?.letzterLauf
+          ? (Date.now() - new Date(bes.letzterLauf).getTime()) / 3600000 : null;
+        const besTon = !bes?.letzterLauf ? 'neutral'
+          : (bes.intervallStunden > 0 && besAlterStd > bes.intervallStunden * 2) ? 'warnung' : 'gut';
         const leseAnteil = bl?.leseGrenze ? (bl.gelesenHeute / bl.leseGrenze) * 100 : 0;
 
         return (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
               <StatusKachel icon={ShieldCheck} titel="Aufsicht" ton={aufTon} wert={aufWert}
                 unter={auf ? `zuletzt ${new Date(auf.zeitpunkt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}` : 'noch nicht geprüft'} />
               <StatusKachel icon={Target} titel="Trefferquote (7 T.)"
@@ -174,6 +196,11 @@ export default function Dashboard() {
                 ton={u.posteingang.offeneEntscheidungen > 0 ? 'warnung' : 'gut'}
                 wert={u.posteingang.offeneEntscheidungen}
                 unter="Mails ohne Zuordnung" />
+              <StatusKachel icon={Workflow} titel="Bestand sortiert" ton={besTon}
+                wert={bes?.letzterLauf ? seit(bes.letzterLauf) : 'nie'}
+                unter={bes?.letzterLauf
+                  ? `${bes.verarbeitet} von ${bes.gesamt} an die KI · ${new Date(bes.letzterLauf).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
+                  : (bes?.intervallStunden > 0 ? `Zeitplan: alle ${bes.intervallStunden} h` : 'noch nie gelaufen')} />
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

@@ -39,7 +39,7 @@ function log({ von = 'a@b.de', kat = 'clean', ziel = 'Games', korr = null, alter
 
 beforeEach(() => {
   db.exec('DELETE FROM accounts; DELETE FROM quarantine_log; DELETE FROM sort_inbox; DELETE FROM sort_rules;');
-  db.prepare("DELETE FROM settings WHERE key IN ('gemini_tagesbudget')").run();
+  db.prepare("DELETE FROM settings WHERE key IN ('gemini_tagesbudget','bestand_letzter_lauf','bestand_letzter_lauf_anzahl','bestand_letzter_lauf_gesamt','bestand_intervall')").run();
   uebersicht.cacheVerwerfen();
   imapStub.wirft = false; imapStub.naechste = new Set();
 });
@@ -109,5 +109,27 @@ describe('Posteingangs-Rückstand', () => {
     const u = await uebersicht.laden();
     assert.equal(u.posteingang.konten[0].erreichbar, false);
     assert.equal(u.posteingang.wartendGesamt, 0, 'unlesbare zählen nicht mit');
+  });
+});
+
+// Wann wurde der Altbestand zuletzt angefasst? Der Zeitstempel kommt vom
+// Budget-Waechter (nur Workflow 04 ruft ihn) und landet aufs Dashboard.
+describe('Bestands-Triage im Dashboard', () => {
+  test('ohne Lauf steht ehrlich nichts da', async () => {
+    const u = await uebersicht.laden({ mitPosteingang: false });
+    assert.equal(u.bestand.letzterLauf, null);
+    assert.equal(u.bestand.verarbeitet, 0);
+  });
+
+  test('gemerkter Lauf kommt mit Zahlen durch', async () => {
+    settings.setze('bestand_letzter_lauf', '2026-09-04T10:00:00.000Z');
+    settings.setze('bestand_letzter_lauf_anzahl', '120');
+    settings.setze('bestand_letzter_lauf_gesamt', '232');
+    settings.setze('bestand_intervall', '6');
+    const u = await uebersicht.laden({ mitPosteingang: false });
+    assert.equal(u.bestand.letzterLauf, '2026-09-04T10:00:00.000Z');
+    assert.equal(u.bestand.verarbeitet, 120);
+    assert.equal(u.bestand.gesamt, 232);
+    assert.equal(u.bestand.intervallStunden, 6);
   });
 });

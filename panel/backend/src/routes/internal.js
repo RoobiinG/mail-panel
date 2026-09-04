@@ -9,6 +9,7 @@ const google  = require('../services/google');
 const sortierung = require('../services/sortierung');
 const budget  = require('../services/budget');
 const belegLeser = require('../services/belegLeser');
+const settings = require('../services/settings');
 const themen  = require('../services/themen');
 const imap    = require('../services/imap');
 const { entschluesseln } = require('../services/crypto');
@@ -98,9 +99,22 @@ router.post('/sort', (req, res) => {
 // Wie /budget, gibt aber die erlaubten Mails komplett zurück — der Budget-Knoten
 // in Workflow 04 reicht sie direkt an Gemini weiter. Grosszuegiges Limit, weil
 // der ganze Bestand auf einmal ankommen kann.
+// Den Budget-Waechter ruft ausschliesslich der Sammel-Knoten der Bestands-Triage
+// (Workflow 04). Jeder Aufruf ist damit ein Bestandslauf — das ist der
+// zuverlaessigste Zeitstempel dafuer, ganz ohne n8n danach zu fragen.
+function bestandslaufMerken(durch, gesamt) {
+  try {
+    settings.setze('bestand_letzter_lauf', new Date().toISOString());
+    settings.setze('bestand_letzter_lauf_anzahl', String(durch ?? 0));
+    settings.setze('bestand_letzter_lauf_gesamt', String(gesamt ?? 0));
+  } catch { /* ein fehlender Zeitstempel darf den Lauf nicht aufhalten */ }
+}
+
 router.post('/budget-filter', express.json({ limit: '25mb' }), (req, res) => {
   try {
-    res.json(budget.filtern((req.body || {}).mails));
+    const ergebnis = budget.filtern((req.body || {}).mails);
+    bestandslaufMerken(ergebnis.mails?.length, ergebnis.gesamt);
+    res.json(ergebnis);
   } catch (err) {
     console.error('Budget-Filter-Fehler:', err.message);
     res.status(500).json({ error: err.message, mails: [] });
@@ -109,7 +123,9 @@ router.post('/budget-filter', express.json({ limit: '25mb' }), (req, res) => {
 
 router.post('/budget', express.json({ limit: '512kb' }), (req, res) => {
   try {
-    res.json(budget.entscheiden((req.body || {}).kandidaten));
+    const ergebnis = budget.entscheiden((req.body || {}).kandidaten);
+    bestandslaufMerken(ergebnis.erlaubt?.length, ergebnis.gesamt);
+    res.json(ergebnis);
   } catch (err) {
     // Scheitert das Panel hier, soll die Triage lieber nichts tun als das
     // Tageslimit sprengen — der Sammel-Knoten wertet ein Fehlen als "keine".

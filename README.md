@@ -83,8 +83,8 @@ Beim ersten Start passieren drei Dinge, die etwas dauern:
   Ohne ihn kann n8n keine Mails verschieben.
 - ClamAV lädt seine Virensignaturen (~1 GB). Bis das durch ist, meldet der Virenscan
   im Panel „nicht bereit" — das ist normal und dauert beim ersten Mal einige Minuten.
-- Ist das fertige Panel-Image nicht verfügbar, baut Compose es selbst aus dem Ordner
-  `panel/`. Auch das dauert ein paar Minuten und passiert nur einmal.
+- Das Panel-Image wird von ghcr.io geladen. `pull_policy: always` sorgt dafür, dass jeder
+  Start nach einer neueren Fassung sieht — Updates kommen damit von selbst an.
 
 Kontrolle:
 
@@ -600,21 +600,24 @@ Steht dort unter *System-Auswirkungen* etwas von einem nötigen Synchronisieren,
 Panel auf der Workflows-Seite einmal auf **Synchronisieren**.
 
 Kommt beim Pull ein `unauthorized`, liegt das Panel-Image in einer privaten Registry, für die
-dein Server keine Anmeldung hat. Dann entweder mit `docker login ghcr.io` anmelden oder
-selbst bauen:
+dein Server keine Anmeldung hat — dann mit `docker login ghcr.io` anmelden.
+
+**Selbst bauen statt ziehen** (eigene Änderungen, kein Registry-Zugang): Die Haupt-Compose zieht
+bewusst nur — sonst versucht ein Docker-Panel wie Dockhand oder Portainer beim Deployen zu
+bauen, was dort mangels Quellcode und Schreibrechten scheitert. Das Bauen steht deshalb in einer
+eigenen Datei, die du zusätzlich dazunimmst:
 
 ```bash
-docker compose up -d --build panel
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build panel
 ```
 
-> **Nur mit vollständigem, aktuellem Quellstand bauen.** `--build` erzeugt das Image aus dem
-> Ordner, in dem du stehst, und legt es unter demselben Namen ab wie das fertige Image aus der
-> Registry. Liegen dort ältere Dateien, läuft danach genau dieser ältere Stand — auch wenn ein
-> `docker compose pull` vorher etwas Neues geholt hat. Zum Zurückholen des Registry-Stands:
+> **Nur mit vollständigem, aktuellem Quellstand bauen.** Das Image entsteht aus dem Ordner, in
+> dem du stehst, und trägt denselben Namen wie das fertige aus der Registry. Liegen dort ältere
+> Dateien, läuft danach genau dieser ältere Stand. Zurück auf den Registry-Stand:
 >
 > ```bash
-> docker pull ghcr.io/roobiing/mail-panel:latest
-> docker compose up -d --force-recreate --no-build panel
+> docker compose pull panel
+> docker compose up -d --force-recreate panel
 > ```
 
 ## Sichern
@@ -653,7 +656,7 @@ nötig — der kostet für dieses Aufkommen Centbeträge.
 | Google-Verbindung bricht mit „Fehler 403: access_denied“ ab | Die App in der Google Cloud Console steht auf Status *Testing*. Die eigene E-Mail-Adresse muss dort unter **OAuth-Zustimmungsbildschirm → Testnutzer** eingetragen werden. |
 | Passkey lässt sich nicht anlegen | Hinter einem Reverse Proxy muss `ALLOWED_ORIGIN` auf die Panel-Adresse gesetzt sein |
 | Panel zeigt nach dem Update die alte Versionsnummer | Browser-Cache — mit `Strg+F5` neu laden |
-| Seiten bleiben leer, viele Aufrufe enden in 404 („Cannot GET /api/…") | Frontend und Backend stammen aus verschiedenen Ständen. Fast immer die Folge eines `docker compose up -d --build` mit unvollständigem Quellstand. Prüfen mit `docker exec mail-panel grep -c '^router\.' src/routes/sortierung.js`, dann `docker pull ghcr.io/roobiing/mail-panel:latest` und `docker compose up -d --force-recreate --no-build panel` |
+| Seiten bleiben leer, viele Aufrufe enden in 404 („Cannot GET /api/…") | Frontend und Backend stammen aus verschiedenen Ständen. Fast immer die Folge eines Selbstbaus mit unvollständigem Quellstand. Prüfen mit `docker exec mail-panel grep -c '^router\.' src/routes/sortierung.js`, dann `docker pull ghcr.io/roobiing/mail-panel:latest` und `docker compose up -d --force-recreate panel` |
 | Nach dem Update ist man abgemeldet | Einmalig und beabsichtigt: Seit v2.8.0.0 liegt die Anmeldung an anderer Stelle. Wer über einen Neustart des Browsers hinweg angemeldet bleiben will, setzt beim Anmelden den Haken **Angemeldet bleiben** |
 | Man bleibt scheinbar angemeldet, aber nichts lädt mehr | War bis v2.8.0.0 der Fall, wenn die Sitzung ablief. Seither wird sauber abgemeldet und die Anmeldemaske nennt den Grund |
 | Synchronisieren läuft in einen Timeout, n8n meldet „Maximum number of connections from user+IP exceeded" | Dein Mailserver begrenzt die gleichzeitigen IMAP-Verbindungen (bei Dovecot `mail_max_userip_connections`, ab Werk oft 10). n8n baut beim Speichern alle Trigger neu auf und läuft ins Limit; der Aufruf kommt dann nie zurück. `docker compose restart n8n` gibt die alten Verbindungen frei, danach klappt der Sync. Dauerhaft: das Limit am Mailserver anheben |
@@ -674,6 +677,7 @@ Weiter kommst du mit den Protokollen: im Panel unter **Logs**, für die Containe
 |---|---|
 | `docker-compose.yml` | der komplette Stack: n8n, PostgreSQL, Panel, ClamAV, unbound |
 | `docker-compose.proxy.example.yml` | optionales Override für Reverse Proxys im Container |
+| `docker-compose.build.yml` | optionales Override, um das Panel aus dem Quellcode zu bauen |
 | `.env.example` | Vorlage für die optionalen Stack-Variablen |
 | `panel/backend/` | Express-Backend: n8n-Steuerung, Prüfdienste, Datenbank |
 | `panel/frontend/` | React-Oberfläche (Vite + Tailwind) |
