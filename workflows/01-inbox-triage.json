@@ -59,11 +59,14 @@
           "batching": {
             "batch": {
               "batchSize": 1,
-              "batchInterval": 4000
+              "batchInterval": 6000
             }
           }
         }
       },
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000,
       "id": "http-gemini",
       "name": "Gemini klassifizieren",
       "type": "n8n-nodes-base.httpRequest",

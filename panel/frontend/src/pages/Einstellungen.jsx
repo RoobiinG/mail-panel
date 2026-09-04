@@ -439,6 +439,17 @@ export default function Einstellungen() {
                 disabled={settings.bestand_intervall_per_env}
                 onChange={e => set('bestand_intervall', e.target.value)} className={inputCls} />
             </div>
+            <div className="space-y-1">
+              <label className="block text-xs text-panel-muted">Pause zwischen KI-Anfragen (ms)</label>
+              <p className="text-[10px] text-panel-muted/60">
+                Der Gratis-Tarif begrenzt auch die Anfragen pro Minute — und Inbox- und
+                Bestands-Triage teilen sich dieses Limit. 6000 = 10 Anfragen pro Minute. Ist die
+                Pause zu kurz, bricht ein großer Lauf mit „too many requests“ ab.
+                Wirkt nach Workflows → Synchronisieren.
+              </p>
+              <input type="number" min="1000" max="60000" step="500" value={settings.gemini_pause_ms}
+                onChange={e => set('gemini_pause_ms', e.target.value)} className={inputCls} />
+            </div>
             <SpeichernBtn onSpeichern={() => speichern('ki')} meldung={meldung.ki} />
           </Card>
 

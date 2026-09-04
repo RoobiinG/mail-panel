@@ -2,6 +2,32 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.8.6.1] - 2026-09-05 (Build 86) — *Zwei Abbrüche aus dem laufenden Betrieb behoben*
+
+### Fix: „Credential with ID … does not exist"
+- Beim Erneuern der Zugangsdaten in n8n wurde **erst gelöscht, dann angelegt**. Schlug das
+  Anlegen fehl — n8n gerade neu gestartet, Netz kurz weg —, stand die bereits gelöschte ID
+  weiter in der Datenbank, und derselbe Sync schrieb sie danach in **jeden** Workflow. Ab da
+  brach n8n jeden Lauf ab mit `Credential with ID "…" does not exist for type
+  "httpHeaderAuth"`, und zwar so lange, bis jemand den Schlüssel von Hand neu speicherte.
+- Jetzt umgekehrt: **erst das neue anlegen, dann das alte löschen.** Scheitert das Anlegen,
+  bleibt die alte ID gültig — sie zeigt auf ein Credential, das noch existiert und mit den
+  bisherigen Daten weiterarbeitet. Gilt für Gemini, Telegram und den Postausgang.
+- Ein bereits verbogener Bestand repariert sich beim nächsten **Workflows → Synchronisieren**
+  von selbst.
+
+### Fix: „The service is receiving too many requests from you"
+- Die Bestands-Triage schob 143 Mails am Stück zu Gemini. Der Tagesdeckel half dagegen nicht:
+  Der begrenzt die **Menge**, nicht das **Tempo**. Der Gratis-Tarif zählt aber auch pro Minute
+  — und Workflow 01 und 04 zählen **gemeinsam** darauf ein.
+- Der Patcher setzt die Drossel jetzt **bei jedem Sync** in die Gemini-Knoten (ein Element pro
+  Durchgang, 6 s Pause = 10 Anfragen/Minute), statt sich darauf zu verlassen, dass sie in der
+  einmal importierten Vorlage steht.
+- Neu: **Wiederholen statt abbrechen.** Weist Google doch einmal ab, versucht es der Knoten
+  bis zu fünfmal mit 5 s Abstand. Bisher riss eine einzige abgewiesene Anfrage den ganzen
+  Lauf mit 143 Mails mit.
+- Die Pause ist unter **Einstellungen → KI** einstellbar (Standard 6000 ms).
+
 ## [3.8.6.0] - 2026-09-04 (Build 85) — *Bestand auf Knopfdruck + Limits im Panel einstellbar*
 
 ### Feature: „Bestand jetzt sortieren"

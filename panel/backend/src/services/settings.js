@@ -22,6 +22,14 @@ const FELDER = {
   // Einordnungs-Budget leersaugt. Ist er voll, wird nur noch per Heuristik abgelegt.
   beleg_lese_tagesbudget: { env: 'BELEG_LESE_TAGESBUDGET', geheim: false, standard: '200' },
   telegram_token:       { env: 'TELEGRAM_TOKEN', geheim: true },
+  // Pause zwischen zwei KI-Anfragen in Millisekunden. Der Gratis-Tarif von
+  // Google begrenzt nicht nur den Tag, sondern auch die Minute: Ohne Pause
+  // schiebt die Bestands-Triage hundert Mails auf einmal los und bekommt
+  // "The service is receiving too many requests from you". 6000 ms sind 10
+  // Anfragen je Minute, und daran zaehlen Workflow 01 und 04 gemeinsam.
+  // Wirkt erst nach Workflows -> Synchronisieren, weil der Wert in die
+  // n8n-Knoten geschrieben wird.
+  gemini_pause_ms:      { geheim: false, standard: '6000' },
   telegram_chat_id:     { env: 'TELEGRAM_CHAT_ID', geheim: false },
   // Postausgang für Workflow 06 (Newsletter abbestellen per Mail)
   smtp_host:            { env: 'SMTP_HOST', geheim: false },

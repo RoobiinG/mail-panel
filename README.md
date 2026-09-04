@@ -240,8 +240,10 @@ Jetzt werden alle eingehenden E-Mails zwar von der KI analysiert und im Log erfa
 
 Erst mit einem kleinen Limit (10) in den Abruf-Knoten testen, dann auf 100 stellen und so
 oft starten, bis der Bestand durch ist. Die Klassifizierung ist auf einen Gemini-Aufruf alle
-vier Sekunden gedrosselt, damit das Freikontingent reicht: 300 Mails brauchen etwa
-20 Minuten. Das ist so gewollt.
+sechs Sekunden gedrosselt, damit das Freikontingent reicht: 300 Mails brauchen etwa
+30 Minuten. Das ist so gewollt — der Gratis-Tarif begrenzt nicht nur den Tag, sondern auch
+die Minute, und Inbox- und Bestands-Triage teilen sich dieses Limit. Wer ein bezahltes
+Kontingent hat, stellt die Pause unter **Einstellungen → KI** kürzer.
 
 **Optional: im Hintergrund laufen lassen.** Setzt du `BESTAND_INTERVALL=6` in der `.env`
 (Stunden; `0` = aus), läuft die Bestands-Triage zusätzlich alle sechs Stunden von selbst und

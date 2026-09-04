@@ -699,6 +699,18 @@ async function workflowSuchen(praefix) {
   return treffer;
 }
 
+// Wie viele Millisekunden zwischen zwei KI-Anfragen? Der Gratis-Tarif von Gemini
+// zaehlt nicht nur pro Tag, sondern auch pro Minute (Groessenordnung: 15). Und
+// daran zaehlen beide Workflows gemeinsam: Waehrend die Bestands-Triage den
+// Altbestand abarbeitet, schiebt die Inbox-Triage nebenher frische Post dazu.
+// 6000 ms sind 10 Anfragen je Minute — genug Luft fuer beide.
+const PAUSE_STANDARD = 6000;
+function geminiPause() {
+  const n = Number(settings.hole('gemini_pause_ms'));
+  if (!Number.isFinite(n) || n <= 0) return PAUSE_STANDARD;
+  return Math.min(Math.round(n), 60000);
+}
+
 // Repariert den Bug, bei dem n8n's JSON.stringify den promptText verwirft, weil
 // die Eigenschaft unter bestimmten Umständen als Proxy-Feld nicht iterierbar ist,
 // und rüstet alte 2.5-flash-lite Modelle auf 3.5 auf.
@@ -733,6 +745,23 @@ function geminiRequestReparieren(workflow) {
         knoten.parameters.url = knoten.parameters.url.replace(altUrl, neuUrl);
         geaendert = true;
       }
+    }
+
+    // Tempo drosseln. Der Tagesdeckel begrenzt die MENGE der Anfragen, nicht ihr
+    // TEMPO — die Bestands-Triage schiebt aber gern 143 Mails auf einmal durch
+    // und lief deshalb in "The service is receiving too many requests from you".
+    // Also: ein Element pro Durchgang, dazwischen eine Pause.
+    const takt = { batch: { batchSize: 1, batchInterval: geminiPause() } };
+    knoten.parameters.options = knoten.parameters.options || {};
+    if (JSON.stringify(knoten.parameters.options.batching) !== JSON.stringify(takt)) {
+      knoten.parameters.options.batching = takt;
+      geaendert = true;
+    }
+
+    // Und wenn Google doch einmal abweist: kurz warten und es noch ein paar Mal
+    // versuchen, statt den ganzen Lauf mit hundert Mails abzubrechen.
+    for (const [feld, wert] of [['retryOnFail', true], ['maxTries', 5], ['waitBetweenTries', 5000]]) {
+      if (knoten[feld] !== wert) { knoten[feld] = wert; geaendert = true; }
     }
   }
   return geaendert;
@@ -980,6 +1009,40 @@ async function newsletterSynchronisieren(konten) {
   return ergebnis;
 }
 
+// Ein Zugangsdaten-Satz lässt sich über die n8n-API nicht ändern, nur neu
+// anlegen. Die Reihenfolge ist dabei alles: erst das neue anlegen, dann das
+// alte löschen. Andersherum — so war es bis Build 85 — blieb nach einem Fehler
+// beim Anlegen die bereits gelöschte ID in der Datenbank stehen und wurde von
+// hier aus in jeden Workflow geschrieben. n8n brach danach jeden Lauf ab mit
+// "Credential with ID ... does not exist for type httpHeaderAuth", und zwar so
+// lange, bis jemand den Schlüssel von Hand neu speicherte.
+//
+// Scheitert das Anlegen, bleibt die alte ID gültig: Sie zeigt auf ein
+// Credential, das noch da ist und mit den bisherigen Daten weiterarbeitet.
+async function credentialErneuern(dbSchluessel, anlegen) {
+  const zeile = db.prepare('SELECT value FROM settings WHERE key = ?').get(dbSchluessel);
+  const alt = zeile?.value ? String(zeile.value) : null;
+
+  let neu;
+  try {
+    neu = String(await anlegen());
+  } catch (err) {
+    console.warn(`Credential ${dbSchluessel} konnte nicht erneuert werden:`, err.message);
+    return alt;
+  }
+
+  db.prepare(`
+    INSERT INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+  `).run(dbSchluessel, neu);
+
+  if (alt && alt !== neu) {
+    try { await n8n.credentialLoeschen(alt); }
+    catch (err) { console.warn(`Altes Credential ${alt} blieb liegen:`, err.message); }
+  }
+  return neu;
+}
+
 // Synchronisiert die KI- und Telegram-Einstellungen in die Workflows
 async function kiUndBenachrichtigungenSynchronisieren() {
   const geminiKey = settings.hole('gemini_api_key');
@@ -993,54 +1056,24 @@ async function kiUndBenachrichtigungenSynchronisieren() {
   let smtpCredId = null;
 
   if (geminiKey) {
-    try {
-      const dbGemini = db.prepare("SELECT value FROM settings WHERE key = 'n8n_gemini_credential_id'").get();
-      if (dbGemini?.value) {
-        geminiCredId = dbGemini.value;
-        await n8n.credentialLoeschen(geminiCredId);
-      }
-      geminiCredId = await n8n.headerCredentialAnlegen('Gemini API', 'x-goog-api-key', geminiKey);
-      db.prepare(`
-        INSERT INTO settings (key, value, updated_at) VALUES ('n8n_gemini_credential_id', ?, CURRENT_TIMESTAMP)
-        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
-      `).run(geminiCredId);
-    } catch (err) { console.warn('Gemini-Credential Fehler:', err.message); }
+    geminiCredId = await credentialErneuern('n8n_gemini_credential_id',
+      () => n8n.headerCredentialAnlegen('Gemini API', 'x-goog-api-key', geminiKey));
   }
 
   if (telegramToken) {
-    try {
-      const dbTg = db.prepare("SELECT value FROM settings WHERE key = 'n8n_telegram_credential_id'").get();
-      if (dbTg?.value) {
-        telegramCredId = dbTg.value;
-        await n8n.credentialLoeschen(telegramCredId);
-      }
-      telegramCredId = await n8n.telegramCredentialAnlegen('Telegram Bot', telegramToken);
-      db.prepare(`
-        INSERT INTO settings (key, value, updated_at) VALUES ('n8n_telegram_credential_id', ?, CURRENT_TIMESTAMP)
-        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
-      `).run(telegramCredId);
-    } catch (err) { console.warn('Telegram-Credential Fehler:', err.message); }
+    telegramCredId = await credentialErneuern('n8n_telegram_credential_id',
+      () => n8n.telegramCredentialAnlegen('Telegram Bot', telegramToken));
   }
 
   if (smtpHost) {
-    try {
-      const dbSmtp = db.prepare("SELECT value FROM settings WHERE key = 'n8n_smtp_credential_id'").get();
-      if (dbSmtp?.value) {
-        smtpCredId = dbSmtp.value;
-        await n8n.credentialLoeschen(smtpCredId);
-      }
-      smtpCredId = await n8n.smtpCredentialAnlegen('Mail-Panel: Postausgang', {
+    smtpCredId = await credentialErneuern('n8n_smtp_credential_id',
+      () => n8n.smtpCredentialAnlegen('Mail-Panel: Postausgang', {
         host: smtpHost,
         port: settings.hole('smtp_port'),
         user: settings.hole('smtp_user'),
         passwort: settings.hole('smtp_passwort'),
         tlsUnsicher: settings.hole('smtp_tls_unsicher') === '1',
-      });
-      db.prepare(`
-        INSERT INTO settings (key, value, updated_at) VALUES ('n8n_smtp_credential_id', ?, CURRENT_TIMESTAMP)
-        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
-      `).run(smtpCredId);
-    } catch (err) { console.warn('SMTP-Credential Fehler:', err.message); }
+      }));
   }
 
   // Das Panel-Credential brauchen auch Workflows, die der Konten-Sync nicht anfasst
@@ -1271,4 +1304,5 @@ module.exports = {
   panelKnotenEntfernen, quellenEintragen, budgetInSammeln, triggerKnoten, setKnoten, bestandKnoten,
   themenKetteEinbauen, einsortierenKnoten, bestandZeitplanKnoten,
   bestandWebhookKnoten, BESTAND_WEBHOOK_PFAD,
+  geminiRequestReparieren, credentialErneuern,
 };
