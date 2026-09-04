@@ -4,6 +4,7 @@ const express = require('express');
 const n8n     = require('../services/n8n');
 const patcher = require('../services/workflowPatcher');
 const db      = require('../db');
+const settings = require('../services/settings');
 const { loggen } = require('../services/panelLog');
 
 const router = express.Router();
@@ -13,6 +14,33 @@ function fehlerAntwort(res, err, was) {
   loggen('error', 'backend:workflows', `${was}: ${err.message}`);
   res.status(502).json({ error: err.message });
 }
+
+// POST /api/workflows/bestand-starten — die Bestands-Triage jetzt laufen lassen.
+// n8ns öffentliche API kann keinen Workflow starten; deshalb hängt in Workflow 04
+// ein Webhook, den nur das Panel auslösen kann (Header-Auth mit dem Panel-Secret).
+router.post('/bestand-starten', async (req, res) => {
+  const basis = String(settings.hole('n8n_url') || 'http://n8n:5678').replace(/\/$/, '');
+  try {
+    const antwort = await fetch(`${basis}/webhook/${patcher.BESTAND_WEBHOOK_PFAD}`, {
+      method: 'POST',
+      headers: { 'X-Panel-Secret': process.env.PANEL_SECRET || '', 'Content-Type': 'application/json' },
+      body: '{}',
+      signal: AbortSignal.timeout(20000),
+    });
+    // 404 heisst hier fast immer: Der Haken steckt noch nicht im Workflow oder
+    // Workflow 04 ist nicht aktiv — beides behebt der Nutzer selbst.
+    if (antwort.status === 404) {
+      return res.status(409).json({
+        error: 'Der Start-Haken fehlt in Workflow 04. Einmal auf „Synchronisieren" drücken — und Workflow 04 muss aktiv sein.',
+      });
+    }
+    if (!antwort.ok) return res.status(502).json({ error: `n8n antwortete mit ${antwort.status}.` });
+    loggen('info', 'workflows', 'Bestands-Triage über das Panel gestartet.');
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(502).json({ error: `n8n nicht erreichbar: ${err.message}` });
+  }
+});
 
 // GET /api/workflows — Übersicht mit Status und letztem Lauf
 router.get('/', async (req, res) => {

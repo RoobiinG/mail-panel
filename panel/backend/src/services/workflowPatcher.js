@@ -253,6 +253,34 @@ function bestandZeitplanKnoten(stunden, position) {
   };
 }
 
+// Startknopf im Panel: ein Webhook-Ausloeser in Workflow 04. n8ns oeffentliche
+// API kann einen Workflow NICHT starten (liefert 405) — dieser Weg funktioniert.
+// Abgesichert per Header-Auth mit demselben Panel-Geheimnis, das die Workflows
+// ohnehin fuer die Pruefdienste benutzen; ein offener n8n-Port ist damit kein
+// Risiko. responseMode 'onReceived': n8n antwortet sofort, sonst haenge das
+// Panel minutenlang am offenen Request, waehrend die Triage laeuft.
+const BESTAND_WEBHOOK_PFAD = 'mail-panel-bestand';
+
+function bestandWebhookKnoten(position, panelCredentialId) {
+  return {
+    parameters: {
+      httpMethod: 'POST',
+      path: BESTAND_WEBHOOK_PFAD,
+      authentication: 'headerAuth',
+      responseMode: 'onReceived',
+      options: {},
+    },
+    id: `${PRAEFIX}bestand-webhook`,
+    name: 'Panel: Bestand starten',
+    type: 'n8n-nodes-base.webhook',
+    typeVersion: 2,
+    position,
+    credentials: panelCredentialId
+      ? { httpHeaderAuth: { id: String(panelCredentialId), name: PANEL_CREDENTIAL_NAME } }
+      : undefined,
+  };
+}
+
 // ─── Gemeinsame Helfer ───────────────────────────────────────────────────────
 
 // Entfernt alle Panel-Knoten und die Verbindungen, die auf sie zeigen
@@ -861,6 +889,14 @@ async function bestandSynchronisieren(konten, credentialId, aktionenWorkflowId) 
     workflow.connections[zeitplan.name] = { main: [[{ node: erstesKonto, type: 'main', index: 0 }]] };
   }
 
+  // Startknopf im Panel: Webhook-Ausloeser, nur mit dem Panel-Geheimnis nutzbar.
+  // Speist dieselbe Kette wie der manuelle Start und der Zeitplan.
+  if (erstesKonto) {
+    const haken = bestandWebhookKnoten([240, 460], credentialId);
+    workflow.nodes.push(haken);
+    workflow.connections[haken.name] = { main: [[{ node: erstesKonto, type: 'main', index: 0 }]] };
+  }
+
   // Quellenliste im Sammel-Knoten aktualisieren
   if (sammler.parameters?.jsCode) {
     sammler.parameters.jsCode = quellenEintragen(sammler.parameters.jsCode, konten);
@@ -1234,4 +1270,5 @@ module.exports = {
   // für Tests
   panelKnotenEntfernen, quellenEintragen, budgetInSammeln, triggerKnoten, setKnoten, bestandKnoten,
   themenKetteEinbauen, einsortierenKnoten, bestandZeitplanKnoten,
+  bestandWebhookKnoten, BESTAND_WEBHOOK_PFAD,
 };

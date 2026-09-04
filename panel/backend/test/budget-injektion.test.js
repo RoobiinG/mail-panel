@@ -97,3 +97,22 @@ describe('bestandZeitplanKnoten', () => {
     assert.equal(patcher.bestandZeitplanKnoten(2.7, [0, 0]).parameters.rule.interval[0].hoursInterval, 2);
   });
 });
+
+// Der Startknopf im Panel haengt an einem Webhook in Workflow 04. Ohne Auth
+// koennte ihn jeder ausloesen, der n8n erreicht — deshalb hier festgenagelt.
+describe('bestandWebhookKnoten', () => {
+  test('Webhook mit Header-Auth und sofortiger Antwort', () => {
+    const n = patcher.bestandWebhookKnoten([0, 0], 'cred-1');
+    assert.equal(n.type, 'n8n-nodes-base.webhook');
+    assert.equal(n.parameters.httpMethod, 'POST');
+    assert.equal(n.parameters.path, patcher.BESTAND_WEBHOOK_PFAD);
+    assert.equal(n.parameters.authentication, 'headerAuth', 'sonst kann jeder den Lauf ausloesen');
+    assert.equal(n.parameters.responseMode, 'onReceived', 'sonst haengt das Panel am offenen Request');
+    assert.equal(n.credentials.httpHeaderAuth.id, 'cred-1');
+    assert.match(String(n.id), /^panel-/, 'Panel-Knoten, wird bei jedem Sync neu gebaut');
+  });
+
+  test('ohne Credential stuerzt nichts ab', () => {
+    assert.equal(patcher.bestandWebhookKnoten([0, 0], null).credentials, undefined);
+  });
+});

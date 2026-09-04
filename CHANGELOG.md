@@ -2,6 +2,26 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.8.6.0] - 2026-09-04 (Build 85) — *Bestand auf Knopfdruck + Limits im Panel einstellbar*
+
+### Feature: „Bestand jetzt sortieren"
+- Ein Knopf auf dem Dashboard (unter dem Sortier-Rückstand) startet die Bestands-Triage
+  sofort — ohne Umweg über die n8n-Oberfläche.
+- **Warum ein Webhook:** n8ns öffentliche API kann einen Workflow *nicht* starten (sie
+  antwortet mit 405). Der Patcher hängt deshalb einen Webhook-Auslöser in Workflow 04, den
+  **nur das Panel** auslösen kann — abgesichert per Header-Auth mit demselben Panel-Geheimnis,
+  das die Workflows ohnehin für die Prüfdienste benutzen. Ein offener n8n-Port ist damit kein
+  Risiko.
+- n8n antwortet sofort (`responseMode: onReceived`); der Lauf arbeitet im Hintergrund weiter,
+  das Panel hängt nicht minutenlang am offenen Request.
+- Fehlt der Haken oder ist Workflow 04 aus, sagt das Panel genau das — statt eines rohen 404.
+
+### Feature: Limits ohne .env änderbar
+- **Einstellungen → KI** hat jetzt Felder für **KI-Einordnungen pro Tag**, **Belege pro Tag
+  auslesen** und **Bestands-Triage alle … Stunden**. Bisher gingen die nur über die `.env`.
+- Steht ein Wert per Umgebungsvariable fest, bleibt das Feld gesperrt — die `.env` gewinnt
+  weiterhin, das ist jetzt nur sichtbar.
+
 ## [3.8.5.0] - 2026-09-04 (Build 84) — *Updates kommen an + Bestandslauf im Dashboard*
 
 ### Fix: Compose zieht jetzt wirklich neue Fassungen

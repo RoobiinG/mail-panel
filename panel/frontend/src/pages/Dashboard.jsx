@@ -29,6 +29,7 @@ function seit(iso) {
 }
 
 // Eine Statuskachel: Farbe und Symbol sagen auf einen Blick, ob es gut steht.
+// (Der Startknopf fuer die Bestands-Triage sitzt weiter unten in der Rueckstands-Karte.)
 function StatusKachel({ icon: Icon, titel, wert, unter, ton = 'neutral' }) {
   const toene = {
     gut:     'border-emerald-500/30 bg-emerald-500/5',
@@ -67,7 +68,26 @@ export default function Dashboard() {
   const [n8n, setN8n] = useState(null);
   const [aufsicht, setAufsicht] = useState(null);
   const [uebersicht, setUebersicht] = useState(null);
+  const [startet, setStartet] = useState(false);
+  const [startMeldung, setStartMeldung] = useState('');
   const [loading, setLoading] = useState(true);
+
+  // Bestands-Triage von Hand anstoßen. n8n startet den Lauf und antwortet sofort —
+  // die Arbeit selbst dauert je nach Bestand Minuten bis Stunden, deshalb wird hier
+  // nichts abgewartet. Der Fortschritt ist auf der Kachel und im Rückstand zu sehen.
+  const bestandStarten = async () => {
+    setStartet(true);
+    setStartMeldung('');
+    try {
+      await api.post('/workflows/bestand-starten');
+      setStartMeldung('Gestartet — läuft im Hintergrund.');
+      setTimeout(laden, 4000);
+    } catch (err) {
+      setStartMeldung(err.response?.data?.error || 'Start fehlgeschlagen.');
+    } finally {
+      setStartet(false);
+    }
+  };
 
   const laden = async () => {
     try {
@@ -231,6 +251,13 @@ export default function Dashboard() {
                       Der Posteingang leert sich, während die Sortierung läuft. Ein voller
                       Balken heißt: nichts liegt mehr ungeordnet.
                     </p>
+                    <div className="flex items-center gap-3 pt-1">
+                      <button onClick={bestandStarten} disabled={startet}
+                        className="btn !py-1.5 !px-3 text-sm flex items-center gap-1 disabled:opacity-50">
+                        <Workflow size={14} /> {startet ? 'Wird gestartet …' : 'Bestand jetzt sortieren'}
+                      </button>
+                      {startMeldung && <span className="text-xs text-panel-muted">{startMeldung}</span>}
+                    </div>
                   </div>
                 )}
               </div>

@@ -408,6 +408,37 @@ export default function Einstellungen() {
             </div>
             <PwFeld label="Gemini API-Key" value={settings.gemini_api_key} placeholder="AIza…"
               disabled={settings.gemini_api_key_per_env} onChange={v => set('gemini_api_key', v)} />
+            <div className="space-y-1">
+              <label className="block text-xs text-panel-muted">KI-Einordnungen pro Tag</label>
+              <p className="text-[10px] text-panel-muted/60">
+                Schützt das Gemini-Tageslimit, wenn ein großer Altbestand aufgearbeitet wird.
+                0 = kein Deckel. Der Gratis-Tarif von Google hat sein eigenes Limit — höher
+                stellen hilft nur, solange Google mitspielt.
+              </p>
+              <input type="number" min="0" step="10" value={settings.gemini_tagesbudget}
+                disabled={settings.gemini_tagesbudget_per_env}
+                onChange={e => set('gemini_tagesbudget', e.target.value)} className={inputCls} />
+            </div>
+            <div className="space-y-1">
+              <label className="block text-xs text-panel-muted">Belege pro Tag auslesen</label>
+              <p className="text-[10px] text-panel-muted/60">
+                Eigener Topf fürs Lesen der PDF-Belege, damit es das Einordnungs-Budget nicht
+                leersaugt. 0 = kein Deckel.
+              </p>
+              <input type="number" min="0" step="10" value={settings.beleg_lese_tagesbudget}
+                disabled={settings.beleg_lese_tagesbudget_per_env}
+                onChange={e => set('beleg_lese_tagesbudget', e.target.value)} className={inputCls} />
+            </div>
+            <div className="space-y-1">
+              <label className="block text-xs text-panel-muted">Bestands-Triage alle … Stunden</label>
+              <p className="text-[10px] text-panel-muted/60">
+                Arbeitet den Altbestand im Hintergrund ab. 0 = nur manuell. Nach dem Ändern einmal
+                auf Workflows → Synchronisieren drücken.
+              </p>
+              <input type="number" min="0" max="168" step="1" value={settings.bestand_intervall}
+                disabled={settings.bestand_intervall_per_env}
+                onChange={e => set('bestand_intervall', e.target.value)} className={inputCls} />
+            </div>
             <SpeichernBtn onSpeichern={() => speichern('ki')} meldung={meldung.ki} />
           </Card>
 
