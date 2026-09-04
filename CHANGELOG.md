@@ -2,6 +2,19 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.8.3.0] - 2026-09-04 (Build 82) — *Sortierung-Seite aufgeräumt: Registerkarten*
+
+- **Die Sortierung-Seite zeigte alles auf einmal untereinander** — Belege-Karte, Ordner-Vorschläge
+  (auf einem echten Postfach schnell ein Dutzend), letzte Entscheidungen, Themen-Katalog und
+  darunter erst Regeln + Sortier-Inbox. Man scrollte an der eigentlichen Arbeit vorbei.
+- **Jetzt vier Registerkarten** oben: **Sortieren** (Regeln + Sortier-Inbox, der Standard),
+  **Vorschläge** (neue Ordner + letzte Entscheidungen), **Themen-Ordner** und **Belege**. Sichtbar
+  ist immer nur ein Bereich; die Zahl auf der Karte zeigt, wo etwas wartet (wartende Mails,
+  offene Vorschläge, Anzahl Themen-Ordner).
+- **Bewusst nur die äußere Hülle geändert:** Das Markup der Abschnitte, die Logik, der
+  Konto-Wähler und beide Dialoge (Neue Regel, Themen-Ordner aufnehmen) sind unverändert — das
+  Verhalten bleibt exakt gleich, nur die Anordnung ist ruhiger.
+
 ## [3.8.2.0] - 2026-09-04 (Build 81) — *Bestands-Triage im Hintergrund + Ordnernamen mit & ( )*
 
 ### Feature: Bestands-Triage (Workflow 04) optional im Hintergrund

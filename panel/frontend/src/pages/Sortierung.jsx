@@ -22,10 +22,32 @@ const REGEL_TYPEN = {
   betreff: 'Betreff enthält',
 };
 
+// Eine Registerkarte der Sortierung-Seite. Aktiv = hervorgehoben; die Zahl zeigt,
+// wo gerade etwas wartet, damit man den Bereich nicht erst aufklappen muss.
+function TabKnopf({ aktiv, onClick, icon: Icon, zahl, children }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm whitespace-nowrap transition-colors ${
+        aktiv ? 'bg-panel-accent text-white' : 'text-panel-muted hover:text-panel-text hover:bg-panel-bg/60'
+      }`}
+    >
+      <Icon size={16} />
+      {children}
+      {zahl > 0 && (
+        <span className={`text-xs px-1.5 py-0.5 rounded-full ${aktiv ? 'bg-white/25' : 'bg-panel-border/60'}`}>
+          {zahl}
+        </span>
+      )}
+    </button>
+  );
+}
+
 export default function Sortierung() {
   const { melden, nachfragen } = useMelden();
   const [konten, setKonten] = useState([]);
   const [aktivesKonto, setAktivesKonto] = useState('');
+  const [tab, setTab] = useState('sortieren');
   
   const [regeln, setRegeln] = useState([]);
   const [inbox, setInbox] = useState([]);
@@ -393,10 +415,27 @@ export default function Sortierung() {
       <datalist id="ordner-vorschlaege">
         {alleOrdner.map(o => <option key={o} value={o} />)}
       </datalist>
+      {/* â•â• Registerkarten: immer nur ein Bereich statt alles untereinander â•â• */}
+      <div className="card !p-2 flex flex-wrap gap-1">
+        <TabKnopf aktiv={tab === 'sortieren'} onClick={() => setTab('sortieren')} icon={Inbox} zahl={gefilterteInbox.length}>
+          Sortieren
+        </TabKnopf>
+        <TabKnopf aktiv={tab === 'vorschlaege'} onClick={() => setTab('vorschlaege')} icon={Sparkles} zahl={vorschlaege.length}>
+          VorschlÃ¤ge
+        </TabKnopf>
+        <TabKnopf aktiv={tab === 'themen'} onClick={() => setTab('themen')} icon={FolderTree} zahl={katalog.length}>
+          Themen-Ordner
+        </TabKnopf>
+        <TabKnopf aktiv={tab === 'belege'} onClick={() => setTab('belege')} icon={Layers}>
+          Belege
+        </TabKnopf>
+      </div>
 
       {/* ══ Belege automatisch in Nextcloud ablegen ══ */}
-      <BelegeKarte />
+      {tab === 'belege' && <BelegeKarte />}
 
+      {tab === 'vorschlaege' && (
+        <div className="space-y-6">
       {/* ══ Vorschläge der KI: neue Ordner, die auf Freigabe warten ══ */}
       {vorschlaege.length > 0 && (
         <div className="card !p-0 overflow-hidden">
@@ -532,8 +571,11 @@ export default function Sortierung() {
           </div>
         </div>
       )}
+        </div>
+      )}
 
       {/* ══ Themen-Katalog: woraus die KI wählen darf ══ */}
+      {tab === 'themen' && (
       <div className="card !p-0 overflow-hidden">
         <div className="p-4 border-b border-panel-border bg-panel-card/50 flex flex-wrap gap-3 justify-between items-center">
           <h2 className="font-medium flex items-center gap-2">
@@ -619,7 +661,9 @@ export default function Sortierung() {
           )}
         </div>
       </div>
+      )}
 
+      {tab === 'sortieren' && (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* LINKE SEITE: Regeln */}
         <div className="card !p-0 overflow-hidden flex flex-col">
@@ -863,6 +907,7 @@ export default function Sortierung() {
           </div>
         </div>
       </div>
+      )}
 
       {/* MODAL: Themen-Ordner aufnehmen */}
       {katalogModal.offen && (
