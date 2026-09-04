@@ -42,46 +42,36 @@ Rechne mit etwa einer halben Stunde. Die Schritte bauen aufeinander auf — bitt
 
 ## Schritt 1 — Stack starten
 
-Repository auf den Server holen (oder die Dateien in ein Docker-Panel wie Dockhand oder
-Portainer einfügen) und in den Ordner wechseln. Dann:
+Den Stack bekommst du auf den Server, indem du das Repository klonst — oder die `compose.yaml`
+(und optional die `.env`) in ein Docker-Panel wie **Dockhand** oder **Portainer** einfügst.
 
-```bash
-./einrichten.sh
-docker compose up -d
-```
-
-**Was `einrichten.sh` macht:** Der Stack bringt ClamAV (Virenscan) und unbound
-(DNS-Resolver für die Spam-Listen) mit. Auf vielen Servern gibt es beides schon —
-**Mailcow zum Beispiel liefert beide mit**. Ein zweites ClamAV daneben kostet rund
-1,5 GB Arbeitsspeicher, ohne irgendetwas zu können, was das vorhandene nicht könnte.
-
-Das Skript sieht deshalb einmal nach, was läuft, fragt nach, und trägt das Ergebnis in
-die `.env` ein:
-
-| Gefunden | Was eingetragen wird |
-|---|---|
-| nichts (frischer Server) | `COMPOSE_PROFILES=clamav,unbound` — der Stack startet beide selbst |
-| `clamd-mailcow` o.ä. | `CLAMD_HOST=clamd-mailcow`, das eigene ClamAV bleibt aus |
-| ClamAV auf dem Host (Port 3310) | `CLAMD_HOST=172.17.0.1` |
-
-Läuft ein fremder Dienst in einem eigenen Docker-Netz, muss das Panel in dieses Netz. Das
-stellst du über **eine `.env`-Variable** ein: `PANEL_EXTERN_NETZ=<Netzname>` (Namen liefert
-`docker network ls`, bei Mailcow meist `mailcowdockerized_mailcow-network`). Die Compose hängt
-das Panel dann von selbst dort mit ein — kein `docker network connect` von Hand, kein Skript.
-
-**Alles ohne Skript — der Weg für Docker-Panels wie Dockhand oder Portainer:** Statt
-`einrichten.sh` kannst du die drei Werte einfach in die `.env` (bzw. die Umgebungsvariablen
-deines Stack-Managers) schreiben; `.env.example` erklärt jeden davon:
+Es gibt nur **eine Sache zu entscheiden: Virenscan (ClamAV) und DNS-Resolver (unbound)** —
+selbst mitstarten oder vorhandene (z. B. von Mailcow) mitbenutzen. Das stellst du über die `.env`
+ein (bzw. die Umgebungsvariablen deines Panels); `.env.example` erklärt jeden Wert:
 
 | Situation | Was in die `.env` |
 |---|---|
 | frischer Server, nichts vorhanden | `COMPOSE_PROFILES=clamav,unbound` — der Stack startet beide selbst |
-| Mailcow o.ä. schon da, mitbenutzen | `COMPOSE_PROFILES=` (leer), dazu `CLAMD_HOST=clamd-mailcow`, `UNBOUND_HOST=unbound-mailcow` und `PANEL_EXTERN_NETZ=<Mailcow-Netz>` |
-| erstmal ohne Virenscan | `COMPOSE_PROFILES=` (leer) und die drei anderen weglassen — das Panel läuft, der Scan bleibt aus |
+| Mailcow o. ä. schon da, mitbenutzen | `COMPOSE_PROFILES=` (leer), dazu `CLAMD_HOST=clamd-mailcow`, `UNBOUND_HOST=unbound-mailcow` und `PANEL_EXTERN_NETZ=<Mailcow-Netz>` (Namen: `docker network ls`) |
+| erstmal ohne Virenscan | `COMPOSE_PROFILES=` (leer), die drei anderen weglassen — das Panel läuft, der Scan bleibt aus |
+
+Warum die Wahl: Ein zweites ClamAV neben einem vorhandenen kostet rund 1,5 GB Arbeitsspeicher
+für nichts. `PANEL_EXTERN_NETZ` hängt das Panel an ein bereits vorhandenes Docker-Netz, damit es
+dessen ClamAV/unbound per Containernamen erreicht — deklarativ in der Compose, ohne
+`docker network connect` von Hand.
+
+Dann starten:
+
+```bash
+docker compose up -d
+```
+
+**Auf einem Server mit Shell-Zugriff** kannst du dir die `.env` auch abnehmen lassen:
+`./einrichten.sh` sieht nach, was schon läuft, und trägt genau die obigen Werte für dich ein. Das
+Skript ist bequem, aber **nicht nötig** — in einem Docker-Panel setzt du die Werte einfach dort.
 
 Ohne jede `.env` startet der Stack **ohne** ClamAV und unbound (beide hinter Profilen); Panel,
-n8n und Datenbank laufen trotzdem. Das Skript `einrichten.sh` bleibt als Bequemlichkeit — es
-erkennt Vorhandenes und trägt genau diese Werte für dich ein —, ist aber nicht nötig.
+n8n und Datenbank laufen trotzdem.
 
 Sonst ist an Konfiguration nichts nötig: Alle Schlüssel erzeugen n8n und das Panel beim
 ersten Start selbst und legen sie in ihren Volumes ab. Ports, Zeitzone und die öffentliche
