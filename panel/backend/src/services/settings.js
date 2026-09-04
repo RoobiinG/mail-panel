@@ -62,6 +62,11 @@ const FELDER = {
   aufsicht_takt:          { env: 'AUFSICHT_TAKT', geheim: false, standard: '15' },
   aufsicht_soll:          { geheim: false },
   aufsicht_letzter_lauf:  { geheim: false },
+  // Bestands-Triage (Workflow 04) im Hintergrund: alle N Stunden selbst nachsehen,
+  // ob noch unsortierte Bestands-Mails da sind. 0 = aus (nur manueller Start).
+  // Ungefaehrlich fuer die KI: der Budget-Deckel im Sammel-Knoten begrenzt die
+  // Klassifizierungen pro Tag, schon Sortiertes kostet nichts.
+  bestand_intervall:      { env: 'BESTAND_INTERVALL', geheim: false, standard: '0' },
 };
 
 function hole(key) {

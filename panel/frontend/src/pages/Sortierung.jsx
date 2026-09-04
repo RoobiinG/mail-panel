@@ -884,7 +884,7 @@ export default function Sortierung() {
                 placeholder="z.B. Games"
               />
               <span className="text-[11px] text-panel-muted">
-                2–40 Zeichen, nur Buchstaben, Zahlen, Leerzeichen, - und _
+                2–40 Zeichen: Buchstaben, Zahlen, Leerzeichen und - _ &amp; + ( )
               </span>
             </label>
 

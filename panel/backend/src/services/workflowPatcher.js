@@ -234,6 +234,25 @@ function bestandKnoten(konto, position) {
   };
 }
 
+// Zeitplan-Auslöser für Workflow 04: lässt die Bestands-Triage alle N Stunden im
+// Hintergrund laufen (zusätzlich zum manuellen Start). Ungefährlich für die KI —
+// der Budget-Deckel im Sammel-Knoten (budgetInSammeln) begrenzt die Abfragen pro
+// Tag und überspringt schon Sortiertes; ein häufiger Lauf läuft dann leer.
+// Muster wie in Workflow 02/03 (scheduleTrigger).
+function bestandZeitplanKnoten(stunden, position) {
+  const n = Math.max(1, Math.floor(Number(stunden) || 0));
+  return {
+    parameters: {
+      rule: { interval: [{ field: 'hours', hoursInterval: n }] },
+    },
+    id: `${PRAEFIX}bestand-zeitplan`,
+    name: 'Zeitplan: Bestand',
+    type: 'n8n-nodes-base.scheduleTrigger',
+    typeVersion: 1.2,
+    position,
+  };
+}
+
 // ─── Gemeinsame Helfer ───────────────────────────────────────────────────────
 
 // Entfernt alle Panel-Knoten und die Verbindungen, die auf sie zeigen
@@ -822,13 +841,25 @@ async function bestandSynchronisieren(konten, credentialId, aktionenWorkflowId) 
   // Abrufkette: Manuell starten -> Bestand: A -> Bestand: B -> ... -> Sammler
   // (nacheinander, damit der Sammel-Knoten nur einmal läuft)
   let vorheriger = kopf.name;
+  let erstesKonto = null;
   konten.forEach((konto, i) => {
     const knoten = bestandKnoten(konto, [440 + i * 220, 100]);
+    if (i === 0) erstesKonto = knoten.name;
     workflow.nodes.push(knoten);
     workflow.connections[vorheriger] = { main: [[{ node: knoten.name, type: 'main', index: 0 }]] };
     vorheriger = knoten.name;
   });
   workflow.connections[vorheriger] = { main: [[{ node: sammler.name, type: 'main', index: 0 }]] };
+
+  // Optionaler Hintergrund-Zeitplan: lässt WF04 alle N Stunden von selbst laufen
+  // (zusätzlich zum manuellen Start), speist dieselbe Kette. 0 = aus. Der
+  // Budget-Deckel im Sammel-Knoten schützt die KI. WF04 muss dafür aktiv sein.
+  const bestandIntervall = Math.floor(Number(settings.hole('bestand_intervall')) || 0);
+  if (bestandIntervall > 0 && erstesKonto) {
+    const zeitplan = bestandZeitplanKnoten(bestandIntervall, [240, 320]);
+    workflow.nodes.push(zeitplan);
+    workflow.connections[zeitplan.name] = { main: [[{ node: erstesKonto, type: 'main', index: 0 }]] };
+  }
 
   // Quellenliste im Sammel-Knoten aktualisieren
   if (sammler.parameters?.jsCode) {
@@ -1202,5 +1233,5 @@ module.exports = {
   alleSynchronisieren, triageSynchronisieren, bestandSynchronisieren, newsletterSynchronisieren, basisSetup,
   // für Tests
   panelKnotenEntfernen, quellenEintragen, budgetInSammeln, triggerKnoten, setKnoten, bestandKnoten,
-  themenKetteEinbauen, einsortierenKnoten,
+  themenKetteEinbauen, einsortierenKnoten, bestandZeitplanKnoten,
 };

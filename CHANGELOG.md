@@ -2,6 +2,28 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.8.2.0] - 2026-09-04 (Build 81) — *Bestands-Triage im Hintergrund + Ordnernamen mit & ( )*
+
+### Feature: Bestands-Triage (Workflow 04) optional im Hintergrund
+- Neue Einstellung **`BESTAND_INTERVALL`** (Stunden, `0` = aus). Ist sie > 0, bekommt WF04 beim
+  Synchronisieren einen **Zeitplan-Auslöser** (`scheduleTrigger`, alle N Stunden) und arbeitet
+  den Rest-Bestand von selbst ab — zusätzlich zum manuellen Start.
+- **Kein KI-Overload möglich:** Der Budget-Wächter im Sammel-Knoten (Build 75) begrenzt die
+  Klassifizierungen aufs Tagesbudget und überspringt schon Sortiertes. Nach Abarbeitung läuft
+  der Zeitplan quasi leer. Der Auslöser ist ein Panel-Knoten (`panel-bestand-zeitplan`) und wird
+  bei jedem Sync neu gebaut; `0` entfernt ihn wieder. WF04 muss „aktiv" sein, damit er feuert.
+
+### Fix: Ordnernamen dürfen `&`, `+`, `(`, `)` enthalten
+- `ordnerNormalisieren` (Themen-Ordner) ließ nur Buchstaben/Ziffern/Leerzeichen/`- _` zu — ein
+  Name wie **„Deutsche Post & DHL"** wurde abgewiesen. Jetzt sind zusätzlich `& + ( )` erlaubt.
+  Sicher, weil imapflow den Namen selbst nach modified-UTF-7 kodiert; Pfadtrenner (`/ \ .`) und
+  n8n-Ausdrücke (`= {{ ${`) bleiben blockiert. Fehlermeldung und UI-Hinweis angepasst.
+
+### System-Auswirkungen
+- **DB-Migration:** nein.
+- **n8n-Workflow 04:** bekommt bei gesetztem `BESTAND_INTERVALL` beim nächsten Sync den
+  Zeitplan-Knoten; sonst unverändert. Standard `0` → bestehende Installationen unverändert.
+
 ## [3.8.1.2] - 2026-09-04 (Build 80) — *Fix: ALLOWED_ORIGIN wird an den Container durchgereicht*
 
 - **Bug:** Die README verlangt hinter einem Reverse Proxy `ALLOWED_ORIGIN` (sonst lassen sich

@@ -505,7 +505,7 @@ router.post('/katalog', async (req, res) => {
   const name = themen.ordnerNormalisieren(ordner, konto);
   if (!name) {
     return res.status(400).json({
-      error: 'Ungültiger Ordnername. Erlaubt sind 2–40 Zeichen aus Buchstaben, Zahlen, Leerzeichen, - und _; System- und Kategorieordner sind gesperrt.',
+      error: 'Ungültiger Ordnername. Erlaubt sind 2–40 Zeichen aus Buchstaben, Zahlen, Leerzeichen und - _ & + ( ); Pfadtrenner, System- und Kategorieordner sind gesperrt.',
     });
   }
   try {

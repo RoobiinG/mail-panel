@@ -235,13 +235,20 @@ Jetzt werden alle eingehenden E-Mails zwar von der KI analysiert und im Log erfa
 
 ## Schritt 10 — Altbestand aufarbeiten
 
-`04 - Bestands-Triage` arbeitet die Mails ab, die schon im Postfach liegen. Er läuft
-**nur, wenn du ihn manuell startest** — es gibt keinen Zeitplan.
+`04 - Bestands-Triage` arbeitet die Mails ab, die schon im Postfach liegen. Er läuft ab Werk
+**nur, wenn du ihn manuell startest**.
 
 Erst mit einem kleinen Limit (10) in den Abruf-Knoten testen, dann auf 100 stellen und so
 oft starten, bis der Bestand durch ist. Die Klassifizierung ist auf einen Gemini-Aufruf alle
 vier Sekunden gedrosselt, damit das Freikontingent reicht: 300 Mails brauchen etwa
 20 Minuten. Das ist so gewollt.
+
+**Optional: im Hintergrund laufen lassen.** Setzt du `BESTAND_INTERVALL=6` in der `.env`
+(Stunden; `0` = aus), läuft die Bestands-Triage zusätzlich alle sechs Stunden von selbst und
+holt nach, was noch unsortiert ist. Das kann die KI **nicht** überlasten: Der
+KI-Tagesbudget-Deckel (`GEMINI_TAGESBUDGET`, Standard 400) begrenzt die Klassifizierungen, und
+schon Sortiertes kostet kein Budget — nach ein paar Tagen läuft der Zeitplan quasi leer. Nach
+dem Setzen einmal **Workflows → Synchronisieren**; Workflow 04 muss dafür „aktiv" sein.
 
 **Damit ist die Grundeinrichtung fertig.** Alles Folgende ist optional.
 

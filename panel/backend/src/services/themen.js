@@ -95,8 +95,11 @@ function ordnerNormalisieren(roh, konto = {}) {
   if (name.startsWith('=') || name.includes('{{') || name.includes('${')) return null;
   // Pfadtrenner wuerden einen Unterordner an fremder Stelle erzeugen
   if (/[/\\.]/.test(name)) return null;
-  // Nur Buchstaben (inkl. Umlaute), Ziffern, Leerzeichen, Bindestrich, Unterstrich
-  if (!/^[\p{L}\p{N} _-]+$/u.test(name)) return null;
+  // Buchstaben (inkl. Umlaute), Ziffern, Leerzeichen und ein paar gaengige
+  // Zeichen aus echten Ordnernamen: - _ & + ( ). Kein Pfadtrenner, kein "." und
+  // (durch die Pruefung oben) kein n8n-Ausdruck. & und + sind mit imapflow sicher,
+  // das den Namen selbst nach modified-UTF-7 kodiert.
+  if (!/^[\p{L}\p{N} _&+()-]+$/u.test(name)) return null;
   if (reserviert(konto).has(name.toLowerCase())) return null;
 
   return name;

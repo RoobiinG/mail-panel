@@ -79,3 +79,21 @@ describe('budgetInSammeln', () => {
     assert.match(s.parameters.jsCode, /PANEL:QUELLEN-ENDE/);
   });
 });
+
+// Der Hintergrund-Zeitplan für Workflow 04 (Bestands-Triage). Der Budget-Deckel
+// schützt die KI schon — hier wird nur der Auslöser-Knoten festgenagelt.
+describe('bestandZeitplanKnoten', () => {
+  test('scheduleTrigger mit dem gewünschten Stundenintervall', () => {
+    const n = patcher.bestandZeitplanKnoten(3, [0, 0]);
+    assert.equal(n.type, 'n8n-nodes-base.scheduleTrigger');
+    assert.equal(n.typeVersion, 1.2);
+    assert.equal(n.parameters.rule.interval[0].field, 'hours');
+    assert.equal(n.parameters.rule.interval[0].hoursInterval, 3);
+    assert.match(String(n.id), /^panel-/, 'Panel-Knoten (wird bei jedem Sync neu gebaut)');
+  });
+
+  test('erzwingt mindestens 1 Stunde und rundet ab', () => {
+    assert.equal(patcher.bestandZeitplanKnoten(0, [0, 0]).parameters.rule.interval[0].hoursInterval, 1);
+    assert.equal(patcher.bestandZeitplanKnoten(2.7, [0, 0]).parameters.rule.interval[0].hoursInterval, 2);
+  });
+});
