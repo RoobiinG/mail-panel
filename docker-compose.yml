@@ -133,6 +133,8 @@ services:
       - AUFSICHT_AKTIV=${AUFSICHT_AKTIV:-}
       - AUFSICHT_REPARIEREN=${AUFSICHT_REPARIEREN:-}
       - AUFSICHT_TAKT=${AUFSICHT_TAKT:-}
+      # Bestands-Triage im Hintergrund (Stunden, 0=aus) — Erklaerung in .env.example
+      - BESTAND_INTERVALL=${BESTAND_INTERVALL:-}
     volumes:
       - panel_data:/app/data
     ports:
