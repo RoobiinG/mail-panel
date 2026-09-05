@@ -26,7 +26,7 @@ const sortierung = require('./sortierung');
 // will, sollen gar nicht erst KI-Budget kosten. Die Regeln werden je Konto
 // EINMAL geladen — entscheiden() bekommt schnell mal hunderte Kandidaten, da
 // soll nicht jede Zeile die Datenbank erneut befragen.
-function ruhePruefer() {
+function regelPruefer() {
   const cache = new Map();
   return (kontoName, von, betreff) => {
     const name = String(kontoName || '');
@@ -39,8 +39,7 @@ function ruhePruefer() {
       cache.set(name, regeln);
     }
     // Erste passende Regel gewinnt — dieselbe Rangfolge wie in pruefeRegeln.
-    const treffer = cache.get(name).find((r) => sortierung.passt(r, von, betreff));
-    return Boolean(treffer) && (treffer.aktion || 'verschieben') === 'behalten';
+    return cache.get(name).find((r) => sortierung.passt(r, von, betreff)) || null;
   };
 }
 
@@ -52,7 +51,10 @@ function tagesbudget() {
 function heuteVerbraucht() {
   try {
     return db.prepare(
-      "SELECT COUNT(*) n FROM quarantine_log WHERE created_at >= date('now','localtime')",
+      // ki = 0 sind Mails, die eine eigene Regel sortiert hat — die haben Gemini
+      // nie gesehen und dürfen das Tageslimit nicht anknabbern.
+      "SELECT COUNT(*) n FROM quarantine_log WHERE created_at >= date('now','localtime')"
+      + ' AND IFNULL(ki, 1) = 1',
     ).get().n;
   } catch { return 0; }
 }
@@ -87,21 +89,35 @@ function entscheiden(kandidaten) {
   const rest = grenze === 0 ? Infinity : Math.max(0, grenze - verbraucht);
 
   const erlaubt = [];
+  const ruheIndizes = [];
   let uebersprungenGesehen = 0;
   let uebersprungenBudget = 0;
   let uebersprungenRuhe = 0;
-  const inRuhe = ruhePruefer();
+  // Wie viele Plätze am Tagesbudget sind in diesem Lauf schon vergeben? Nicht
+  // erlaubt.length nehmen: Darin stecken auch die Mails, die eine Regel ohne
+  // KI sortiert.
+  let kiPlaetze = 0;
+  const regelFuer = regelPruefer();
 
   for (let i = 0; i < liste.length; i++) {
     const k = liste[i] || {};
-    if (inRuhe(k.konto, k.von, k.betreff)) { uebersprungenRuhe++; continue; }
+    const regel = regelFuer(k.konto, k.von, k.betreff);
+    if (regel && (regel.aktion || 'verschieben') === 'behalten') {
+      uebersprungenRuhe++; ruheIndizes.push(i); continue;
+    }
     if (schonGesehen(k.konto, k.von, k.betreff)) { uebersprungenGesehen++; continue; }
-    if (erlaubt.length >= rest) { uebersprungenBudget++; continue; }
+    // Eine Regel sortiert im Workflow vor der KI-Abfrage ("Gleich sortieren?").
+    // Solche Mails laufen an Gemini vorbei und kosten deshalb kein Budget —
+    // sonst bremst der Deckel genau das aus, was gar nichts kostet.
+    if (regel) { erlaubt.push(i); continue; }
+    if (kiPlaetze >= rest) { uebersprungenBudget++; continue; }
+    kiPlaetze++;
     erlaubt.push(i);
   }
 
   return {
     erlaubt,
+    ruheIndizes,
     budget: {
       grenze,
       verbraucht,
@@ -120,10 +136,16 @@ module.exports = { entscheiden, tagesbudget, heuteVerbraucht, schonGesehen };
 // weiter — alles andere fällt vor dem KI-Aufruf weg und kostet kein Budget.
 function filtern(mails) {
   const liste = Array.isArray(mails) ? mails : [];
-  const { erlaubt, budget, uebersprungen } = entscheiden(
+  const { erlaubt, ruheIndizes, budget, uebersprungen } = entscheiden(
     liste.map((m) => ({ konto: m && m.konto, von: m && m.von, betreff: m && m.betreff })),
   );
-  return { mails: erlaubt.map((i) => liste[i]), budget, uebersprungen, gesamt: liste.length };
+  return {
+    mails: erlaubt.map((i) => liste[i]),
+    ruheMails: (ruheIndizes || []).map((i) => liste[i]),
+    budget,
+    uebersprungen,
+    gesamt: liste.length,
+  };
 }
 
 module.exports.filtern = filtern;

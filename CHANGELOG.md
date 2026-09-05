@@ -2,6 +2,42 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.8.7.0] - 2026-09-05 (Build 87) — *Die Bestands-Triage kommt endlich voran*
+
+### Fix: Immer dieselben hundert Mails
+- **Der Fehler.** Der IMAP-Knoten in Workflow 04 holt „die ersten 100 Mails" des Posteingangs.
+  Die IMAP-Suche liefert aufsteigend nach UID, der Knoten schneidet vorn ab — es waren also bei
+  jedem Lauf **dieselben** hundert. Alles, was liegen bleibt (und die KI lässt Unklares bewusst
+  liegen), stand beim nächsten Mal wieder ganz vorn. Nach ein, zwei Läufen bewegte sich nichts
+  mehr, während zehntausende Mails dahinter warteten — und der Lauf war trotzdem grün.
+- **Die Lösung.** Ein neuer Knoten **„Panel: Bestand-Auswahl"** steht jetzt am Anfang von
+  Workflow 04 und fragt das Panel, welche UIDs dieser Lauf holen soll. Das Panel weiß als
+  Einziges, was schon entschieden ist: was in der Sortier-Inbox liegt, was per Regel in Ruhe
+  gelassen wird — und wo der letzte Lauf aufgehört hat. Damit rückt das Fenster bei jedem Lauf
+  weiter, statt festzustecken.
+- Ein Zeiger je Konto sorgt dafür, dass auch Mails, die sich partout nicht entscheiden lassen
+  (kein Absender im Kopf, Zielordner fehlt), höchstens **ein** Fenster blockieren statt den
+  ganzen Bestand. Nach einer vollen Runde kommen sie erneut dran.
+- Angeboten wird nur, was das **Tagesbudget** auch hergibt — sonst liefe der Zeiger über Mails
+  hinweg, die gar nicht drankamen.
+
+### Fix: Eigene Regeln haben KI-Budget verbraucht
+- Eine Mail, auf die eine Sortier-Regel passt, läuft im Workflow **vor** der KI-Abfrage ab
+  („Gleich sortieren?") — Gemini sieht sie nie. Trotzdem zählte sie als KI-Einordnung und
+  belegte einen Platz im Tagesbudget. Genau der Weg, der einen großen Altbestand schnell
+  abräumt, war damit ausgebremst.
+- Jetzt zählt nur noch, was wirklich bei der KI war (neue Spalte `ki` im Protokoll). Und der
+  Budget-Wächter lässt Regel-Mails auch dann durch, wenn das Tagesbudget schon erschöpft ist:
+  Sie kosten nichts.
+
+### Kleinigkeiten
+- **Kein Hinweis-Item mehr.** Fand ein Lauf nichts zu tun, schickte der Sammel-Knoten bisher
+  ein „nichts zu tun"-Item los. Das lief als Schein-Mail durch die ganze Kette und kostete am
+  Ende eine KI-Abfrage mit leerem Text. Jetzt endet der Lauf einfach.
+- **„Zuletzt gelaufen"** im Dashboard stimmt auch dann, wenn ein Lauf nichts zu tun fand.
+- Wird eine **„In Ruhe lassen"-Regel gelöscht**, stehen die Mails, die nur ihretwegen
+  übersprungen wurden, wieder zur Sortierung an.
+
 ## [3.8.6.1] - 2026-09-05 (Build 86) — *Zwei Abbrüche aus dem laufenden Betrieb behoben*
 
 ### Fix: „Credential with ID … does not exist"

@@ -240,20 +240,29 @@ async function bestandAnwenden(konto, regel, opt = {}) {
  * wurde die Regel in /sort bereits gezaehlt — ein zweites Mal waere geschummelt.
  * Es zaehlt die ERSTE passende Regel, genau wie bei pruefeRegeln.
  */
-function istBehalten(kontoId, von, betreff) {
-  if (!kontoId) return false;
+// Die erste passende Regel — ohne den Treffer-Zähler hochzusetzen. Gebraucht an
+// allen Stellen, die nur wissen wollen, ob eine Regel greift: Der Zähler soll
+// zählen, wie oft eine Regel wirklich sortiert hat, nicht wie oft jemand
+// nachgeschaut hat.
+function regelTreffer(kontoId, von, betreff) {
+  if (!kontoId) return null;
   try {
     for (const regel of db.prepare('SELECT * FROM sort_rules WHERE konto_id = ?').all(kontoId)) {
-      if (!passt(regel, von, betreff)) continue;
-      return (regel.aktion || 'verschieben') === 'behalten';
+      if (passt(regel, von, betreff)) return regel;
     }
   } catch (err) {
-    loggen('warn', 'backend:sortierung', `istBehalten fehlgeschlagen: ${err.message}`);
+    loggen('warn', 'backend:sortierung', `regelTreffer fehlgeschlagen: ${err.message}`);
   }
-  return false;
+  return null;
+}
+
+function istBehalten(kontoId, von, betreff) {
+  const regel = regelTreffer(kontoId, von, betreff);
+  return Boolean(regel) && (regel.aktion || 'verschieben') === 'behalten';
 }
 module.exports = {
   pruefeRegeln,
+  regelTreffer,
   istBehalten,
   bestandAnwenden,
   abgleichen,

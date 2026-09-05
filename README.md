@@ -236,10 +236,15 @@ Jetzt werden alle eingehenden E-Mails zwar von der KI analysiert und im Log erfa
 ## Schritt 10 — Altbestand aufarbeiten
 
 `04 - Bestands-Triage` arbeitet die Mails ab, die schon im Postfach liegen. Er läuft ab Werk
-**nur, wenn du ihn manuell startest**.
+**nur, wenn du ihn manuell startest** — per Knopf **„Bestand jetzt sortieren"** auf dem
+Dashboard.
 
-Erst mit einem kleinen Limit (10) in den Abruf-Knoten testen, dann auf 100 stellen und so
-oft starten, bis der Bestand durch ist. Die Klassifizierung ist auf einen Gemini-Aufruf alle
+**Welche Mails drankommen, sucht das Panel aus.** Der Workflow fragt zu Beginn jedes Laufs
+nach, was im Posteingang noch offen ist, und holt genau diese Mails. Schon entschiedene
+bleiben draußen — auch die, die absichtlich liegen bleiben (unklar oder „in Ruhe lassen").
+Deshalb kommt jeder Lauf ein Stück weiter, statt immer wieder bei denselben hundert Mails
+anzufangen. Du musst also nichts am Limit im Abruf-Knoten drehen: einfach so oft starten,
+bis der Bestand durch ist. Die Klassifizierung ist auf einen Gemini-Aufruf alle
 sechs Sekunden gedrosselt, damit das Freikontingent reicht: 300 Mails brauchen etwa
 30 Minuten. Das ist so gewollt — der Gratis-Tarif begrenzt nicht nur den Tag, sondern auch
 die Minute, und Inbox- und Bestands-Triage teilen sich dieses Limit. Wer ein bezahltes
@@ -251,6 +256,12 @@ holt nach, was noch unsortiert ist. Das kann die KI **nicht** überlasten: Der
 KI-Tagesbudget-Deckel (`GEMINI_TAGESBUDGET`, Standard 400) begrenzt die Klassifizierungen, und
 schon Sortiertes kostet kein Budget — nach ein paar Tagen läuft der Zeitplan quasi leer. Nach
 dem Setzen einmal **Workflows → Synchronisieren**; Workflow 04 muss dafür „aktiv" sein.
+
+**Der schnellste Weg durch einen großen Altbestand sind eigene Regeln.** Eine Mail, auf die
+eine Regel unter *Sortierung* passt, wird verschoben, **ohne** dass die KI sie ansieht — sie
+kostet also nichts vom Tagesbudget. Wer die zehn häufigsten Absender-Domains als Regel
+anlegt, räumt damit oft den halben Posteingang ab, während die 400 KI-Einordnungen für das
+Unbekannte übrig bleiben.
 
 **Damit ist die Grundeinrichtung fertig.** Alles Folgende ist optional.
 

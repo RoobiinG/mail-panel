@@ -8,6 +8,7 @@ const clamav  = require('../services/clamav');
 const google  = require('../services/google');
 const sortierung = require('../services/sortierung');
 const budget  = require('../services/budget');
+const bestand = require('../services/bestand');
 const belegLeser = require('../services/belegLeser');
 const settings = require('../services/settings');
 const themen  = require('../services/themen');
@@ -110,9 +111,21 @@ function bestandslaufMerken(durch, gesamt) {
   } catch { /* ein fehlender Zeitstempel darf den Lauf nicht aufhalten */ }
 }
 
+// Mails, die wegen einer "In Ruhe lassen"-Regel uebersprungen wurden, sind
+// entschieden — sie bleiben liegen. Ohne Vermerk wuerde das Panel sie bei jedem
+// Lauf erneut anbieten und damit Plaetze im Auswahlfenster verbrauchen.
+function ruheVermerken(mails) {
+  for (const m of mails || []) {
+    if (!m || m.uid == null) continue;
+    const konto = kontoZeile(m.konto);
+    if (konto) bestand.erledigtMerken(konto.id, m.uid, 'ruhe');
+  }
+}
+
 router.post('/budget-filter', express.json({ limit: '25mb' }), (req, res) => {
   try {
     const ergebnis = budget.filtern((req.body || {}).mails);
+    ruheVermerken((ergebnis.ruheMails || []).map((m) => (m && m.json) || m));
     bestandslaufMerken(ergebnis.mails?.length, ergebnis.gesamt);
     res.json(ergebnis);
   } catch (err) {
@@ -121,9 +134,31 @@ router.post('/budget-filter', express.json({ limit: '25mb' }), (req, res) => {
   }
 });
 
+// Welche Mails soll die Bestands-Triage in diesem Lauf ueberhaupt holen? Der
+// Auswahl-Knoten am Anfang von Workflow 04 fragt hier nach den UIDs — siehe
+// services/bestand.js, warum das noetig ist.
+router.post('/bestand-kandidaten', express.json(), async (req, res) => {
+  try {
+    const grenze = Number((req.body || {}).limit) || 0;
+    const auswahl = await bestand.kandidaten(grenze);
+    // Diesen Knoten ruft jeder Bestandslauf als Erstes auf — auch einer, der am
+    // Ende nichts zu tun findet. Damit stimmt "zuletzt gelaufen" im Dashboard
+    // auch dann, wenn gar nichts mehr zu sortieren war.
+    try { settings.setze('bestand_letzter_lauf', new Date().toISOString()); } catch { /* egal */ }
+    res.json(auswahl);
+  } catch (err) {
+    console.error('Bestand-Kandidaten-Fehler:', err.message);
+    // Ohne Auswahl holt der IMAP-Knoten nichts — besser als der alte Zustand,
+    // in dem er wieder bei den aeltesten hundert Mails angefangen haette.
+    res.status(500).json({ error: err.message, konten: {}, offen: {} });
+  }
+});
+
 router.post('/budget', express.json({ limit: '512kb' }), (req, res) => {
   try {
-    const ergebnis = budget.entscheiden((req.body || {}).kandidaten);
+    const kandidaten = (req.body || {}).kandidaten;
+    const ergebnis = budget.entscheiden(kandidaten);
+    ruheVermerken((ergebnis.ruheIndizes || []).map((i) => (kandidaten || [])[i]));
     bestandslaufMerken(ergebnis.erlaubt?.length, ergebnis.gesamt);
     res.json(ergebnis);
   } catch (err) {
@@ -227,8 +262,8 @@ router.get('/config', (req, res) => {
 // Aufgerufen von /log und von /einsortieren.
 function triageProtokollieren(b) {
   db.prepare(`
-    INSERT INTO quarantine_log (konto, von, betreff, kategorie, spam_score, zielordner, kurzfassung, list_unsubscribe, virus_name, dnsbl_treffer, thema, konfidenz, uid)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO quarantine_log (konto, von, betreff, kategorie, spam_score, zielordner, kurzfassung, list_unsubscribe, virus_name, dnsbl_treffer, thema, konfidenz, uid, ki)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     String(b.konto), String(b.von), b.betreff ?? null, b.kategorie ?? null,
     b.spam_score != null ? Number(b.spam_score) : null, b.zielordner ?? null,
@@ -236,6 +271,7 @@ function triageProtokollieren(b) {
     b.dnsbl_treffer ? JSON.stringify(b.dnsbl_treffer) : null,
     b.thema ?? null, b.konfidenz != null ? Number(b.konfidenz) : null,
     b.uid != null ? String(b.uid) : null,
+    b.ki === 0 ? 0 : 1,
   );
 
   // Newsletter-Absender fuer die Abbestellen-Seite mitzaehlen
@@ -292,14 +328,20 @@ router.post('/einsortieren', async (req, res) => {
     // bleiben. Sie sticht die KI-Einordnung — aber NICHT ziel_fest: Ein Virus
     // oder Blacklist-Treffer gehoert in die Quarantaene, auch wenn der Absender
     // sonst in Ruhe gelassen wird.
-    const inRuhe = !b.ziel_fest && konto
-      && sortierung.istBehalten(konto.id, b.von, b.betreff);
+    // Einmal nachsehen, ob eine eigene Regel greift — die Antwort wird gleich
+    // dreifach gebraucht: fuer "in Ruhe lassen", fuer den Vermerk und fuer die
+    // Frage, ob dieser Mail ueberhaupt ein KI-Aufruf zuzurechnen ist.
+    const regel = konto ? sortierung.regelTreffer(konto.id, b.von, b.betreff) : null;
+    const inRuhe = !b.ziel_fest && Boolean(regel)
+      && (regel.aktion || 'verschieben') === 'behalten';
 
     if (b.ziel_fest) {
       grund = 'Spam, Blacklist oder Virus — Ziel steht fest';
     } else if (inRuhe) {
       ordner = null;
       grund = 'Eigene Regel: bleibt unangetastet im Posteingang';
+      // Diese Mail ist entschieden und bleibt liegen: nicht wieder anbieten.
+      bestand.erledigtMerken(konto.id, b.uid, 'ruhe');
     } else if (konto) {
       const t = await themen.aufloesen({
         konto, vorschlag: b.thema, konfidenz: b.konfidenz, von: b.von,
@@ -324,7 +366,10 @@ router.post('/einsortieren', async (req, res) => {
       }
     }
 
-    triageProtokollieren({ ...b, zielordner: ordner });
+    // Eine Mail, die eine Regel trifft, laeuft im Workflow vor der KI-Abfrage
+    // ab ("Gleich sortieren?"). Sie als KI-Aufruf zu zaehlen, haette das
+    // Tagesbudget genau dann leergesaugt, wenn man sich Regeln angelegt hat.
+    triageProtokollieren({ ...b, zielordner: ordner, ki: regel ? 0 : 1 });
 
     // Erst nach dem Protokollieren zaehlen — sonst uebersieht die Zaehlung die
     // gerade laufende Mail.

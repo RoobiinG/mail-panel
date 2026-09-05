@@ -4,6 +4,7 @@ const express = require('express');
 const db      = require('../db');
 const { loggen } = require('../services/panelLog');
 const imap = require('../services/imap');
+const bestand = require('../services/bestand');
 const themen = require('../services/themen');
 const sortierung = require('../services/sortierung');
 const belegLeser = require('../services/belegLeser');
@@ -98,8 +99,12 @@ router.post('/regeln', async (req, res) => {
 // DELETE /api/sortierung/regeln/:id — Regel loeschen
 router.delete('/regeln/:id', (req, res) => {
   try {
+    const alt = db.prepare('SELECT konto_id, aktion FROM sort_rules WHERE id = ?').get(Number(req.params.id));
     const info = db.prepare('DELETE FROM sort_rules WHERE id = ?').run(Number(req.params.id));
     if (info.changes === 0) return res.status(404).json({ error: 'Regel nicht gefunden.' });
+    // War es eine "In Ruhe lassen"-Regel, wurden Mails ihretwegen dauerhaft
+    // uebersprungen. Ohne die Regel sollen sie wieder zur Sortierung anstehen.
+    if (alt && (alt.aktion || 'verschieben') === 'behalten') bestand.ruheVergessen(alt.konto_id);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

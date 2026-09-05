@@ -151,3 +151,49 @@ describe('In Ruhe lassen', () => {
     assert.equal(t, 0, 'die Pruefung beim Einsortieren darf nicht mitzaehlen');
   });
 });
+
+// Regeln sollen den Bestand schnell machen: Sie sortieren ohne KI. Also duerfen
+// sie auch nicht am KI-Tagesbudget zehren — sonst bremst der Deckel genau das
+// aus, was gar nichts kostet.
+describe('Regeln kosten kein Budget', () => {
+  const kontoAnlegen = () => db.prepare(
+    "INSERT INTO accounts (name, host, port, username, password_enc, aktiv) VALUES ('K', 'h', 993, 'u', 'x', 1)",
+  ).run().lastInsertRowid;
+
+  test('Mails mit Verschiebe-Regel duerfen auch ueber das Budget hinaus mit', () => {
+    settings.setze('gemini_tagesbudget', '1');
+    const id = kontoAnlegen();
+    db.prepare('INSERT INTO sort_rules (konto_id, typ, muster, zielordner, aktion) VALUES (?, ?, ?, ?, ?)')
+      .run(id, 'domain', 'shop.de', 'Bestellungen', 'verschieben');
+    const e = budget.entscheiden([
+      { konto: 'K', von: 'a@shop.de', betreff: '1' },
+      { konto: 'K', von: 'b@shop.de', betreff: '2' },
+      { konto: 'K', von: 'c@fremd.de', betreff: '3' },
+      { konto: 'K', von: 'd@fremd.de', betreff: '4' },
+    ]);
+    assert.deepEqual(e.erlaubt, [0, 1, 2],
+      'beide Regel-Mails plus die eine, die das Budget noch hergibt');
+    assert.equal(e.uebersprungen.budget, 1);
+  });
+
+  test('nur ein KI-Aufruf zaehlt gegen das Budget', () => {
+    settings.setze('gemini_tagesbudget', '5');
+    // Vier Zeilen von heute, aber drei davon hat eine Regel sortiert.
+    db.prepare("INSERT INTO quarantine_log (konto, von, ki) VALUES ('K','a@x.de',0)").run();
+    db.prepare("INSERT INTO quarantine_log (konto, von, ki) VALUES ('K','b@x.de',0)").run();
+    db.prepare("INSERT INTO quarantine_log (konto, von, ki) VALUES ('K','c@x.de',0)").run();
+    db.prepare("INSERT INTO quarantine_log (konto, von, ki) VALUES ('K','d@x.de',1)").run();
+    assert.equal(budget.heuteVerbraucht(), 1);
+  });
+
+  test('die in Ruhe gelassenen werden mit Index gemeldet', () => {
+    const id = kontoAnlegen();
+    db.prepare('INSERT INTO sort_rules (konto_id, typ, muster, zielordner, aktion) VALUES (?, ?, ?, ?, ?)')
+      .run(id, 'domain', 'ruhe.de', '', 'behalten');
+    const e = budget.entscheiden([
+      { konto: 'K', von: 'a@fremd.de', betreff: '1' },
+      { konto: 'K', von: 'b@ruhe.de', betreff: '2' },
+    ]);
+    assert.deepEqual(e.ruheIndizes, [1], 'damit das Panel sie dauerhaft vermerken kann');
+  });
+});

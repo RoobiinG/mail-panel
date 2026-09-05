@@ -104,3 +104,28 @@ describe('uidZahl() — der Grund für die Dubletten in der Sortier-Inbox', () =
     }
   });
 });
+
+// regelTreffer beantwortet nur die Frage "greift hier eine Regel?". Der
+// Treffer-Zaehler soll zeigen, wie oft eine Regel wirklich sortiert hat — nicht
+// wie oft jemand nachgesehen hat. Seit /einsortieren und der Budget-Waechter
+// bei jeder Mail nachfragen, waere der Zaehler sonst dreimal so hoch.
+const db = require('../src/db');
+
+describe('regelTreffer', () => {
+  test('findet die erste passende Regel, ohne zu zaehlen', () => {
+    const konto = db.prepare(
+      "INSERT INTO accounts (name, host, port, username, password_enc, aktiv)"
+      + " VALUES ('Z', 'h', 993, 'u', 'x', 1)",
+    ).run().lastInsertRowid;
+    db.prepare('INSERT INTO sort_rules (konto_id, typ, muster, zielordner, aktion) VALUES (?, ?, ?, ?, ?)')
+      .run(konto, 'domain', 'zaehl.de', 'Ordner', 'verschieben');
+
+    const treffer = s.regelTreffer(konto, 'a@zaehl.de', 'x');
+    assert.ok(treffer, 'die Regel passt');
+    assert.equal(treffer.zielordner, 'Ordner');
+    assert.equal(s.regelTreffer(konto, 'a@woanders.de', 'x'), null);
+
+    const zeile = db.prepare('SELECT treffer FROM sort_rules WHERE konto_id = ?').get(konto);
+    assert.equal(zeile.treffer, 0, 'nur pruefeRegeln darf den Zaehler hochsetzen');
+  });
+});

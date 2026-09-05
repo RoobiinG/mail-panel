@@ -208,7 +208,51 @@ function weichenKnoten(konten, position) {
   };
 }
 
+// Fragt das Panel, welche Mails dieser Bestandslauf holen soll.
+//
+// Ohne diesen Knoten holte der IMAP-Knoten stur die ersten hundert Mails des
+// Posteingangs — bei jedem Lauf dieselben. Alles, was liegen blieb (und die KI
+// laesst Unklares bewusst liegen), stand beim naechsten Mal wieder ganz vorn:
+// Die Triage lief gruen durch und kam trotzdem keinen Schritt weiter. Welche
+// UIDs offen sind, weiss nur das Panel — siehe services/bestand.js.
+const AUSWAHL_KNOTEN = 'Panel: Bestand-Auswahl';
+
+function bestandAuswahlKnoten(position, credentialId) {
+  const knoten = {
+    parameters: {
+      method: 'POST',
+      url: 'http://panel:3002/api/internal/bestand-kandidaten',
+      sendBody: true,
+      contentType: 'json',
+      specifyBody: 'json',
+      jsonBody: '={{ JSON.stringify({}) }}',
+      options: {},
+    },
+    id: `${PRAEFIX}bestand-auswahl`,
+    name: AUSWAHL_KNOTEN,
+    type: 'n8n-nodes-base.httpRequest',
+    typeVersion: 4.2,
+    position,
+    // Antwortet das Panel nicht, holen die IMAP-Knoten nichts (siehe die
+    // Ersatz-UID unten). Lieber ein Lauf ohne Wirkung als einer, der wieder
+    // bei den aeltesten hundert Mails anfaengt.
+    alwaysOutputData: true,
+    onError: 'continueRegularOutput',
+  };
+  if (credentialId) {
+    knoten.parameters.authentication = 'genericCredentialType';
+    knoten.parameters.genericAuthType = 'httpHeaderAuth';
+    knoten.credentials = { httpHeaderAuth: { id: String(credentialId), name: PANEL_CREDENTIAL_NAME } };
+  }
+  return knoten;
+}
+
+// Eine UID, die es nicht gibt (siehe services/bestand.js). Steht sie im Filter,
+// findet die IMAP-Suche nichts — genau das ist bei "nichts zu tun" gewollt.
+const KEINE_UID = '4294967295';
+
 function bestandKnoten(konto, position) {
+  const auswahl = `$('${AUSWAHL_KNOTEN}').first().json`;
   return {
     parameters: {
       authentication: 'coreImapAccount',
@@ -216,6 +260,10 @@ function bestandKnoten(konto, position) {
       operation: 'getEmailsList',
       mailboxPath: postfach('INBOX'),
       limit: 100,
+      // Nur die Mails, die das Panel fuer diesen Lauf ausgesucht hat.
+      emailSearchFilters: {
+        uid: `={{ ${auswahl}?.konten?.[${JSON.stringify(konto.name)}] || '${KEINE_UID}' }}`,
+      },
       // headers wird für die Absender-IP der DNSBL-Prüfung gebraucht
       // attachmentsInfo liefert Namen und Größen der Anhänge — die Dateien
       // selbst holt sich das Panel später über die UID.
@@ -848,6 +896,11 @@ function budgetInSammeln(sammler) {
 
   // Vorhandenen Block herausnehmen und das kanonische Ende wiederherstellen.
   code = code.replace(/\n*\/\/ PANEL:BUDGET[\s\S]*$/, '\nreturn out;\n');
+  // "Nichts zu tun" heisst: keine Items. Frueher schickte die Vorlage stattdessen
+  // ein Hinweis-Item los — das lief als vermeintliche Mail durch die ganze Kette,
+  // kostete eine KI-Abfrage mit leerem Text und stand als Lauf in der Liste, der
+  // etwas getan zu haben schien.
+  code = code.replace(/return \[\{ json: \{ hinweis:[\s\S]*?\} \}\];/g, 'return [];');
   if (!/return out;\s*$/.test(`${code.replace(/\s+$/, '')}\n`)) return;
 
   const block = [
@@ -859,7 +912,7 @@ function budgetInSammeln(sammler) {
     '  const __r = await this.helpers.httpRequest({',
     "    method: 'POST', url: 'http://panel:3002/api/internal/budget',",
     "    headers: { 'X-Panel-Secret': __geheim, 'Content-Type': 'application/json' },",
-    '    body: { kandidaten: out.map((m) => ({ konto: m.json.konto, von: m.json.von, betreff: m.json.betreff })) },',
+    '    body: { kandidaten: out.map((m) => ({ konto: m.json.konto, von: m.json.von, betreff: m.json.betreff, uid: m.json.uid })) },',
     '    json: true,',
     '  });',
     '  if (__r && Array.isArray(__r.erlaubt)) {',
@@ -867,10 +920,12 @@ function budgetInSammeln(sammler) {
     '    __erlaubt = out.filter((__m, __i) => __ok.has(__i));',
     '  }',
     '} catch (__e) {',
-    "  return [{ json: { hinweis: 'Budget-Pruefung nicht moeglich (' + (__e.message || __e) + ') — es wird nichts sortiert.' } }];",
+    "  console.log('Budget-Pruefung nicht moeglich: ' + (__e.message || __e) + ' — es wird nichts sortiert.');",
+    '  return [];',
     '}',
     'if (__erlaubt.length === 0) {',
-    "  return [{ json: { hinweis: 'KI-Tagesbudget aufgebraucht oder nichts Neues zu sortieren — morgen geht es weiter.' } }];",
+    "  console.log('Nichts Neues zu sortieren oder Tagesbudget aufgebraucht.');",
+    '  return [];',
     '}',
     'return __erlaubt;',
   ].join('\n');
@@ -895,13 +950,16 @@ async function bestandSynchronisieren(konten, credentialId, aktionenWorkflowId) 
     throw new Error(`Workflow 04 passt nicht zur Vorlage (Knoten "${ANKER.bestand.kopf}"/"${ANKER.bestand.ziel}" fehlen).`);
   }
 
-  // Abrufkette: Manuell starten -> Bestand: A -> Bestand: B -> ... -> Sammler
-  // (nacheinander, damit der Sammel-Knoten nur einmal läuft)
-  let vorheriger = kopf.name;
-  let erstesKonto = null;
+  // Abrufkette: Start -> Panel-Auswahl -> Bestand: A -> Bestand: B -> Sammler
+  // (nacheinander, damit der Sammel-Knoten nur einmal läuft). Die Auswahl steht
+  // ganz vorn, weil die IMAP-Knoten ihre UID-Liste aus ihrer Antwort holen.
+  const auswahl = bestandAuswahlKnoten([240, 100], credentialId);
+  workflow.nodes.push(auswahl);
+  let vorheriger = auswahl.name;
+  const kettenStart = auswahl.name;
+  workflow.connections[kopf.name] = { main: [[{ node: auswahl.name, type: 'main', index: 0 }]] };
   konten.forEach((konto, i) => {
-    const knoten = bestandKnoten(konto, [440 + i * 220, 100]);
-    if (i === 0) erstesKonto = knoten.name;
+    const knoten = bestandKnoten(konto, [460 + i * 220, 100]);
     workflow.nodes.push(knoten);
     workflow.connections[vorheriger] = { main: [[{ node: knoten.name, type: 'main', index: 0 }]] };
     vorheriger = knoten.name;
@@ -912,18 +970,18 @@ async function bestandSynchronisieren(konten, credentialId, aktionenWorkflowId) 
   // (zusätzlich zum manuellen Start), speist dieselbe Kette. 0 = aus. Der
   // Budget-Deckel im Sammel-Knoten schützt die KI. WF04 muss dafür aktiv sein.
   const bestandIntervall = Math.floor(Number(settings.hole('bestand_intervall')) || 0);
-  if (bestandIntervall > 0 && erstesKonto) {
+  if (bestandIntervall > 0 && kettenStart) {
     const zeitplan = bestandZeitplanKnoten(bestandIntervall, [240, 320]);
     workflow.nodes.push(zeitplan);
-    workflow.connections[zeitplan.name] = { main: [[{ node: erstesKonto, type: 'main', index: 0 }]] };
+    workflow.connections[zeitplan.name] = { main: [[{ node: kettenStart, type: 'main', index: 0 }]] };
   }
 
   // Startknopf im Panel: Webhook-Ausloeser, nur mit dem Panel-Geheimnis nutzbar.
   // Speist dieselbe Kette wie der manuelle Start und der Zeitplan.
-  if (erstesKonto) {
+  if (kettenStart) {
     const haken = bestandWebhookKnoten([240, 460], credentialId);
     workflow.nodes.push(haken);
-    workflow.connections[haken.name] = { main: [[{ node: erstesKonto, type: 'main', index: 0 }]] };
+    workflow.connections[haken.name] = { main: [[{ node: kettenStart, type: 'main', index: 0 }]] };
   }
 
   // Quellenliste im Sammel-Knoten aktualisieren
@@ -1304,5 +1362,5 @@ module.exports = {
   panelKnotenEntfernen, quellenEintragen, budgetInSammeln, triggerKnoten, setKnoten, bestandKnoten,
   themenKetteEinbauen, einsortierenKnoten, bestandZeitplanKnoten,
   bestandWebhookKnoten, BESTAND_WEBHOOK_PFAD,
-  geminiRequestReparieren, credentialErneuern,
+  geminiRequestReparieren, credentialErneuern, bestandAuswahlKnoten, AUSWAHL_KNOTEN,
 };

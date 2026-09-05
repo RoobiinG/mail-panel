@@ -52,10 +52,12 @@ function tagesbudget() {
   return Number.isFinite(n) && n > 0 ? n : 0; // 0 = kein Deckel gesetzt
 }
 
-// Wie viele KI-Einordnungen heute? Jede quarantine_log-Zeile steht für einen
-// Gemini-Aufruf — das ist der Verbrauch, den das Tageslimit begrenzt.
+// Wie viele KI-Einordnungen heute? Gezählt wird, was Gemini wirklich gesehen
+// hat: Mails, die eine eigene Sortier-Regel trifft, laufen im Workflow an der
+// KI vorbei (ki = 0) und dürfen das Tageslimit nicht verbrauchen.
 function heuteVerbraucht() {
-  return zahl("SELECT COUNT(*) n FROM quarantine_log WHERE created_at >= date('now','localtime')");
+  return zahl("SELECT COUNT(*) n FROM quarantine_log WHERE created_at >= date('now','localtime')"
+    + ' AND IFNULL(ki, 1) = 1');
 }
 
 // ─── Die ganze Übersicht ─────────────────────────────────────────────────────

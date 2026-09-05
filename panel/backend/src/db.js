@@ -154,6 +154,19 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_sortinbox_status ON sort_inbox(status);
 
+  -- Bestands-Triage: Mails, die entschieden sind und trotzdem im Posteingang
+  -- bleiben. Ohne diese Liste böte das Panel dieselbe Mail bei jedem Lauf
+  -- wieder an, und die Triage käme nie über die ersten hundert Mails hinaus.
+  -- Verschobene Mails stehen hier bewusst NICHT: Die sind aus dem Posteingang
+  -- verschwunden, und scheitert das Verschieben, sollen sie wiederkommen.
+  CREATE TABLE IF NOT EXISTS bestand_erledigt (
+    konto_id INTEGER NOT NULL,
+    uid INTEGER NOT NULL,
+    grund TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (konto_id, uid)
+  );
+
   -- Eigene Aktionen: "Wenn eine Mail so aussieht, mach das damit."
   -- bedingung und konfig sind JSON; der Aktionen-Patcher baut daraus die
   -- Knoten in Workflow 07.
@@ -261,6 +274,10 @@ const migrations = [
   // bisher) oder 'behalten' — die Mail bleibt unangetastet im Posteingang und
   // taucht auch nicht mehr in der Sortier-Inbox auf.
   "ALTER TABLE sort_rules ADD COLUMN aktion TEXT NOT NULL DEFAULT 'verschieben'",
+  // Hat für diese Mail wirklich die KI gearbeitet? Eine Mail, die eine eigene
+  // Sortier-Regel trifft, läuft im Workflow an Gemini vorbei — sie darf das
+  // Tagesbudget nicht verbrauchen. Vorher zählte jede Zeile als KI-Aufruf.
+  'ALTER TABLE quarantine_log ADD COLUMN ki INTEGER DEFAULT 1',
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch { /* Spalte existiert schon */ }

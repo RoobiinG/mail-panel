@@ -116,3 +116,27 @@ describe('bestandWebhookKnoten', () => {
     assert.equal(patcher.bestandWebhookKnoten([0, 0], null).credentials, undefined);
   });
 });
+
+// Zwei Kleinigkeiten mit Wirkung: Die UID muss mit, sonst kann das Panel eine
+// in Ruhe gelassene Mail nicht dauerhaft vermerken. Und "nichts zu tun" muss
+// leer ausgehen — ein Hinweis-Item lief frueher als Schein-Mail durch die ganze
+// Kette und kostete am Ende eine KI-Abfrage mit leerem Text.
+describe('budgetInSammeln: Rueckmeldung ans Panel', () => {
+  test('schickt die UID mit', () => {
+    const s = frischerSammler();
+    patcher.budgetInSammeln(s);
+    assert.match(s.parameters.jsCode, /uid: m\.json\.uid/);
+  });
+
+  test('kein Hinweis-Item mehr, sondern gar keins', () => {
+    const s = frischerSammler();
+    s.parameters.jsCode = s.parameters.jsCode.replace(
+      "  return [{ json: { hinweis: 'nichts' } }];",
+      "  return [{ json: { hinweis: 'Keine Mails im Bestand gefunden.' } }];",
+    );
+    patcher.budgetInSammeln(s);
+    assert.doesNotMatch(s.parameters.jsCode, /json: \{ hinweis/,
+      'ein Hinweis-Item ist keine Mail und hat in der Kette nichts verloren');
+    assert.match(s.parameters.jsCode, /return \[\];/);
+  });
+});
