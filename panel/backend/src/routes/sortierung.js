@@ -946,6 +946,258 @@ router.get('/postfach-ordner', async (req, res) => {
   }
 });
 
+// ─── ABSENDER-STATISTIK ──────────────────────────────────────────────────────
+//
+// Bei 23.000 Mails im Posteingang ist die KI nicht das Werkzeug: 400 Einordnungen
+// am Tag brauchen Wochen. Eine Regel für den größten Absender räumt Tausende ab —
+// sofort, ohne KI, ohne Budget. Es wusste nur niemand, wer die großen Absender
+// sind. Genau das steht hier.
+
+// POST /api/sortierung/absender-zaehlen — { konto_id }
+// Liest alle Umschläge des Posteingangs. Dauert bei großen Postfächern.
+router.post('/absender-zaehlen', async (req, res) => {
+  const konto = kontoHolen(req.body?.konto_id);
+  if (!konto) return res.status(400).json({ error: 'Konto nicht gefunden.' });
+  try {
+    const { gesamt, ohneAbsender, absender } = await imap.absenderZaehlen({
+      ...themen.zugang(konto), ordner: 'INBOX',
+    });
+
+    // Nur die größten behalten — der lange Schwanz aus Einzelabsendern hilft
+    // beim Aufräumen nicht und bläht die Tabelle auf.
+    const merken = absender.slice(0, 300);
+    db.prepare('DELETE FROM absender_stat WHERE konto_id = ?').run(konto.id);
+    const einfuegen = db.prepare(
+      'INSERT INTO absender_stat (konto_id, adresse, domain, anzahl) VALUES (?, ?, ?, ?)',
+    );
+    const alle = db.transaction((liste) => {
+      for (const a of liste) einfuegen.run(konto.id, a.adresse, a.domain, a.anzahl);
+    });
+    alle(merken);
+
+    loggen('info', 'sortierung',
+      `${konto.name}: ${gesamt} Mails im Posteingang gezählt, ${absender.length} verschiedene Absender.`);
+    res.json({ ok: true, gesamt, ohneAbsender, absender: merken.length });
+  } catch (err) {
+    res.status(502).json({ error: `Posteingang nicht lesbar: ${err.message}` });
+  }
+});
+
+// GET /api/sortierung/absender?konto_id= — die größten Absender, nach Domain
+// gebündelt. Eine Domain ist die richtige Einheit: Newsletter kommen mal von
+// news@, mal von info@ derselben Firma, und eine Domain-Regel deckt beides ab.
+router.get('/absender', (req, res) => {
+  const kontoId = Number(req.query.konto_id);
+  if (!kontoId) return res.status(400).json({ error: 'konto_id fehlt' });
+  try {
+    const zeilen = db.prepare(`
+      SELECT domain, SUM(anzahl) AS anzahl, COUNT(*) AS adressen, MAX(aktualisiert) AS aktualisiert
+      FROM absender_stat WHERE konto_id = ? AND domain IS NOT NULL AND domain != ''
+      GROUP BY domain ORDER BY anzahl DESC LIMIT ?
+    `).all(kontoId, Number(req.query.limit) || 50);
+
+    // Wofür es schon eine Regel gibt, muss man nicht noch einmal anfassen.
+    const regeln = db.prepare('SELECT typ, muster, zielordner FROM sort_rules WHERE konto_id = ?')
+      .all(kontoId);
+    const mitRegel = (domain) => regeln.find((r) => (r.typ === 'domain' && r.muster === domain)
+      || (r.typ === 'absender' && String(r.muster).endsWith(`@${domain}`)));
+
+    res.json({
+      aktualisiert: zeilen[0]?.aktualisiert || null,
+      absender: zeilen.map((z) => ({ ...z, regel: mitRegel(z.domain)?.zielordner || null })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/sortierung/absender/einsortieren — { konto_id, domain, zielordner }
+//
+// Der eine Handgriff, der wirklich etwas bewegt: Regel anlegen UND die Mails
+// dieses Absenders aus dem Posteingang holen. Nicht über bestandAnwenden — das
+// kennt nur die Sortier-Inbox, also die paar Mails, die das Panel schon gesehen
+// hat. Hier geht es um alle, die im Postfach liegen.
+router.post('/absender/einsortieren', async (req, res) => {
+  const konto = kontoHolen(req.body?.konto_id);
+  const domain = String(req.body?.domain || '').trim().toLowerCase();
+  const ziel = String(req.body?.zielordner || '').trim();
+  if (!konto) return res.status(400).json({ error: 'Konto nicht gefunden.' });
+  if (!domain || !ziel) return res.status(400).json({ error: 'Absender und Zielordner sind Pflicht.' });
+
+  try {
+    const zugang = themen.zugang(konto);
+    if (!(await themen.ordnerExistiert(konto, ziel))) {
+      const name = themen.ordnerNormalisieren(ziel, konto);
+      if (!name) return res.status(400).json({ error: 'Der Ordnername ist nicht zulässig.' });
+      await themen.ordnerAnlegen(konto, name);
+    }
+
+    // Regel merken, damit künftige Mails gar nicht erst zur KI gehen.
+    const vorhanden = db.prepare(
+      "SELECT id FROM sort_rules WHERE konto_id = ? AND typ = 'domain' AND muster = ?",
+    ).get(konto.id, domain);
+    if (vorhanden) {
+      db.prepare('UPDATE sort_rules SET zielordner = ? WHERE id = ?').run(ziel, vorhanden.id);
+    } else {
+      db.prepare(`
+        INSERT INTO sort_rules (konto_id, typ, muster, zielordner, erstellt_von) VALUES (?, 'domain', ?, ?, ?)
+      `).run(konto.id, domain, ziel, req.user.id);
+    }
+
+    // Und jetzt der Berg: alles von dieser Domain aus dem Posteingang.
+    const uids = await imap.mailsSuchen({ ...zugang, ordner: 'INBOX', von: domain });
+    let verschoben = 0;
+    const fehler = [];
+    if (uids.length) {
+      const ergebnis = await imap.mailsVerschieben({
+        ...zugang, mails: uids.map((uid) => ({ uid })), von: 'INBOX', nach: ziel,
+      });
+      verschoben = ergebnis.verschoben.length;
+      for (const p of ergebnis.fehler.slice(0, 5)) fehler.push(`UID ${p.uid}: ${p.grund}`);
+    }
+
+    // Was das Panel selbst noch offen hatte, gleich mit abhaken.
+    db.prepare(
+      "UPDATE sort_inbox SET status = 'zugeordnet', vorschlag = ?"
+      + " WHERE konto_id = ? AND status = 'offen' AND LOWER(von) LIKE ?",
+    ).run(ziel, konto.id, `%@${domain}`);
+    db.prepare('DELETE FROM absender_stat WHERE konto_id = ? AND domain = ?').run(konto.id, domain);
+    themen.cacheVerwerfen(konto.id);
+
+    loggen('info', 'sortierung',
+      `Absender-Regel @${domain} → "${ziel}": ${verschoben} von ${uids.length} Mail(s) aus dem `
+      + 'Posteingang verschoben (ohne KI).');
+    res.json({ ok: true, domain, ziel, gefunden: uids.length, verschoben, fehler });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+// POST /api/sortierung/absender/kategorien — { konto_id }
+//
+// Eine einzige KI-Abfrage über die größten Absender — nur Domains, keine
+// Mailinhalte, kein Bezug zu einzelnen Mails. Sie sieht die ganze Liste auf
+// einmal und schlägt deshalb Kategorien vor statt einer Marke je Mail. Das ist
+// der Unterschied zwischen „Plesk", „MC-HOST24", „Fritzbox" und einem Ordner
+// „Server & Hosting".
+router.post('/absender/kategorien', async (req, res) => {
+  const konto = kontoHolen(req.body?.konto_id);
+  if (!konto) return res.status(400).json({ error: 'Konto nicht gefunden.' });
+
+  const zeilen = db.prepare(`
+    SELECT domain, SUM(anzahl) AS anzahl FROM absender_stat
+    WHERE konto_id = ? AND domain IS NOT NULL AND domain != ''
+    GROUP BY domain ORDER BY anzahl DESC LIMIT 40
+  `).all(konto.id);
+  if (zeilen.length === 0) {
+    return res.status(400).json({ error: 'Erst zählen lassen — dann gibt es etwas zu gruppieren.' });
+  }
+
+  // Schon vorhandene Ordner mitgeben: Eine bestehende Kategorie ist immer besser
+  // als eine neue daneben.
+  const vorhandene = themen.katalog(konto.id).map((o) => o.ordner);
+  const prompt = 'Du hilfst beim Aufraeumen eines E-Mail-Postfachs. Hier sind die Absender-Domains '
+    + 'mit der Anzahl ihrer Mails:\n\n'
+    + zeilen.map((z) => `${z.domain} (${z.anzahl})`).join('\n')
+    + `\n\nVorhandene Ordner: ${vorhandene.join(', ') || '(noch keine)'}\n\n`
+    + 'Bilde daraus wenige, breite Kategorien und antworte NUR mit JSON:\n'
+    + '{"gruppen": [{"ordner": "Server & Hosting", "absender": ["plesk.de", "mc-host24.de"]}]}\n\n'
+    + 'Regeln:\n'
+    + '- Hoechstens 8 Gruppen. Lieber eine Gruppe zu breit als drei zu schmal.\n'
+    + '- Passt eine Gruppe zu einem vorhandenen Ordner, nimm dessen Namen unveraendert.\n'
+    + '- Ein Ordnername ist ein Lebensbereich, keine Firma: "Streaming", nicht "Netflix".\n'
+    + '- Deutsch, hoechstens 20 Zeichen, nur Buchstaben, Zahlen, Leerzeichen, & und Bindestriche.\n'
+    + '- Jede Domain hoechstens einmal. Domains, die zu nichts passen, laesst du weg.';
+
+  const antwort = await kiText.frageJson(prompt, { quelle: 'backend:sortierung', zeitlimit: 45000 });
+  if (!antwort.ok) return res.status(502).json({ error: antwort.fehler });
+
+  const zahlen = new Map(zeilen.map((z) => [z.domain, z.anzahl]));
+  const gruppen = (Array.isArray(antwort.daten?.gruppen) ? antwort.daten.gruppen : [])
+    .map((g) => {
+      const name = themen.ordnerNormalisieren(g.ordner, konto);
+      const absender = (Array.isArray(g.absender) ? g.absender : [])
+        .map((d) => String(d).trim().toLowerCase())
+        .filter((d) => zahlen.has(d));   // nur, was wirklich im Postfach vorkommt
+      return name && absender.length
+        ? {
+          ordner: name,
+          absender,
+          mails: absender.reduce((s, d) => s + (zahlen.get(d) || 0), 0),
+          vorhanden: vorhandene.includes(name),
+        }
+        : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.mails - a.mails);
+
+  res.json({ ok: true, gruppen });
+});
+
+// POST /api/sortierung/absender/kategorie-anwenden — { konto_id, ordner, absender: [] }
+// Legt den Ordner an (oder nimmt ihn), macht aus jeder Domain eine Regel und
+// holt deren Mails aus dem Posteingang. Ein Klick statt zwanzig.
+router.post('/absender/kategorie-anwenden', async (req, res) => {
+  const konto = kontoHolen(req.body?.konto_id);
+  const ziel = String(req.body?.ordner || '').trim();
+  const domains = (Array.isArray(req.body?.absender) ? req.body.absender : [])
+    .map((d) => String(d).trim().toLowerCase()).filter(Boolean);
+  if (!konto) return res.status(400).json({ error: 'Konto nicht gefunden.' });
+  if (!ziel || domains.length === 0) {
+    return res.status(400).json({ error: 'Ordner und Absender sind Pflicht.' });
+  }
+
+  try {
+    const zugang = themen.zugang(konto);
+    if (!(await themen.ordnerExistiert(konto, ziel))) {
+      const name = themen.ordnerNormalisieren(ziel, konto);
+      if (!name) return res.status(400).json({ error: 'Der Ordnername ist nicht zulässig.' });
+      await themen.ordnerAnlegen(konto, name);
+    }
+    const eintrag = themen.inKatalog(konto.id, ziel, 'manuell');
+
+    let verschoben = 0;
+    let gefunden = 0;
+    for (const domain of domains) {
+      const vorhanden = db.prepare(
+        "SELECT id FROM sort_rules WHERE konto_id = ? AND typ = 'domain' AND muster = ?",
+      ).get(konto.id, domain);
+      if (vorhanden) db.prepare('UPDATE sort_rules SET zielordner = ? WHERE id = ?').run(ziel, vorhanden.id);
+      else {
+        db.prepare(`
+          INSERT INTO sort_rules (konto_id, typ, muster, zielordner, erstellt_von) VALUES (?, 'domain', ?, ?, ?)
+        `).run(konto.id, domain, ziel, req.user.id);
+      }
+      if (eintrag) themen.gelerntMerken(eintrag.id, domain);
+
+      try {
+        const uids = await imap.mailsSuchen({ ...zugang, ordner: 'INBOX', von: domain });
+        gefunden += uids.length;
+        if (uids.length) {
+          const ergebnis = await imap.mailsVerschieben({
+            ...zugang, mails: uids.map((uid) => ({ uid })), von: 'INBOX', nach: ziel,
+          });
+          verschoben += ergebnis.verschoben.length;
+        }
+        db.prepare(
+          "UPDATE sort_inbox SET status = 'zugeordnet', vorschlag = ?"
+          + " WHERE konto_id = ? AND status = 'offen' AND LOWER(von) LIKE ?",
+        ).run(ziel, konto.id, `%@${domain}`);
+        db.prepare('DELETE FROM absender_stat WHERE konto_id = ? AND domain = ?').run(konto.id, domain);
+      } catch (err) {
+        loggen('warn', 'sortierung', `${domain} → "${ziel}" fehlgeschlagen: ${err.message}`);
+      }
+    }
+
+    themen.cacheVerwerfen(konto.id);
+    loggen('info', 'sortierung',
+      `Kategorie "${ziel}": ${domains.length} Absender-Regeln, ${verschoben} von ${gefunden} Mail(s) verschoben.`);
+    res.json({ ok: true, ordner: ziel, regeln: domains.length, gefunden, verschoben });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
 // GET /api/sortierung/alias?konto_id= — welche Namen auf welchen Ordner zeigen
 router.get('/alias', (req, res) => {
   const kontoId = Number(req.query.konto_id);

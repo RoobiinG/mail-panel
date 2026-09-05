@@ -75,6 +75,15 @@ export default function Sortierung() {
   const [vorschlagAuswahl, setVorschlagAuswahl] = useState([]); // Vorschläge zum Zusammenfassen
   const [sammelName, setSammelName] = useState('');            // Name des Sammelordners
   const [aufgehenZiel, setAufgehenZiel] = useState({});        // katalog_id -> Zielordner
+
+  // Die größten Absender im Posteingang — der schnellste Weg durch einen Berg
+  // von Mails, ganz ohne KI.
+  const [absender, setAbsender] = useState({ absender: [], aktualisiert: null });
+  const [absenderLaeuft, setAbsenderLaeuft] = useState(false);
+  const [absenderZiel, setAbsenderZiel] = useState({});         // domain -> Zielordner
+  const [absenderArbeit, setAbsenderArbeit] = useState('');     // domain, die gerade läuft
+  const [kategorien, setKategorien] = useState(null);           // Vorschläge der KI
+  const [kategorienLaeuft, setKategorienLaeuft] = useState(false);
   const [alias, setAlias] = useState([]);                     // umgeleitete Namen des aktiven Kontos
   const [katalogModal, setKatalogModal] = useState({ offen: false, ordner: '', beschreibung: '' });
   const [einleseMeldung, setEinleseMeldung] = useState('');
@@ -205,12 +214,14 @@ export default function Sortierung() {
     if (!aktivesKonto) return;
     setInbox([]); setVorschlaege([]); setKatalog([]); setRegeln([]);
     setOffenerVorschlag(null); setVorschlagMails({}); setMailAuswahl({});
+    setAbsender({ absender: [], aktualisiert: null }); setKategorien(null);
     regelnLaden(aktivesKonto);
     katalogLaden(aktivesKonto);
     entscheidungenLaden(aktivesKonto);
     aliasLaden(aktivesKonto);
     vorschlaegeLaden(aktivesKonto);
     inboxLaden(aktivesKonto);
+    absenderLaden(aktivesKonto);
   }, [aktivesKonto]);
 
   // ─── THEMEN-KATALOG ─────────────────────────────────────────────────────────
@@ -498,6 +509,92 @@ export default function Sortierung() {
     }
   };
 
+  // ─── ABSENDER ────────────────────────────────────────────────────────────────
+
+  const absenderLaden = async (kontoId = aktivesKonto) => {
+    if (!kontoId) return;
+    try {
+      const { data } = await api.get(`/sortierung/absender?konto_id=${kontoId}`);
+      setAbsender(data || { absender: [], aktualisiert: null });
+    } catch { /* leer */ }
+  };
+
+  const absenderZaehlen = async () => {
+    setAbsenderLaeuft(true);
+    try {
+      const { data } = await api.post('/sortierung/absender-zaehlen', { konto_id: aktivesKonto });
+      melden(`${data.gesamt} Mails gezählt, ${data.absender} verschiedene Absender.`
+        + (data.ohneAbsender ? ` ${data.ohneAbsender} ohne lesbaren Absender.` : ''));
+      absenderLaden();
+    } catch (err) {
+      melden(err.response?.data?.error || 'Zählen fehlgeschlagen', 'fehler');
+    } finally {
+      setAbsenderLaeuft(false);
+    }
+  };
+
+  const absenderEinsortieren = async (a) => {
+    const ziel = (absenderZiel[a.domain] || '').trim();
+    if (!ziel) return;
+    if (!(await nachfragen({
+      titel: `Alles von @${a.domain} nach „${ziel}"?`,
+      text: `${a.anzahl} Mail(s) aus dem Posteingang wandern nach „${ziel}".\n\n`
+        + 'Dazu entsteht eine Regel: Künftige Mails dieses Absenders gehen ohne Umweg dorthin — '
+        + 'und ohne eine einzige KI-Abfrage.',
+      bestaetigen: 'Verschieben',
+    }))) return;
+    setAbsenderArbeit(a.domain);
+    try {
+      const { data } = await api.post('/sortierung/absender/einsortieren', {
+        konto_id: aktivesKonto, domain: a.domain, zielordner: ziel,
+      });
+      melden(`${data.verschoben} von ${data.gefunden} Mail(s) nach „${data.ziel}" verschoben. `
+        + `Regel für @${data.domain} angelegt.`);
+      absenderLaden(); regelnLaden(aktivesKonto); katalogLaden(aktivesKonto); inboxLaden();
+    } catch (err) {
+      melden(err.response?.data?.error || 'Einsortieren fehlgeschlagen', 'fehler');
+    } finally {
+      setAbsenderArbeit('');
+    }
+  };
+
+  const kategorienHolen = async () => {
+    setKategorienLaeuft(true);
+    try {
+      const { data } = await api.post('/sortierung/absender/kategorien', { konto_id: aktivesKonto });
+      setKategorien(data.gruppen || []);
+      if (!data.gruppen?.length) melden('Die KI hat keine Gruppen gefunden.', 'hinweis');
+    } catch (err) {
+      melden(err.response?.data?.error || 'Gruppieren fehlgeschlagen', 'fehler');
+    } finally {
+      setKategorienLaeuft(false);
+    }
+  };
+
+  const kategorieAnwenden = async (g) => {
+    if (!(await nachfragen({
+      titel: `Kategorie „${g.ordner}" anlegen?`,
+      text: `${g.absender.map(d => `• ${d}`).join('\n')}\n\n`
+        + `${g.mails} Mail(s) wandern nach „${g.ordner}", und für jeden dieser Absender entsteht `
+        + 'eine Regel. Künftige Mails gehen dann ohne KI dorthin.',
+      bestaetigen: 'Anlegen & verschieben',
+    }))) return;
+    setAbsenderArbeit(g.ordner);
+    try {
+      const { data } = await api.post('/sortierung/absender/kategorie-anwenden', {
+        konto_id: aktivesKonto, ordner: g.ordner, absender: g.absender,
+      });
+      melden(`„${data.ordner}": ${data.regeln} Regeln angelegt, `
+        + `${data.verschoben} von ${data.gefunden} Mail(s) verschoben.`);
+      setKategorien(k => (k || []).filter(x => x.ordner !== g.ordner));
+      absenderLaden(); regelnLaden(aktivesKonto); katalogLaden(aktivesKonto); inboxLaden();
+    } catch (err) {
+      melden(err.response?.data?.error || 'Anwenden fehlgeschlagen', 'fehler');
+    } finally {
+      setAbsenderArbeit('');
+    }
+  };
+
   const aliasLoesen = async (a) => {
     if (!(await nachfragen({
       titel: 'Umleitung lösen?',
@@ -705,6 +802,10 @@ export default function Sortierung() {
         <TabKnopf aktiv={tab === 'vorschlaege'} onClick={() => setTab('vorschlaege')} icon={Sparkles} zahl={vorschlaege.length}>
           Vorschläge
         </TabKnopf>
+        <TabKnopf aktiv={tab === 'absender'} onClick={() => setTab('absender')} icon={AtSign}
+          zahl={absender.absender.length}>
+          Absender
+        </TabKnopf>
         <TabKnopf aktiv={tab === 'themen'} onClick={() => setTab('themen')} icon={FolderTree} zahl={katalog.length}>
           Themen-Ordner
         </TabKnopf>
@@ -727,6 +828,146 @@ export default function Sortierung() {
 
       {/* ══ Belege automatisch in Nextcloud ablegen ══ */}
       {tab === 'belege' && <BelegeKarte />}
+
+      {/* ══ Die größten Absender — Aufräumen ohne KI ══ */}
+      {tab === 'absender' && (
+        <div className="space-y-6">
+          <div className="card !p-0 overflow-hidden">
+            <div className="p-4 border-b border-panel-border bg-panel-card/50 flex flex-wrap gap-3 justify-between items-center">
+              <h2 className="font-medium flex items-center gap-2">
+                <AtSign size={18} className="text-panel-accent" /> Größte Absender im Posteingang
+              </h2>
+              <div className="flex items-center gap-2">
+                {absender.aktualisiert && (
+                  <span className="text-xs text-panel-muted">
+                    gezählt am {new Date(absender.aktualisiert.replace(' ', 'T') + 'Z')
+                      .toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })}
+                  </span>
+                )}
+                <button onClick={absenderZaehlen} disabled={absenderLaeuft || !aktivesKonto}
+                  className="btn-ghost !py-1.5 !px-3 text-sm flex items-center gap-1">
+                  <RefreshCw size={14} className={absenderLaeuft ? 'animate-spin' : ''} />
+                  {absenderLaeuft ? 'Zähle …' : 'Posteingang zählen'}
+                </button>
+                {absender.absender.length > 0 && (
+                  <button onClick={kategorienHolen} disabled={kategorienLaeuft}
+                    className="btn !py-1.5 !px-3 text-sm flex items-center gap-1">
+                    <Sparkles size={14} className={kategorienLaeuft ? 'animate-pulse' : ''} />
+                    Kategorien vorschlagen
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <p className="px-4 pt-3 text-xs text-panel-muted">
+              Bei einem großen Posteingang ist die KI das falsche Werkzeug: Sie schafft ein paar
+              hundert Mails am Tag. Eine Regel für den größten Absender räumt Tausende ab —
+              <span className="text-panel-text"> sofort und ohne KI-Budget</span>. Das Zählen liest
+              nur die Absender, keine Inhalte, und dauert bei vielen Mails eine Weile.
+            </p>
+
+            {absender.absender.length === 0 ? (
+              <p className="p-6 text-center text-panel-muted text-sm">
+                Noch nichts gezählt. <span className="text-panel-text">Posteingang zählen</span> sagt
+                dir, wer die Masse schickt.
+              </p>
+            ) : (
+              <div className="overflow-auto max-h-[520px] mt-2">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-panel-border text-left text-panel-muted text-xs bg-panel-bg/30">
+                      <th className="py-2 px-4">Absender-Domain</th>
+                      <th className="py-2 px-4 text-right">Mails</th>
+                      <th className="py-2 px-4">Einsortieren nach</th>
+                      <th className="py-2 px-4"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {absender.absender.map(a => (
+                      <tr key={a.domain} className="border-b border-panel-border/50 hover:bg-panel-bg/30">
+                        <td className="py-2 px-4 font-mono text-panel-accent whitespace-nowrap">
+                          @{a.domain}
+                          {a.adressen > 1 && (
+                            <span className="ml-2 text-[10px] text-panel-muted font-sans">
+                              {a.adressen} Adressen
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2 px-4 text-right font-medium whitespace-nowrap">{a.anzahl}</td>
+                        <td className="py-2 px-4">
+                          {a.regel ? (
+                            <span className="text-xs text-panel-muted">
+                              Regel vorhanden → <span className="font-mono">{a.regel}</span>
+                            </span>
+                          ) : (
+                            <input
+                              type="text"
+                              value={absenderZiel[a.domain] || ''}
+                              onChange={e => setAbsenderZiel(z => ({ ...z, [a.domain]: e.target.value }))}
+                              list="ordner-vorschlaege"
+                              placeholder="Ordner …"
+                              className="w-full bg-transparent text-sm border-b border-transparent hover:border-panel-border focus:border-panel-accent focus:outline-none"
+                            />
+                          )}
+                        </td>
+                        <td className="py-2 px-4 text-right whitespace-nowrap">
+                          {!a.regel && absenderZiel[a.domain] && (
+                            <button onClick={() => absenderEinsortieren(a)}
+                              disabled={absenderArbeit === a.domain}
+                              className="btn !py-1 !px-3 text-xs flex items-center gap-1 ml-auto">
+                              <ArrowRight size={13} />
+                              {absenderArbeit === a.domain ? 'läuft …' : `${a.anzahl} verschieben`}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Was die KI aus der Liste macht — Kategorien statt einzelner Marken */}
+          {kategorien && kategorien.length > 0 && (
+            <div className="card !p-0 overflow-hidden">
+              <div className="p-4 border-b border-panel-border bg-panel-card/50 flex items-center gap-2">
+                <Layers size={18} className="text-panel-accent" />
+                <h2 className="font-medium">Vorgeschlagene Kategorien</h2>
+                <span className="text-[11px] text-panel-muted hidden sm:inline">
+                  aus einer einzigen KI-Abfrage über die Absenderliste — ohne Mailinhalte
+                </span>
+              </div>
+              <div className="divide-y divide-panel-border">
+                {kategorien.map(g => (
+                  <div key={g.ordner} className="p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono text-panel-accent">{g.ordner}</span>
+                        {g.vorhanden && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-panel-border/50">gibt es schon</span>
+                        )}
+                        <span className="text-xs text-panel-muted">
+                          {g.absender.length} Absender · {g.mails} Mails
+                        </span>
+                      </div>
+                      <div className="text-xs text-panel-muted mt-1 font-mono truncate"
+                        title={g.absender.join(', ')}>
+                        {g.absender.join(', ')}
+                      </div>
+                    </div>
+                    <button onClick={() => kategorieAnwenden(g)} disabled={absenderArbeit === g.ordner}
+                      className="btn !py-1.5 !px-3 text-sm flex items-center gap-1 shrink-0">
+                      <Check size={14} />
+                      {absenderArbeit === g.ordner ? 'läuft …' : 'Anlegen & verschieben'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {tab === 'vorschlaege' && (
         <div className="space-y-6">

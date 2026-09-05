@@ -241,6 +241,21 @@ db.exec(`
   -- gehoert nach X." Schlaegt die KI denselben Namen wieder vor, wird er direkt
   -- aufgeloest — es entsteht kein zweiter Ordner und keine neue Nachfrage.
   -- Der Nutzer sieht die Zuordnung unter den Themen-Ordnern und kann sie loesen.
+  -- Wer schickt die meisten Mails im Posteingang? Die Antwort entscheidet bei
+  -- einem grossen Bestand alles: Eine Regel fuer den groessten Absender raeumt
+  -- Tausende ab, ohne KI. Gefuellt wird die Tabelle auf Knopfdruck (das Zaehlen
+  -- liest alle Umschlaege und dauert bei zehntausenden Mails eine Weile), gelesen
+  -- wird sie danach beliebig oft.
+  CREATE TABLE IF NOT EXISTS absender_stat (
+    konto_id INTEGER NOT NULL,
+    adresse TEXT NOT NULL,
+    domain TEXT,
+    anzahl INTEGER NOT NULL DEFAULT 0,
+    aktualisiert DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (konto_id, adresse),
+    FOREIGN KEY(konto_id) REFERENCES accounts(id) ON DELETE CASCADE
+  );
+
   CREATE TABLE IF NOT EXISTS ordner_alias (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     konto_id INTEGER NOT NULL,

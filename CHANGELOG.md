@@ -2,6 +2,32 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.11.0.0] - 2026-09-06 (Build 103) — *Aufräumen ohne KI: die größten Absender*
+
+### Neu: Registerkarte „Absender"
+- Bei einem großen Posteingang ist die KI das falsche Werkzeug — 400 Einordnungen am Tag
+  brauchen für 23.000 Mails Wochen. **Eine Regel für den größten Absender räumt Tausende ab,
+  sofort und ohne KI-Budget.** Es wusste nur niemand, wer die großen Absender sind.
+- **Posteingang zählen** liest die Absender aller Mails (nur die Umschläge, keine Inhalte) und
+  zeigt sie nach Domain gebündelt: „@shop.de · 1.240 Mails". Bei vielen Mails dauert das eine
+  Weile, deshalb wird es angestoßen und das Ergebnis gespeichert.
+- Ein Ordner daneben, ein Klick — und beides passiert: Die **Regel wird angelegt** *und* die
+  Mails wandern wirklich aus dem Posteingang. Nicht nur die, die das Panel schon kannte,
+  sondern alle, die dort liegen.
+- Wofür es schon eine Regel gibt, steht als solches da und muss nicht noch einmal angefasst
+  werden.
+
+### Neu: Kategorien aus der Absenderliste
+- **Kategorien vorschlagen** stellt der KI **eine einzige** Frage über die Absenderliste — nur
+  Domains, keine Mailinhalte. Weil sie die ganze Liste auf einmal sieht, schlägt sie Kategorien
+  vor statt einer Marke je Mail: „Server & Hosting — plesk.de, mc-host24.de, fritz.box (312
+  Mails)".
+- Ein Klick legt den Ordner an, macht aus **jeder** Domain eine Regel, verschiebt deren Mails
+  und schreibt die Absender dem Ordner gut. Passt eine Gruppe zu einem Ordner, den es schon
+  gibt, wird der genommen.
+- Vorgeschlagene Ordnernamen laufen durch dieselbe Prüfung wie jeder andere — und Domains, die
+  das Modell dazuerfindet, werden verworfen.
+
 ## [3.10.1.0] - 2026-09-06 (Build 102) — *Kategorien statt Einzelordner*
 
 ### Neu: Vorschläge zu einer Kategorie zusammenfassen

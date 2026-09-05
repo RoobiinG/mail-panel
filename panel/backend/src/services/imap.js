@@ -265,6 +265,48 @@ async function ordnerAnlegenPfad(konto, pfad) {
   }
 }
 
+// Wer schickt die meisten Mails im Posteingang?
+//
+// Die Frage, die bei einem Berg von 23.000 Mails alles entscheidet: Eine Regel
+// für den größten Absender räumt Tausende ab — ohne KI, ohne Budget, sofort.
+// Nur wusste bisher niemand, wer das ist.
+//
+// Geholt werden ausschließlich die Umschläge (Absender), keine Texte und keine
+// Anhänge. Das ist dieselbe Bauart wie uidsAuflisten, nur mit envelope statt
+// uid — bei einem großen Postfach dauert es trotzdem eine Weile, deshalb wird
+// es angestoßen und das Ergebnis gespeichert, nicht bei jedem Blick neu geholt.
+async function absenderZaehlen({ ordner = 'INBOX', ...konto }) {
+  const client = verbindung(konto);
+  try {
+    await client.connect();
+    const schloss = await client.getMailboxLock(String(ordner));
+    try {
+      if (!client.mailbox || client.mailbox.exists === 0) return { gesamt: 0, absender: [] };
+      const zaehler = new Map();
+      let gesamt = 0;
+      let ohneAbsender = 0;
+      for await (const m of client.fetch('1:*', { envelope: true })) {
+        const roh = String(m.envelope?.from?.[0]?.address || '').toLowerCase().trim();
+        if (!roh.includes('@')) { ohneAbsender += 1; continue; }
+        gesamt += 1;
+        const vorhanden = zaehler.get(roh)
+          || { adresse: roh, domain: roh.split('@')[1] || '', anzahl: 0 };
+        vorhanden.anzahl += 1;
+        zaehler.set(roh, vorhanden);
+      }
+      return {
+        gesamt,
+        ohneAbsender,
+        absender: [...zaehler.values()].sort((a, b) => b.anzahl - a.anzahl),
+      };
+    } finally {
+      schloss.release();
+    }
+  } finally {
+    try { await client.logout(); } catch { /* Verbindung war schon zu */ }
+  }
+}
+
 // Eine Liste Ordner abonnieren — für die, die vor dieser Einsicht angelegt
 // wurden. Alles über eine Verbindung.
 async function ordnerAbonnieren(konto, pfade) {
@@ -435,6 +477,7 @@ module.exports = {
   ordnerErstellen,
   ordnerAnlegenPfad,
   ordnerAbonnieren,
+  absenderZaehlen,
   ordnerDetails,
   mailVerschieben,
   mailsVerschieben,
