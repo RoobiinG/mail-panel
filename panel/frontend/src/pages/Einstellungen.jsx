@@ -412,8 +412,10 @@ export default function Einstellungen() {
               <label className="block text-xs text-panel-muted">KI-Einordnungen pro Tag</label>
               <p className="text-[10px] text-panel-muted/60">
                 Schützt das Gemini-Tageslimit, wenn ein großer Altbestand aufgearbeitet wird.
-                0 = kein Deckel. Der Gratis-Tarif von Google hat sein eigenes Limit — höher
-                stellen hilft nur, solange Google mitspielt.
+                0 = kein Deckel. Sinnvoll ist der Wert nur <span className="text-panel-text">unter</span> dem,
+                was Googles Gratis-Tarif am Tag zulässt: Steht er höher, bremst nicht mehr das
+                Panel, sondern Google — und dann bricht der Lauf mitten im Stapel mit „too many
+                requests" ab, statt sauber zu enden. Im Zweifel lieber zu niedrig.
               </p>
               <input type="number" min="0" step="10" value={settings.gemini_tagesbudget}
                 disabled={settings.gemini_tagesbudget_per_env}

@@ -2,6 +2,21 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.9.0.1] - 2026-09-05 (Build 94) — *Fehlermeldungen, die einem sagen, was zu tun ist*
+
+### Verbesserung: Klartext unter der Fehlermeldung eines Laufs
+- n8n reicht die Meldung des Dienstes durch — englisch und ohne Hinweis, was zu tun ist. „The
+  service is receiving too many requests from you" sagt niemandem, ob das Minuten- oder das
+  Tageslimit gemeint ist.
+- Unter der roten Zeile steht jetzt eine Erklärung samt nächstem Schritt. Abgedeckt sind die
+  vier Meldungen, die im Betrieb wirklich vorkommen: abgewiesen wegen Kontingent, fehlendes
+  Credential, fehlender Zielordner, abgelehnter Schlüssel.
+
+### Verbesserung: Der Hinweis am KI-Tagesbudget sagt jetzt, worauf es ankommt
+- Ein Budget **über** dem, was Googles Gratis-Tarif am Tag zulässt, schaltet den Schutz faktisch
+  ab: Dann bremst nicht mehr das Panel, sondern Google — und der Lauf bricht mitten im Stapel
+  ab, statt sauber zu enden.
+
 ## [3.9.0.0] - 2026-09-05 (Build 93) — *Die Ordner-Beschreibung entscheidet mit*
 
 ### Fix: Vorhandene Themen-Ordner wurden übergangen

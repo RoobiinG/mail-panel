@@ -8,6 +8,30 @@ import AktionenBereich from '../components/AktionenBereich';
 
 const zeit = (w) => (w ? new Date(w).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' }) : '—');
 
+// n8n reicht die Fehlermeldung des Dienstes durch — englisch und ohne Hinweis,
+// was zu tun ist. Die vier Meldungen hier sind die, die im Betrieb wirklich
+// vorkommen; alles andere bleibt unkommentiert stehen.
+const ERKLAERUNGEN = [
+  [/too many requests|rate limit|resource.?exhausted|\b429\b/i,
+    'Google hat abgewiesen. Zwei Möglichkeiten: das Minutenlimit — dann hilft eine längere '
+    + 'Pause unter Einstellungen → KI — oder das Tageskontingent des Gratis-Tarifs, dann geht es '
+    + 'morgen weiter. Setze das KI-Tagesbudget so, dass das Panel vorher stoppt: Ein Lauf, der '
+    + 'sauber endet, ist besser als einer, der mittendrin abbricht.'],
+  [/credential with id .* does not exist|credentials not found|missing credential/i,
+    'Die Zugangsdaten fehlen in n8n. Auf dieser Seite oben: „Zugangsdaten erneuern" — das legt '
+    + 'sie neu an und trägt sie in alle Workflows ein.'],
+  [/no folder|unknown mailbox|does not exist.*mailbox|\[NONEXISTENT\]/i,
+    'Der Zielordner fehlt im Postfach. Unter Konten anlegen lassen oder unter Sortierung → '
+    + 'Themen-Ordner aus dem Postfach einlesen.'],
+  [/api key not valid|invalid api key|permission denied|401|403/i,
+    'Der hinterlegte Schlüssel wird abgelehnt. Unter Einstellungen prüfen und neu speichern.'],
+];
+
+function erklaerung(text) {
+  const treffer = ERKLAERUNGEN.find(([muster]) => muster.test(String(text || '')));
+  return treffer ? treffer[1] : '';
+}
+
 function StatusPunkt({ status }) {
   if (status === 'success') return <CheckCircle2 size={15} className="text-emerald-500" />;
   if (status === 'error' || status === 'crashed') return <XCircle size={15} className="text-red-500" />;
@@ -107,7 +131,12 @@ function Einzelheiten({ id }) {
           ) : (
             <>
               {lauf.fehlermeldung && (
-                <p className="text-panel-red mb-2">{lauf.fehlermeldung}</p>
+                <>
+                  <p className="text-panel-red mb-2">{lauf.fehlermeldung}</p>
+                  {erklaerung(lauf.fehlermeldung) && (
+                    <p className="text-panel-muted mb-2 text-xs">{erklaerung(lauf.fehlermeldung)}</p>
+                  )}
+                </>
               )}
               <ul className="space-y-1">
                 {(lauf.knoten || []).map((k) => (
