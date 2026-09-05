@@ -105,6 +105,77 @@ function ordnerNormalisieren(roh, konto = {}) {
   return name;
 }
 
+// ─── Zwei Namen, eine Sache ──────────────────────────────────────────────────
+//
+// Die KI erfindet für dasselbe Thema gern zwei Namen: „Games" und „Gaming",
+// „Rechnung" und „Rechnungen", „News" und „Nachrichten". Jeder davon wurde
+// bisher ein eigener Vorschlag und am Ende ein eigener Ordner — im Panel
+// standen 34 Vorschläge, von denen etliche dasselbe meinten.
+//
+// Zwei Stufen, beide absichtlich schlicht gehalten:
+//   1. Wortstamm — klein schreiben, Umlaute auflösen, gängige Endungen
+//      abschneiden. „games" und „gaming" werden beide zu „gam".
+//   2. Eine kurze Liste echter Synonyme, vor allem deutsch/englisch.
+//
+// Beides greift ausschließlich, um einen VORHANDENEN Ordner oder Vorschlag zu
+// treffen. Erfunden wird nie etwas, und der Name, den der Nutzer sieht, bleibt
+// der, den er selbst freigegeben hat.
+const ENDUNGEN = ['ungen', 'ingen', 'ung', 'ing', 'nen', 'en', 'es', 'er', 'n', 's', 'e'];
+
+function schlicht(name) {
+  return String(name || '')
+    .toLowerCase()
+    .split(/[/.]/).pop() // "Themen/Games" → "games"
+    .replace(/ä/g, 'a').replace(/ö/g, 'o').replace(/ü/g, 'u').replace(/ß/g, 'ss')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+// Höchstens zwei Endungen: "newsletters" → "newsletter" → "newslett", damit es
+// die Einzahl trifft. Der Rest muss mindestens drei Zeichen behalten, sonst
+// bliebe von kurzen Namen nichts übrig, was noch etwas unterscheidet.
+function stamm(name) {
+  let s = schlicht(name);
+  for (let runde = 0; runde < 2; runde += 1) {
+    for (const endung of ENDUNGEN) {
+      if (s.length - endung.length >= 3 && s.endsWith(endung)) {
+        s = s.slice(0, -endung.length);
+        break;
+      }
+    }
+  }
+  return s;
+}
+
+// Bewusst kurz. Jede Zeile hier ist eine Behauptung darüber, was dasselbe ist —
+// bei Zweifeln lieber weglassen und zwei Ordner in Kauf nehmen.
+const SYNONYME = [
+  ['games', 'gaming', 'spiele', 'videospiele', 'gamer'],
+  ['news', 'nachrichten', 'neuigkeiten'],
+  ['shopping', 'einkauf', 'einkaufen'],
+  ['reisen', 'travel', 'urlaub'],
+  ['gesundheit', 'health'],
+  ['finanzen', 'finance'],
+  ['arbeit', 'work', 'job'],
+  ['schule', 'school'],
+  ['musik', 'music'],
+  ['fotos', 'bilder', 'photos'],
+  ['streaming', 'stream'],
+  ['software', 'apps'],
+  ['lernen', 'learning'],
+];
+
+const SYNONYM_GRUPPE = new Map();
+SYNONYME.forEach((gruppe, nummer) => gruppe.forEach((wort) => SYNONYM_GRUPPE.set(stamm(wort), nummer)));
+
+function aehnlich(a, b) {
+  const sa = stamm(a);
+  const sb = stamm(b);
+  if (!sa || !sb || sa.length < 3 || sb.length < 3) return false;
+  if (sa === sb) return true;
+  const ga = SYNONYM_GRUPPE.get(sa);
+  return ga !== undefined && ga === SYNONYM_GRUPPE.get(sb);
+}
+
 // ─── Katalog ─────────────────────────────────────────────────────────────────
 
 function katalog(kontoId, { auchGesperrte = false } = {}) {
@@ -118,11 +189,32 @@ function katalog(kontoId, { auchGesperrte = false } = {}) {
 // gekappt — sonst blaeht ein grosses Postfach jeden Gemini-Aufruf auf.
 const MAX_IM_PROMPT = 40;
 
+// Höchstens so viele wartende Vorschläge wandern zusätzlich in den Prompt.
+const MAX_VORSCHLAEGE_IM_PROMPT = 15;
+
 function fuerPrompt(kontoId) {
-  return katalog(kontoId).slice(0, MAX_IM_PROMPT).map((o) => ({
+  const liste = katalog(kontoId).slice(0, MAX_IM_PROMPT).map((o) => ({
     name: o.ordner,
     beschreibung: o.beschreibung || '',
   }));
+
+  // Auch die Vorschläge, die noch auf Freigabe warten. Ohne sie kennt das Modell
+  // den Namen nicht, den es vorgestern selbst vorgeschlagen hat — und erfindet
+  // beim nächsten Mal einen zweiten dafür. Genau so entstanden „Games" (8×) und
+  // „Gaming" (6×) nebeneinander.
+  let offen = [];
+  try {
+    offen = db.prepare(
+      "SELECT ordner FROM ordner_vorschlaege WHERE konto_id = ? AND status = 'offen'"
+      + ' ORDER BY anzahl DESC, ordner',
+    ).all(kontoId);
+  } catch { offen = []; }
+
+  for (const v of offen.slice(0, MAX_VORSCHLAEGE_IM_PROMPT)) {
+    if (liste.some((o) => aehnlich(o.name, v.ordner))) continue;
+    liste.push({ name: v.ordner, beschreibung: 'vorgeschlagen, noch nicht angelegt' });
+  }
+  return liste;
 }
 
 // Findet einen Katalogeintrag zum Vorschlag der KI. Sie antwortet mal mit dem
@@ -130,12 +222,15 @@ function fuerPrompt(kontoId) {
 function imKatalog(kontoId, vorschlag) {
   const gesucht = String(vorschlag || '').replace(/^NEU\s*:\s*/i, '').trim().toLowerCase();
   if (!gesucht) return null;
-  for (const eintrag of katalog(kontoId)) {
+  const liste = katalog(kontoId);
+  for (const eintrag of liste) {
     const pfad = String(eintrag.ordner).toLowerCase();
     const letztes = pfad.split(/[/.]/).pop();
     if (pfad === gesucht || letztes === gesucht) return eintrag;
   }
-  return null;
+  // Zweiter Anlauf über den Wortstamm: „Gaming" trifft damit den vorhandenen
+  // Ordner „Games", statt einen zweiten danebenzustellen.
+  return liste.find((eintrag) => aehnlich(eintrag.ordner, gesucht)) || null;
 }
 
 // ─── Ordner aus dem Postfach uebernehmen ─────────────────────────────────────
@@ -344,7 +439,27 @@ function inKatalog(kontoId, pfad, quelle, beschreibung = null) {
     .get(kontoId, pfad);
 }
 
+// Legt einen Vorschlag an oder zählt den passenden hoch.
+// @returns {{ordner: string, status: string}} unter welchem Namen gezählt wurde
 function vorschlagMerken(kontoId, name, begruendung) {
+  // Gibt es schon einen Vorschlag, der dasselbe meint? Dann den hochzählen —
+  // sonst stehen „Games" und „Gaming" als zwei Zeilen nebeneinander. Bereits
+  // freigegebene bleiben außen vor: Deren Ordner gibt es, der gehört in den
+  // Katalog und wird oben gefunden.
+  const schon = db.prepare(
+    "SELECT * FROM ordner_vorschlaege WHERE konto_id = ? AND status != 'freigegeben'",
+  ).all(kontoId).find((v) => aehnlich(v.ordner, name));
+
+  if (schon) {
+    // Abgelehnt bleibt abgelehnt — auch unter anderem Namen. Sonst käme
+    // dieselbe Idee als „Gaming" zurück, nachdem „Games" abgelehnt wurde.
+    if (schon.status === 'abgelehnt') return { ordner: schon.ordner, status: 'abgelehnt' };
+    db.prepare(
+      'UPDATE ordner_vorschlaege SET anzahl = anzahl + 1, begruendung = ? WHERE id = ?',
+    ).run(begruendung, schon.id);
+    return { ordner: schon.ordner, status: 'offen' };
+  }
+
   db.prepare(`
     INSERT INTO ordner_vorschlaege (konto_id, ordner, begruendung)
     VALUES (?, ?, ?)
@@ -353,6 +468,39 @@ function vorschlagMerken(kontoId, name, begruendung) {
       begruendung = excluded.begruendung,
       status = CASE WHEN status = 'abgelehnt' THEN 'abgelehnt' ELSE 'offen' END
   `).run(kontoId, name, begruendung);
+  return { ordner: name, status: 'offen' };
+}
+
+// Räumt auf, was sich vor dieser Änderung angesammelt hat: Vorschläge, die
+// dasselbe meinen, werden zu einem. Es gewinnt der mit den meisten Nennungen,
+// bei Gleichstand der kürzere Name.
+//
+// Läuft beim Öffnen der Vorschlagsliste. Die wartenden Mails werden mitgezogen
+// (sort_inbox.ki_ordner), sonst fände die Freigabe sie später nicht mehr — sie
+// sucht die Mails über genau diesen Namen.
+function vorschlaegeAufraeumen(kontoId = null) {
+  const wo = kontoId ? 'WHERE konto_id = ?' : '';
+  const alle = db.prepare(
+    `SELECT * FROM ordner_vorschlaege ${wo} ORDER BY anzahl DESC, LENGTH(ordner), ordner`,
+  ).all(...(kontoId ? [kontoId] : []));
+
+  const behalten = [];
+  let zusammengefuehrt = 0;
+  for (const v of alle) {
+    // Nur innerhalb desselben Status zusammenführen: Ein abgelehnter Vorschlag
+    // darf keinen offenen verschlucken und umgekehrt.
+    const sieger = behalten.find((b) => b.konto_id === v.konto_id
+      && b.status === v.status && aehnlich(b.ordner, v.ordner));
+    if (!sieger) { behalten.push({ ...v }); continue; }
+
+    db.prepare('UPDATE ordner_vorschlaege SET anzahl = anzahl + ? WHERE id = ?').run(v.anzahl, sieger.id);
+    db.prepare('UPDATE sort_inbox SET ki_ordner = ? WHERE konto_id = ? AND ki_ordner = ?')
+      .run(sieger.ordner, v.konto_id, v.ordner);
+    db.prepare('DELETE FROM ordner_vorschlaege WHERE id = ?').run(v.id);
+    sieger.anzahl += v.anzahl;
+    zusammengefuehrt += 1;
+  }
+  return zusammengefuehrt;
 }
 
 // ─── Die eigentliche Entscheidung ────────────────────────────────────────────
@@ -410,13 +558,21 @@ async function aufloesen({ konto, vorschlag, konfidenz, von }) {
 
   // Im Trockenlauf wird nichts angelegt — nur festgehalten, was passiert waere.
   if (e.trockenlauf || e.anlegen === 'freigabe') {
-    vorschlagMerken(konto.id, name, `Zuletzt vorgeschlagen für: ${String(von || '').slice(0, 120)}`);
+    const gemerkt = vorschlagMerken(konto.id, name, `Zuletzt vorgeschlagen für: ${String(von || '').slice(0, 120)}`);
+    const zusammen = gemerkt.ordner === name ? '' : ` (zusammengefasst mit "${gemerkt.ordner}")`;
+    if (gemerkt.status === 'abgelehnt') {
+      return {
+        ordner: null,
+        neu_angelegt: false,
+        grund: `Ordner "${gemerkt.ordner}" wurde abgelehnt — die Mail bleibt liegen`,
+      };
+    }
     return {
       ordner: null,
       neu_angelegt: false,
       grund: e.trockenlauf
-        ? `Trockenlauf — Ordner "${name}" wäre angelegt worden`
-        : `Neuer Ordner "${name}" wartet auf Freigabe`,
+        ? `Trockenlauf — Ordner "${gemerkt.ordner}" wäre angelegt worden`
+        : `Neuer Ordner "${gemerkt.ordner}" wartet auf Freigabe${zusammen}`,
     };
   }
 
@@ -449,6 +605,9 @@ module.exports = {
   ordnerAnlegen,
   inKatalog,
   vorschlagMerken,
+  vorschlaegeAufraeumen,
+  aehnlich,
+  stamm,
   zugang,
   ANLEGEN_MODI,
 };

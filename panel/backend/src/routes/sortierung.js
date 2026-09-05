@@ -603,6 +603,10 @@ router.post('/katalog/einlesen', async (req, res) => {
 // GET /api/sortierung/vorschlaege — offene Vorschläge samt wartender Mails
 router.get('/vorschlaege', (req, res) => {
   try {
+    // Vorher zusammenfassen, was dasselbe meint („Games" und „Gaming"). Das hier
+    // ist der Ort dafür: Was sich vor dieser Änderung angesammelt hat, soll sich
+    // nicht erst nach und nach auflösen, sondern beim ersten Blick auf die Liste.
+    themen.vorschlaegeAufraeumen();
     res.json(db.prepare(`
       SELECT v.*, a.name AS konto_name,
              (SELECT COUNT(*) FROM sort_inbox i

@@ -2,6 +2,31 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.8.8.0] - 2026-09-05 (Build 91) — *„Games" und „Gaming" sind ein Ordner*
+
+### Fix: Für dieselbe Sache wurden mehrere Ordner vorgeschlagen
+- Im Panel standen **34 Vorschläge** — darunter „Games" (8×) *und* „Gaming" (6×). Die KI
+  erfindet für dasselbe Thema gern zwei Namen, und jeder davon wurde ein eigener Vorschlag und
+  am Ende ein eigener Ordner.
+- **Die Ursache war der Prompt:** Er zeigte dem Modell nur die *angelegten* Ordner. Ein
+  Vorschlag, der noch auf Freigabe wartet, war für das Modell unsichtbar — es konnte den Namen,
+  den es letzte Woche selbst vorgeschlagen hatte, gar nicht kennen und erfand einen zweiten.
+  Wartende Vorschläge stehen jetzt mit im Prompt, gekennzeichnet als „noch nicht angelegt".
+- **Dazu erkennt das Panel jetzt selbst, was dasselbe meint:** gleicher Wortstamm (Einzahl/
+  Mehrzahl, andere Endung) oder eine kurze Liste echter Synonyme, vor allem deutsch/englisch.
+  „Gaming" landet damit im vorhandenen Ordner „Games", statt einen zweiten danebenzustellen.
+- **Bestehende Vorschläge werden zusammengefasst**, sobald die Liste geöffnet wird: Zähler
+  addiert, wartende Mails mitgezogen. Es gewinnt der Vorschlag mit den meisten Nennungen, bei
+  Gleichstand der kürzere Name.
+- **Abgelehnt bleibt abgelehnt** — auch unter anderem Namen. Wer „Games" ablehnt, bekommt es
+  nicht als „Gaming" zurück.
+- Die Gleichsetzung greift **nur, um etwas Vorhandenes zu treffen**. Erfunden wird nie etwas,
+  und der Name bleibt der, den man selbst freigegeben hat.
+
+### Wirkt nach dem Synchronisieren
+- Der Prompt steckt in den Workflows — nach dem Update einmal **Workflows → Synchronisieren**.
+  Das Zusammenfassen der bestehenden Vorschläge läuft dagegen sofort.
+
 ## [3.8.7.3] - 2026-09-05 (Build 90) — *Jede vierte Mail verschwand stillschweigend*
 
 ### Fix: Mails ohne erkannten Absender wurden weggeworfen
