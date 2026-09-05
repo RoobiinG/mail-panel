@@ -287,6 +287,26 @@ export default function Dashboard() {
                     <span className="font-mono text-panel-accent"> Einstellungen</span> begrenzbar.
                   </p>
                 )}
+
+                {/* Was Google heute wirklich zugelassen hat. Einen Rest-Zähler
+                    gibt die Gemini-API nicht heraus — das hier ist die Stelle,
+                    an der sie abgewiesen hat, und damit die belastbarste Zahl,
+                    die zu bekommen ist. */}
+                {b.beobachtet && (
+                  <div className="mt-3 pt-3 border-t border-panel-border text-xs space-y-1">
+                    <p className="text-panel-red">
+                      Google hat heute bei <span className="font-bold">{b.beobachtet.stand}</span> Abfragen
+                      abgewiesen.
+                    </p>
+                    <p className="text-panel-muted">
+                      Das ist dein tatsächliches Tageskontingent — einen Rest-Zähler gibt die
+                      Gemini-API nicht heraus, das Panel zählt selbst mit und merkt sich, wo Google
+                      dichtmacht. Setz das Tagesbudget knapp darunter
+                      {b.grenze > b.beobachtet.stand && <> (steht auf {b.grenze})</>}, dann enden die
+                      Läufe sauber, statt mittendrin abzubrechen.
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
 

@@ -13,6 +13,7 @@ const imap = require('./imap');
 const aufsicht = require('./aufsicht');
 const sicherung = require('./postfachSicherung');
 const belegLeser = require('./belegLeser');
+const kiKontingent = require('./kiKontingent');
 const { loggen } = require('./panelLog');
 
 // ─── Posteingangs-Stände, zwischengespeichert ────────────────────────────────
@@ -95,6 +96,9 @@ async function laden({ mitPosteingang = true } = {}) {
       heute: verbraucht,
       rest: budget ? Math.max(0, budget - verbraucht) : null,
       ausgeschoepft: budget ? verbraucht >= budget : false,
+      // Wo Google heute abgewiesen hat — das Nächste an einem echten Tageslimit,
+      // was sich überhaupt beschaffen lässt. Siehe services/kiKontingent.js.
+      beobachtet: kiKontingent.stand().beobachtet,
     },
 
     // Qualität und Umfang

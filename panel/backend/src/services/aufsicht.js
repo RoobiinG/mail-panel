@@ -140,6 +140,13 @@ async function pruefen({ reparieren = null } = {}) {
   };
   settings.setze('aufsicht_letzter_lauf', JSON.stringify(ergebnis));
 
+  // Bei der Gelegenheit nachsehen, ob Google heute schon abgewiesen hat. Der
+  // Rundgang ist ohnehin schon mit n8n verbunden — und die Zahl, bei der die
+  // Abweisung kam, ist das Einzige, was einem Tageslimit nahekommt (Google gibt
+  // keinen Rest-Zaehler heraus, siehe services/kiKontingent.js).
+  try { await require('./kiKontingent').nachAbweisungSehen(); }
+  catch (err) { loggen('warn', 'aufsicht', `KI-Kontingent nicht pruefbar: ${err.message}`); }
+
   if (repariert.length) {
     loggen('warn', 'aufsicht',
       `${repariert.length} Workflow(s) waren ausgeschaltet und wurden wieder eingeschaltet: ${repariert.join(', ')}.`);

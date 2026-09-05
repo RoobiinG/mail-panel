@@ -2,6 +2,28 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.9.1.0] - 2026-09-05 (Build 95) — *Wo Google heute dichtmacht*
+
+### Neu: Das tatsächliche Tageskontingent im Dashboard
+- **Vorweg das Ehrliche: Google gibt den Rest nicht heraus.** Die Gemini-API liefert keine
+  Kopfzeile mit dem verbleibenden Kontingent und hat keinen Endpunkt, den man fragen könnte —
+  die offizielle Dokumentation verweist auf das Dashboard im AI Studio, sonst nichts. Eine
+  Anzeige „noch X von Google" wäre erfunden.
+- Was stattdessen geht, und zwar belastbar: **Das Panel merkt sich, wo Google abgewiesen hat.**
+  Der eigene Tagesstand in diesem Moment ist genau das, was durchgegangen ist — das praktische
+  Tageslimit für dieses Konto und Modell.
+- Im Dashboard steht unter dem KI-Tagesbudget dann: „Google hat heute bei 412 Abfragen
+  abgewiesen" samt Hinweis, das Budget knapp darunter zu setzen. Dann stoppt das Panel künftig
+  von selbst, und der Lauf endet sauber statt mitten im Stapel.
+- Gefunden wird die Abweisung beim Rundgang der Aufsicht (Standard: alle 15 Minuten) in den
+  n8n-Ausführungen. Sparsam: höchstens zwei Detailabfragen, und nur solange für heute noch
+  keine Abweisung bekannt ist — eine solche Abfrage bringt die kompletten Lauf-Daten mit.
+- Der Beleg-Leser ist der einzige Gemini-Aufruf, den das Panel selbst macht. Er nimmt jetzt mit,
+  was zu holen ist: eine 429 von dort zählt genauso, und sollte Google wider Erwarten doch eine
+  Kopfzeile mit dem Rest schicken, wird sie gelesen.
+- Die Zahl ist als **eigene Zählung** gekennzeichnet. Das Panel tut nicht so, als käme sie von
+  Google.
+
 ## [3.9.0.1] - 2026-09-05 (Build 94) — *Fehlermeldungen, die einem sagen, was zu tun ist*
 
 ### Verbesserung: Klartext unter der Fehlermeldung eines Laufs

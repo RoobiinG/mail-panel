@@ -211,6 +211,17 @@ async function fragGemini(pdfBase64) {
         signal: AbortSignal.timeout(45000),
       },
     );
+    // Der einzige Gemini-Aufruf, den das Panel selbst macht — und damit die
+    // einzige Gelegenheit, an Zahlen zu kommen, die sonst niemand liefert.
+    // Kopfzeilen mit dem verbleibenden Kontingent sind nicht dokumentiert;
+    // schickt Google sie doch, werden sie mitgenommen. Und eine 429 ist hier
+    // dieselbe Auskunft wie drüben in n8n: Für heute ist Schluss.
+    try {
+      const rest = res.headers.get('x-ratelimit-remaining-requests');
+      if (rest !== null) settings.setze('ki_rest_kopfzeile', String(rest));
+      if (res.status === 429) require('./kiKontingent').abweisungMerken(new Date().toISOString());
+    } catch { /* eine Zusatzinfo darf das Belege-Lesen nicht aufhalten */ }
+
     if (!res.ok) {
       loggen('warn', 'backend:belegLeser', `Gemini antwortete mit ${res.status}`);
       return null;
