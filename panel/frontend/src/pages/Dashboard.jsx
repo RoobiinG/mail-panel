@@ -219,7 +219,7 @@ export default function Dashboard() {
               <StatusKachel icon={Workflow} titel="Bestand sortiert" ton={besTon}
                 wert={bes?.letzterLauf ? seit(bes.letzterLauf) : 'nie'}
                 unter={bes?.letzterLauf
-                  ? `${bes.verarbeitet} von ${bes.gesamt} an die KI · ${new Date(bes.letzterLauf).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
+                  ? `${bes.verarbeitet} von ${bes.gesamt} bearbeitet · ${new Date(bes.letzterLauf).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
                   : (bes?.intervallStunden > 0 ? `Zeitplan: alle ${bes.intervallStunden} h` : 'noch nie gelaufen')} />
             </div>
 

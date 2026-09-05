@@ -63,6 +63,40 @@ function themenKatalog(kontoName) {
   }
 }
 
+// Welche Mails hat eine Regel sortiert — und nicht die KI?
+//
+// Diese Frage laesst sich nur HIER beantworten, vor der KI-Abfrage: Genau jetzt
+// entscheidet der Workflow, welchen Zweig die Mail nimmt. Spaeter in
+// /einsortieren nachzusehen, ob eine Regel passt, ergibt die falsche Antwort —
+// denn das Panel lernt waehrend eines Laufs neue Regeln dazu (themen.regelLernen),
+// und die wuerden Mails ruecklaeufig als "kostenlos" markieren, die laengst bei
+// Gemini waren. Genau das ist passiert: Nach dem ersten grossen Lauf stand das
+// KI-Tagesbudget auf 0 verbraucht, obwohl 189 Mails klassifiziert worden waren.
+//
+// Im Arbeitsspeicher, nicht in der Datenbank: Die Notiz gilt nur fuer die
+// Minuten zwischen /sort und /einsortieren derselben Mail. Geht sie bei einem
+// Neustart verloren, zaehlt die Mail als KI-Aufruf — die vorsichtige Richtung.
+const perRegel = new Map();
+const REGEL_MERK_MS = 2 * 60 * 60 * 1000;
+
+function regelMerken(konto, uid) {
+  if (uid == null) return;
+  if (perRegel.size > 5000) {
+    const grenze = Date.now() - REGEL_MERK_MS;
+    for (const [k, t] of perRegel) if (t < grenze) perRegel.delete(k);
+  }
+  perRegel.set(`${konto}|${uid}`, Date.now());
+}
+
+function warRegelSortiert(konto, uid) {
+  if (uid == null) return false;
+  const schluessel = `${konto}|${uid}`;
+  const zeit = perRegel.get(schluessel);
+  if (zeit == null) return false;
+  perRegel.delete(schluessel);
+  return Date.now() - zeit < REGEL_MERK_MS;
+}
+
 // ─── SORTIERUNG (VOR GEMINI) ─────────────────────────────────────────────────
 router.post('/sort', (req, res) => {
   const { konto, von, betreff, uid } = req.body || {};
@@ -81,6 +115,8 @@ router.post('/sort', (req, res) => {
         return res.json({ aktion: 'inbox', behalten: true });
       }
       if (match) {
+        // Diese Mail nimmt gleich den Regel-Zweig und sieht die KI nie.
+        regelMerken(konto, uid);
         return res.json({ aktion: 'verschieben', ordner: match.ordner });
       }
     }
@@ -369,7 +405,9 @@ router.post('/einsortieren', async (req, res) => {
     // Eine Mail, die eine Regel trifft, laeuft im Workflow vor der KI-Abfrage
     // ab ("Gleich sortieren?"). Sie als KI-Aufruf zu zaehlen, haette das
     // Tagesbudget genau dann leergesaugt, wenn man sich Regeln angelegt hat.
-    triageProtokollieren({ ...b, zielordner: ordner, ki: regel ? 0 : 1 });
+    // Massgeblich ist der Vermerk aus /sort — nicht, ob jetzt gerade eine Regel
+    // passt: Die kann in diesem Lauf erst dazugelernt worden sein.
+    triageProtokollieren({ ...b, zielordner: ordner, ki: warRegelSortiert(b.konto, b.uid) ? 0 : 1 });
 
     // Erst nach dem Protokollieren zaehlen — sonst uebersieht die Zaehlung die
     // gerade laufende Mail.

@@ -2,6 +2,24 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.8.7.2] - 2026-09-05 (Build 89) — *Der KI-Zähler stand auf null, obwohl die KI arbeitete*
+
+### Fix: Das Tagesbudget zählte nichts mehr
+- Nach dem ersten großen Bestandslauf standen **189 klassifizierte Mails** im Dashboard — und
+  das **KI-Tagesbudget bei 0 verbraucht**. Der Deckel war damit blind.
+- Ursache war der Fix aus Build 87: Um Regel-Mails nicht aufs Budget zu buchen, sah das Panel
+  in `/einsortieren` nach, ob eine Regel passt. Das ist der **falsche Zeitpunkt** — denn das
+  Panel lernt *während* eines Laufs neue Regeln dazu. Eine Mail, die Gemini längst gesehen
+  hatte, wurde am Ende von einer frisch gelernten Regel rückwirkend als „kostenlos" verbucht.
+- Jetzt wird die Entscheidung dort festgehalten, wo sie fällt: in `/sort`, **vor** der
+  KI-Abfrage — genau da, wo der Workflow den Zweig wählt. Der Vermerk lebt im Arbeitsspeicher
+  und gilt nur für die Minuten bis `/einsortieren`. Geht er verloren (Neustart), zählt die Mail
+  als KI-Aufruf — die vorsichtige Richtung.
+
+### Kleinigkeit
+- Die Dashboard-Kachel sagt jetzt „189 von 200 **bearbeitet**" statt „an die KI": Seit Build 87
+  laufen auch Regel-Mails durch diese Zahl, und die sehen die KI nie.
+
 ## [3.8.7.1] - 2026-09-05 (Build 88) — *Schluss mit der toten Credential-ID*
 
 ### Fix: „Credential with ID … does not exist" — die eigentliche Ursache
