@@ -2,6 +2,30 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.8.7.1] - 2026-09-05 (Build 88) — *Schluss mit der toten Credential-ID*
+
+### Fix: „Credential with ID … does not exist" — die eigentliche Ursache
+- Build 86 hatte die Reihenfolge repariert (erst anlegen, dann löschen). Der Fehler kam
+  trotzdem wieder, mit einer **neuen** ID. Die Ursache lag eine Ebene tiefer: Das Panel legte
+  die Zugangsdaten **bei jedem Sync neu an** — die n8n-API kann Credentials nicht ändern, nur
+  ersetzen. Jedes Ersetzen zwingt dazu, die ID in **jedem** Workflow nachzuziehen. Brach diese
+  Schleife in der Mitte ab (n8n antwortet nicht, IMAP-Verbindungslimit), behielten die übrigen
+  Workflows die alte ID — die es da schon nicht mehr gab.
+- **Jetzt wird nur noch angelegt, wenn sich wirklich etwas geändert hat.** Das Panel merkt
+  sich einen Fingerabdruck der Zugangsdaten (der Schlüssel selbst bleibt draußen). Gleicher
+  Fingerabdruck heißt: nichts anfassen. Kein Ersetzen, kein Risiko.
+- **Ein Workflow, der sich nicht speichern lässt, reißt die anderen nicht mehr mit** — jeder
+  wird einzeln abgesichert.
+- **Alte Zugangsdaten werden erst weggeräumt, wenn wirklich jeder Workflow die neue ID hat.**
+  Ging etwas schief, bleiben sie stehen: Dann arbeiten die übrigen Workflows eben mit den
+  alten weiter, statt ins Leere zu zeigen.
+
+### Neu: Knopf „Zugangsdaten erneuern"
+- Auf der Workflows-Seite. Für den einen Fall, den das Panel nicht selbst sehen kann: Wurde
+  ein Credential in n8n von Hand gelöscht oder n8n neu aufgesetzt, zeigt die gemerkte ID ins
+  Leere — und nachfragen kann das Panel nicht, die n8n-API kennt kein „gibt es diese ID?".
+  Der Knopf vergisst die gemerkten IDs und legt beim folgenden Sync frische an.
+
 ## [3.8.7.0] - 2026-09-05 (Build 87) — *Die Bestands-Triage kommt endlich voran*
 
 ### Fix: Immer dieselben hundert Mails

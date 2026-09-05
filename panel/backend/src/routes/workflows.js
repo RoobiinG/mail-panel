@@ -174,6 +174,30 @@ router.post('/neu-importieren', async (req, res) => {
   }
 });
 
+// POST /api/workflows/zugangsdaten-erneuern — Merkzettel leeren und neu anlegen
+//
+// Für den Fall, dass in n8n ein Credential von Hand gelöscht wurde oder n8n neu
+// aufgesetzt ist: Dann zeigt die gemerkte ID ins Leere, und n8n bricht jeden
+// Lauf ab mit „Credential with ID ... does not exist". Nachsehen kann das Panel
+// nicht — die n8n-API kennt kein GET auf Credentials. Also vergisst es die IDs
+// und legt beim folgenden Sync frische an.
+router.post('/zugangsdaten-erneuern', async (req, res) => {
+  try {
+    patcher.zugangsdatenVergessen();
+    const konten = db.prepare('SELECT * FROM accounts WHERE aktiv = 1 ORDER BY id').all();
+    const sync = await patcher.alleSynchronisieren(konten);
+    loggen('info', 'workflows', 'Zugangsdaten in n8n neu angelegt');
+    res.json({
+      ok: true,
+      sync,
+      hinweis: 'Neue Zugangsdaten angelegt und in alle Workflows eingetragen. Die alten '
+        + 'bleiben in n8n stehen — sie lassen sich dort gefahrlos löschen.',
+    });
+  } catch (err) {
+    fehlerAntwort(res, err, 'Zugangsdaten erneuern');
+  }
+});
+
 // POST /api/workflows/sync — Konten neu verdrahten (gleiche Wirkung wie auf der Konten-Seite)
 router.post('/sync', async (req, res) => {
   try {

@@ -657,7 +657,8 @@ nötig — der kostet für dieses Aufkommen Centbeträge.
 | Workflow lässt sich nicht einschalten, n8n meldet „not published" | Auf der Workflows-Seite einmal **Synchronisieren** — dabei wird der Unter-Workflow 07 veröffentlicht |
 | IMAP-Knoten meldet „node not found" | `docker compose up -d` erneut ausführen; der Init-Container installiert `n8n-nodes-imap` ins n8n-Volume |
 | Nichts wird sortiert, der Lauf bricht bei *Gemini klassifizieren* ab mit „Credentials not found" | Gemini-Schlüssel fehlt (Schritt 6) oder es wurde danach nicht synchronisiert |
-| Gemini meldet Fehler 429 | Tageskontingent des Free Tier aufgebraucht — morgen weitermachen oder die Drosselung erhöhen |
+| n8n meldet „Credential with ID … does not exist" | Auf der Workflows-Seite **Zugangsdaten erneuern** — das Panel legt sie neu an und trägt sie in alle Workflows ein |
+| Gemini meldet Fehler 429 | Tageskontingent des Free Tier aufgebraucht — morgen weitermachen, oder die Pause unter *Einstellungen → KI* verlängern |
 | Gmail lehnt die Anmeldung ab | Gmail verlangt Zwei-Faktor-Anmeldung plus **App-Passwort**; das normale Konto-Passwort funktioniert nicht |
 | Web.de- oder GMX-Anmeldung schlägt fehl | IMAP in den Einstellungen der Weboberfläche freischalten |
 | IMAP scheitert mit „self-signed certificate" | Beim Konto *Selbstsigniertes Zertifikat akzeptieren* anhaken |

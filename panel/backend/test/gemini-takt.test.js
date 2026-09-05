@@ -96,21 +96,53 @@ describe('Tempo der KI-Anfragen', () => {
   });
 });
 
+// Der teuerste Fehler dieses Projekts: eine Credential-ID, die es nicht mehr
+// gibt, in jedem Workflow. n8n bricht dann JEDEN Lauf ab, und zwar dauerhaft.
+// Die Lehre steckt in diesen vier Tests.
 describe('credentialErneuern', () => {
-  test('legt an und merkt sich die neue ID', async () => {
-    db.prepare("DELETE FROM settings WHERE key='n8n_test_credential_id'").run();
-    const id = await patcher.credentialErneuern('n8n_test_credential_id', async () => 'neu-1');
-    assert.equal(id, 'neu-1');
+  test('legt an und merkt sich ID samt Fingerabdruck', async () => {
+    db.prepare("DELETE FROM settings WHERE key LIKE 'n8n_test_credential_id%'").run();
+    const c = await patcher.credentialErneuern('n8n_test_credential_id', 'abdruck-1', async () => 'neu-1');
+    assert.equal(c.id, 'neu-1');
+    assert.equal(c.alt, null);
     assert.equal(settings.hole('n8n_test_credential_id'), 'neu-1');
   });
 
+  test('unveraenderte Zugangsdaten werden gar nicht erst angefasst', async () => {
+    let aufrufe = 0;
+    const c = await patcher.credentialErneuern('n8n_test_credential_id', 'abdruck-1',
+      async () => { aufrufe += 1; return 'neu-2'; });
+    assert.equal(aufrufe, 0,
+      'jedes Neuanlegen zwingt dazu, die ID in JEDEM Workflow nachzuziehen');
+    assert.equal(c.id, 'neu-1');
+  });
+
+  test('geaenderte Zugangsdaten: neue ID, alte nur zum Wegraeumen gemeldet', async () => {
+    const c = await patcher.credentialErneuern('n8n_test_credential_id', 'abdruck-2', async () => 'neu-3');
+    assert.equal(c.id, 'neu-3');
+    assert.equal(c.alt, 'neu-1',
+      'geloescht wird erst, wenn alle Workflows die neue ID haben');
+  });
+
   test('scheitert das Anlegen, bleibt die alte ID gueltig', async () => {
-    settings.setze('n8n_test_credential_id', 'alt-7');
-    const id = await patcher.credentialErneuern('n8n_test_credential_id',
+    const c = await patcher.credentialErneuern('n8n_test_credential_id', 'abdruck-3',
       async () => { throw new Error('n8n nicht erreichbar'); });
-    assert.equal(id, 'alt-7',
-      'sonst landet eine geloeschte ID in jedem Workflow und kein Lauf kommt mehr durch');
-    assert.equal(settings.hole('n8n_test_credential_id'), 'alt-7',
-      'und in der Datenbank darf auch nichts kaputtgehen');
+    assert.equal(c.id, 'neu-3', 'sonst landet eine tote ID in jedem Workflow');
+    assert.equal(c.alt, null, 'und weggeraeumt wird schon gar nichts');
+  });
+
+  test('der Fingerabdruck unterscheidet, verraet aber nichts', () => {
+    assert.equal(patcher.fingerabdruck('gemini', 'a'), patcher.fingerabdruck('gemini', 'a'));
+    assert.notEqual(patcher.fingerabdruck('gemini', 'a'), patcher.fingerabdruck('gemini', 'b'));
+    assert.doesNotMatch(patcher.fingerabdruck('gemini', 'streng-geheim'), /geheim/);
+  });
+
+  test('zugangsdatenVergessen leert den Merkzettel', () => {
+    settings.setze('n8n_gemini_credential_id', 'x1');
+    settings.setze('n8n_gemini_credential_id_fp', 'fp1');
+    patcher.zugangsdatenVergessen();
+    assert.equal(settings.hole('n8n_gemini_credential_id'), '',
+      'danach legt der naechste Sync ein frisches an');
+    assert.equal(settings.hole('n8n_gemini_credential_id_fp'), '');
   });
 });

@@ -7,6 +7,7 @@ const n8n = require('./n8n');
 const db  = require('../db');
 const fs  = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const settings = require('./settings');
 const code = require('./workflowCode');
 
@@ -1077,28 +1078,59 @@ async function newsletterSynchronisieren(konten) {
 //
 // Scheitert das Anlegen, bleibt die alte ID gültig: Sie zeigt auf ein
 // Credential, das noch da ist und mit den bisherigen Daten weiterarbeitet.
-async function credentialErneuern(dbSchluessel, anlegen) {
-  const zeile = db.prepare('SELECT value FROM settings WHERE key = ?').get(dbSchluessel);
-  const alt = zeile?.value ? String(zeile.value) : null;
+//
+// Build 88 geht einen Schritt weiter: Es wird gar nicht mehr bei jedem Sync neu
+// angelegt. Denn jedes Neuanlegen zwingt dazu, die ID in JEDEM Workflow zu
+// ersetzen — und genau dabei ging es zweimal schief. Kein Neuanlegen, kein
+// Risiko: Nur wenn sich der Fingerabdruck der Zugangsdaten ändert, wird
+// überhaupt etwas angefasst.
+const gemerkt = (key) => db.prepare('SELECT value FROM settings WHERE key = ?').get(key)?.value || null;
+const merken = (key, wert) => db.prepare(`
+  INSERT INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+  ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+`).run(key, String(wert));
+
+// Der Fingerabdruck beantwortet die eine Frage, auf die es ankommt: Hat sich
+// etwas geändert? Der Schlüssel selbst landet dabei nicht im Merkzettel.
+function fingerabdruck(...teile) {
+  return crypto.createHash('sha256')
+    .update(teile.map((s) => String(s ?? '')).join(' '))
+    .digest('hex').slice(0, 32);
+}
+
+// Liefert { id, alt }: die zu benutzende Credential-ID und, falls neu angelegt
+// wurde, die abgelöste zum Wegräumen — später, nicht sofort.
+async function credentialErneuern(dbSchluessel, abdruck, anlegen) {
+  const id = gemerkt(dbSchluessel);
+  if (id && gemerkt(`${dbSchluessel}_fp`) === abdruck) return { id, alt: null };
 
   let neu;
   try {
     neu = String(await anlegen());
   } catch (err) {
     console.warn(`Credential ${dbSchluessel} konnte nicht erneuert werden:`, err.message);
-    return alt;
+    return { id, alt: null };
   }
 
-  db.prepare(`
-    INSERT INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
-    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
-  `).run(dbSchluessel, neu);
+  merken(dbSchluessel, neu);
+  merken(`${dbSchluessel}_fp`, abdruck);
+  return { id: neu, alt: id && id !== neu ? id : null };
+}
 
-  if (alt && alt !== neu) {
-    try { await n8n.credentialLoeschen(alt); }
-    catch (err) { console.warn(`Altes Credential ${alt} blieb liegen:`, err.message); }
+// Escape-Luke für den einen Fall, den das Panel nicht sehen kann: Wurde ein
+// Credential in n8n von Hand gelöscht oder n8n neu aufgesetzt, zeigt die
+// gemerkte ID ins Leere — und weil der Fingerabdruck passt, würde das Panel sie
+// ewig weiterbenutzen. Nachfragen kann es nicht: Die n8n-API kennt kein GET auf
+// Credentials. Also lässt sich der Merkzettel leeren.
+function zugangsdatenVergessen() {
+  const schluessel = [
+    'n8n_gemini_credential_id', 'n8n_telegram_credential_id',
+    'n8n_smtp_credential_id', 'n8n_panel_credential_id',
+  ];
+  for (const k of schluessel) {
+    db.prepare('DELETE FROM settings WHERE key = ? OR key = ?').run(k, `${k}_fp`);
   }
-  return neu;
+  return schluessel.length;
 }
 
 // Synchronisiert die KI- und Telegram-Einstellungen in die Workflows
@@ -1112,26 +1144,42 @@ async function kiUndBenachrichtigungenSynchronisieren() {
   let geminiCredId = null;
   let telegramCredId = null;
   let smtpCredId = null;
+  // Abgelöste Credentials werden gesammelt und erst weggeräumt, wenn wirklich
+  // jeder Workflow die neue ID hat. Sofort zu löschen war der Fehler: Brach das
+  // Anpassen in der Mitte ab, zeigten die übrigen Workflows auf ein Credential,
+  // das es nicht mehr gab — und n8n brach ab da jeden Lauf ab.
+  const aufzuraeumen = [];
 
   if (geminiKey) {
-    geminiCredId = await credentialErneuern('n8n_gemini_credential_id',
+    const c = await credentialErneuern('n8n_gemini_credential_id',
+      fingerabdruck('gemini', geminiKey),
       () => n8n.headerCredentialAnlegen('Gemini API', 'x-goog-api-key', geminiKey));
+    geminiCredId = c.id;
+    if (c.alt) aufzuraeumen.push(c.alt);
   }
 
   if (telegramToken) {
-    telegramCredId = await credentialErneuern('n8n_telegram_credential_id',
+    const c = await credentialErneuern('n8n_telegram_credential_id',
+      fingerabdruck('telegram', telegramToken),
       () => n8n.telegramCredentialAnlegen('Telegram Bot', telegramToken));
+    telegramCredId = c.id;
+    if (c.alt) aufzuraeumen.push(c.alt);
   }
 
   if (smtpHost) {
-    smtpCredId = await credentialErneuern('n8n_smtp_credential_id',
-      () => n8n.smtpCredentialAnlegen('Mail-Panel: Postausgang', {
-        host: smtpHost,
-        port: settings.hole('smtp_port'),
-        user: settings.hole('smtp_user'),
-        passwort: settings.hole('smtp_passwort'),
-        tlsUnsicher: settings.hole('smtp_tls_unsicher') === '1',
-      }));
+    const smtpDaten = {
+      host: smtpHost,
+      port: settings.hole('smtp_port'),
+      user: settings.hole('smtp_user'),
+      passwort: settings.hole('smtp_passwort'),
+      tlsUnsicher: settings.hole('smtp_tls_unsicher') === '1',
+    };
+    const c = await credentialErneuern('n8n_smtp_credential_id',
+      fingerabdruck('smtp', smtpDaten.host, smtpDaten.port, smtpDaten.user,
+        smtpDaten.passwort, smtpDaten.tlsUnsicher),
+      () => n8n.smtpCredentialAnlegen('Mail-Panel: Postausgang', smtpDaten));
+    smtpCredId = c.id;
+    if (c.alt) aufzuraeumen.push(c.alt);
   }
 
   // Das Panel-Credential brauchen auch Workflows, die der Konten-Sync nicht anfasst
@@ -1140,9 +1188,11 @@ async function kiUndBenachrichtigungenSynchronisieren() {
   catch (err) { console.warn('Panel-Credential konnte nicht angelegt werden:', err.message); }
 
   // Alle Workflows durchsuchen und anpassen
+  let allesGepatcht = true;
   try {
     const alle = await n8n.workflowsAuflisten();
     for (const wfInfo of alle) {
+     try {
       let geaendert = false;
       const workflow = await n8n.workflowHolen(wfInfo.id);
 
@@ -1206,9 +1256,28 @@ async function kiUndBenachrichtigungenSynchronisieren() {
       if (geaendert) {
         await n8n.workflowSpeichern(wfInfo.id, workflow);
       }
+     } catch (err) {
+      // Ein Workflow, der sich nicht speichern lässt (n8n antwortet nicht,
+      // IMAP-Verbindungslimit), darf die anderen nicht mitreißen.
+      allesGepatcht = false;
+      console.warn(`Workflow ${wfInfo.name || wfInfo.id} ließ sich nicht anpassen:`, err.message);
+     }
     }
   } catch (err) {
+    allesGepatcht = false;
     console.warn('Fehler beim Patchen der Workflows (KI/Telegram):', err.message);
+  }
+
+  // Jetzt erst die abgelösten Credentials wegräumen — und nur, wenn wirklich
+  // jeder Workflow die neue ID bekommen hat.
+  if (allesGepatcht) {
+    for (const alt of aufzuraeumen) {
+      try { await n8n.credentialLoeschen(alt); }
+      catch (err) { console.warn(`Altes Credential ${alt} blieb liegen:`, err.message); }
+    }
+  } else if (aufzuraeumen.length) {
+    console.warn('Alte Zugangsdaten bleiben in n8n stehen: Es ließen sich nicht alle Workflows '
+      + 'anpassen. Nach dem nächsten erfolgreichen Synchronisieren sind sie weg.');
   }
 }
 
@@ -1363,4 +1432,5 @@ module.exports = {
   themenKetteEinbauen, einsortierenKnoten, bestandZeitplanKnoten,
   bestandWebhookKnoten, BESTAND_WEBHOOK_PFAD,
   geminiRequestReparieren, credentialErneuern, bestandAuswahlKnoten, AUSWAHL_KNOTEN,
+  fingerabdruck, zugangsdatenVergessen,
 };

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   RefreshCw, Download, Play, Pause, ChevronDown, ChevronRight,
-  CheckCircle2, XCircle, Loader2, AlertTriangle,
+  CheckCircle2, XCircle, Loader2, AlertTriangle, KeyRound,
 } from 'lucide-react';
 import api from '../api';
 import AktionenBereich from '../components/AktionenBereich';
@@ -187,6 +187,13 @@ export default function Workflows() {
           </p>
         </div>
         <div className="flex gap-2 shrink-0">
+          {/* Hilft gegen „Credential with ID … does not exist": Das Panel vergisst
+              die gemerkten IDs und legt beim Sync frische an. */}
+          <button onClick={() => aktion('zugangsdaten-erneuern', 'Zugangsdaten wurden in n8n neu angelegt.')}
+            disabled={laeuft} className="btn-ghost flex items-center gap-2"
+            title="Wenn n8n meldet, ein Credential existiere nicht">
+            <KeyRound size={16} /> Zugangsdaten erneuern
+          </button>
           <button onClick={() => aktion('neu-importieren', 'Fehlende Workflows wurden importiert.')}
             disabled={laeuft} className="btn-ghost flex items-center gap-2">
             <Download size={16} /> Neu importieren
