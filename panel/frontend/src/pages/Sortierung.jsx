@@ -71,6 +71,7 @@ export default function Sortierung() {
   const [vorschlagMails, setVorschlagMails] = useState({});   // vorschlag_id -> Mails
   const [ordnerJeKonto, setOrdnerJeKonto] = useState({});     // konto_id -> Ordner (für die Umleitung)
   const [umleitZiel, setUmleitZiel] = useState({});           // vorschlag_id -> Zielordner
+  const [mailAuswahl, setMailAuswahl] = useState({});         // vorschlag_id -> [mail_id] (leer = alle)
   const [alias, setAlias] = useState([]);                     // umgeleitete Namen des aktiven Kontos
   const [katalogModal, setKatalogModal] = useState({ offen: false, ordner: '', beschreibung: '' });
   const [einleseMeldung, setEinleseMeldung] = useState('');
@@ -326,42 +327,71 @@ export default function Sortierung() {
   // Einen Vorschlag aufklappen: Welche Mails haben ihn ausgelöst? Dazu die Ordner
   // des betroffenen Kontos, damit man die Mails auch woanders hinschieben kann,
   // ohne erst das Konto zu wechseln.
+  const mailsLaden = async (vid) => {
+    try {
+      const { data } = await api.get(`/sortierung/vorschlaege/${vid}/mails`);
+      setVorschlagMails(m => ({ ...m, [vid]: data.mails || [] }));
+    } catch {
+      setVorschlagMails(m => ({ ...m, [vid]: [] }));
+    }
+  };
+
   const vorschlagOeffnen = async (v) => {
     if (offenerVorschlag === v.id) { setOffenerVorschlag(null); return; }
     setOffenerVorschlag(v.id);
-    if (!vorschlagMails[v.id]) {
-      try {
-        const { data } = await api.get(`/sortierung/vorschlaege/${v.id}/mails`);
-        setVorschlagMails(m => ({ ...m, [v.id]: data.mails || [] }));
-      } catch {
-        setVorschlagMails(m => ({ ...m, [v.id]: [] }));
-      }
-    }
+    if (!vorschlagMails[v.id]) await mailsLaden(v.id);
     if (v.konto_id && !ordnerJeKonto[v.konto_id]) {
-      try {
-        const { data } = await api.get(`/sortierung/katalog?konto_id=${v.konto_id}`);
-        setOrdnerJeKonto(o => ({ ...o, [v.konto_id]: (data || []).filter(k => !k.gesperrt) }));
-      } catch {
-        setOrdnerJeKonto(o => ({ ...o, [v.konto_id]: [] }));
-      }
+      // Was es im Postfach wirklich gibt — nicht nur, was im Themen-Katalog
+      // steht. Der Katalog kommt als Rückfall dazu, falls das Postfach gerade
+      // nicht erreichbar ist.
+      const [postfach, katalogDaten] = await Promise.all([
+        api.get(`/sortierung/postfach-ordner?konto_id=${v.konto_id}`).then(r => r.data).catch(() => []),
+        api.get(`/sortierung/katalog?konto_id=${v.konto_id}`).then(r => r.data).catch(() => []),
+      ]);
+      const namen = Array.from(new Set([
+        ...(postfach || []),
+        ...(katalogDaten || []).filter(k => !k.gesperrt).map(k => k.ordner),
+      ])).filter(Boolean).sort((a, b) => a.localeCompare(b, 'de'));
+      setOrdnerJeKonto(o => ({ ...o, [v.konto_id]: namen }));
     }
   };
+
+  // Welche Mails eines Vorschlags sind angehakt? Leer = alle.
+  const angehakt = (vid) => mailAuswahl[vid] || [];
+  const mailUmschalten = (vid, mailId) => setMailAuswahl(a => {
+    const jetzt = a[vid] || [];
+    return { ...a, [vid]: jetzt.includes(mailId) ? jetzt.filter(x => x !== mailId) : [...jetzt, mailId] };
+  });
+  const alleUmschalten = (vid, mails) => setMailAuswahl(a => {
+    const jetzt = a[vid] || [];
+    return { ...a, [vid]: jetzt.length === mails.length ? [] : mails.map(m => m.id) };
+  });
 
   const vorschlagUmleiten = async (v) => {
     const ziel = umleitZiel[v.id];
     if (!ziel) return;
+    const auswahl = angehakt(v.id);
+    const einzeln = auswahl.length > 0;
     if (!(await nachfragen({
-      titel: 'Mails dorthin verschieben?',
-      text: `Die wartenden Mails wandern nach "${ziel}" — es entsteht kein neuer Ordner.\n\n`
-        + `Schlägt die KI "${v.ordner}" wieder vor, landet die Mail künftig direkt in "${ziel}". `
-        + 'Diese Umleitung steht danach unter den Themen-Ordnern und lässt sich dort wieder lösen.',
+      titel: einzeln ? `${auswahl.length} Mail(s) verschieben?` : 'Alle Mails dorthin verschieben?',
+      text: einzeln
+        ? `Die ${auswahl.length} angehakten Mails wandern nach "${ziel}".\n\n`
+          + `Der Vorschlag "${v.ordner}" bleibt offen — für die übrigen Mails kannst du dich `
+          + 'später anders entscheiden.'
+        : `Alle wartenden Mails wandern nach "${ziel}" — es entsteht kein neuer Ordner.\n\n`
+          + `Schlägt die KI "${v.ordner}" wieder vor, landet die Mail künftig direkt in "${ziel}". `
+          + 'Diese Umleitung steht danach unter den Themen-Ordnern und lässt sich dort wieder lösen.',
       bestaetigen: 'Verschieben',
     }))) return;
     try {
-      const { data } = await api.post(`/sortierung/vorschlaege/${v.id}/umleiten`, { ordner: ziel });
-      melden(`${data.verschoben} von ${data.wartend} Mail(s) nach "${data.ordner}" verschoben. `
-        + `"${v.ordner}" zeigt künftig dorthin.`);
-      setOffenerVorschlag(null);
+      const { data } = await api.post(`/sortierung/vorschlaege/${v.id}/umleiten`, {
+        ordner: ziel, mail_ids: einzeln ? auswahl : undefined,
+      });
+      melden(`${data.verschoben} Mail(s) nach "${data.ordner}" verschoben.`
+        + (data.umgeleitet ? ` "${v.ordner}" zeigt künftig dorthin.` : ' Der Vorschlag bleibt offen.'));
+      setMailAuswahl(a => ({ ...a, [v.id]: [] }));
+      if (data.umgeleitet) setOffenerVorschlag(null);
+      else mailsLaden(v.id);   // die verschobenen fallen aus der Liste
       vorschlaegeLaden(); katalogLaden(aktivesKonto); inboxLaden(); aliasLaden(aktivesKonto);
     } catch (err) {
       melden(err.response?.data?.error || 'Verschieben fehlgeschlagen', 'fehler');
@@ -650,6 +680,12 @@ export default function Sortierung() {
                         <table className="w-full text-xs">
                           <thead className="bg-panel-bg/50 text-panel-muted">
                             <tr>
+                              <th className="px-3 py-2 w-8">
+                                <input type="checkbox"
+                                  checked={angehakt(v.id).length === mails.length && mails.length > 0}
+                                  onChange={() => alleUmschalten(v.id, mails)}
+                                  title="Alle oder keine" />
+                              </th>
                               <th className="text-left px-3 py-2 font-medium">Absender</th>
                               <th className="text-left px-3 py-2 font-medium">Betreff</th>
                               <th className="text-right px-3 py-2 font-medium whitespace-nowrap">Sicherheit</th>
@@ -657,7 +693,12 @@ export default function Sortierung() {
                           </thead>
                           <tbody className="divide-y divide-panel-border">
                             {mails.map(m => (
-                              <tr key={m.id}>
+                              <tr key={m.id} className={angehakt(v.id).includes(m.id) ? 'bg-panel-accent/10' : ''}>
+                                <td className="px-3 py-2">
+                                  <input type="checkbox"
+                                    checked={angehakt(v.id).includes(m.id)}
+                                    onChange={() => mailUmschalten(v.id, m.id)} />
+                                </td>
                                 <td className="px-3 py-2 text-panel-muted whitespace-nowrap">{adresse(m.von)}</td>
                                 <td className="px-3 py-2 truncate max-w-[380px]" title={m.betreff || ''}>
                                   {m.betreff || '(kein Betreff)'}
@@ -674,25 +715,33 @@ export default function Sortierung() {
 
                     {/* Kein neuer Ordner — dann eben in einen vorhandenen. */}
                     <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                      <span className="text-xs text-panel-muted">Stattdessen einsortieren nach:</span>
+                      <span className="text-xs text-panel-muted">
+                        {angehakt(v.id).length > 0
+                          ? `${angehakt(v.id).length} ausgewählt — einsortieren nach:`
+                          : 'Stattdessen einsortieren nach:'}
+                      </span>
                       <select
                         value={umleitZiel[v.id] || ''}
                         onChange={e => setUmleitZiel(z => ({ ...z, [v.id]: e.target.value }))}
                         className="input-field !py-1 !text-sm max-w-[240px]"
                       >
                         <option value="">Ordner wählen…</option>
-                        {ordnerListe.map(o => (
-                          <option key={o.id} value={o.ordner}>{o.ordner}</option>
-                        ))}
+                        {ordnerListe.map(o => <option key={o} value={o}>{o}</option>)}
                       </select>
                       <button onClick={() => vorschlagUmleiten(v)} disabled={!umleitZiel[v.id]}
                         className="btn-ghost !py-1 !px-3 text-sm flex items-center gap-1 disabled:opacity-40">
-                        <ArrowRight size={14} /> Dorthin verschieben
+                        <ArrowRight size={14} />
+                        {angehakt(v.id).length > 0
+                          ? `${angehakt(v.id).length} Mail(s) verschieben`
+                          : 'Alle dorthin verschieben'}
                       </button>
                     </div>
                     <p className="text-[11px] text-panel-muted">
-                      Das merkt sich das Panel: Schlägt die KI „{v.ordner}" wieder vor, geht die Mail
-                      künftig ohne Nachfrage in den gewählten Ordner.
+                      {angehakt(v.id).length > 0
+                        ? 'Nur die angehakten Mails werden verschoben. Der Vorschlag bleibt offen — '
+                          + 'für den Rest kannst du dich später anders entscheiden.'
+                        : `Ohne Häkchen wandern alle wartenden Mails. Das merkt sich das Panel: Schlägt die KI
+                           „${v.ordner}" wieder vor, geht die Mail künftig ohne Nachfrage in den gewählten Ordner.`}
                     </p>
                   </div>
                 )}

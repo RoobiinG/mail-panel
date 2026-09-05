@@ -2,6 +2,26 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.9.3.0] - 2026-09-05 (Build 99) — *Alle Ordner zur Auswahl, einzelne Mails zum Anhaken*
+
+### Fix: In der Ordner-Auswahl fehlte die Hälfte
+- Die Auswahl „Stattdessen einsortieren nach" zeigte nur den **Themen-Katalog** — also das, was
+  jemand eingelesen oder die KI angelegt hat. Ordner, die es im Postfach längst gibt, fehlten.
+- Sie zeigt jetzt die **wirklichen Ordner des Postfachs** (neue Route
+  `GET /api/sortierung/postfach-ordner`), ergänzt um den Katalog als Rückfall, falls das
+  Postfach gerade nicht antwortet. Draußen bleiben nur Papierkorb, Entwürfe, Gesendet und Spam —
+  dort etwas einzusortieren ergibt keinen Sinn. Die Kategorie-Ordner (Rechnungen, Newsletter …)
+  sind dagegen wählbar: Gesperrt sind sie nur als *Name für einen KI-Ordner*, nicht als Ziel von
+  Hand.
+
+### Neu: Einzelne Mails auswählen
+- In der aufgeklappten Mail-Liste eines Vorschlags lässt sich jetzt **jede Mail einzeln
+  anhaken** (samt „alle oder keine" in der Kopfzeile). Der Knopf sagt dann „3 Mail(s)
+  verschieben" statt „Alle dorthin verschieben".
+- **Bei einer Einzelauswahl bleibt der Vorschlag offen** und der Name wird *nicht* dauerhaft
+  umgeleitet: Wer drei von zwanzig Mails woandershin schiebt, trifft keine Aussage über den
+  Ordnernamen. Erst wenn ohne Häkchen alle wandern, merkt sich das Panel die Umleitung.
+
 ## [3.9.2.1] - 2026-09-05 (Build 98) — *Angelegte Ordner waren im Postfach unsichtbar*
 
 ### Fix: Neue Ordner wurden nicht abonniert

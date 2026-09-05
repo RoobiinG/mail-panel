@@ -712,9 +712,16 @@ router.post('/vorschlaege/:id/umleiten', async (req, res) => {
       return res.status(400).json({ error: `Den Ordner "${ziel}" gibt es im Postfach nicht.` });
     }
 
-    const wartend = db.prepare(
+    let wartend = db.prepare(
       "SELECT * FROM sort_inbox WHERE konto_id = ? AND status = 'offen' AND ki_ordner = ?",
     ).all(konto.id, vorschlag.ordner);
+
+    // Nur bestimmte Mails? Dann bleibt der Vorschlag offen: Die übrigen warten
+    // weiter, und für sie kann eine andere Entscheidung fallen.
+    const auswahl = Array.isArray(req.body?.mail_ids) ? req.body.mail_ids.map(Number) : null;
+    const nurEinzelne = auswahl !== null && auswahl.length > 0;
+    if (nurEinzelne) wartend = wartend.filter((m) => auswahl.includes(m.id));
+
     const zugang = themen.zugang(konto);
     let verschoben = 0;
     for (const mail of wartend) {
@@ -729,13 +736,19 @@ router.post('/vorschlaege/:id/umleiten', async (req, res) => {
       }
     }
 
-    themen.aliasMerken(konto.id, vorschlag.ordner, ziel);
-    db.prepare("UPDATE ordner_vorschlaege SET status = 'abgelehnt', begruendung = ? WHERE id = ?")
-      .run(`Umgeleitet nach "${ziel}"`, vorschlag.id);
+    // Den Namen nur dann dauerhaft umleiten, wenn der ganze Vorschlag gemeint
+    // war. Wer drei von zwanzig Mails woandershin schiebt, trifft keine
+    // Aussage über den Ordnernamen.
+    if (!nurEinzelne) {
+      themen.aliasMerken(konto.id, vorschlag.ordner, ziel);
+      db.prepare("UPDATE ordner_vorschlaege SET status = 'abgelehnt', begruendung = ? WHERE id = ?")
+        .run(`Umgeleitet nach "${ziel}"`, vorschlag.id);
+    }
 
     loggen('info', 'sortierung',
-      `Vorschlag "${vorschlag.ordner}" nach "${ziel}" umgeleitet, ${verschoben} Mail(s) verschoben.`);
-    res.json({ ok: true, ordner: ziel, verschoben, wartend: wartend.length });
+      `Vorschlag "${vorschlag.ordner}": ${verschoben} Mail(s) nach "${ziel}" verschoben`
+      + (nurEinzelne ? ' (Einzelauswahl, Vorschlag bleibt offen).' : ', Name dauerhaft umgeleitet.'));
+    res.json({ ok: true, ordner: ziel, verschoben, wartend: wartend.length, umgeleitet: !nurEinzelne });
   } catch (err) {
     res.status(502).json({ error: err.message });
   }
@@ -754,6 +767,34 @@ router.post('/stichworte-anwenden', async (req, res) => {
     res.json(await sortierung.stichworteNachtragen(konto, { vorschau: Boolean(req.body?.vorschau) }));
   } catch (err) {
     res.status(502).json({ error: err.message });
+  }
+});
+
+// GET /api/sortierung/postfach-ordner?konto_id= — alle Ordner, die es im
+// Postfach wirklich gibt.
+//
+// Nicht dasselbe wie der Themen-Katalog: Der enthält nur, was jemand eingelesen
+// oder die KI angelegt hat. Wer eine Mail von Hand woandershin schieben will,
+// meint aber jeden Ordner, den es gibt — und wunderte sich zu Recht, dass in der
+// Auswahl die Hälfte fehlte. Zwischenknoten und Systemordner (Papierkorb,
+// Entwürfe) bleiben draußen: Dort etwas einzusortieren ergibt keinen Sinn.
+router.get('/postfach-ordner', async (req, res) => {
+  const konto = kontoHolen(req.query.konto_id);
+  if (!konto) return res.status(400).json({ error: 'Konto nicht gefunden.' });
+  try {
+    // Papierkorb, Entwürfe, Gesendet und Spam sind keine Ablage — alles andere
+    // schon, auch die Kategorie-Ordner (Rechnungen, Newsletter …). Die sind nur
+    // als KI-Themenname gesperrt, nicht als Ziel von Hand.
+    const keineAblage = new Set(['trash', 'drafts', 'sent', 'junk', 'all']);
+    const alle = await imap.ordnerDetails({ ...konto, ...themen.zugang(konto) });
+    const ordner = alle
+      .filter((o) => o.auswaehlbar && !keineAblage.has(o.spezial))
+      .map((o) => o.pfad)
+      .filter((pfad) => pfad.toLowerCase() !== 'inbox')
+      .sort((a, b) => a.localeCompare(b, 'de'));
+    res.json(ordner);
+  } catch (err) {
+    res.status(502).json({ error: `Postfach nicht erreichbar: ${err.message}` });
   }
 });
 
