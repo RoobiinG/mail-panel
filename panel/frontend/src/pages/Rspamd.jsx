@@ -76,6 +76,14 @@ export default function Rspamd() {
       {fehler && <div className="p-3 bg-panel-red/10 border border-panel-red/30 text-panel-red rounded text-sm">{fehler}</div>}
       {syncMsg && <div className="p-3 bg-panel-green/10 border border-panel-green/30 text-panel-green rounded text-sm">{syncMsg}</div>}
 
+      {/* Was mailcow im Einzelnen nicht liefern konnte. Früher riss ein einziger
+          fehlender Endpunkt die ganze Seite mit. */}
+      {(daten.hinweise || []).length > 0 && (
+        <div className="p-3 bg-panel-bg/60 border border-panel-border rounded text-xs text-panel-muted space-y-1">
+          {daten.hinweise.map((h, i) => <p key={i}>{h}</p>)}
+        </div>
+      )}
+
       <div className="grid md:grid-cols-2 gap-6">
         <div className="card space-y-4">
           <h2 className="font-medium text-lg">Mailcow Whitelist (Global & Domain)</h2>
@@ -86,7 +94,7 @@ export default function Rspamd() {
               daten.whitelist.map((w, i) => (
                 <div key={i} className="bg-panel-surface border border-panel-border p-2 rounded flex justify-between text-sm">
                   <span>{w.object}</span>
-                  <span className="text-panel-muted text-xs">{w.list}</span>
+                  <span className="text-panel-muted text-xs">{w.domain || w.list}</span>
                 </div>
               ))
             )}
@@ -102,7 +110,7 @@ export default function Rspamd() {
               daten.blacklist.map((b, i) => (
                 <div key={i} className="bg-panel-surface border border-panel-border p-2 rounded flex justify-between text-sm">
                   <span>{b.object}</span>
-                  <span className="text-panel-muted text-xs">{b.list}</span>
+                  <span className="text-panel-muted text-xs">{b.domain || b.list}</span>
                 </div>
               ))
             )}
@@ -135,7 +143,7 @@ export default function Rspamd() {
               ) : (
                 daten.scores.map((s, i) => (
                   <tr key={i} className="hover:bg-panel-surface">
-                    <td className="py-2 px-3 font-medium">{s.domain || s.mailbox || 'Global'}</td>
+                    <td className="py-2 px-3 font-medium">{s.object || s.domain || s.mailbox || 'Global'}</td>
                     <td className="py-2 px-3 text-center">{s.greylist ?? 'Std'}</td>
                     <td className="py-2 px-3 text-center text-panel-orange">{s.spam ?? 'Std'}</td>
                     <td className="py-2 px-3 text-center text-panel-red">{s.reject ?? 'Std'}</td>

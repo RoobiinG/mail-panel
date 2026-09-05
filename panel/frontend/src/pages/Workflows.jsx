@@ -8,6 +8,36 @@ import AktionenBereich from '../components/AktionenBereich';
 
 const zeit = (w) => (w ? new Date(w).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' }) : '—');
 
+// Wie lange läuft das schon? Sekundengenau nur in der ersten Minute — danach
+// interessiert niemanden mehr, ob es 14 oder 15 Minuten sind.
+function dauer(seit) {
+  if (!seit) return '';
+  const s = Math.floor((Date.now() - new Date(seit).getTime()) / 1000);
+  if (!Number.isFinite(s) || s < 0) return '';
+  if (s < 60) return `${s} Sek.`;
+  if (s < 3600) return `${Math.floor(s / 60)} Min.`;
+  const std = Math.floor(s / 3600);
+  return `${std} Std. ${Math.floor((s % 3600) / 60)} Min.`;
+}
+
+const STATUS_TEXT = {
+  success: 'erfolgreich',
+  error: 'fehlgeschlagen',
+  crashed: 'abgestürzt',
+  canceled: 'abgebrochen',
+  waiting: 'wartet',
+  running: 'läuft',
+  new: 'startet',
+};
+
+const MODUS = {
+  trigger: 'Zeitplan',
+  webhook: 'vom Panel gestartet',
+  manual: 'von Hand',
+  retry: 'Wiederholung',
+  integrated: 'Unter-Workflow',
+};
+
 // n8n reicht die Fehlermeldung des Dienstes durch — englisch und ohne Hinweis,
 // was zu tun ist. Die vier Meldungen hier sind die, die im Betrieb wirklich
 // vorkommen; alles andere bleibt unkommentiert stehen.
@@ -178,6 +208,16 @@ export default function Workflows() {
   };
   useEffect(() => { laden(); }, []);
 
+  // Solange etwas läuft, alle zehn Sekunden nachsehen — sonst bliebe „läuft seit
+  // 3 Min." stehen, bis jemand die Seite neu lädt. Läuft nichts, wird auch nicht
+  // gepollt: Die Übersicht fragt n8n bei jedem Aufruf nach hundert Ausführungen.
+  const laeuftEtwas = (workflows || []).some((w) => w.laeuft);
+  useEffect(() => {
+    if (!laeuftEtwas) return undefined;
+    const uhr = setInterval(laden, 10000);
+    return () => clearInterval(uhr);
+  }, [laeuftEtwas]);
+
   const umschalten = async (w) => {
     setMeldung('');
     setFehler('');
@@ -259,10 +299,21 @@ export default function Workflows() {
                   <div className="min-w-0 flex-1">
                     <div className="font-medium truncate">{w.name}</div>
                     <div className="text-xs text-panel-muted flex items-center gap-2">
-                      {w.letzterLauf ? (
+                      {/* Läuft gerade schlägt alles: Die Bestands-Triage arbeitet
+                          auch mal eine halbe Stunde, und solange stand hier
+                          bisher nur das Ergebnis von vorgestern. */}
+                      {w.laeuft ? (
+                        <>
+                          <Loader2 size={15} className="animate-spin text-panel-accent" />
+                          <span className="text-panel-accent">
+                            läuft{dauer(w.laeuft.seit) ? ` seit ${dauer(w.laeuft.seit)}` : ''}
+                            {w.laeuft.modus ? ` · ${MODUS[w.laeuft.modus] || w.laeuft.modus}` : ''}
+                          </span>
+                        </>
+                      ) : w.letzterLauf ? (
                         <>
                           <StatusPunkt status={w.letzterLauf.status} />
-                          <span>zuletzt {zeit(w.letzterLauf.zeitpunkt)}</span>
+                          <span>{STATUS_TEXT[w.letzterLauf.status] || w.letzterLauf.status} · {zeit(w.letzterLauf.zeitpunkt)}</span>
                         </>
                       ) : (
                         <span>noch nie gelaufen</span>

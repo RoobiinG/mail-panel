@@ -2,6 +2,31 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.9.2.0] - 2026-09-05 (Build 97) — *Man sieht, was gerade läuft*
+
+### Neu: Laufende Workflows in der Übersicht
+- Ein Workflow, der **gerade arbeitet**, zeigt das jetzt an: Spinner, „läuft seit 12 Min." und
+  wodurch er gestartet wurde (Zeitplan, vom Panel, von Hand). Die Bestands-Triage braucht auch
+  mal eine halbe Stunde — bis hierher stand in der Zeile solange das Ergebnis von vorgestern.
+- Der Status steht jetzt als Wort da („erfolgreich", „fehlgeschlagen", „abgebrochen") statt nur
+  als farbiger Punkt.
+- Solange etwas läuft, aktualisiert sich die Liste alle zehn Sekunden von selbst. Läuft nichts,
+  wird auch nicht nachgefragt.
+
+### Fix: Rspamd-Seite lief in einen 404
+- Die mailcow-Endpunkte waren geraten: `/get/policy_bl_wl/…` und `/get/spam-score/all` gibt es
+  in der mailcow-API nicht — daher „Request failed with status code 404", und die Seite blieb
+  leer.
+- Richtig sind die Listen **je Domain**: `/get/policy_wl_domain/{domain}` und
+  `/get/policy_bl_domain/{domain}`. Das Panel holt jetzt die Domains und trägt ihre Listen
+  zusammen, mit der Domain an jedem Eintrag.
+- Die Spam-Schwellwerte kommen aus den Postfächern. Liefert eine mailcow-Version sie nicht mit,
+  bleibt die Tabelle leer — statt die ganze Seite scheitern zu lassen.
+- **Ein Teil, der klemmt, leert nicht mehr die ganze Seite.** Jeder Abschnitt trägt seinen
+  Fehler selbst, und darüber steht, was nicht gelesen werden konnte.
+- Das Kopieren der Panel-Whitelist nach mailcow nutzt jetzt den dokumentierten Endpunkt
+  (`/add/domain-policy`) und trägt in jede Domain ein, was dort noch fehlt.
+
 ## [3.9.1.1] - 2026-09-05 (Build 96) — *Die Beschreibung ist kein Notizzettel*
 
 ### Fix: „Zuletzt vorgeschlagen für: …" stand als Beschreibung im Katalog

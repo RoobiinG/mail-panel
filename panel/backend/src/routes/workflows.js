@@ -50,21 +50,31 @@ router.get('/', async (req, res) => {
       n8n.executionsAuflisten(100).catch(() => []),
     ]);
 
-    // Zu jedem Workflow den jüngsten Lauf heraussuchen
+    // Zu jedem Workflow den jüngsten Lauf heraussuchen — und getrennt davon den,
+    // der gerade läuft. Ein laufender Workflow ist nicht dasselbe wie der letzte:
+    // Die Bestands-Triage arbeitet auch mal eine halbe Stunde, und in der Zeit
+    // stand im Panel bisher nur das Ergebnis von vorgestern.
+    const laeuftNoch = (e) => String(e.status) === 'running' || String(e.status) === 'new'
+      || Boolean(e.startedAt && !e.stoppedAt);
+
     const letzte = new Map();
+    const laufend = new Map();
     for (const e of executions) {
       const id = String(e.workflowId);
       if (!letzte.has(id)) letzte.set(id, e);
+      if (laeuftNoch(e) && !laufend.has(id)) laufend.set(id, e);
     }
 
     res.json(workflows.map((w) => {
       const lauf = letzte.get(String(w.id));
+      const jetzt = laufend.get(String(w.id));
       return {
         id: w.id,
         name: w.name,
         aktiv: Boolean(w.active),
         aktualisiert: w.updatedAt,
         letzterLauf: lauf ? { status: lauf.status, zeitpunkt: lauf.startedAt } : null,
+        laeuft: jetzt ? { seit: jetzt.startedAt, ausfuehrung: jetzt.id, modus: jetzt.mode } : null,
       };
     }));
   } catch (err) {
