@@ -798,6 +798,17 @@ export default function Sortierung() {
           </h2>
           <div className="flex items-center gap-2 flex-wrap">
             {einleseMeldung && <span className="text-xs text-panel-muted">{einleseMeldung}</span>}
+            {/* Ohne diese Auswahl sah man immer den Katalog des ersten Kontos und
+                wunderte sich, warum sich nichts tut — umschalten ging nur auf
+                der Registerkarte nebenan. */}
+            <select
+              value={aktivesKonto}
+              onChange={e => setAktivesKonto(Number(e.target.value))}
+              className="text-sm bg-panel-bg rounded px-2 py-1 border border-panel-border"
+              title="Für welches Postfach?"
+            >
+              {konten.map(k => <option key={k.id} value={k.id}>{k.name}</option>)}
+            </select>
             <button onClick={stichworteAnwenden} disabled={!aktivesKonto}
               className="btn-ghost !py-1.5 !px-3 text-sm flex items-center gap-1"
               title="Die Stichworte aus den Beschreibungen auf die wartenden Mails anwenden">

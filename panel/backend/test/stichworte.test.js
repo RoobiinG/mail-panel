@@ -183,3 +183,24 @@ describe('Zusammenspiel mit der KI-Einordnung', () => {
     assert.equal(zeile.treffer, 1);
   });
 });
+
+// Die Beschreibung ist kein Notizzettel: Sie geht woertlich in den Prompt und
+// wird seit Build 93 als Stichwort ausgewertet. Bis Build 95 landete dort beim
+// Freigeben eines Vorschlags die interne Notiz "Zuletzt vorgeschlagen fuer:
+// noreply@steampowered.com" — im Prompt nutzlos, als Stichwort schaedlich.
+describe('Beschreibungen, die im Katalog gelandet sind', () => {
+  test('die alte Notiz macht "vorgeschlagen" zu einem Stichwort', () => {
+    ordner(konto, 'Games', 'Zuletzt vorgeschlagen für: noreply@steampowered.com');
+    assert.equal(
+      themen.stichwortTreffer(konto, 'a@fremd.de', 'Was wurde vorgeschlagen?')?.ordner,
+      'Games',
+      'genau deshalb wird die Notiz beim Freigeben nicht mehr als Beschreibung gespeichert',
+    );
+  });
+
+  test('bereinigt bleibt der Absender stehen — und der ist brauchbar', () => {
+    ordner(konto, 'Games', 'noreply@steampowered.com');
+    assert.equal(themen.stichwortTreffer(konto, 'a@fremd.de', 'Was wurde vorgeschlagen?'), null);
+    assert.equal(themen.stichwortTreffer(konto, 'news@steampowered.com', 'Sale')?.ordner, 'Games');
+  });
+});

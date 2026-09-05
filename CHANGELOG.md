@@ -2,6 +2,25 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.9.1.1] - 2026-09-05 (Build 96) — *Die Beschreibung ist kein Notizzettel*
+
+### Fix: „Zuletzt vorgeschlagen für: …" stand als Beschreibung im Katalog
+- Beim Freigeben eines Vorschlags schrieb das Panel dessen **interne Notiz** als Beschreibung in
+  den Themen-Katalog — im Panel sah man dann „Games — Zuletzt vorgeschlagen für:
+  noreply@steampowered.com". Im Prompt war das nutzlos, und seit Build 93 ist es sogar
+  schädlich: Die Beschreibung wird als Stichwort ausgewertet, und „zuletzt" oder „vorgeschlagen"
+  im Betreff hätten die Mail in diesen Ordner geschoben.
+- Jetzt trägt die Freigabe die **Absender-Domains der Mails** ein, für die der Ordner angelegt
+  wurde — also genau das, was als Stichwort etwas taugt. Der Ordner sortiert diese Absender ab
+  sofort ohne KI.
+- **Vorhandene Einträge werden beim Start bereinigt:** Die Notiz-Floskel fliegt raus, die
+  Adresse bleibt stehen.
+
+### Fix: Auf der Registerkarte „Themen-Ordner" fehlte die Postfach-Auswahl
+- Man sah immer den Katalog des ersten Kontos und konnte nur auf der Registerkarte nebenan
+  umschalten — wer zwei Postfächer hat, wunderte sich zu Recht, warum sich nichts tut. Die
+  Auswahl steht jetzt in der Kopfzeile.
+
 ## [3.9.1.0] - 2026-09-05 (Build 95) — *Wo Google heute dichtmacht*
 
 ### Neu: Das tatsächliche Tageskontingent im Dashboard

@@ -292,6 +292,15 @@ const migrations = [
   // Sortier-Regel trifft, läuft im Workflow an Gemini vorbei — sie darf das
   // Tagesbudget nicht verbrauchen. Vorher zählte jede Zeile als KI-Aufruf.
   'ALTER TABLE quarantine_log ADD COLUMN ki INTEGER DEFAULT 1',
+  // Einmalige Bereinigung: Bis Build 95 wurde beim Freigeben eines Vorschlags
+  // dessen interne Notiz als Beschreibung in den Katalog geschrieben ("Zuletzt
+  // vorgeschlagen für: noreply@steampowered.com"). Im Prompt war das nutzlos —
+  // und seit Build 93 wertet das Panel die Beschreibung als Stichworte aus, wo
+  // "zuletzt" und "vorgeschlagen" nichts verloren haben. Die Adresse bleibt
+  // stehen, die sagt etwas aus. Laeuft bei jedem Start, trifft aber nach dem
+  // ersten Mal nichts mehr.
+  "UPDATE konto_ordner SET beschreibung = TRIM(REPLACE(beschreibung, 'Zuletzt vorgeschlagen für:', ''))"
+  + " WHERE beschreibung LIKE 'Zuletzt vorgeschlagen für:%'",
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch { /* Spalte existiert schon */ }

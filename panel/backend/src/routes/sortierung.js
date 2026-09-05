@@ -637,14 +637,23 @@ router.post('/vorschlaege/:id/freigeben', async (req, res) => {
 
   try {
     const pfad = await themen.ordnerAnlegen(konto, name);
-    themen.inKatalog(konto.id, pfad, 'ki', vorschlag.begruendung);
-    db.prepare("UPDATE ordner_vorschlaege SET status = 'freigegeben' WHERE id = ?").run(vorschlag.id);
 
     // Wartende Mails nachsortieren. Schlägt eine fehl (Mail schon weg, UID alt),
     // laufen die übrigen weiter — deshalb je Mail ein eigener try.
     const wartend = db.prepare(`
       SELECT * FROM sort_inbox WHERE konto_id = ? AND status = 'offen' AND ki_ordner = ?
     `).all(konto.id, vorschlag.ordner);
+
+    // Die Beschreibung ist kein Notizzettel, sondern Arbeitsmaterial: Sie geht
+    // wörtlich in den Prompt, und seit Build 93 wertet das Panel ihre Stichworte
+    // selbst aus. Bis hierher stand dort die interne Notiz „Zuletzt vorgeschlagen
+    // für: …" — im Prompt nutzlos und als Stichwort sogar schädlich („zuletzt",
+    // „vorgeschlagen"). Sinnvoll sind die Absender, für die der Ordner gedacht
+    // ist: Damit sortiert er ab sofort ohne KI.
+    const domains = [...new Set(wartend.map((m) => sortierung.domain(m.von)).filter(Boolean))];
+    themen.inKatalog(konto.id, pfad, 'ki', domains.slice(0, 5).join(', ') || null);
+    db.prepare("UPDATE ordner_vorschlaege SET status = 'freigegeben' WHERE id = ?").run(vorschlag.id);
+
     const zugang = themen.zugang(konto);
     let verschoben = 0;
     for (const mail of wartend) {
