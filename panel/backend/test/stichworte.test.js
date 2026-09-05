@@ -288,3 +288,29 @@ describe('Gelerntes aus der KI-Zuordnung', () => {
     assert.match(zeile.beschreibung, /bisher hier gelandet: o2\.de/);
   });
 });
+
+// Gelerntes sind ganze Domains. Als Woerter zerlegt faellt ausgerechnet das
+// durch, was kurz ist — "o2" hat zwei Zeichen, "de" sagt nichts.
+describe('Gelerntes wird als Domain verglichen', () => {
+  test('kurze Marken wie o2 treffen trotzdem', () => {
+    ordner(konto, 'Anbieter', 'Vodafone');
+    const id = db.prepare("SELECT id FROM konto_ordner WHERE ordner = 'Anbieter'").get().id;
+    themen.gelerntMerken(id, 'info@o2.de');
+    assert.equal(themen.stichwortTreffer(konto, 'werbung@o2.de', 'Angebot')?.ordner, 'Anbieter');
+  });
+
+  test('auch eine Unterdomain zaehlt', () => {
+    ordner(konto, 'Anbieter');
+    const id = db.prepare("SELECT id FROM konto_ordner WHERE ordner = 'Anbieter'").get().id;
+    themen.gelerntMerken(id, 'a@o2.de');
+    assert.equal(themen.stichwortTreffer(konto, 'x@news.o2.de', 'y')?.ordner, 'Anbieter');
+  });
+
+  test('eine fremde Domain nicht', () => {
+    ordner(konto, 'Anbieter');
+    const id = db.prepare("SELECT id FROM konto_ordner WHERE ordner = 'Anbieter'").get().id;
+    themen.gelerntMerken(id, 'a@o2.de');
+    assert.equal(themen.stichwortTreffer(konto, 'x@no2.de', 'y'), null,
+      '"no2.de" endet zwar auf "o2.de", ist aber eine andere Domain');
+  });
+});

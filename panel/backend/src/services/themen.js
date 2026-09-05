@@ -337,9 +337,21 @@ function stichwortTreffer(kontoId, von, betreff) {
 
   const absenderTeile = zerlegen(von);
   const betreffWoerter = zerlegen(betreff);
+  const absenderDomain = String(sortierung.domain(von) || '').toLowerCase();
   const ausBetreff = [];
 
   for (const eintrag of eintraege) {
+    // Gelerntes sind ganze Domains — also auch als Domain vergleichen, nicht in
+    // Wörter zerlegt. Sonst fällt ausgerechnet „o2.de" durch: „o2" hat zwei
+    // Zeichen und „de" sagt nichts.
+    if (absenderDomain) {
+      const gelernt = gelernteListe(eintrag).find((d) => {
+        const k = d.toLowerCase();
+        return k === absenderDomain || absenderDomain.endsWith(`.${k}`);
+      });
+      if (gelernt) return { id: eintrag.id, ordner: eintrag.ordner, wort: gelernt, wo: 'absender' };
+    }
+
     for (const wort of stichworte(eintrag)) {
       // Absender: Vergleich gegen die einzelnen Teile (Anzeigename, lokaler
       // Teil, Domain-Labels), nie als Teilstring — sonst steckt „und" in
