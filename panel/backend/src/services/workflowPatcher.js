@@ -494,6 +494,57 @@ function panelKnotenVerdrahten(workflow, credentialId) {
 // Der Knoten, der die Mail samt Anhang liefert — je Workflow anders benannt.
 const NORMALISIERER = { '01': 'Normalisieren', '04': 'Sammeln + Normalisieren' };
 
+// Den Absender aus allem holen, was das Postfach hergibt.
+//
+// Der Normalisierer fragte zwei Stellen ab: envelope.from und from. Fand er dort
+// nichts, warf der Sammel-Knoten die Mail stillschweigend weg — die Zeile lautet
+// "if (!mail.von) continue". Im ersten großen Bestandslauf war das jede vierte:
+// 200 abgeholt, 146 weiterverarbeitet. Diese Mails kamen nie zur Sortierung und
+// tauchten auch nirgends als Problem auf.
+//
+// Je nach Server und Knoten liegt der Absender aber woanders: als Kopfzeile
+// (headers.from), als roher Kopfzeilen-Text (headerLines) oder unter sender.
+// Der Wert darf ruhig "Name <a@b.de>" sein — die Adresse zieht das Panel selbst
+// heraus (sortierung.adresse).
+const ABSENDER_MARKE = '// PANEL:ABSENDER v1';
+
+const ABSENDER_CODE = [
+  ABSENDER_MARKE + ' — vom Mail-Panel gepflegt.',
+  'const __ausFeld = (w) => {',
+  "  if (!w) return '';",
+  "  if (typeof w === 'string') return w;",
+  "  if (Array.isArray(w)) return w[0] ? String(w[0].address || w[0] || '') : '';",
+  '  if (w.value && w.value[0] && w.value[0].address) return String(w.value[0].address);',
+  '  if (w.text) return String(w.text);',
+  '  if (w.address) return String(w.address);',
+  "  return '';",
+  '};',
+  'const __ausKopfzeile = (name) => {',
+  '  const zeilen = Array.isArray(j.headerLines) ? j.headerLines : [];',
+  "  const t = zeilen.find((z) => String(z.key || '').toLowerCase() === name);",
+  "  return t ? String(t.line || '').replace(/^[^:]*:\\s*/, '') : '';",
+  '};',
+  'const von = __ausFeld(e.from) || __ausFeld(j.from) || __ausFeld(j.From)',
+  '  || __ausFeld(h.from) || __ausFeld(h.From) || __ausFeld(e.sender)',
+  "  || __ausKopfzeile('from') || __ausKopfzeile('sender') || '';",
+];
+
+function absenderFallbackEinbauen(workflow, normalisierer) {
+  const knoten = workflow.nodes.find((k) => k.name === normalisierer && k.type === 'n8n-nodes-base.code');
+  if (!knoten?.parameters?.jsCode) return false;
+  const code = String(knoten.parameters.jsCode);
+  if (code.includes(ABSENDER_MARKE)) return false;
+
+  // Die Einrückung übernehmen: In Workflow 01 steht der Block ganz außen, in 04
+  // eingerückt in einer Funktion.
+  const treffer = code.match(/^([ \t]*)const von = \(e\.from[\s\S]*?\|\| '';\n/m);
+  if (!treffer) return false;
+  const ein = treffer[1];
+  const neu = `${ABSENDER_CODE.map((z) => (z ? ein + z : '')).join('\n')}\n`;
+  knoten.parameters.jsCode = code.replace(treffer[0], neu);
+  return true;
+}
+
 // Der IMAP-Trigger liefert die UID unter attributes, nicht direkt. Ohne diesen
 // Rückfall blieb sie null — und ohne UID konnte der Verschiebe-Knoten keine
 // einzige Mail einsortieren ("Unable to move email").
@@ -827,6 +878,7 @@ async function triageSynchronisieren(konten, credentialId, aktionenWorkflowId) {
   patchAntwortParsen(workflow);
   geminiRequestReparieren(workflow);
   anhangKetteReparieren(workflow, NORMALISIERER['01']);
+  absenderFallbackEinbauen(workflow, NORMALISIERER['01']);
   themenKetteEinbauen(workflow, NORMALISIERER['01'], credentialId);
 
   for (const name of [ANKER.triage.ziel, ANKER.triage.weiche]) {
@@ -943,6 +995,7 @@ async function bestandSynchronisieren(konten, credentialId, aktionenWorkflowId) 
   patchAntwortParsen(workflow);
   geminiRequestReparieren(workflow);
   anhangKetteReparieren(workflow, NORMALISIERER['04']);
+  absenderFallbackEinbauen(workflow, NORMALISIERER['04']);
   themenKetteEinbauen(workflow, NORMALISIERER['04'], credentialId);
 
   const sammler = workflow.nodes.find((k) => k.name === ANKER.bestand.ziel);
@@ -1432,5 +1485,5 @@ module.exports = {
   themenKetteEinbauen, einsortierenKnoten, bestandZeitplanKnoten,
   bestandWebhookKnoten, BESTAND_WEBHOOK_PFAD,
   geminiRequestReparieren, credentialErneuern, bestandAuswahlKnoten, AUSWAHL_KNOTEN,
-  fingerabdruck, zugangsdatenVergessen,
+  fingerabdruck, zugangsdatenVergessen, absenderFallbackEinbauen, ABSENDER_MARKE,
 };

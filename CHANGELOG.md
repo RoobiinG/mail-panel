@@ -2,6 +2,27 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.8.7.3] - 2026-09-05 (Build 90) — *Jede vierte Mail verschwand stillschweigend*
+
+### Fix: Mails ohne erkannten Absender wurden weggeworfen
+- Im Bestandslauf standen **200 abgeholt, 146 weiterverarbeitet**. Die fehlenden 54 waren
+  keine Dubletten und kein Budget — der Sammel-Knoten wirft jede Mail weg, bei der kein
+  Absender herauskommt (`if (!mail.von) continue`). Ohne Fehler, ohne Eintrag, ohne dass
+  irgendwo etwas rot geworden wäre.
+- Der Normalisierer fragte dafür genau **zwei** Stellen ab: `envelope.from` und `from`. Je nach
+  Server und Knoten steht der Absender aber woanders — als Kopfzeile (`headers.from`), im rohen
+  Kopfzeilen-Text (`headerLines`) oder unter `sender`.
+- Er sieht jetzt an **acht** Stellen nach, in dieser Reihenfolge, und nimmt die erste, die
+  etwas hergibt. Ein „Name &lt;a@b.de&gt;" reicht dabei — die Adresse zieht das Panel selbst heraus.
+- Wirkt in Workflow 01 und 04 nach dem nächsten **Synchronisieren**.
+
+### Bekannt und bewusst so
+- Eine Mail mit **„In Ruhe lassen"-Regel kostet in Workflow 01 weiterhin eine KI-Abfrage.**
+  Sie läuft absichtlich durch die komplette Prüfkette (Blacklist, DNSBL, Virenscan) — ein
+  Virus gehört in die Quarantäne, auch wenn der Absender sonst unangetastet bleiben soll. Erst
+  am Ende wird sie liegen gelassen. In der Bestands-Triage (04) fällt sie dagegen schon vor
+  der KI heraus, dort greift der Budget-Wächter.
+
 ## [3.8.7.2] - 2026-09-05 (Build 89) — *Der KI-Zähler stand auf null, obwohl die KI arbeitete*
 
 ### Fix: Das Tagesbudget zählte nichts mehr
