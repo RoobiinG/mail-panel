@@ -17,7 +17,7 @@ const EINFACHE_KEYS = [
   'dnsbl_listen', 'spam_schwellwert', 'clamav_aktiv', 'safebrowsing_aktiv', 'trockenlauf_aktiv',
   // Automatische Themen-Sortierung
   'themen_sortierung_aktiv', 'themen_ordner_anlegen', 'themen_ordner_max',
-  'themen_konfidenz', 'themen_eltern', 'themen_regel_lernen',
+  'themen_konfidenz', 'themen_konfidenz_vorhanden', 'themen_eltern', 'themen_regel_lernen',
 ];
 
 router.get('/', (req, res) => {
@@ -60,8 +60,9 @@ router.put('/', (req, res) => {
     if (key === 'spam_schwellwert' && (isNaN(Number(value)) || Number(value) < 0 || Number(value) > 1)) {
       return res.status(400).json({ error: 'spam_schwellwert: Zahl zwischen 0 und 1' });
     }
-    if (key === 'themen_konfidenz' && (isNaN(Number(value)) || Number(value) < 0 || Number(value) > 1)) {
-      return res.status(400).json({ error: 'themen_konfidenz: Zahl zwischen 0 und 1' });
+    if (['themen_konfidenz', 'themen_konfidenz_vorhanden'].includes(key)
+      && (isNaN(Number(value)) || Number(value) < 0 || Number(value) > 1)) {
+      return res.status(400).json({ error: `${key}: Zahl zwischen 0 und 1` });
     }
     if (key === 'themen_ordner_anlegen' && !themen.ANLEGEN_MODI.includes(String(value))) {
       return res.status(400).json({ error: 'themen_ordner_anlegen: nur aus, freigabe oder auto' });

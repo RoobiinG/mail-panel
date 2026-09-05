@@ -27,6 +27,12 @@ function einstellungen() {
     anlegen: ANLEGEN_MODI.includes(modus) ? modus : 'freigabe',
     max: Math.max(0, Number(wert('themen_ordner_max', '25')) || 0),
     konfidenz: Math.min(1, Math.max(0, Number(wert('themen_konfidenz', '0.7')) || 0)),
+    // Zwei Schwellen, weil zwei sehr verschiedene Entscheidungen dahinterstehen:
+    // Einen vorhandenen Ordner zu wählen ist harmlos und in einem Klick
+    // korrigiert. Einen neuen anzulegen ist es nicht — der bleibt im Postfach
+    // stehen. Mit einer gemeinsamen Schwelle war ausgerechnet das Aufräumen
+    // (vorhandenen Ordner treffen) genauso schwer wie das Zumüllen.
+    konfidenzVorhanden: Math.min(1, Math.max(0, Number(wert('themen_konfidenz_vorhanden', '0.45')) || 0)),
     eltern: String(wert('themen_eltern', '') || '').trim(),
     regelLernen: wert('themen_regel_lernen', '1') === '1',
     trockenlauf: wert('trockenlauf_aktiv', '0') === '1',
@@ -193,10 +199,18 @@ const MAX_IM_PROMPT = 40;
 const MAX_VORSCHLAEGE_IM_PROMPT = 15;
 
 function fuerPrompt(kontoId) {
-  const liste = katalog(kontoId).slice(0, MAX_IM_PROMPT).map((o) => ({
-    name: o.ordner,
-    beschreibung: o.beschreibung || '',
-  }));
+  const liste = katalog(kontoId).slice(0, MAX_IM_PROMPT).map((o) => {
+    const gelernt = gelernteListe(o);
+    return {
+      name: o.ordner,
+      // Beides zusammen ergibt das Bild der Kategorie: was der Nutzer meint,
+      // und was tatsächlich schon hier gelandet ist.
+      beschreibung: [
+        o.beschreibung || '',
+        gelernt.length ? `bisher hier gelandet: ${gelernt.join(', ')}` : '',
+      ].filter(Boolean).join(' · '),
+    };
+  });
 
   // Auch die Vorschläge, die noch auf Freigabe warten. Ohne sie kennt das Modell
   // den Namen nicht, den es vorgestern selbst vorgeschlagen hat — und erfindet
@@ -256,8 +270,59 @@ function zerlegen(text) {
 }
 
 function stichworte(eintrag) {
-  return zerlegen(`${eintrag.ordner || ''} ${eintrag.beschreibung || ''}`)
+  // Das Gelernte zählt mit: Was die KI einmal hierher sortiert hat, muss beim
+  // zweiten Mal nicht noch einmal geschlossen werden.
+  return zerlegen(`${eintrag.ordner || ''} ${eintrag.beschreibung || ''} ${eintrag.gelernt || ''}`)
     .filter((w) => w.length >= 3 && !STOPWORTE.has(w));
+}
+
+// ─── Was die KI über einen Ordner gelernt hat ────────────────────────────────
+//
+// Die Beschreibung schreibt der Nutzer. Was die KI darüber hinaus erkennt — „o2
+// gehört offenbar zu Vodafone/Sky/Telekom" —, steht daneben in einem eigenen
+// Feld. Zwei Gründe: Der Nutzertext wird nie überschrieben, und der Prompt kann
+// beides getrennt zeigen („bisher hier gelandet: …").
+const GELERNT_MAX = 12;
+
+const gelernteListe = (eintrag) => String(eintrag?.gelernt || '')
+  .split(',').map((s) => s.trim()).filter(Boolean);
+
+// Merkt sich die Absender-Domain an einem Ordner. Die älteste fällt raus, wenn
+// es zu viele werden — der Prompt soll ein Bild geben, keine Chronik.
+function gelerntMerken(ordnerId, von) {
+  const domain = sortierung.domain(von);
+  if (!ordnerId || !domain) return false;
+  try {
+    const eintrag = db.prepare('SELECT gelernt FROM konto_ordner WHERE id = ?').get(ordnerId);
+    if (!eintrag) return false;
+    const bisher = gelernteListe(eintrag);
+    if (bisher.some((d) => d.toLowerCase() === domain.toLowerCase())) return false;
+    const neu = [...bisher, domain].slice(-GELERNT_MAX);
+    db.prepare('UPDATE konto_ordner SET gelernt = ? WHERE id = ?').run(neu.join(', '), ordnerId);
+    return true;
+  } catch { return false; }
+}
+
+// Nimmt eine Domain wieder heraus — nach einer Korrektur des Nutzers. Ein falsch
+// gelernter Absender darf sich nicht festsetzen.
+function gelerntVergessen(kontoId, ordner, von) {
+  const domain = typeof von === 'string' && von.includes('@') ? sortierung.domain(von) : String(von || '');
+  if (!kontoId || !ordner || !domain) return false;
+  try {
+    const eintrag = db.prepare('SELECT id, gelernt FROM konto_ordner WHERE konto_id = ? AND ordner = ?')
+      .get(kontoId, ordner);
+    if (!eintrag) return false;
+    const ohne = gelernteListe(eintrag).filter((d) => d.toLowerCase() !== domain.toLowerCase());
+    db.prepare('UPDATE konto_ordner SET gelernt = ? WHERE id = ?').run(ohne.join(', ') || null, eintrag.id);
+    return true;
+  } catch { return false; }
+}
+
+// Alles Gelernte eines Ordners vergessen (Knopf in der Oberfläche).
+function gelerntLeeren(ordnerId) {
+  try {
+    return db.prepare('UPDATE konto_ordner SET gelernt = NULL WHERE id = ?').run(Number(ordnerId)).changes > 0;
+  } catch { return false; }
 }
 
 const BETREFF_MINDESTLAENGE = 5;
@@ -664,10 +729,24 @@ async function aufloesen({ konto, vorschlag, konfidenz, von, betreff }) {
     return { ordner: eintrag.ordner, neu_angelegt: false, grund };
   };
 
-  // 1. Die KI ist sich sicher und meint einen Ordner, den es schon gibt.
-  if (vorschlag && sicherheit >= e.konfidenz) {
+  // Einmal ausrechnen, zweimal gebraucht: für die Entscheidung selbst und für
+  // die Frage, ob die KI hier etwas erkannt hat, das noch niemand aufgeschrieben
+  // hatte.
+  const stich = stichwortTreffer(konto.id, von, betreff);
+
+  // 1. Die KI meint einen Ordner, den es schon gibt. Dafür genügt die niedrigere
+  //    Schwelle: Diese Entscheidung ist in einem Klick korrigiert, und sie ist
+  //    genau die, die wir wollen — lieber in einen vorhandenen Ordner als ein
+  //    neuer Vorschlag mehr.
+  if (vorschlag && sicherheit >= e.konfidenzVorhanden) {
     const bekannt = imKatalog(konto.id, vorschlag);
-    if (bekannt) return benutzen(bekannt, 'Vorhandener Themen-Ordner');
+    if (bekannt) {
+      // Hat die KI etwas erkannt, das nicht in der Beschreibung steht, wird der
+      // Absender vermerkt — beim nächsten Mal trifft schon das Stichwort, ohne
+      // KI und ohne Budget.
+      if (!stich || stich.ordner !== bekannt.ordner) gelerntMerken(bekannt.id, von);
+      return benutzen(bekannt, 'Vorhandener Themen-Ordner');
+    }
   }
 
   // 2. Die Stichworte aus der Ordner-Beschreibung. Sie hängen nicht am Urteil
@@ -675,7 +754,6 @@ async function aufloesen({ konto, vorschlag, konfidenz, von, betreff }) {
   //    (bei Newslettern der Normalfall) oder zu unsicher war. Ohne diesen
   //    Schritt zog in beiden Fällen der Kategorie-Ordner, und die gepflegte
   //    Beschreibung war wirkungslos.
-  const stich = stichwortTreffer(konto.id, von, betreff);
   if (stich) {
     return benutzen(
       { id: stich.id, ordner: stich.ordner },
@@ -684,11 +762,12 @@ async function aufloesen({ konto, vorschlag, konfidenz, von, betreff }) {
   }
 
   if (!vorschlag) return { ordner: null, neu_angelegt: false, grund: 'Kein Thema erkannt' };
+  // Ab hier ginge es um einen NEUEN Ordner — dafür gilt die strengere Schwelle.
   if (sicherheit < e.konfidenz) {
     return {
       ordner: null,
       neu_angelegt: false,
-      grund: `Zu unsicher (${sicherheit.toFixed(2)} < ${e.konfidenz})`,
+      grund: `Für einen neuen Ordner zu unsicher (${sicherheit.toFixed(2)} < ${e.konfidenz})`,
     };
   }
 
@@ -766,6 +845,10 @@ module.exports = {
   aliasMerken,
   aliasVergessen,
   stichwortTreffer,
+  gelernteListe,
+  gelerntMerken,
+  gelerntVergessen,
+  gelerntLeeren,
   aehnlich,
   stamm,
   zugang,

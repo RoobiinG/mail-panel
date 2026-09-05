@@ -5,6 +5,7 @@ const db      = require('../db');
 const { loggen } = require('../services/panelLog');
 const imap = require('../services/imap');
 const bestand = require('../services/bestand');
+const kiText = require('../services/kiText');
 const themen = require('../services/themen');
 const sortierung = require('../services/sortierung');
 const belegLeser = require('../services/belegLeser');
@@ -343,6 +344,15 @@ router.post('/korrigieren', async (req, res) => {
         loggen('warn', 'sortierung', `Nachsortieren nach Korrektur fehlgeschlagen: ${err.message}`);
       }
     }
+
+    // 5. Das Gelernte geradeziehen. Hat die KI diesen Absender einmal dem
+    //    falschen Ordner zugeordnet, steht er dort als Stichwort — und würde die
+    //    nächste Mail wieder dorthin schieben, diesmal ohne KI. Eine Korrektur
+    //    muss beides können: verschieben und die Ursache beseitigen.
+    themen.gelerntVergessen(konto.id, eintrag.zielordner, eintrag.von);
+    const zielEintrag = db.prepare('SELECT id FROM konto_ordner WHERE konto_id = ? AND ordner = ?')
+      .get(konto.id, ziel);
+    if (zielEintrag) themen.gelerntMerken(zielEintrag.id, eintrag.von);
 
     db.prepare('UPDATE quarantine_log SET korrigiert_zu = ? WHERE id = ?').run(ziel, eintrag.id);
     themen.cacheVerwerfen(konto.id);
@@ -770,6 +780,55 @@ router.post('/stichworte-anwenden', async (req, res) => {
   }
 });
 
+// POST /api/sortierung/katalog/:id/beschreibung-vorschlagen
+//
+// Die Beschreibung ist die Grundlage für alles: Sie geht in den Prompt und wird
+// als Stichwort ausgewertet. Nur schreibt sie niemand gern — der Ordner „robin"
+// hat 17 Treffer und kein Wort dazu. Eine einzige KI-Abfrage über die Absender,
+// die dort bisher gelandet sind, liefert einen brauchbaren Entwurf. Gespeichert
+// wird nichts: Der Text landet im Feld, ändern und speichern bleibt beim Nutzer.
+router.post('/katalog/:id/beschreibung-vorschlagen', async (req, res) => {
+  const eintrag = db.prepare('SELECT * FROM konto_ordner WHERE id = ?').get(Number(req.params.id));
+  if (!eintrag) return res.status(404).json({ error: 'Ordner nicht gefunden.' });
+  const konto = kontoHolen(eintrag.konto_id);
+  if (!konto) return res.status(400).json({ error: 'Das Konto existiert nicht mehr.' });
+
+  // Wer ist dort bisher gelandet? Nur Absender, keine Betreffs und keine Texte.
+  const absender = db.prepare(`
+    SELECT DISTINCT von FROM quarantine_log
+    WHERE konto = ? AND zielordner = ? ORDER BY created_at DESC LIMIT 40
+  `).all(konto.name, eintrag.ordner)
+    .map((z) => sortierung.adresse(z.von)).filter(Boolean);
+
+  const gelernt = themen.gelernteListe(eintrag);
+  if (absender.length === 0 && gelernt.length === 0 && !eintrag.beschreibung) {
+    return res.status(400).json({
+      error: `In "${eintrag.ordner}" ist noch nichts gelandet — dafür lässt sich nichts beschreiben. `
+        + 'Trag ein paar Absender oder Stichworte von Hand ein.',
+    });
+  }
+
+  const prompt = 'Du hilfst beim Sortieren eines E-Mail-Postfachs. Zu einem Ordner soll eine kurze '
+    + 'Beschreibung entstehen, die spaeter einem Klassifizierer sagt, was hier hineingehoert.\n\n'
+    + `Ordnername: ${eintrag.ordner}\n`
+    + (eintrag.beschreibung ? `Bisherige Beschreibung: ${eintrag.beschreibung}\n` : '')
+    + `Absender, die bisher hier gelandet sind:\n${[...new Set([...absender, ...gelernt])].join('\n') || '(keine)'}\n\n`
+    + 'Antworte NUR mit JSON: {"beschreibung": "..."}\n'
+    + 'Regeln:\n'
+    + '- Hoechstens 150 Zeichen, auf Deutsch.\n'
+    + '- Nenne die Art der Mails und die typischen Absender oder Marken, mit Komma getrennt.\n'
+    + '- Schreib Oberbegriffe dazu, nicht nur die Namen aus der Liste: Die Beschreibung soll auch '
+    + 'zu aehnlichen Absendern passen, die noch nicht dabei waren.\n'
+    + '- Keine Anrede, kein Satzanfang wie "Dieser Ordner", einfach die Stichworte.';
+
+  const antwort = await kiText.frageJson(prompt, { quelle: 'backend:sortierung' });
+  if (!antwort.ok) return res.status(502).json({ error: antwort.fehler });
+
+  const text = String(antwort.daten?.beschreibung || '').trim().slice(0, 200);
+  if (!text) return res.status(502).json({ error: 'Die KI hat nichts geliefert.' });
+  res.json({ ok: true, beschreibung: text, absender: absender.length });
+});
+
 // GET /api/sortierung/postfach-ordner?konto_id= — alle Ordner, die es im
 // Postfach wirklich gibt.
 //
@@ -807,6 +866,15 @@ router.get('/alias', (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// DELETE /api/sortierung/katalog/:id/gelernt — vergessen, was die KI hier
+// gelernt hat. Für den Fall, dass sich etwas Falsches festgesetzt hat.
+router.delete('/katalog/:id/gelernt', (req, res) => {
+  if (!themen.gelerntLeeren(req.params.id)) {
+    return res.status(404).json({ error: 'Ordner nicht gefunden.' });
+  }
+  res.json({ ok: true });
 });
 
 // DELETE /api/sortierung/alias/:id — Umleitung wieder lösen

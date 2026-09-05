@@ -555,13 +555,29 @@ export default function Einstellungen() {
                     <p className="text-[10px] text-panel-muted/60">je Konto</p>
                   </div>
                   <div className="space-y-1">
-                    <label className="block text-xs text-panel-muted">Mindest-Sicherheit (0–1)</label>
+                    <label className="block text-xs text-panel-muted">Sicherheit für neuen Ordner</label>
                     <input type="number" min="0" max="1" step="0.05"
                       value={settings.themen_konfidenz ?? '0.7'}
                       onChange={e => set('themen_konfidenz', e.target.value)}
                       className={inputCls} />
-                    <p className="text-[10px] text-panel-muted/60">darunter bleibt die Mail liegen</p>
+                    <p className="text-[10px] text-panel-muted/60">
+                      darunter wird kein Ordner angelegt und nichts vorgeschlagen
+                    </p>
                   </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-xs text-panel-muted">Sicherheit für vorhandenen Ordner</label>
+                  <input type="number" min="0" max="1" step="0.05"
+                    value={settings.themen_konfidenz_vorhanden ?? '0.45'}
+                    onChange={e => set('themen_konfidenz_vorhanden', e.target.value)}
+                    className={inputCls} />
+                  <p className="text-[10px] text-panel-muted/60">
+                    Bewusst niedriger: Einen vorhandenen Ordner zu treffen ist mit einem Klick
+                    korrigiert, ein neuer Ordner bleibt im Postfach stehen. Steht beides gleich
+                    hoch, ist das Aufräumen genauso schwer wie das Zumüllen — und die KI schlägt
+                    lieber einen neuen Ordner vor, als einen passenden zu nehmen.
+                  </p>
                 </div>
 
                 <div className="space-y-1">

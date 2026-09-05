@@ -76,6 +76,7 @@ export default function Sortierung() {
   const [katalogModal, setKatalogModal] = useState({ offen: false, ordner: '', beschreibung: '' });
   const [einleseMeldung, setEinleseMeldung] = useState('');
   const [beschreibungEntwurf, setBeschreibungEntwurf] = useState({});
+  const [beschreibungLaeuft, setBeschreibungLaeuft] = useState(null);   // katalog_id
 
   // Sortier-Inbox nach Absender-Domain gebuendelt
   const [offeneGruppen, setOffeneGruppen] = useState({});   // domain -> aufgeklappt?
@@ -224,6 +225,38 @@ export default function Sortierung() {
       katalogLaden(aktivesKonto);
     } catch (err) {
       melden(err.response?.data?.error || 'Fehler beim Ändern', 'fehler');
+    }
+  };
+
+  // Die KI aus den bisherigen Absendern eine Beschreibung formulieren lassen.
+  // Der Text landet nur im Feld — speichern tut ihn erst der Nutzer, indem er
+  // das Feld verlässt. So bleibt die Entscheidung bei ihm.
+  const beschreibungVorschlagen = async (o) => {
+    setBeschreibungLaeuft(o.id);
+    try {
+      const { data } = await api.post(`/sortierung/katalog/${o.id}/beschreibung-vorschlagen`);
+      setBeschreibungEntwurf(p => ({ ...p, [o.id]: data.beschreibung }));
+      melden(`Vorschlag aus ${data.absender} Absender(n). Zum Übernehmen ins Feld klicken und `
+        + 'wieder herausklicken — dann wird gespeichert.');
+    } catch (err) {
+      melden(err.response?.data?.error || 'Vorschlag fehlgeschlagen', 'fehler');
+    } finally {
+      setBeschreibungLaeuft(null);
+    }
+  };
+
+  const gelerntLeeren = async (o) => {
+    if (!(await nachfragen({
+      titel: 'Gelerntes vergessen?',
+      text: `Die Absender, die die KI dem Ordner „${o.ordner}" zugeordnet hat, werden entfernt:\n\n`
+        + `${o.gelernt}\n\nDeine eigene Beschreibung bleibt unangetastet.`,
+      bestaetigen: 'Vergessen',
+    }))) return;
+    try {
+      await api.delete(`/sortierung/katalog/${o.id}/gelernt`);
+      katalogLaden(aktivesKonto);
+    } catch (err) {
+      melden(err.response?.data?.error || 'Fehler beim Vergessen', 'fehler');
     }
   };
 
@@ -891,10 +924,17 @@ export default function Sortierung() {
           verbessert die Treffer deutlich. Gesperrte Ordner werden nie befüllt.
         </p>
         <p className="px-4 pt-2 text-xs text-panel-muted">
-          <span className="text-panel-text">Neu:</span> Das Panel wertet die Stichworte auch selbst
-          aus. Steht ein Absender in der Beschreibung — etwa „Vodafone, Sky, Telekom“ —, landet
-          seine Mail in diesem Ordner, ganz ohne KI. Aus dem Betreff nur bei eindeutigen Wörtern ab
-          fünf Zeichen. Der Knopf oben wendet das auf die Mails an, die schon warten.
+          Das Panel wertet die Stichworte auch selbst aus: Steht ein Absender in der Beschreibung
+          — etwa „Vodafone, Sky, Telekom“ —, landet seine Mail in diesem Ordner, ganz ohne KI. Aus
+          dem Betreff nur bei eindeutigen Wörtern ab fünf Zeichen. <span className="text-panel-text">Stichworte
+          anwenden</span> oben wendet das auf die Mails an, die schon warten.
+        </p>
+        <p className="px-4 pt-2 text-xs text-panel-muted">
+          <span className="text-panel-text">Neu:</span> Die KI versteht die Beschreibung als
+          <em> Beispiele</em>, nicht als Liste zum Abhaken — steht „Vodafone, Sky, Netflix“ drin,
+          gehört auch o2 oder Disney+ hierher. Was sie dabei erkennt, merkt sie sich unter
+          „bisher hier gelandet“, und beim nächsten Mal greift schon das Stichwort. Der Zauberstab
+          in der Zeile schlägt dir eine Beschreibung aus den bisherigen Absendern vor.
         </p>
 
         <div className="overflow-auto max-h-[360px] mt-2">
@@ -922,7 +962,7 @@ export default function Sortierung() {
                       <input
                         type="text"
                         placeholder="Wofür ist dieser Ordner?"
-                        defaultValue={o.beschreibung || ''}
+                        value={beschreibungEntwurf[o.id] ?? (o.beschreibung || '')}
                         onChange={e => setBeschreibungEntwurf(p => ({ ...p, [o.id]: e.target.value }))}
                         onBlur={() => {
                           const neu = beschreibungEntwurf[o.id];
@@ -932,6 +972,18 @@ export default function Sortierung() {
                         }}
                         className="w-full bg-transparent text-sm border-b border-transparent hover:border-panel-border focus:border-panel-accent focus:outline-none"
                       />
+                      {/* Was die KI selbst dazugelernt hat — getrennt vom eigenen
+                          Text, damit der nie überschrieben wird. */}
+                      {o.gelernt && (
+                        <div className="mt-1 flex items-start gap-1 text-[10px] text-panel-muted/70">
+                          <span className="shrink-0">bisher hier gelandet:</span>
+                          <span className="font-mono">{o.gelernt}</span>
+                          <button onClick={() => gelerntLeeren(o)} title="Gelerntes vergessen"
+                            className="text-panel-muted/60 hover:text-panel-red shrink-0">
+                            <XCircle size={11} />
+                          </button>
+                        </div>
+                      )}
                     </td>
                     <td className="py-2 px-4">
                       <span className="text-xs px-1.5 py-0.5 rounded bg-panel-border/50">
@@ -940,6 +992,14 @@ export default function Sortierung() {
                     </td>
                     <td className="py-2 px-4 text-center text-xs text-panel-muted">{o.treffer}</td>
                     <td className="py-2 px-4 text-right whitespace-nowrap">
+                      <button
+                        onClick={() => beschreibungVorschlagen(o)}
+                        disabled={beschreibungLaeuft === o.id}
+                        className="btn-ghost !px-2"
+                        title="Beschreibung von der KI vorschlagen lassen — aus den Absendern, die hier gelandet sind"
+                      >
+                        <Wand2 size={16} className={beschreibungLaeuft === o.id ? 'animate-pulse text-panel-accent' : 'text-panel-muted'} />
+                      </button>
                       <button
                         onClick={() => katalogAendern(o.id, { gesperrt: !o.gesperrt })}
                         className="btn-ghost !px-2"

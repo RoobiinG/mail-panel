@@ -2,6 +2,45 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.10.0.0] - 2026-09-06 (Build 100) — *Die KI schließt aus der Beschreibung, statt nur abzugleichen*
+
+### Fix: Die Beschreibung wirkte nur wörtlich
+- Steht bei einem Ordner „Vodafone, Sky, Netflix", landete eine Mail von **o2** oder **Disney+**
+  nirgends — obwohl jeder Mensch sieht, dass sie dazugehört. Der Prompt nannte die Stichworte
+  „Absender, die ausdrücklich in diesen Ordner gehören": eine Einladung zum Abhaken, nicht zum
+  Schließen.
+- Der Prompt sagt jetzt klar: **Das sind Beispiele, keine vollständige Liste.** Erkenne daran,
+  wofür der Ordner da ist, und ordne auch Absender ein, die dazu passen, aber nicht genannt sind
+  — mit genau diesem Beispiel im Text.
+
+### Fix: Aufräumen war schwerer als Zumüllen
+- Einen **vorhandenen** Ordner zu treffen und einen **neuen** zu erfinden kosteten dieselbe
+  Sicherheit (0,7). Eine Verallgemeinerung („o2 gehört wohl zu Vodafone/Sky") kommt aber
+  naturgemäß mit weniger Sicherheit — sie fiel durchs Raster, während ein neuer Ordnervorschlag
+  durchging. So entstehen 39 Vorschläge bei 23 Ordnern.
+- Jetzt zwei Schwellen: **vorhandener Ordner ab 0,45**, neuer Ordner weiterhin ab 0,7. Beide
+  unter *Einstellungen → KI*. Die Begründung steht dabei: Einen vorhandenen Ordner zu treffen ist
+  mit einem Klick korrigiert, ein neuer Ordner bleibt im Postfach stehen.
+- Dazu die Regel gegen die Zersplitterung im Prompt: **Ein neuer Ordner ist ein Lebensbereich,
+  keine Marke.** „Server & Hosting" statt „Plesk", „Streaming" statt „Netflix".
+
+### Neu: Was die KI erkennt, bleibt hängen
+- Ordnet die KI eine Mail einem Ordner zu, obwohl der Absender **nicht** in der Beschreibung
+  steht, wird seine Domain am Ordner vermerkt (eigenes Feld — dein Text wird nie überschrieben).
+- Das wirkt doppelt: Es steht im Prompt („bisher hier gelandet: o2.de") **und** im
+  Stichwort-Vergleich. Die **zweite** o2-Mail kostet damit keine KI-Abfrage mehr.
+- Höchstens zwölf je Ordner, sichtbar unter der Beschreibung, mit einem Kreuz zum Vergessen.
+- **Eine Korrektur zieht das gerade:** Verschiebst du eine Mail unter *Letzte Entscheidungen* in
+  einen anderen Ordner, verschwindet der Absender aus dem falschen und wandert in den richtigen.
+  Sonst zementiert sich ein Fehler und wirkt beim nächsten Mal ohne KI weiter.
+
+### Neu: Beschreibung vorschlagen lassen
+- Ein Zauberstab in jeder Ordnerzeile: Eine einzige KI-Abfrage über die Absender, die dort
+  bisher gelandet sind, formuliert einen Vorschlag. Für Ordner wie „robin" (17 Treffer, kein
+  Wort dazu) der schnellste Weg zu einer brauchbaren Grundlage.
+- Gespeichert wird nichts von allein — der Text landet im Feld, ändern und übernehmen bleibt
+  bei dir.
+
 ## [3.9.3.0] - 2026-09-05 (Build 99) — *Alle Ordner zur Auswahl, einzelne Mails zum Anhaken*
 
 ### Fix: In der Ordner-Auswahl fehlte die Hälfte

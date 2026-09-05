@@ -204,3 +204,87 @@ describe('Beschreibungen, die im Katalog gelandet sind', () => {
     assert.equal(themen.stichwortTreffer(konto, 'news@steampowered.com', 'Sale')?.ordner, 'Games');
   });
 });
+
+// Die KI soll aus der Beschreibung schliessen, nicht nur abgleichen — und was
+// sie dabei erkennt, muss haengenbleiben. Sonst wird dieselbe Einsicht bei jeder
+// Mail neu (und kostenpflichtig) getroffen.
+describe('Gelerntes aus der KI-Zuordnung', () => {
+  const einstellung = (key, wert) => db.prepare(
+    'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+  ).run(key, wert);
+  const kontoZeile = () => db.prepare('SELECT * FROM accounts WHERE id = ?').get(konto);
+  const eintrag = (name) => db.prepare('SELECT * FROM konto_ordner WHERE ordner = ?').get(name);
+
+  beforeEach(() => {
+    einstellung('themen_sortierung_aktiv', '1');
+    einstellung('themen_ordner_anlegen', 'freigabe');
+  });
+
+  test('ein vorhandener Ordner genuegt weniger Sicherheit als ein neuer', async () => {
+    ordner(konto, 'Anbieter', 'Vodafone, Sky');
+    const t = await themen.aufloesen({
+      konto: kontoZeile(), vorschlag: 'Anbieter', konfidenz: 0.5, von: 'info@o2.de', betreff: 'x',
+    });
+    assert.equal(t.ordner, 'Anbieter', '0,5 reicht fuer einen Ordner, den es schon gibt');
+  });
+
+  test('fuer einen neuen Ordner reicht dieselbe Sicherheit nicht', async () => {
+    const t = await themen.aufloesen({
+      konto: kontoZeile(), vorschlag: 'NEU:Irgendwas', konfidenz: 0.5, von: 'a@b.de', betreff: 'x',
+    });
+    assert.equal(t.ordner, null);
+    assert.match(t.grund, /neuen Ordner zu unsicher/);
+  });
+
+  test('der erkannte Absender wird vermerkt', async () => {
+    ordner(konto, 'Anbieter', 'Vodafone, Sky');
+    await themen.aufloesen({
+      konto: kontoZeile(), vorschlag: 'Anbieter', konfidenz: 0.8, von: 'info@o2.de', betreff: 'x',
+    });
+    assert.equal(eintrag('Anbieter').gelernt, 'o2.de');
+  });
+
+  test('und trifft danach ohne KI', async () => {
+    ordner(konto, 'Anbieter', 'Vodafone, Sky');
+    await themen.aufloesen({
+      konto: kontoZeile(), vorschlag: 'Anbieter', konfidenz: 0.8, von: 'info@o2.de', betreff: 'x',
+    });
+    const t = themen.stichwortTreffer(konto, 'werbung@o2.de', 'Neues Angebot');
+    assert.equal(t?.ordner, 'Anbieter', 'die zweite o2-Mail kostet kein Budget mehr');
+  });
+
+  test('was schon per Stichwort traf, wird nicht doppelt vermerkt', async () => {
+    ordner(konto, 'Anbieter', 'Vodafone');
+    await themen.aufloesen({
+      konto: kontoZeile(), vorschlag: 'Anbieter', konfidenz: 0.9, von: 'info@vodafone.de', betreff: 'x',
+    });
+    assert.equal(eintrag('Anbieter').gelernt, null, 'stand ja schon in der Beschreibung');
+  });
+
+  test('hoechstens zwoelf, die aelteste faellt raus', () => {
+    ordner(konto, 'Sammel');
+    const id = eintrag('Sammel').id;
+    for (let i = 1; i <= 14; i += 1) themen.gelerntMerken(id, `a@nr${i}.de`);
+    const liste = themen.gelernteListe(eintrag('Sammel'));
+    assert.equal(liste.length, 12);
+    assert.equal(liste[0], 'nr3.de', 'die ersten beiden sind rausgefallen');
+    assert.equal(liste[11], 'nr14.de');
+  });
+
+  test('eine Korrektur nimmt den Absender wieder heraus', () => {
+    ordner(konto, 'Anbieter');
+    const id = eintrag('Anbieter').id;
+    themen.gelerntMerken(id, 'info@o2.de');
+    assert.equal(themen.gelerntVergessen(konto, 'Anbieter', 'info@o2.de'), true);
+    assert.equal(eintrag('Anbieter').gelernt, null,
+      'sonst zementiert sich ein Fehler und wirkt beim naechsten Mal ohne KI');
+  });
+
+  test('Gelerntes steht im Prompt, getrennt vom Nutzertext', () => {
+    ordner(konto, 'Anbieter', 'Vodafone, Sky');
+    themen.gelerntMerken(eintrag('Anbieter').id, 'info@o2.de');
+    const [zeile] = themen.fuerPrompt(konto).filter((o) => o.name === 'Anbieter');
+    assert.match(zeile.beschreibung, /Vodafone, Sky/);
+    assert.match(zeile.beschreibung, /bisher hier gelandet: o2\.de/);
+  });
+});

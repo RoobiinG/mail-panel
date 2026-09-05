@@ -292,6 +292,11 @@ const migrations = [
   // Sortier-Regel trifft, läuft im Workflow an Gemini vorbei — sie darf das
   // Tagesbudget nicht verbrauchen. Vorher zählte jede Zeile als KI-Aufruf.
   'ALTER TABLE quarantine_log ADD COLUMN ki INTEGER DEFAULT 1',
+  // Was die KI ueber einen Ordner gelernt hat: Absender-Domains, die sie dort
+  // einsortiert hat, obwohl sie nicht in der Beschreibung stehen. Getrennt vom
+  // Nutzertext, damit der nie ueberschrieben wird — und beim naechsten Mal
+  // trifft schon der Stichwort-Vergleich, ganz ohne KI.
+  'ALTER TABLE konto_ordner ADD COLUMN gelernt TEXT',
   // Einmalige Bereinigung: Bis Build 95 wurde beim Freigeben eines Vorschlags
   // dessen interne Notiz als Beschreibung in den Katalog geschrieben ("Zuletzt
   // vorgeschlagen für: noreply@steampowered.com"). Im Prompt war das nutzlos —
