@@ -217,6 +217,85 @@ function fuerPrompt(kontoId) {
   return liste;
 }
 
+// ─── Stichworte aus der Ordner-Beschreibung ──────────────────────────────────
+//
+// Die Beschreibung eines Themen-Ordners war bisher reine Prompt-Dekoration: Sie
+// ging an die KI, das Panel selbst wertete sie nie aus. Wer bei einem Ordner
+// „Vodafone, Sky, Netflix" hinterlegt hatte, wunderte sich zu Recht, warum eine
+// Telekom-Mail trotzdem im Newsletter-Ordner landete: Die KI hatte kein
+// Sachthema erkannt (bei Newslettern der Normalfall) oder war unsicher — und
+// damit war die gepflegte Beschreibung wirkungslos.
+//
+// Zwei Gewichte, mit Absicht sehr unterschiedlich:
+//   * Absender — „vodafone" im Stichwort und @vodafone.de im Absender ist kein
+//     Zufall. Das entscheidet sofort.
+//   * Betreff — hier ist ein Treffer schnell zufällig. Deshalb nur Wörter ab
+//     fünf Zeichen, und nur, wenn genau ein Ordner passt.
+
+// Wörter, die in Beschreibungen und Absendern gleichermaßen herumstehen und
+// nichts unterscheiden. „newsletter" und „info" müssen mit: Als Absenderteil
+// (newsletter@…, info@…) träfen sie sonst jeden Ordner, dessen Beschreibung das
+// Wort enthält.
+const STOPWORTE = new Set([
+  'und', 'oder', 'der', 'die', 'das', 'den', 'dem', 'des', 'ein', 'eine', 'einer',
+  'eines', 'fur', 'von', 'vom', 'mit', 'bei', 'aus', 'auf', 'alle', 'alles',
+  'rund', 'etc', 'usw', 'sowie', 'sonstige', 'sonstiges', 'mail', 'mails',
+  'email', 'emails', 'newsletter', 'info', 'service', 'kontakt', 'noreply',
+  'no-reply', 'com', 'net', 'org', 'www',
+]);
+
+// Text in vergleichbare Wörter zerlegen — Umlaute auflösen, alles andere trennt.
+// Dieselbe Zerlegung für Stichworte, Absender und Betreff, damit „Gaming-News"
+// und „gaming news" auf dasselbe hinauslaufen.
+function zerlegen(text) {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/ä/g, 'a').replace(/ö/g, 'o').replace(/ü/g, 'u').replace(/ß/g, 'ss')
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+}
+
+function stichworte(eintrag) {
+  return zerlegen(`${eintrag.ordner || ''} ${eintrag.beschreibung || ''}`)
+    .filter((w) => w.length >= 3 && !STOPWORTE.has(w));
+}
+
+const BETREFF_MINDESTLAENGE = 5;
+
+/**
+ * Findet einen Themen-Ordner über die Stichworte seiner Beschreibung.
+ * @returns {{id: number, ordner: string, wort: string, wo: 'absender'|'betreff'}|null}
+ */
+function stichwortTreffer(kontoId, von, betreff) {
+  const eintraege = katalog(kontoId); // gesperrte sind hier schon draußen
+  if (!eintraege.length) return null;
+
+  const absenderTeile = zerlegen(von);
+  const betreffWoerter = zerlegen(betreff);
+  const ausBetreff = [];
+
+  for (const eintrag of eintraege) {
+    for (const wort of stichworte(eintrag)) {
+      // Absender: Vergleich gegen die einzelnen Teile (Anzeigename, lokaler
+      // Teil, Domain-Labels), nie als Teilstring — sonst steckt „und" in
+      // „kundenservice" und trifft alles.
+      const imAbsender = absenderTeile.some(
+        (teil) => teil === wort || (wort.length >= 4 && teil.startsWith(wort)),
+      );
+      if (imAbsender) return { id: eintrag.id, ordner: eintrag.ordner, wort, wo: 'absender' };
+
+      if (wort.length >= BETREFF_MINDESTLAENGE
+        && betreffWoerter.some((w) => w === wort || w.startsWith(wort))) {
+        ausBetreff.push({ id: eintrag.id, ordner: eintrag.ordner, wort, wo: 'betreff' });
+      }
+    }
+  }
+
+  // Aus dem Betreff nur, wenn die Sache eindeutig ist.
+  const ordnerImBetreff = new Set(ausBetreff.map((k) => k.ordner));
+  return ordnerImBetreff.size === 1 ? ausBetreff[0] : null;
+}
+
 // ─── Umgeleitete Namen ───────────────────────────────────────────────────────
 //
 // „Das gehört nicht in einen neuen Ordner, das gehört nach X." Die Entscheidung
@@ -548,12 +627,40 @@ function vorschlaegeAufraeumen(kontoId = null) {
  * @param {number} konfidenz  0..1
  * @returns {Promise<{ordner: string|null, neu_angelegt: boolean, grund: string}>}
  */
-async function aufloesen({ konto, vorschlag, konfidenz, von }) {
+async function aufloesen({ konto, vorschlag, konfidenz, von, betreff }) {
   const e = einstellungen();
   if (!e.aktiv) return { ordner: null, neu_angelegt: false, grund: 'Themen-Sortierung ist aus' };
-  if (!vorschlag) return { ordner: null, neu_angelegt: false, grund: 'Kein Thema erkannt' };
 
   const sicherheit = Number(konfidenz) || 0;
+  const benutzen = (eintrag, grund) => {
+    db.prepare(
+      'UPDATE konto_ordner SET treffer = treffer + 1, zuletzt_genutzt = CURRENT_TIMESTAMP WHERE id = ?',
+    ).run(eintrag.id);
+    // regelLernen laeuft erst nach dem Protokollieren in /einsortieren — sonst
+    // wuerde die laufende Mail sich bei der Zaehlung selbst uebersehen.
+    return { ordner: eintrag.ordner, neu_angelegt: false, grund };
+  };
+
+  // 1. Die KI ist sich sicher und meint einen Ordner, den es schon gibt.
+  if (vorschlag && sicherheit >= e.konfidenz) {
+    const bekannt = imKatalog(konto.id, vorschlag);
+    if (bekannt) return benutzen(bekannt, 'Vorhandener Themen-Ordner');
+  }
+
+  // 2. Die Stichworte aus der Ordner-Beschreibung. Sie hängen nicht am Urteil
+  //    der KI — deshalb greifen sie auch dann, wenn die kein Thema erkannt hat
+  //    (bei Newslettern der Normalfall) oder zu unsicher war. Ohne diesen
+  //    Schritt zog in beiden Fällen der Kategorie-Ordner, und die gepflegte
+  //    Beschreibung war wirkungslos.
+  const stich = stichwortTreffer(konto.id, von, betreff);
+  if (stich) {
+    return benutzen(
+      { id: stich.id, ordner: stich.ordner },
+      `Stichwort „${stich.wort}" aus der Ordner-Beschreibung (${stich.wo === 'absender' ? 'Absender' : 'Betreff'})`,
+    );
+  }
+
+  if (!vorschlag) return { ordner: null, neu_angelegt: false, grund: 'Kein Thema erkannt' };
   if (sicherheit < e.konfidenz) {
     return {
       ordner: null,
@@ -562,18 +669,7 @@ async function aufloesen({ konto, vorschlag, konfidenz, von }) {
     };
   }
 
-  // 1. Kennen wir den Ordner schon? Dann ist nichts weiter zu tun.
-  const bekannt = imKatalog(konto.id, vorschlag);
-  if (bekannt) {
-    db.prepare(
-      'UPDATE konto_ordner SET treffer = treffer + 1, zuletzt_genutzt = CURRENT_TIMESTAMP WHERE id = ?',
-    ).run(bekannt.id);
-    // regelLernen laeuft erst nach dem Protokollieren in /einsortieren — sonst
-    // wuerde die laufende Mail sich bei der Zaehlung selbst uebersehen.
-    return { ordner: bekannt.ordner, neu_angelegt: false, grund: 'Vorhandener Themen-Ordner' };
-  }
-
-  // 2. Ein neuer Ordner — ab hier wird streng geprueft.
+  // 3. Ein neuer Ordner — ab hier wird streng geprueft.
   if (e.anlegen === 'aus') {
     return { ordner: null, neu_angelegt: false, grund: 'Neue Ordner sind abgeschaltet' };
   }
@@ -646,6 +742,7 @@ module.exports = {
   aliasListe,
   aliasMerken,
   aliasVergessen,
+  stichwortTreffer,
   aehnlich,
   stamm,
   zugang,

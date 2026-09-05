@@ -2,6 +2,42 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.9.0.0] - 2026-09-05 (Build 93) — *Die Ordner-Beschreibung entscheidet mit*
+
+### Fix: Vorhandene Themen-Ordner wurden übergangen
+- Wer bei einem Ordner „Vodafone, Sky, Netflix, Telekom" hinterlegt hatte, wunderte sich zu
+  Recht: Die Telekom-Mail landete trotzdem im Newsletter-Ordner.
+- **Der Grund lag nicht an der Beschreibung, sondern daran, dass alles am Urteil der KI hing.**
+  `themen.aufloesen()` gab in zwei sehr häufigen Fällen nichts zurück: Die KI liefert
+  `ordner: null` (bei Newslettern der Normalfall — sie sieht die Form, nicht das Sachthema),
+  oder sie ist unsicher (`konfidenz < 0,7`). In beiden Fällen zog der Kategorie-Ordner, und die
+  gepflegte Beschreibung war reine Prompt-Dekoration: **Das Panel selbst wertete sie nirgends
+  aus.**
+- **Jetzt tut es das.** Die Stichworte aus Ordnername und Beschreibung werden gegen Absender und
+  Betreff geprüft — unabhängig davon, ob die KI etwas erkennt und wie sicher sie ist:
+  - **Absender-Treffer entscheidet sofort.** „telekom" in der Beschreibung und `@telekom.de`
+    im Absender ist kein Zufall. Verglichen wird gegen die einzelnen Teile (Anzeigename,
+    lokaler Teil, Domain), nie als Teilstring — sonst steckt „sky" in „riskymail".
+  - **Betreff nur vorsichtig:** Wörter ab fünf Zeichen, und nur wenn genau ein Ordner passt.
+    So greift „Bewerbung"/„Jobsuche", während „Sky" im Fließtext nichts anfasst.
+  - Allerweltswörter (`newsletter@`, `info@`, `service@`, „und", „oder", …) zählen nicht mit —
+    sie träfen sonst jeden Ordner.
+- Ein **sicheres Urteil der KI über einen vorhandenen Ordner geht weiterhin vor**: Sie hat die
+  Mail gelesen, das Stichwort nicht.
+- Im Panel steht danach als Grund, *warum* die Mail dort liegt: „Stichwort „telekom" aus der
+  Ordner-Beschreibung (Absender)".
+
+### Neu: Rückwirkend anwenden
+- *Sortierung → Themen-Ordner* hat einen Knopf **„Stichworte anwenden"**. Er zeigt erst, wie
+  viele der wartenden Mails passen und in welche Ordner sie gingen — verschoben wird erst nach
+  Bestätigung. Damit lösen sich auch die Mails auf, die sich angesammelt haben, während die
+  Beschreibung noch wirkungslos war.
+
+### Prompt
+- Der Prompt sagt dem Modell jetzt ausdrücklich, was hinter dem Gedankenstrich steht: Absender,
+  Marken und Themen, die der Nutzer selbst diesem Ordner zugeordnet hat. Wirkt nach
+  **Workflows → Synchronisieren**; die Stichwort-Logik im Panel wirkt sofort.
+
 ## [3.8.9.0] - 2026-09-05 (Build 92) — *Vorschläge, denen man ansieht, worum es geht*
 
 ### Neu: Die Mails zum Vorschlag ansehen

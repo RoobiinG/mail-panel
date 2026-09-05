@@ -254,6 +254,35 @@ export default function Sortierung() {
     }
   };
 
+  // Die Stichworte aus den Beschreibungen auf das anwenden, was schon wartet.
+  // Erst zählen, dann fragen, dann verschieben — niemand soll überrascht werden.
+  const stichworteAnwenden = async () => {
+    if (!aktivesKonto) return;
+    try {
+      const { data: v } = await api.post('/sortierung/stichworte-anwenden', {
+        konto_id: aktivesKonto, vorschau: true,
+      });
+      if (!v.treffer) {
+        melden(`Keine der ${v.gesamt} wartenden Mails passt auf ein Stichwort.`);
+        return;
+      }
+      if (!(await nachfragen({
+        titel: 'Stichworte anwenden?',
+        text: `${v.treffer} von ${v.gesamt} wartenden Mails passen auf ein Stichwort aus einer `
+          + `Ordner-Beschreibung.\n\nZiele: ${v.ordner.join(', ')}\n\n`
+          + 'Die Mails werden dorthin verschoben.',
+        bestaetigen: 'Verschieben',
+      }))) return;
+      const { data } = await api.post('/sortierung/stichworte-anwenden', { konto_id: aktivesKonto });
+      melden(`${data.verschoben} Mail(s) nach Stichwort einsortiert.`
+        + (data.fehler?.length ? ` ${data.fehler.length} Fehler — siehe Logs.` : ''));
+      inboxLaden();
+      katalogLaden(aktivesKonto);
+    } catch (err) {
+      melden(err.response?.data?.error || 'Fehler beim Anwenden', 'fehler');
+    }
+  };
+
   // ─── ORDNER-VORSCHLÄGE ──────────────────────────────────────────────────────
 
   const vorschlagFreigeben = async (id) => {
@@ -769,6 +798,11 @@ export default function Sortierung() {
           </h2>
           <div className="flex items-center gap-2 flex-wrap">
             {einleseMeldung && <span className="text-xs text-panel-muted">{einleseMeldung}</span>}
+            <button onClick={stichworteAnwenden} disabled={!aktivesKonto}
+              className="btn-ghost !py-1.5 !px-3 text-sm flex items-center gap-1"
+              title="Die Stichworte aus den Beschreibungen auf die wartenden Mails anwenden">
+              <Wand2 size={14} /> Stichworte anwenden
+            </button>
             <button onClick={ordnerEinlesen} disabled={!aktivesKonto}
               className="btn-ghost !py-1.5 !px-3 text-sm flex items-center gap-1">
               <RefreshCw size={14} /> Aus Postfach einlesen
@@ -784,6 +818,12 @@ export default function Sortierung() {
           Aus diesen Ordnern wählt die KI beim Einsortieren — und nur aus diesen. Die Beschreibung
           geht wörtlich in den Prompt: Ein Satz wie „Spiele, Steam, Konsolen, Gaming-Newsletter“
           verbessert die Treffer deutlich. Gesperrte Ordner werden nie befüllt.
+        </p>
+        <p className="px-4 pt-2 text-xs text-panel-muted">
+          <span className="text-panel-text">Neu:</span> Das Panel wertet die Stichworte auch selbst
+          aus. Steht ein Absender in der Beschreibung — etwa „Vodafone, Sky, Telekom“ —, landet
+          seine Mail in diesem Ordner, ganz ohne KI. Aus dem Betreff nur bei eindeutigen Wörtern ab
+          fünf Zeichen. Der Knopf oben wendet das auf die Mails an, die schon warten.
         </p>
 
         <div className="overflow-auto max-h-[360px] mt-2">

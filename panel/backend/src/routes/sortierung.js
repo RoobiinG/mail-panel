@@ -732,6 +732,22 @@ router.post('/vorschlaege/:id/umleiten', async (req, res) => {
   }
 });
 
+// POST /api/sortierung/stichworte-anwenden — { konto_id, vorschau }
+//
+// Wendet die Stichworte aus den Ordner-Beschreibungen rückwirkend auf die Mails
+// an, die schon in der Sortier-Inbox liegen. Nötig, weil die Beschreibung bis
+// Build 92 nur im Prompt stand: Alles, was die KI damals nicht zuordnen konnte,
+// wartet noch — obwohl das passende Stichwort längst hinterlegt ist.
+router.post('/stichworte-anwenden', async (req, res) => {
+  const konto = kontoHolen(req.body?.konto_id);
+  if (!konto) return res.status(400).json({ error: 'Konto nicht gefunden.' });
+  try {
+    res.json(await sortierung.stichworteNachtragen(konto, { vorschau: Boolean(req.body?.vorschau) }));
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
 // GET /api/sortierung/alias?konto_id= — welche Namen auf welchen Ordner zeigen
 router.get('/alias', (req, res) => {
   const kontoId = Number(req.query.konto_id);

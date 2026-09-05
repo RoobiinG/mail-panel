@@ -162,23 +162,21 @@ async function abgleichen(konto, opt = {}) {
   return geschlossen;
 }
 
-async function bestandAnwenden(konto, regel, opt = {}) {
-  const alle = db.prepare(
-    "SELECT * FROM sort_inbox WHERE konto_id = ? AND status = 'offen'",
-  ).all(konto.id).filter((m) => passt(regel, m.von, m.betreff));
-
-  // Die Vorschau zaehlt, was der Nutzer erwartet: Mails, nicht Zeilen. Ohne die
-  // Entdopplung verspricht sie mehr, als der Stapel dann bewegt.
-  if (opt.nurZaehlen) {
-    const uids = new Set(alle.map((m) => uidZahl(m.uid)).filter((n) => n !== null));
-    return { treffer: uids.size, verschoben: 0, fehler: [] };
-  }
-  if (alle.length === 0) return { treffer: 0, verschoben: 0, fehler: [] };
-
+// Einen Stapel Sortier-Inbox-Zeilen in einen Ordner verschieben — mit allem, was
+// im Betrieb dazugehoert: Dubletten und Zeilen ohne UID abraeumen, eine einzige
+// IMAP-Verbindung, und Mails, die den Posteingang laengst verlassen haben,
+// stillschweigend schliessen statt bei jedem Versuch erneut zu scheitern.
+//
+// Herausgeloest aus bestandAnwenden, weil die Stichwort-Nachsortierung
+// (stichworteNachtragen) genau dieselbe Buchhaltung braucht — nur mit einem
+// anderen Zielordner je Gruppe.
+async function stapelVerschieben(konto, mails, zielordner, etikett) {
   // Verzoegert laden: themen zieht selbst sortierung herein
   const themen = require('./themen');
   const imap = require('./imap');
   const zugang = themen.zugang(konto);
+
+  const alle = mails;
 
   // Dubletten und Zeilen ohne UID gleich hier abraeumen — sie kosten sonst je
   // einen sinnlosen IMAP-Versuch. Bewusst ohne zweite Verbindung: Der Abgleich
@@ -202,11 +200,11 @@ async function bestandAnwenden(konto, regel, opt = {}) {
   // Alles ueber eine einzige Verbindung — sonst laeuft ein groesserer Stapel in
   // das Verbindungslimit des Mailservers.
   const { verschoben: erledigt, fehler: probleme } = await imap.mailsVerschieben({
-    ...zugang, mails: passende, von: 'INBOX', nach: regel.zielordner,
+    ...zugang, mails: passende, von: 'INBOX', nach: zielordner,
   });
 
   const abhaken = db.prepare("UPDATE sort_inbox SET status = 'zugeordnet', vorschlag = ? WHERE id = ?");
-  for (const mail of erledigt) abhaken.run(regel.zielordner, mail.id);
+  for (const mail of erledigt) abhaken.run(zielordner, mail.id);
 
   // Eine Mail, die nicht mehr im Posteingang liegt, ist kein Fehler, den der
   // Nutzer beheben koennte — sie wurde vorher schon einsortiert. Frueher blieb
@@ -225,11 +223,74 @@ async function bestandAnwenden(konto, regel, opt = {}) {
   const verschoben = erledigt.length;
   if (verschoben > 0 || fehler.length > 0 || veraltet > 0) {
     loggen('info', 'sortierung',
-      `Regel [${regel.typ}] ${regel.muster} → ${regel.zielordner}: ${verschoben} von ${passende.length} Mail(s) nachsortiert`
+      `${etikett} → ${zielordner}: ${verschoben} von ${passende.length} Mail(s) nachsortiert`
       + (veraltet ? `, ${veraltet} veraltete Eintraege geschlossen` : '')
       + (fehler.length ? `, ${fehler.length} Fehler` : ''));
   }
   return { treffer: passende.length, verschoben, fehler, veraltet };
+}
+
+async function bestandAnwenden(konto, regel, opt = {}) {
+  const alle = db.prepare(
+    "SELECT * FROM sort_inbox WHERE konto_id = ? AND status = 'offen'",
+  ).all(konto.id).filter((m) => passt(regel, m.von, m.betreff));
+
+  // Die Vorschau zaehlt, was der Nutzer erwartet: Mails, nicht Zeilen. Ohne die
+  // Entdopplung verspricht sie mehr, als der Stapel dann bewegt.
+  if (opt.nurZaehlen) {
+    const uids = new Set(alle.map((m) => uidZahl(m.uid)).filter((n) => n !== null));
+    return { treffer: uids.size, verschoben: 0, fehler: [] };
+  }
+  if (alle.length === 0) return { treffer: 0, verschoben: 0, fehler: [] };
+
+  return stapelVerschieben(konto, alle, regel.zielordner, `Regel [${regel.typ}] ${regel.muster}`);
+}
+
+/**
+ * Die Stichworte aus den Ordner-Beschreibungen nachträglich auf die Mails
+ * anwenden, die schon in der Sortier-Inbox liegen.
+ *
+ * Gebraucht, weil die Beschreibung bis Build 92 nur im Prompt stand: Alles, was
+ * die KI damals nicht zuordnen konnte, wartet noch — obwohl das Stichwort im
+ * passenden Ordner längst hinterlegt ist.
+ *
+ * @param {object} konto  Zeile aus accounts
+ * @param {{vorschau?: boolean}} opt  vorschau zählt nur, verschiebt nichts
+ */
+async function stichworteNachtragen(konto, opt = {}) {
+  const themen = require('./themen');
+  const offen = db.prepare(
+    "SELECT * FROM sort_inbox WHERE konto_id = ? AND status = 'offen'",
+  ).all(konto.id);
+
+  const gruppen = new Map(); // Zielordner -> Mails
+  for (const mail of offen) {
+    const treffer = themen.stichwortTreffer(konto.id, mail.von, mail.betreff);
+    if (!treffer) continue;
+    if (!gruppen.has(treffer.ordner)) gruppen.set(treffer.ordner, []);
+    gruppen.get(treffer.ordner).push(mail);
+  }
+
+  // Wie in der Regel-Vorschau: Mails zählen, nicht Zeilen.
+  const uids = new Set();
+  for (const mails of gruppen.values()) {
+    for (const m of mails) {
+      const n = uidZahl(m.uid);
+      if (n !== null) uids.add(n);
+    }
+  }
+  if (opt.vorschau) {
+    return { treffer: uids.size, gesamt: offen.length, ordner: [...gruppen.keys()], verschoben: 0, fehler: [] };
+  }
+
+  let verschoben = 0;
+  const fehler = [];
+  for (const [ordner, mails] of gruppen) {
+    const r = await stapelVerschieben(konto, mails, ordner, 'Stichwort aus der Ordner-Beschreibung');
+    verschoben += r.verschoben;
+    fehler.push(...r.fehler);
+  }
+  return { treffer: uids.size, gesamt: offen.length, ordner: [...gruppen.keys()], verschoben, fehler };
 }
 
 
@@ -265,6 +326,7 @@ module.exports = {
   regelTreffer,
   istBehalten,
   bestandAnwenden,
+  stichworteNachtragen,
   abgleichen,
   uidZahl,
   passt,

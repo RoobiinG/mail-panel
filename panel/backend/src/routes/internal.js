@@ -380,7 +380,7 @@ router.post('/einsortieren', async (req, res) => {
       bestand.erledigtMerken(konto.id, b.uid, 'ruhe');
     } else if (konto) {
       const t = await themen.aufloesen({
-        konto, vorschlag: b.thema, konfidenz: b.konfidenz, von: b.von,
+        konto, vorschlag: b.thema, konfidenz: b.konfidenz, von: b.von, betreff: b.betreff,
       });
       grund = t.grund;
       neuAngelegt = t.neu_angelegt;
