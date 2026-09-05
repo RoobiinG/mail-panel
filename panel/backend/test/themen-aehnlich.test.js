@@ -256,10 +256,10 @@ describe('Umgeleitete Namen', () => {
   test('Umleitungen gelten je Konto', () => {
     const a = kontoAnlegen('A');
     const b = kontoAnlegen('B');
-    ordner(a, 'Spiele');
-    ordner(b, 'Spiele');
+    for (const k of [a, b]) { ordner(k, 'Games', 9); ordner(k, 'Spiele', 1); }
     themen.aliasMerken(a, 'Gaming', 'Spiele');
-    assert.equal(themen.imKatalog(a, 'Gaming').ordner, 'Spiele');
-    assert.equal(themen.imKatalog(b, 'Gaming'), null);
+    assert.equal(themen.imKatalog(a, 'Gaming').ordner, 'Spiele', 'A hat umgeleitet');
+    assert.equal(themen.imKatalog(b, 'Gaming').ordner, 'Games',
+      'B nicht — dort entscheidet weiter die Aehnlichkeit');
   });
 });
