@@ -399,10 +399,33 @@ async function ausPostfachEinlesen(konto) {
     loggen('info', 'themen',
       `${konto.name}: ${uebersprungen.length} Systemordner nicht in den Katalog übernommen — ${uebersprungen.join(', ')}`);
   }
+
+  // Bei der Gelegenheit die selbst angelegten Ordner abonnieren. Bis Build 97
+  // hat das Panel sie nur angelegt (IMAP CREATE) — Dovecot trägt sie damit aber
+  // nicht in die Abo-Liste ein, und die meisten Mailprogramme zeigen nur die an.
+  // Die Ordner waren also da, die Mails lagen darin, und im Postfach sah man
+  // sie trotzdem nicht. Nur die eigenen: Was der Nutzer selbst abbestellt hat,
+  // geht das Panel nichts an.
+  let abonniert = [];
+  try {
+    const eigene = db.prepare(
+      "SELECT ordner FROM konto_ordner WHERE konto_id = ? AND quelle = 'ki'",
+    ).all(konto.id).map((o) => o.ordner);
+    ({ abonniert } = await imap.ordnerAbonnieren(zugang(konto), eigene));
+    if (abonniert.length) {
+      loggen('info', 'themen',
+        `${konto.name}: ${abonniert.length} selbst angelegte(r) Ordner abonniert — vorher waren sie `
+        + `im Mailprogramm unsichtbar: ${abonniert.join(', ')}`);
+    }
+  } catch (err) {
+    loggen('warn', 'themen', `${konto.name}: Abonnieren fehlgeschlagen: ${err.message}`);
+  }
+
   return {
     ok: true,
     neu,
     uebersprungen,
+    abonniert,
     gesamt: katalog(konto.id, { auchGesperrte: true }).length,
   };
 }

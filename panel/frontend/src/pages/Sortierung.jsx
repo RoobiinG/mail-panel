@@ -244,11 +244,14 @@ export default function Sortierung() {
     setEinleseMeldung('Lese …');
     try {
       const { data } = await api.post('/sortierung/katalog/einlesen', { konto_id: aktivesKonto });
+      const abo = data.abonniert?.length
+        ? ` ${data.abonniert.length} eigene(r) Ordner im Postfach sichtbar gemacht.`
+        : '';
       setEinleseMeldung(
-        data.neu?.length ? `${data.neu.length} Ordner übernommen.` : 'Keine neuen Ordner gefunden.',
+        (data.neu?.length ? `${data.neu.length} Ordner übernommen.` : 'Keine neuen Ordner gefunden.') + abo,
       );
       katalogLaden(aktivesKonto);
-      setTimeout(() => setEinleseMeldung(''), 4000);
+      setTimeout(() => setEinleseMeldung(''), 8000);
     } catch (err) {
       setEinleseMeldung(err.response?.data?.error || 'Fehler beim Einlesen');
     }
@@ -285,11 +288,19 @@ export default function Sortierung() {
 
   // ─── ORDNER-VORSCHLÄGE ──────────────────────────────────────────────────────
 
-  const vorschlagFreigeben = async (id) => {
+  const vorschlagFreigeben = async (v) => {
     try {
-      const { data } = await api.post(`/sortierung/vorschlaege/${id}/freigeben`);
-      vorschlaegeLaden(); katalogLaden(aktivesKonto); inboxLaden();
-      if (data.wartend) melden(`Ordner "${data.ordner}" angelegt. ${data.verschoben} von ${data.wartend} wartenden Mails einsortiert.`);
+      const { data } = await api.post(`/sortierung/vorschlaege/${v.id}/freigeben`);
+      // Auf das Postfach umschalten, zu dem der Vorschlag gehörte — sonst legt
+      // man einen Ordner in „Kontakt-E-Mail" an, sieht danach den Katalog von
+      // „g.robin.2002" und wundert sich, wo der Ordner geblieben ist.
+      if (v.konto_id && v.konto_id !== aktivesKonto) setAktivesKonto(v.konto_id);
+      else katalogLaden(aktivesKonto);
+      vorschlaegeLaden(); inboxLaden();
+      melden(`Ordner "${data.ordner}" in ${v.konto_name || 'dem Postfach'} angelegt.`
+        + (data.wartend
+          ? ` ${data.verschoben} von ${data.wartend} wartenden Mails einsortiert.`
+          : ' Es wartete keine Mail darauf.'));
     } catch (err) {
       melden(err.response?.data?.error || 'Fehler beim Freigeben', 'fehler');
     }
@@ -618,7 +629,7 @@ export default function Sortierung() {
                     <button onClick={() => vorschlagAblehnen(v.id)} className="btn-ghost !py-1.5 !px-3 text-sm text-panel-muted hover:text-panel-red">
                       Ablehnen
                     </button>
-                    <button onClick={() => vorschlagFreigeben(v.id)} className="btn !py-1.5 !px-3 text-sm flex items-center gap-1">
+                    <button onClick={() => vorschlagFreigeben(v)} className="btn !py-1.5 !px-3 text-sm flex items-center gap-1">
                       <Check size={14} /> Anlegen &amp; einsortieren
                     </button>
                   </div>

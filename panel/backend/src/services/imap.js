@@ -66,6 +66,7 @@ async function ordnerAnlegen(konto) {
       if (vorhanden.includes(name)) continue;
       try {
         await client.mailboxCreate(name);
+        await abonnieren(client, name); // sonst bleibt er im Mailprogramm unsichtbar
         angelegt.push(name);
       } catch (err) {
         // Manche Server verlangen ein Präfix (z. B. "INBOX.Archiv") oder
@@ -96,6 +97,7 @@ async function ordnerErstellen(konto, ordnerName) {
     const vorhanden = (await client.list()).map((o) => o.path);
     if (!vorhanden.includes(ordnerName)) {
       await client.mailboxCreate(ordnerName);
+      await abonnieren(client, ordnerName); // sonst bleibt er im Mailprogramm unsichtbar
       return true; // Wurde neu angelegt
     }
     return false; // Existierte bereits
@@ -221,11 +223,31 @@ async function ordnerDetails(konto) {
 // `pfad` darf ein Array sein ([Eltern, Kind]) — dann setzt imapflow das
 // Trennzeichen des Servers selbst ein (bei Dovecot meist "/", bei anderen ".").
 // Genau deshalb wird hier nicht selbst zusammengebaut.
+// Einen Ordner abonnieren — ohne das sieht ihn im Mailprogramm niemand.
+//
+// IMAP führt zwei Listen: was es gibt (LIST) und was der Nutzer sehen will
+// (LSUB). Ein per CREATE angelegter Ordner landet bei Dovecot NICHT automatisch
+// in der zweiten, und die meisten Mailprogramme zeigen ausschließlich die
+// zweite. Der Ordner war also da, die Mails lagen darin — und im Postfach war
+// er unsichtbar. Genau der Fehler, über den man am längsten rätselt.
+async function abonnieren(client, pfad) {
+  try {
+    await client.mailboxSubscribe(pfad);
+    return true;
+  } catch (err) {
+    // Manche Server kennen kein SUBSCRIBE oder abonnieren selbst. Der Ordner
+    // ist dann trotzdem angelegt — das darf nicht scheitern.
+    console.warn(`Ordner "${pfad}" konnte nicht abonniert werden: ${err.message}`);
+    return false;
+  }
+}
+
 async function ordnerAnlegenPfad(konto, pfad) {
   const client = verbindung(konto);
   try {
     await client.connect();
     const ergebnis = await client.mailboxCreate(pfad);
+    await abonnieren(client, ergebnis.path);
     return ergebnis.path;
   } catch (err) {
     // "ALREADYEXISTS" ist kein Fehler — dann steht der Ordner eben schon da
@@ -233,9 +255,39 @@ async function ordnerAnlegenPfad(konto, pfad) {
       const gesucht = Array.isArray(pfad) ? pfad[pfad.length - 1] : pfad;
       const liste = await client.list();
       const treffer = liste.find((o) => o.path === pfad || o.name === gesucht);
-      if (treffer) return treffer.path;
+      // Auch hier abonnieren: Der Ordner kann aus einem früheren Lauf stammen,
+      // als das noch niemand tat.
+      if (treffer) { await abonnieren(client, treffer.path); return treffer.path; }
     }
     throw err;
+  } finally {
+    try { await client.logout(); } catch { /* Verbindung war schon zu */ }
+  }
+}
+
+// Eine Liste Ordner abonnieren — für die, die vor dieser Einsicht angelegt
+// wurden. Alles über eine Verbindung.
+async function ordnerAbonnieren(konto, pfade) {
+  const liste = (pfade || []).filter(Boolean);
+  if (liste.length === 0) return { abonniert: [], fehler: [] };
+  const client = verbindung(konto);
+  const abonniert = [];
+  const fehler = [];
+  try {
+    await client.connect();
+    // Was schon abonniert ist, muss nicht erneut angemeldet werden.
+    let offen = liste;
+    try {
+      const vorhanden = await client.list();
+      const schon = new Set(vorhanden.filter((o) => o.subscribed).map((o) => o.path));
+      offen = liste.filter((p) => !schon.has(p));
+    } catch { /* dann eben alle */ }
+
+    for (const pfad of offen) {
+      if (await abonnieren(client, pfad)) abonniert.push(pfad);
+      else fehler.push(pfad);
+    }
+    return { abonniert, fehler };
   } finally {
     try { await client.logout(); } catch { /* Verbindung war schon zu */ }
   }
@@ -382,6 +434,7 @@ module.exports = {
   ordnerAnlegen,
   ordnerErstellen,
   ordnerAnlegenPfad,
+  ordnerAbonnieren,
   ordnerDetails,
   mailVerschieben,
   mailsVerschieben,

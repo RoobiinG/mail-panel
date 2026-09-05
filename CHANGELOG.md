@@ -2,6 +2,28 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.9.2.1] - 2026-09-05 (Build 98) — *Angelegte Ordner waren im Postfach unsichtbar*
+
+### Fix: Neue Ordner wurden nicht abonniert
+- Ordner, die die KI angelegt hat (oder das Panel beim Einrichten), tauchten im Mailprogramm
+  nicht auf — obwohl sie da waren und die Mails darin lagen.
+- **IMAP führt zwei Listen:** was es gibt (`LIST`) und was der Nutzer sehen will (`LSUB`). Ein
+  per `CREATE` angelegter Ordner landet bei Dovecot **nicht** automatisch in der zweiten — und
+  die meisten Mailprogramme zeigen ausschließlich die zweite an. Das Panel hat bisher nur
+  angelegt, nie abonniert.
+- Jetzt wird jeder selbst angelegte Ordner sofort abonniert: die Themen-Ordner der KI, die
+  Kategorie-Ordner beim Einrichten und von Hand angelegte.
+- **Die vorhandenen werden nachgezogen:** *Sortierung → Themen-Ordner → „Aus Postfach einlesen"*
+  abonniert die Ordner, die das Panel selbst angelegt hat, und sagt, wie viele es waren. Nur die
+  eigenen — was jemand bewusst abbestellt hat, geht das Panel nichts an.
+- Kann ein Server kein `SUBSCRIBE`, bleibt es bei einer Notiz im Log: Der Ordner ist ja da.
+
+### Fix: Freigegebener Vorschlag verschwand im falschen Postfach
+- Nach dem Freigeben zeigte die Registerkarte *Themen-Ordner* weiter das zuvor gewählte Konto.
+  Wer einen Vorschlag für „Kontakt-E-Mail" freigab, während „g.robin.2002" eingestellt war, sah
+  den neuen Ordner nirgends. Das Panel schaltet jetzt auf das richtige Postfach um und sagt in
+  der Meldung, wo der Ordner angelegt wurde.
+
 ## [3.9.2.0] - 2026-09-05 (Build 97) — *Man sieht, was gerade läuft*
 
 ### Neu: Laufende Workflows in der Übersicht
