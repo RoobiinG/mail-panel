@@ -691,6 +691,87 @@ router.post('/vorschlaege/:id/freigeben', async (req, res) => {
   }
 });
 
+// POST /api/sortierung/vorschlaege/zusammenfassen — { ordner, vorschlag_ids }
+//
+// Das Aufräumwerkzeug gegen die Zersplitterung: „Plesk", „MC-HOST24" und
+// „Fritzbox" sind drei Vorschläge für dieselbe Sache. Hier werden sie zu einem
+// Ordner — und weil jeder der Namen als Umleitung hinterlegt wird, schlagen sie
+// nie wieder auf, sondern landen künftig ohne Nachfrage im Sammelordner.
+router.post('/vorschlaege/zusammenfassen', async (req, res) => {
+  const ziel = String(req.body?.ordner || '').trim();
+  const ids = Array.isArray(req.body?.vorschlag_ids) ? req.body.vorschlag_ids.map(Number) : [];
+  if (!ziel) return res.status(400).json({ error: 'Kein Ordnername angegeben.' });
+  if (ids.length === 0) return res.status(400).json({ error: 'Keine Vorschläge ausgewählt.' });
+
+  const vorschlaege = ids
+    .map((id) => db.prepare('SELECT * FROM ordner_vorschlaege WHERE id = ?').get(id))
+    .filter(Boolean);
+  if (vorschlaege.length === 0) return res.status(404).json({ error: 'Vorschläge nicht gefunden.' });
+
+  const kontoIds = new Set(vorschlaege.map((v) => v.konto_id));
+  if (kontoIds.size > 1) {
+    return res.status(400).json({ error: 'Die Vorschläge gehören zu verschiedenen Postfächern.' });
+  }
+  const konto = kontoHolen(vorschlaege[0].konto_id);
+  if (!konto) return res.status(400).json({ error: 'Das Konto existiert nicht mehr.' });
+
+  try {
+    // Gibt es den Ordner schon, wird er genommen — sonst angelegt. Beides ist
+    // hier richtig: Oft ist die Kategorie längst da und nur zersplittert.
+    let pfad;
+    if (await themen.ordnerExistiert(konto, ziel)) {
+      pfad = ziel;
+    } else {
+      const name = themen.ordnerNormalisieren(ziel, konto);
+      if (!name) return res.status(400).json({ error: 'Der Ordnername ist nicht zulässig.' });
+      pfad = await themen.ordnerAnlegen(konto, name);
+    }
+    const katalogEintrag = themen.inKatalog(konto.id, pfad, 'manuell');
+
+    const zugang = themen.zugang(konto);
+    let verschoben = 0;
+    let wartend = 0;
+    const namen = [];
+    for (const v of vorschlaege) {
+      const mails = db.prepare(
+        "SELECT * FROM sort_inbox WHERE konto_id = ? AND status = 'offen' AND ki_ordner = ?",
+      ).all(konto.id, v.ordner);
+      wartend += mails.length;
+
+      for (const mail of mails) {
+        if (!mail.uid) continue;
+        try {
+          await imap.mailVerschieben({ ...zugang, uid: mail.uid, von: 'INBOX', nach: pfad });
+          db.prepare("UPDATE sort_inbox SET status = 'zugeordnet', vorschlag = ? WHERE id = ?")
+            .run(pfad, mail.id);
+          // Die Absender dieser Mails gehören ab jetzt sichtbar zu diesem
+          // Ordner — damit greift beim nächsten Mal schon das Stichwort.
+          if (katalogEintrag) themen.gelerntMerken(katalogEintrag.id, mail.von);
+          verschoben += 1;
+        } catch (err) {
+          loggen('warn', 'sortierung',
+            `Mail ${mail.uid} konnte nicht nach "${pfad}" verschoben werden: ${err.message}`);
+        }
+      }
+
+      // Der Name des Vorschlags wird zur Umleitung — auch der, der zum Ordner
+      // wurde, schadet nicht (er trifft ohnehin über den Katalog).
+      if (v.ordner !== pfad) themen.aliasMerken(konto.id, v.ordner, pfad);
+      db.prepare("UPDATE ordner_vorschlaege SET status = ?, begruendung = ? WHERE id = ?")
+        .run(v.ordner === pfad ? 'freigegeben' : 'abgelehnt', `Zusammengefasst in "${pfad}"`, v.id);
+      namen.push(v.ordner);
+    }
+
+    themen.cacheVerwerfen(konto.id);
+    loggen('info', 'sortierung',
+      `${namen.length} Vorschläge zu "${pfad}" zusammengefasst (${namen.join(', ')}), `
+      + `${verschoben} von ${wartend} Mail(s) verschoben.`);
+    res.json({ ok: true, ordner: pfad, verschoben, wartend, zusammengefasst: namen.length });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
 // GET /api/sortierung/vorschlaege/:id/mails — die Mails, die diesen Vorschlag
 // ausgelöst haben und im Posteingang darauf warten, dass er entschieden wird.
 // Ohne diese Liste musste man einem Ordnernamen blind glauben.
@@ -873,6 +954,68 @@ router.get('/alias', (req, res) => {
     res.json(themen.aliasListe(kontoId));
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/sortierung/katalog/:id/aufgehen-in — { ziel, vorschau }
+//
+// Für Ordner, die dasselbe meinen: „Fritzbox-Robin" geht in „Fritzbox" auf.
+// Alle Mails wandern hinüber, der Katalogeintrag verschwindet und der alte Name
+// wird zur Umleitung — die KI schlägt ihn dann nicht wieder vor.
+//
+// Der leere IMAP-Ordner bleibt stehen. Das Panel löscht im Postfach grundsätzlich
+// nichts; wegräumen kann ihn der Nutzer selbst, wenn er sicher ist.
+router.post('/katalog/:id/aufgehen-in', async (req, res) => {
+  const quelle = db.prepare('SELECT * FROM konto_ordner WHERE id = ?').get(Number(req.params.id));
+  if (!quelle) return res.status(404).json({ error: 'Ordner nicht gefunden.' });
+  const ziel = String(req.body?.ziel || '').trim();
+  if (!ziel) return res.status(400).json({ error: 'Kein Zielordner angegeben.' });
+  if (ziel === quelle.ordner) return res.status(400).json({ error: 'Das ist derselbe Ordner.' });
+
+  const konto = kontoHolen(quelle.konto_id);
+  if (!konto) return res.status(400).json({ error: 'Das Konto existiert nicht mehr.' });
+
+  try {
+    const zugang = themen.zugang(konto);
+    const uids = [...await imap.uidsAuflisten({ ...zugang, ordner: quelle.ordner })];
+
+    // Erst zeigen, wie viele es sind — hier bewegen sich echte Mails, das
+    // gehört vor die Rückfrage und nicht danach.
+    if (req.body?.vorschau) {
+      return res.json({ vorschau: true, anzahl: uids.length, ordner: quelle.ordner, ziel });
+    }
+    if (!(await themen.ordnerExistiert(konto, ziel))) {
+      return res.status(400).json({ error: `Den Ordner "${ziel}" gibt es im Postfach nicht.` });
+    }
+
+    let verschoben = 0;
+    const fehler = [];
+    if (uids.length) {
+      const ergebnis = await imap.mailsVerschieben({
+        ...zugang, mails: uids.map((uid) => ({ uid })), von: quelle.ordner, nach: ziel,
+      });
+      verschoben = ergebnis.verschoben.length;
+      for (const p of ergebnis.fehler) fehler.push(`UID ${p.uid}: ${p.grund}`);
+    }
+
+    // Das Gelernte zieht mit um, der alte Name wird zur Umleitung.
+    const zielEintrag = db.prepare('SELECT * FROM konto_ordner WHERE konto_id = ? AND ordner = ?')
+      .get(konto.id, ziel);
+    if (zielEintrag) {
+      for (const domain of themen.gelernteListe(quelle)) themen.gelerntMerken(zielEintrag.id, domain);
+    }
+    themen.aliasMerken(konto.id, quelle.ordner, ziel);
+    db.prepare('DELETE FROM konto_ordner WHERE id = ?').run(quelle.id);
+    db.prepare('UPDATE sort_rules SET zielordner = ? WHERE konto_id = ? AND zielordner = ?')
+      .run(ziel, konto.id, quelle.ordner);
+    themen.cacheVerwerfen(konto.id);
+
+    loggen('info', 'sortierung',
+      `Ordner "${quelle.ordner}" ist in "${ziel}" aufgegangen: ${verschoben} von ${uids.length} Mail(s) `
+      + 'verschoben, Name als Umleitung hinterlegt. Der leere Ordner bleibt im Postfach stehen.');
+    res.json({ ok: true, ordner: quelle.ordner, ziel, verschoben, gesamt: uids.length, fehler: fehler.slice(0, 5) });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
   }
 });
 

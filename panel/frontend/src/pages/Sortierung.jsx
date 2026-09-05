@@ -72,6 +72,9 @@ export default function Sortierung() {
   const [ordnerJeKonto, setOrdnerJeKonto] = useState({});     // konto_id -> Ordner (für die Umleitung)
   const [umleitZiel, setUmleitZiel] = useState({});           // vorschlag_id -> Zielordner
   const [mailAuswahl, setMailAuswahl] = useState({});         // vorschlag_id -> [mail_id] (leer = alle)
+  const [vorschlagAuswahl, setVorschlagAuswahl] = useState([]); // Vorschläge zum Zusammenfassen
+  const [sammelName, setSammelName] = useState('');            // Name des Sammelordners
+  const [aufgehenZiel, setAufgehenZiel] = useState({});        // katalog_id -> Zielordner
   const [alias, setAlias] = useState([]);                     // umgeleitete Namen des aktiven Kontos
   const [katalogModal, setKatalogModal] = useState({ offen: false, ordner: '', beschreibung: '' });
   const [einleseMeldung, setEinleseMeldung] = useState('');
@@ -439,6 +442,62 @@ export default function Sortierung() {
     }
   };
 
+  // Mehrere Vorschläge, eine Kategorie: „Plesk", „MC-HOST24" und „Fritzbox"
+  // sind dreimal dasselbe. Hier werden sie zu einem Ordner — und jeder Name zur
+  // Umleitung, damit sie nie wieder einzeln aufschlagen.
+  const vorschlagAuswahlUmschalten = (id) => setVorschlagAuswahl(a =>
+    (a.includes(id) ? a.filter(x => x !== id) : [...a, id]));
+
+  const vorschlaegeZusammenfassen = async () => {
+    const gewaehlt = vorschlaege.filter(v => vorschlagAuswahl.includes(v.id));
+    const ziel = (sammelName || gewaehlt[0]?.ordner || '').trim();
+    if (!ziel || gewaehlt.length === 0) return;
+    const wartend = gewaehlt.reduce((s, v) => s + (v.wartend || 0), 0);
+    if (!(await nachfragen({
+      titel: `${gewaehlt.length} Vorschläge zu „${ziel}" zusammenfassen?`,
+      text: `${gewaehlt.map(v => `• ${v.ordner}`).join('\n')}\n\n`
+        + `Es entsteht ein Ordner „${ziel}"${wartend ? `, die ${wartend} wartenden Mails wandern hinein` : ''}. `
+        + 'Jeder dieser Namen wird zur Umleitung: Schlägt die KI ihn wieder vor, landet die Mail '
+        + 'künftig ohne Nachfrage dort.',
+      bestaetigen: 'Zusammenfassen',
+    }))) return;
+    try {
+      const { data } = await api.post('/sortierung/vorschlaege/zusammenfassen', {
+        ordner: ziel, vorschlag_ids: vorschlagAuswahl,
+      });
+      melden(`${data.zusammengefasst} Vorschläge zu „${data.ordner}" zusammengefasst, `
+        + `${data.verschoben} von ${data.wartend} Mail(s) verschoben.`);
+      setVorschlagAuswahl([]); setSammelName('');
+      vorschlaegeLaden(); katalogLaden(aktivesKonto); inboxLaden(); aliasLaden(aktivesKonto);
+    } catch (err) {
+      melden(err.response?.data?.error || 'Zusammenfassen fehlgeschlagen', 'fehler');
+    }
+  };
+
+  // Einen vorhandenen Ordner in einem anderen aufgehen lassen. Hier bewegen sich
+  // echte Mails — deshalb erst zählen, dann fragen, dann verschieben.
+  const ordnerAufgehenLassen = async (o) => {
+    const ziel = (aufgehenZiel[o.id] || '').trim();
+    if (!ziel) return;
+    try {
+      const { data: v } = await api.post(`/sortierung/katalog/${o.id}/aufgehen-in`, { ziel, vorschau: true });
+      if (!(await nachfragen({
+        titel: `„${o.ordner}" in „${ziel}" aufgehen lassen?`,
+        text: `Alle ${v.anzahl} Mail(s) aus „${o.ordner}" wandern nach „${ziel}".\n\n`
+          + `Danach ist „${o.ordner}" kein Themen-Ordner mehr, und der Name zeigt als Umleitung `
+          + `auf „${ziel}". Der leere Ordner bleibt im Postfach stehen — löschen kannst nur du.`,
+        bestaetigen: 'Verschieben',
+      }))) return;
+      const { data } = await api.post(`/sortierung/katalog/${o.id}/aufgehen-in`, { ziel });
+      melden(`${data.verschoben} von ${data.gesamt} Mail(s) nach „${data.ziel}" verschoben. `
+        + `„${data.ordner}" zeigt jetzt dorthin.`);
+      setAufgehenZiel(z => ({ ...z, [o.id]: '' }));
+      katalogLaden(aktivesKonto); aliasLaden(aktivesKonto);
+    } catch (err) {
+      melden(err.response?.data?.error || 'Zusammenlegen fehlgeschlagen', 'fehler');
+    }
+  };
+
   const aliasLoesen = async (a) => {
     if (!(await nachfragen({
       titel: 'Umleitung lösen?',
@@ -683,16 +742,52 @@ export default function Sortierung() {
           </div>
           <div className="px-4 py-2 text-xs text-panel-muted border-b border-panel-border">
             Aufklappen zeigt die Mails, die den Vorschlag ausgelöst haben — und lässt sie
-            stattdessen in einen Ordner schieben, den es schon gibt.
+            stattdessen in einen Ordner schieben, den es schon gibt. Mehrere Vorschläge anhaken
+            fasst sie zu <span className="text-panel-text">einer Kategorie</span> zusammen:
+            aus „Plesk", „MC-HOST24" und „Fritzbox" wird ein Ordner „Server &amp; Hosting".
           </div>
+
+          {/* Sammelleiste — erscheint, sobald etwas angehakt ist */}
+          {vorschlagAuswahl.length > 0 && (
+            <div className="px-4 py-3 border-b border-panel-border bg-panel-accent/5 flex flex-wrap items-center gap-2">
+              <Layers size={16} className="text-panel-accent shrink-0" />
+              <span className="text-sm">
+                <span className="font-medium">{vorschlagAuswahl.length} Vorschläge</span> zusammenfassen zu
+              </span>
+              <input
+                type="text"
+                value={sammelName}
+                onChange={e => setSammelName(e.target.value)}
+                placeholder={vorschlaege.find(v => v.id === vorschlagAuswahl[0])?.ordner || 'Ordnername'}
+                list="ordner-vorschlaege"
+                className="input-field !py-1 !text-sm max-w-[220px]"
+              />
+              <button onClick={vorschlaegeZusammenfassen} className="btn !py-1 !px-3 text-sm flex items-center gap-1">
+                <Check size={14} /> Zusammenfassen
+              </button>
+              <button onClick={() => { setVorschlagAuswahl([]); setSammelName(''); }}
+                className="btn-ghost !py-1 !px-2 text-xs text-panel-muted">
+                Auswahl aufheben
+              </button>
+              <span className="w-full text-[11px] text-panel-muted">
+                Leer lassen nimmt den ersten angehakten Namen. Ein vorhandener Ordner wird
+                genommen, ein neuer angelegt — und jeder der Namen zeigt danach dorthin.
+              </span>
+            </div>
+          )}
+
           <div className="divide-y divide-panel-border">
             {vorschlaege.map(v => {
               const offen = offenerVorschlag === v.id;
               const mails = vorschlagMails[v.id];
               const ordnerListe = ordnerJeKonto[v.konto_id] || [];
               return (
-              <div key={v.id}>
+              <div key={v.id} className={vorschlagAuswahl.includes(v.id) ? 'bg-panel-accent/5' : ''}>
                 <div className="p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+                  <input type="checkbox" className="mt-1 sm:mt-0 shrink-0"
+                    checked={vorschlagAuswahl.includes(v.id)}
+                    onChange={() => vorschlagAuswahlUmschalten(v.id)}
+                    title="Zum Zusammenfassen anhaken" />
                   <button onClick={() => vorschlagOeffnen(v)}
                     className="flex-1 min-w-0 text-left flex items-start gap-2 group">
                     <span className="text-panel-muted mt-0.5 shrink-0">
@@ -986,6 +1081,25 @@ export default function Sortierung() {
                         }}
                         className="w-full bg-transparent text-sm border-b border-transparent hover:border-panel-border focus:border-panel-accent focus:outline-none"
                       />
+                      {/* Zwei Ordner, dieselbe Sache: „Fritzbox-Robin" geht in
+                          „Fritzbox" auf. Hier bewegen sich echte Mails, deshalb
+                          steht die Zahl vorher in der Rückfrage. */}
+                      <div className="mt-1 flex items-center gap-1">
+                        <input
+                          type="text"
+                          value={aufgehenZiel[o.id] || ''}
+                          onChange={e => setAufgehenZiel(z => ({ ...z, [o.id]: e.target.value }))}
+                          list="ordner-vorschlaege"
+                          placeholder="aufgehen lassen in …"
+                          className="text-[11px] bg-transparent border-b border-transparent hover:border-panel-border focus:border-panel-accent focus:outline-none w-40"
+                        />
+                        {aufgehenZiel[o.id] && (
+                          <button onClick={() => ordnerAufgehenLassen(o)}
+                            className="text-panel-accent hover:underline text-[11px] whitespace-nowrap">
+                            zusammenlegen
+                          </button>
+                        )}
+                      </div>
                       {/* Was die KI selbst dazugelernt hat — getrennt vom eigenen
                           Text, damit der nie überschrieben wird. */}
                       {o.gelernt && (

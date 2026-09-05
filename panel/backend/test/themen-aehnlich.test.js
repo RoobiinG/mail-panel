@@ -263,3 +263,25 @@ describe('Umgeleitete Namen', () => {
       'B nicht — dort entscheidet weiter die Aehnlichkeit');
   });
 });
+
+// Beim Zusammenlegen von Ordnern zieht das Gelernte mit um — sonst faengt der
+// Sammelordner bei null an, obwohl die Absender laengst bekannt sind.
+describe('Gelerntes uebernehmen', () => {
+  test('gelerntMerken nimmt auch eine blanke Domain', () => {
+    const id = kontoAnlegen();
+    ordner(id, 'Anbieter');
+    const eintrag = db.prepare("SELECT id FROM konto_ordner WHERE ordner = 'Anbieter'").get();
+    assert.equal(themen.gelerntMerken(eintrag.id, 'o2.de'), true);
+    assert.equal(themen.gelerntMerken(eintrag.id, 'info@sky.de'), true);
+    const zeile = db.prepare("SELECT gelernt FROM konto_ordner WHERE ordner = 'Anbieter'").get();
+    assert.deepEqual(themen.gelernteListe(zeile), ['o2.de', 'sky.de']);
+  });
+
+  test('dieselbe Domain nicht doppelt', () => {
+    const id = kontoAnlegen();
+    ordner(id, 'Anbieter');
+    const eintrag = db.prepare("SELECT id FROM konto_ordner WHERE ordner = 'Anbieter'").get();
+    themen.gelerntMerken(eintrag.id, 'a@o2.de');
+    assert.equal(themen.gelerntMerken(eintrag.id, 'b@O2.DE'), false, 'Gross-/Kleinschreibung zaehlt nicht');
+  });
+});

@@ -290,7 +290,10 @@ const gelernteListe = (eintrag) => String(eintrag?.gelernt || '')
 // Merkt sich die Absender-Domain an einem Ordner. Die älteste fällt raus, wenn
 // es zu viele werden — der Prompt soll ein Bild geben, keine Chronik.
 function gelerntMerken(ordnerId, von) {
-  const domain = sortierung.domain(von);
+  // Nimmt eine Adresse ("info@o2.de") oder gleich eine Domain ("o2.de") — beim
+  // Zusammenlegen von Ordnern wandert Gelerntes ja schon als Domain herüber.
+  const roh = String(von || '');
+  const domain = roh.includes('@') ? sortierung.domain(roh) : roh.trim().toLowerCase();
   if (!ordnerId || !domain) return false;
   try {
     const eintrag = db.prepare('SELECT gelernt FROM konto_ordner WHERE id = ?').get(ordnerId);

@@ -2,6 +2,29 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.10.1.0] - 2026-09-06 (Build 102) — *Kategorien statt Einzelordner*
+
+### Neu: Vorschläge zu einer Kategorie zusammenfassen
+- Die Antwort auf 39 Vorschläge bei 23 Ordnern: Mehrere Vorschläge anhaken, einen Namen
+  eintippen — fertig. Aus „Plesk", „MC-HOST24" und „Fritzbox" wird **ein** Ordner
+  „Server & Hosting".
+- Die wartenden Mails aller ausgewählten Vorschläge wandern hinein, und **jeder** der Namen
+  wird zur Umleitung: Schlägt die KI ihn wieder vor, landet die Mail künftig ohne Nachfrage
+  dort. Ein Handgriff je Kategorie statt 39 Einzelentscheidungen.
+- Gibt es den Ordner schon, wird er genommen; sonst wird er angelegt. Oft ist die Kategorie
+  längst da und nur zersplittert.
+- Die Absender der verschobenen Mails werden dem Ordner als Gelerntes gutgeschrieben — die
+  nächste Mail von ihnen kostet damit keine KI-Abfrage mehr.
+
+### Neu: Bestehende Ordner zusammenlegen
+- Für „Fritzbox" / „Fritzbox-Robin" und „Finanzen" / „Geschäftliche Finanzen": In der Ordnerzeile
+  ein Ziel eintragen, und der Ordner geht darin auf. Alle Mails wandern hinüber, der alte Name
+  wird zur Umleitung, Regeln werden umgehängt und das Gelernte übernommen.
+- **Vorher steht die Zahl in der Rückfrage** („Alle 412 Mails aus … verschieben?"). Hier bewegen
+  sich echte Mails, das gehört vor die Entscheidung.
+- **Der leere Ordner bleibt im Postfach stehen.** Das Panel löscht dort grundsätzlich nichts —
+  wegräumen kannst nur du.
+
 ## [3.10.0.1] - 2026-09-06 (Build 101) — *Eine Seite, ein Postfach*
 
 ### Fix: Auf der Sortierung-Seite lief alles durcheinander
