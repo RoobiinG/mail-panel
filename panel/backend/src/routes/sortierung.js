@@ -664,6 +664,97 @@ router.post('/vorschlaege/:id/freigeben', async (req, res) => {
   }
 });
 
+// GET /api/sortierung/vorschlaege/:id/mails — die Mails, die diesen Vorschlag
+// ausgelöst haben und im Posteingang darauf warten, dass er entschieden wird.
+// Ohne diese Liste musste man einem Ordnernamen blind glauben.
+router.get('/vorschlaege/:id/mails', (req, res) => {
+  try {
+    const v = db.prepare('SELECT * FROM ordner_vorschlaege WHERE id = ?').get(Number(req.params.id));
+    if (!v) return res.status(404).json({ error: 'Vorschlag nicht gefunden.' });
+    const mails = db.prepare(`
+      SELECT id, von, betreff, uid, ki_konfidenz, ki_grund, created_at
+      FROM sort_inbox
+      WHERE konto_id = ? AND status = 'offen' AND ki_ordner = ?
+      ORDER BY created_at DESC LIMIT 100
+    `).all(v.konto_id, v.ordner);
+    res.json({ ordner: v.ordner, konto_id: v.konto_id, mails });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/sortierung/vorschlaege/:id/umleiten — { ordner }
+//
+// „Kein neuer Ordner — das gehört nach X." Verschiebt die wartenden Mails in
+// einen Ordner, den es schon gibt, und merkt sich den Namen: Schlägt die KI ihn
+// wieder vor, landet die Mail künftig direkt dort. Vorher blieb nur Ablehnen,
+// und die nächste Mail derselben Art stand wieder unsortiert im Posteingang.
+router.post('/vorschlaege/:id/umleiten', async (req, res) => {
+  const ziel = String(req.body?.ordner || '').trim();
+  if (!ziel) return res.status(400).json({ error: 'Kein Zielordner angegeben.' });
+
+  const vorschlag = db.prepare('SELECT * FROM ordner_vorschlaege WHERE id = ?').get(Number(req.params.id));
+  if (!vorschlag) return res.status(404).json({ error: 'Vorschlag nicht gefunden.' });
+  const konto = kontoHolen(vorschlag.konto_id);
+  if (!konto) return res.status(400).json({ error: 'Das Konto existiert nicht mehr.' });
+
+  try {
+    if (!(await themen.ordnerExistiert(konto, ziel))) {
+      return res.status(400).json({ error: `Den Ordner "${ziel}" gibt es im Postfach nicht.` });
+    }
+
+    const wartend = db.prepare(
+      "SELECT * FROM sort_inbox WHERE konto_id = ? AND status = 'offen' AND ki_ordner = ?",
+    ).all(konto.id, vorschlag.ordner);
+    const zugang = themen.zugang(konto);
+    let verschoben = 0;
+    for (const mail of wartend) {
+      if (!mail.uid) continue;
+      try {
+        await imap.mailVerschieben({ ...zugang, uid: mail.uid, von: 'INBOX', nach: ziel });
+        db.prepare("UPDATE sort_inbox SET status = 'zugeordnet', vorschlag = ? WHERE id = ?")
+          .run(ziel, mail.id);
+        verschoben += 1;
+      } catch (err) {
+        loggen('warn', 'sortierung', `Mail ${mail.uid} konnte nicht nach "${ziel}" verschoben werden: ${err.message}`);
+      }
+    }
+
+    themen.aliasMerken(konto.id, vorschlag.ordner, ziel);
+    db.prepare("UPDATE ordner_vorschlaege SET status = 'abgelehnt', begruendung = ? WHERE id = ?")
+      .run(`Umgeleitet nach "${ziel}"`, vorschlag.id);
+
+    loggen('info', 'sortierung',
+      `Vorschlag "${vorschlag.ordner}" nach "${ziel}" umgeleitet, ${verschoben} Mail(s) verschoben.`);
+    res.json({ ok: true, ordner: ziel, verschoben, wartend: wartend.length });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+// GET /api/sortierung/alias?konto_id= — welche Namen auf welchen Ordner zeigen
+router.get('/alias', (req, res) => {
+  const kontoId = Number(req.query.konto_id);
+  if (!kontoId) return res.status(400).json({ error: 'konto_id fehlt' });
+  try {
+    res.json(themen.aliasListe(kontoId));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/sortierung/alias/:id — Umleitung wieder lösen
+router.delete('/alias/:id', (req, res) => {
+  try {
+    if (!themen.aliasVergessen(req.params.id)) {
+      return res.status(404).json({ error: 'Umleitung nicht gefunden.' });
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/sortierung/vorschlaege/:id/ablehnen — kommt nicht wieder
 router.post('/vorschlaege/:id/ablehnen', (req, res) => {
   try {

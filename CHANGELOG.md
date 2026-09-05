@@ -2,6 +2,25 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.8.9.0] - 2026-09-05 (Build 92) — *Vorschläge, denen man ansieht, worum es geht*
+
+### Neu: Die Mails zum Vorschlag ansehen
+- Ein Vorschlag lässt sich **aufklappen** und zeigt die Mails, die ihn ausgelöst haben:
+  Absender, Betreff und wie sicher sich die KI war. Bisher musste man einem Ordnernamen blind
+  glauben — „Software · 4× vorgeschlagen" sagt nichts darüber, ob das die Mails sind, die man
+  meint.
+
+### Neu: „Kein neuer Ordner — das gehört nach X"
+- Unter den Mails steht jetzt eine Auswahl aller Ordner des Kontos und ein Knopf
+  **Dorthin verschieben**. Die wartenden Mails wandern dorthin, ohne dass ein Ordner entsteht.
+- **Das Panel merkt sich die Entscheidung.** Schlägt die KI denselben Namen wieder vor, geht die
+  Mail künftig ohne Nachfrage in den gewählten Ordner. Vorher blieb nur Ablehnen — und die
+  nächste Mail derselben Art stand wieder unsortiert im Posteingang.
+- Diese **Umleitungen stehen unter *Themen-Ordner*** („Gaming → Spiele") und lassen sich dort
+  mit einem Klick wieder lösen. Nichts davon passiert unsichtbar.
+- Die Umleitung sticht die automatische Ähnlichkeit: Wer „Gaming" ausdrücklich nach „Spiele"
+  schickt, bekommt es dort — auch wenn es einen Ordner „Games" gibt.
+
 ## [3.8.8.0] - 2026-09-05 (Build 91) — *„Games" und „Gaming" sind ein Ordner*
 
 ### Fix: Für dieselbe Sache wurden mehrere Ordner vorgeschlagen

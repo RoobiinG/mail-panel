@@ -65,6 +65,13 @@ export default function Sortierung() {
   // Themen-Katalog und die Ordner, die die KI vorgeschlagen hat
   const [katalog, setKatalog] = useState([]);
   const [vorschlaege, setVorschlaege] = useState([]);
+  // Aufgeklappter Vorschlag samt seiner wartenden Mails — man soll sehen, wofür
+  // man da eigentlich einen Ordner anlegt.
+  const [offenerVorschlag, setOffenerVorschlag] = useState(null);
+  const [vorschlagMails, setVorschlagMails] = useState({});   // vorschlag_id -> Mails
+  const [ordnerJeKonto, setOrdnerJeKonto] = useState({});     // konto_id -> Ordner (für die Umleitung)
+  const [umleitZiel, setUmleitZiel] = useState({});           // vorschlag_id -> Zielordner
+  const [alias, setAlias] = useState([]);                     // umgeleitete Namen des aktiven Kontos
   const [katalogModal, setKatalogModal] = useState({ offen: false, ordner: '', beschreibung: '' });
   const [einleseMeldung, setEinleseMeldung] = useState('');
   const [beschreibungEntwurf, setBeschreibungEntwurf] = useState({});
@@ -189,6 +196,7 @@ export default function Sortierung() {
     regelnLaden(aktivesKonto);
     katalogLaden(aktivesKonto);
     entscheidungenLaden(aktivesKonto);
+    aliasLaden(aktivesKonto);
   }, [aktivesKonto]);
   useEffect(() => { vorschlaegeLaden(); }, []);
 
@@ -264,6 +272,74 @@ export default function Sortierung() {
       vorschlaegeLaden();
     } catch (err) {
       melden(err.response?.data?.error || 'Fehler beim Ablehnen', 'fehler');
+    }
+  };
+
+  const aliasLaden = async (kontoId) => {
+    if (!kontoId) return;
+    try {
+      const { data } = await api.get(`/sortierung/alias?konto_id=${kontoId}`);
+      setAlias(data || []);
+    } catch { /* leer */ }
+  };
+
+  // Einen Vorschlag aufklappen: Welche Mails haben ihn ausgelöst? Dazu die Ordner
+  // des betroffenen Kontos, damit man die Mails auch woanders hinschieben kann,
+  // ohne erst das Konto zu wechseln.
+  const vorschlagOeffnen = async (v) => {
+    if (offenerVorschlag === v.id) { setOffenerVorschlag(null); return; }
+    setOffenerVorschlag(v.id);
+    if (!vorschlagMails[v.id]) {
+      try {
+        const { data } = await api.get(`/sortierung/vorschlaege/${v.id}/mails`);
+        setVorschlagMails(m => ({ ...m, [v.id]: data.mails || [] }));
+      } catch {
+        setVorschlagMails(m => ({ ...m, [v.id]: [] }));
+      }
+    }
+    if (v.konto_id && !ordnerJeKonto[v.konto_id]) {
+      try {
+        const { data } = await api.get(`/sortierung/katalog?konto_id=${v.konto_id}`);
+        setOrdnerJeKonto(o => ({ ...o, [v.konto_id]: (data || []).filter(k => !k.gesperrt) }));
+      } catch {
+        setOrdnerJeKonto(o => ({ ...o, [v.konto_id]: [] }));
+      }
+    }
+  };
+
+  const vorschlagUmleiten = async (v) => {
+    const ziel = umleitZiel[v.id];
+    if (!ziel) return;
+    if (!(await nachfragen({
+      titel: 'Mails dorthin verschieben?',
+      text: `Die wartenden Mails wandern nach "${ziel}" — es entsteht kein neuer Ordner.\n\n`
+        + `Schlägt die KI "${v.ordner}" wieder vor, landet die Mail künftig direkt in "${ziel}". `
+        + 'Diese Umleitung steht danach unter den Themen-Ordnern und lässt sich dort wieder lösen.',
+      bestaetigen: 'Verschieben',
+    }))) return;
+    try {
+      const { data } = await api.post(`/sortierung/vorschlaege/${v.id}/umleiten`, { ordner: ziel });
+      melden(`${data.verschoben} von ${data.wartend} Mail(s) nach "${data.ordner}" verschoben. `
+        + `"${v.ordner}" zeigt künftig dorthin.`);
+      setOffenerVorschlag(null);
+      vorschlaegeLaden(); katalogLaden(aktivesKonto); inboxLaden(); aliasLaden(aktivesKonto);
+    } catch (err) {
+      melden(err.response?.data?.error || 'Verschieben fehlgeschlagen', 'fehler');
+    }
+  };
+
+  const aliasLoesen = async (a) => {
+    if (!(await nachfragen({
+      titel: 'Umleitung lösen?',
+      text: `"${a.alias}" zeigt dann nicht mehr auf "${a.ordner}". `
+        + 'Schlägt die KI den Namen wieder vor, fragt das Panel wieder nach.',
+      bestaetigen: 'Lösen',
+    }))) return;
+    try {
+      await api.delete(`/sortierung/alias/${a.id}`);
+      aliasLaden(aktivesKonto);
+    } catch (err) {
+      melden(err.response?.data?.error || 'Fehler beim Lösen', 'fehler');
     }
   };
 
@@ -477,33 +553,112 @@ export default function Sortierung() {
               {vorschlaege.length}
             </span>
           </div>
+          <div className="px-4 py-2 text-xs text-panel-muted border-b border-panel-border">
+            Aufklappen zeigt die Mails, die den Vorschlag ausgelöst haben — und lässt sie
+            stattdessen in einen Ordner schieben, den es schon gibt.
+          </div>
           <div className="divide-y divide-panel-border">
-            {vorschlaege.map(v => (
-              <div key={v.id} className="p-4 flex flex-col sm:flex-row sm:items-center gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-mono text-panel-accent">{v.ordner}</span>
-                    <span className="text-xs text-panel-muted">
-                      {v.konto_name} · {v.anzahl}× vorgeschlagen
-                      {v.wartend > 0 && ` · ${v.wartend} Mail(s) warten`}
+            {vorschlaege.map(v => {
+              const offen = offenerVorschlag === v.id;
+              const mails = vorschlagMails[v.id];
+              const ordnerListe = ordnerJeKonto[v.konto_id] || [];
+              return (
+              <div key={v.id}>
+                <div className="p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+                  <button onClick={() => vorschlagOeffnen(v)}
+                    className="flex-1 min-w-0 text-left flex items-start gap-2 group">
+                    <span className="text-panel-muted mt-0.5 shrink-0">
+                      {offen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                     </span>
+                    <span className="min-w-0">
+                      <span className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono text-panel-accent group-hover:underline">{v.ordner}</span>
+                        <span className="text-xs text-panel-muted">
+                          {v.konto_name} · {v.anzahl}× vorgeschlagen
+                          {v.wartend > 0 && ` · ${v.wartend} Mail(s) warten`}
+                        </span>
+                      </span>
+                      {v.begruendung && (
+                        <span className="block text-xs text-panel-muted truncate mt-1" title={v.begruendung}>
+                          {v.begruendung}
+                        </span>
+                      )}
+                    </span>
+                  </button>
+                  <div className="flex gap-2 shrink-0">
+                    <button onClick={() => vorschlagAblehnen(v.id)} className="btn-ghost !py-1.5 !px-3 text-sm text-panel-muted hover:text-panel-red">
+                      Ablehnen
+                    </button>
+                    <button onClick={() => vorschlagFreigeben(v.id)} className="btn !py-1.5 !px-3 text-sm flex items-center gap-1">
+                      <Check size={14} /> Anlegen &amp; einsortieren
+                    </button>
                   </div>
-                  {v.begruendung && (
-                    <div className="text-xs text-panel-muted truncate mt-1" title={v.begruendung}>
-                      {v.begruendung}
+                </div>
+
+                {offen && (
+                  <div className="px-4 pb-4 pl-10 space-y-3">
+                    {/* Wofür lege ich diesen Ordner eigentlich an? */}
+                    {mails === undefined && <p className="text-xs text-panel-muted">Lade Mails…</p>}
+                    {mails && mails.length === 0 && (
+                      <p className="text-xs text-panel-muted">
+                        Zurzeit wartet keine Mail mehr darauf — der Vorschlag kam von Mails, die
+                        inzwischen anders einsortiert wurden.
+                      </p>
+                    )}
+                    {mails && mails.length > 0 && (
+                      <div className="border border-panel-border rounded-lg overflow-hidden">
+                        <table className="w-full text-xs">
+                          <thead className="bg-panel-bg/50 text-panel-muted">
+                            <tr>
+                              <th className="text-left px-3 py-2 font-medium">Absender</th>
+                              <th className="text-left px-3 py-2 font-medium">Betreff</th>
+                              <th className="text-right px-3 py-2 font-medium whitespace-nowrap">Sicherheit</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-panel-border">
+                            {mails.map(m => (
+                              <tr key={m.id}>
+                                <td className="px-3 py-2 text-panel-muted whitespace-nowrap">{adresse(m.von)}</td>
+                                <td className="px-3 py-2 truncate max-w-[380px]" title={m.betreff || ''}>
+                                  {m.betreff || '(kein Betreff)'}
+                                </td>
+                                <td className="px-3 py-2 text-right text-panel-muted whitespace-nowrap">
+                                  {m.ki_konfidenz != null ? `${Math.round(m.ki_konfidenz * 100)} %` : '—'}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    {/* Kein neuer Ordner — dann eben in einen vorhandenen. */}
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                      <span className="text-xs text-panel-muted">Stattdessen einsortieren nach:</span>
+                      <select
+                        value={umleitZiel[v.id] || ''}
+                        onChange={e => setUmleitZiel(z => ({ ...z, [v.id]: e.target.value }))}
+                        className="input-field !py-1 !text-sm max-w-[240px]"
+                      >
+                        <option value="">Ordner wählen…</option>
+                        {ordnerListe.map(o => (
+                          <option key={o.id} value={o.ordner}>{o.ordner}</option>
+                        ))}
+                      </select>
+                      <button onClick={() => vorschlagUmleiten(v)} disabled={!umleitZiel[v.id]}
+                        className="btn-ghost !py-1 !px-3 text-sm flex items-center gap-1 disabled:opacity-40">
+                        <ArrowRight size={14} /> Dorthin verschieben
+                      </button>
                     </div>
-                  )}
-                </div>
-                <div className="flex gap-2 shrink-0">
-                  <button onClick={() => vorschlagAblehnen(v.id)} className="btn-ghost !py-1.5 !px-3 text-sm text-panel-muted hover:text-panel-red">
-                    Ablehnen
-                  </button>
-                  <button onClick={() => vorschlagFreigeben(v.id)} className="btn !py-1.5 !px-3 text-sm flex items-center gap-1">
-                    <Check size={14} /> Anlegen &amp; einsortieren
-                  </button>
-                </div>
+                    <p className="text-[11px] text-panel-muted">
+                      Das merkt sich das Panel: Schlägt die KI „{v.ordner}" wieder vor, geht die Mail
+                      künftig ohne Nachfrage in den gewählten Ordner.
+                    </p>
+                  </div>
+                )}
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -691,6 +846,32 @@ export default function Sortierung() {
             </table>
           )}
         </div>
+
+        {/* Umgeleitete Namen: „Gaming gehört nach Games". Entsteht, wenn man
+            einen Vorschlag in einen vorhandenen Ordner schiebt. */}
+        {alias.length > 0 && (
+          <div className="border-t border-panel-border p-4">
+            <h3 className="text-sm font-medium mb-1">Umgeleitete Namen</h3>
+            <p className="text-xs text-panel-muted mb-3">
+              Schlägt die KI einen dieser Namen vor, geht die Mail ohne Nachfrage in den Ordner
+              dahinter. So bleibt es bei einem Ordner pro Sache.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {alias.map(a => (
+                <span key={a.id}
+                  className="flex items-center gap-1.5 text-xs bg-panel-bg/60 border border-panel-border rounded-full pl-3 pr-1.5 py-1">
+                  <span className="font-mono text-panel-muted">{a.alias}</span>
+                  <ArrowRight size={12} className="text-panel-muted" />
+                  <span className="font-mono text-panel-accent">{a.ordner}</span>
+                  <button onClick={() => aliasLoesen(a)} className="text-panel-muted hover:text-panel-red px-1"
+                    title="Umleitung lösen">
+                    <XCircle size={13} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
       )}
 

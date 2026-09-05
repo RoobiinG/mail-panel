@@ -236,6 +236,20 @@ db.exec(`
     FOREIGN KEY(konto_id) REFERENCES accounts(id) ON DELETE CASCADE
   );
   CREATE INDEX IF NOT EXISTS idx_vorschlaege_status ON ordner_vorschlaege(status);
+
+  -- Umgeleitete Vorschlaege: "Das gehoert nicht in einen neuen Ordner, das
+  -- gehoert nach X." Schlaegt die KI denselben Namen wieder vor, wird er direkt
+  -- aufgeloest — es entsteht kein zweiter Ordner und keine neue Nachfrage.
+  -- Der Nutzer sieht die Zuordnung unter den Themen-Ordnern und kann sie loesen.
+  CREATE TABLE IF NOT EXISTS ordner_alias (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    konto_id INTEGER NOT NULL,
+    alias TEXT NOT NULL,
+    ordner TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(konto_id, alias),
+    FOREIGN KEY(konto_id) REFERENCES accounts(id) ON DELETE CASCADE
+  );
 `);
 
 // ─── Migrationen: neue Spalten kommen als try/catch-ALTER dazu ───────────────

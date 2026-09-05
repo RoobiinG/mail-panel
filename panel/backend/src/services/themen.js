@@ -217,6 +217,33 @@ function fuerPrompt(kontoId) {
   return liste;
 }
 
+// ─── Umgeleitete Namen ───────────────────────────────────────────────────────
+//
+// „Das gehört nicht in einen neuen Ordner, das gehört nach X." Die Entscheidung
+// trifft der Nutzer an einem Vorschlag; hier wird sie festgehalten, damit sie
+// beim nächsten Mal von selbst greift.
+
+function aliasListe(kontoId) {
+  try {
+    return db.prepare('SELECT * FROM ordner_alias WHERE konto_id = ? ORDER BY alias').all(kontoId);
+  } catch { return []; }
+}
+
+function aliasMerken(kontoId, alias, ordner) {
+  const name = String(alias || '').trim();
+  const ziel = String(ordner || '').trim();
+  if (!kontoId || !name || !ziel) return false;
+  db.prepare(`
+    INSERT INTO ordner_alias (konto_id, alias, ordner) VALUES (?, ?, ?)
+    ON CONFLICT(konto_id, alias) DO UPDATE SET ordner = excluded.ordner
+  `).run(kontoId, name, ziel);
+  return true;
+}
+
+function aliasVergessen(id) {
+  return db.prepare('DELETE FROM ordner_alias WHERE id = ?').run(Number(id)).changes > 0;
+}
+
 // Findet einen Katalogeintrag zum Vorschlag der KI. Sie antwortet mal mit dem
 // vollen Pfad ("Themen/Games"), mal nur mit dem letzten Stueck ("Games").
 function imKatalog(kontoId, vorschlag) {
@@ -228,6 +255,16 @@ function imKatalog(kontoId, vorschlag) {
     const letztes = pfad.split(/[/.]/).pop();
     if (pfad === gesucht || letztes === gesucht) return eintrag;
   }
+
+  // Hat der Nutzer diesen Namen einmal umgeleitet, gilt seine Entscheidung —
+  // und zwar vor jeder Ähnlichkeitsrechnerei.
+  const umgeleitet = aliasListe(kontoId)
+    .find((a) => schlicht(a.alias) === schlicht(gesucht) || aehnlich(a.alias, gesucht));
+  if (umgeleitet) {
+    const ziel = liste.find((e) => String(e.ordner).toLowerCase() === String(umgeleitet.ordner).toLowerCase());
+    if (ziel) return ziel;
+  }
+
   // Zweiter Anlauf über den Wortstamm: „Gaming" trifft damit den vorhandenen
   // Ordner „Games", statt einen zweiten danebenzustellen.
   return liste.find((eintrag) => aehnlich(eintrag.ordner, gesucht)) || null;
@@ -606,6 +643,9 @@ module.exports = {
   inKatalog,
   vorschlagMerken,
   vorschlaegeAufraeumen,
+  aliasListe,
+  aliasMerken,
+  aliasVergessen,
   aehnlich,
   stamm,
   zugang,

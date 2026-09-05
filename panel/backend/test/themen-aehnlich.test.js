@@ -33,7 +33,7 @@ const offeneVorschlaege = (kontoId) => db.prepare(
 
 beforeEach(() => {
   db.exec('DELETE FROM ordner_vorschlaege; DELETE FROM konto_ordner; DELETE FROM sort_inbox;'
-    + ' DELETE FROM accounts;');
+    + ' DELETE FROM ordner_alias; DELETE FROM accounts;');
 });
 
 describe('Was dasselbe meint', () => {
@@ -205,5 +205,61 @@ describe('Was die KI im Prompt sieht', () => {
     vorschlag(id, 'Gaming', 3);
     const namen = themen.fuerPrompt(id).map((o) => o.name);
     assert.deepEqual(namen, ['Games']);
+  });
+});
+
+// "Kein neuer Ordner — das gehoert nach X." Diese Entscheidung trifft der
+// Nutzer an einem Vorschlag, und sie muss beim naechsten Mal von selbst
+// greifen. Sonst steht dieselbe Mail in einer Woche wieder unsortiert da.
+describe('Umgeleitete Namen', () => {
+  test('der umgeleitete Name landet im gewaehlten Ordner', () => {
+    const id = kontoAnlegen();
+    ordner(id, 'Spiele', 4);
+    themen.aliasMerken(id, 'Gaming', 'Spiele');
+    assert.equal(themen.imKatalog(id, 'Gaming').ordner, 'Spiele');
+  });
+
+  test('die Entscheidung des Nutzers schlaegt die Aehnlichkeit', () => {
+    const id = kontoAnlegen();
+    ordner(id, 'Games', 9);     // waere der Treffer ueber den Wortstamm
+    ordner(id, 'Spiele', 1);
+    themen.aliasMerken(id, 'Gaming', 'Spiele');
+    assert.equal(themen.imKatalog(id, 'Gaming').ordner, 'Spiele',
+      'wer umleitet, meint es auch so');
+  });
+
+  test('der genaue Ordnername bleibt unangetastet', () => {
+    const id = kontoAnlegen();
+    ordner(id, 'Games');
+    ordner(id, 'Spiele');
+    themen.aliasMerken(id, 'Gaming', 'Spiele');
+    assert.equal(themen.imKatalog(id, 'Games').ordner, 'Games');
+  });
+
+  test('zeigt die Umleitung ins Leere, greift wieder die Aehnlichkeit', () => {
+    const id = kontoAnlegen();
+    ordner(id, 'Games');
+    themen.aliasMerken(id, 'Gaming', 'Geloescht');
+    assert.equal(themen.imKatalog(id, 'Gaming').ordner, 'Games');
+  });
+
+  test('geloest ist geloest', () => {
+    const id = kontoAnlegen();
+    ordner(id, 'Steuern');
+    themen.aliasMerken(id, 'Finanzamt', 'Steuern');
+    const [a] = themen.aliasListe(id);
+    assert.equal(themen.imKatalog(id, 'Finanzamt').ordner, 'Steuern');
+    assert.equal(themen.aliasVergessen(a.id), true);
+    assert.equal(themen.imKatalog(id, 'Finanzamt'), null);
+  });
+
+  test('Umleitungen gelten je Konto', () => {
+    const a = kontoAnlegen('A');
+    const b = kontoAnlegen('B');
+    ordner(a, 'Spiele');
+    ordner(b, 'Spiele');
+    themen.aliasMerken(a, 'Gaming', 'Spiele');
+    assert.equal(themen.imKatalog(a, 'Gaming').ordner, 'Spiele');
+    assert.equal(themen.imKatalog(b, 'Gaming'), null);
   });
 });
