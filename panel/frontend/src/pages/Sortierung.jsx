@@ -93,17 +93,13 @@ export default function Sortierung() {
   const [korrekturOrdner, setKorrekturOrdner] = useState('');
   const [korrekturRegel, setKorrekturRegel] = useState('domain');
 
+  // Nur die Konten holen — alles Weitere hängt am gewählten Konto und wird vom
+  // Effekt darunter geladen, sobald eines feststeht.
   const ladenInit = async () => {
     try {
-      const [{ data: accData }, { data: inData }] = await Promise.all([
-        api.get('/konten'),
-        api.get('/sortierung/inbox')
-      ]);
-      setKonten(accData || []);
-      setInbox(inData || []);
-      if (accData && accData.length > 0) {
-        setAktivesKonto(accData[0].id);
-      }
+      const { data } = await api.get('/konten');
+      setKonten(data || []);
+      if (data && data.length > 0) setAktivesKonto(data[0].id);
     } catch { /* leer */ }
   };
 
@@ -187,20 +183,32 @@ export default function Sortierung() {
     }
   };
 
-  const vorschlaegeLaden = async () => {
+  // Alles auf dieser Seite gehört zu genau einem Postfach — Vorschläge,
+  // wartende Mails, Regeln, Ordner. Ohne das Konto in der Abfrage stand hier
+  // alles durcheinander: Vorschläge aus Konto B neben den Ordnern aus Konto A.
+  const vorschlaegeLaden = async (kontoId = aktivesKonto) => {
+    if (!kontoId) return;
     try {
-      const { data } = await api.get('/sortierung/vorschlaege');
+      const { data } = await api.get(`/sortierung/vorschlaege?konto_id=${kontoId}`);
       setVorschlaege(data || []);
     } catch { /* leer */ }
   };
 
+  // Ein Postfach, ein Satz Daten. Beim Wechsel wird alles neu geladen — sonst
+  // stünden Vorschläge, wartende Mails und Ordner aus verschiedenen Konten
+  // nebeneinander, und man ordnet eine Mail in einen Ordner ein, den es in ihrem
+  // Postfach gar nicht gibt.
   useEffect(() => {
+    if (!aktivesKonto) return;
+    setInbox([]); setVorschlaege([]); setKatalog([]); setRegeln([]);
+    setOffenerVorschlag(null); setVorschlagMails({}); setMailAuswahl({});
     regelnLaden(aktivesKonto);
     katalogLaden(aktivesKonto);
     entscheidungenLaden(aktivesKonto);
     aliasLaden(aktivesKonto);
+    vorschlaegeLaden(aktivesKonto);
+    inboxLaden(aktivesKonto);
   }, [aktivesKonto]);
-  useEffect(() => { vorschlaegeLaden(); }, []);
 
   // ─── THEMEN-KATALOG ─────────────────────────────────────────────────────────
 
@@ -446,9 +454,10 @@ export default function Sortierung() {
     }
   };
 
-  const inboxLaden = async () => {
+  const inboxLaden = async (kontoId = aktivesKonto) => {
+    if (!kontoId) return;
     try {
-      const { data } = await api.get('/sortierung/inbox');
+      const { data } = await api.get(`/sortierung/inbox?konto_id=${kontoId}`);
       setInbox(data || []);
     } catch { /* leer */ }
   };
@@ -625,8 +634,12 @@ export default function Sortierung() {
       <datalist id="ordner-vorschlaege">
         {alleOrdner.map(o => <option key={o} value={o} />)}
       </datalist>
-      {/* ══ Registerkarten: immer nur ein Bereich statt alles untereinander ══ */}
-      <div className="card !p-2 flex flex-wrap gap-1">
+      {/* ══ Registerkarten und Postfach-Auswahl ══
+          Die Auswahl steht hier oben, weil sie für die ganze Seite gilt: Regeln,
+          wartende Mails, Vorschläge und Ordner gehören immer zu genau einem
+          Postfach. Vorher stand sie in zwei Karten verstreut, und die Vorschläge
+          zeigten alle Konten gemischt — mit den Ordnern des gerade gewählten. */}
+      <div className="card !p-2 flex flex-wrap items-center gap-1">
         <TabKnopf aktiv={tab === 'sortieren'} onClick={() => setTab('sortieren')} icon={Inbox} zahl={gefilterteInbox.length}>
           Sortieren
         </TabKnopf>
@@ -639,6 +652,18 @@ export default function Sortierung() {
         <TabKnopf aktiv={tab === 'belege'} onClick={() => setTab('belege')} icon={Layers}>
           Belege
         </TabKnopf>
+
+        <div className="ml-auto flex items-center gap-2 pr-1">
+          <span className="text-xs text-panel-muted hidden sm:inline">Postfach</span>
+          <select
+            value={aktivesKonto}
+            onChange={e => setAktivesKonto(Number(e.target.value))}
+            className="text-sm bg-panel-bg rounded px-2 py-1.5 border border-panel-border"
+            title="Alles auf dieser Seite gilt für dieses Postfach"
+          >
+            {konten.map(k => <option key={k.id} value={k.id}>{k.name}</option>)}
+          </select>
+        </div>
       </div>
 
       {/* ══ Belege automatisch in Nextcloud ablegen ══ */}
@@ -891,17 +916,6 @@ export default function Sortierung() {
           </h2>
           <div className="flex items-center gap-2 flex-wrap">
             {einleseMeldung && <span className="text-xs text-panel-muted">{einleseMeldung}</span>}
-            {/* Ohne diese Auswahl sah man immer den Katalog des ersten Kontos und
-                wunderte sich, warum sich nichts tut — umschalten ging nur auf
-                der Registerkarte nebenan. */}
-            <select
-              value={aktivesKonto}
-              onChange={e => setAktivesKonto(Number(e.target.value))}
-              className="text-sm bg-panel-bg rounded px-2 py-1 border border-panel-border"
-              title="Für welches Postfach?"
-            >
-              {konten.map(k => <option key={k.id} value={k.id}>{k.name}</option>)}
-            </select>
             <button onClick={stichworteAnwenden} disabled={!aktivesKonto}
               className="btn-ghost !py-1.5 !px-3 text-sm flex items-center gap-1"
               title="Die Stichworte aus den Beschreibungen auf die wartenden Mails anwenden">
@@ -1055,13 +1069,6 @@ export default function Sortierung() {
               <Tag size={18} className="text-panel-accent" /> Sortier-Regeln
             </h2>
             <div className="flex items-center gap-3">
-              <select
-                value={aktivesKonto}
-                onChange={e => setAktivesKonto(Number(e.target.value))}
-                className="text-sm bg-panel-bg"
-              >
-                {konten.map(k => <option key={k.id} value={k.id}>{k.name}</option>)}
-              </select>
               <button
                 onClick={() => setRegelModal(p => ({ ...p, offen: true }))}
                 className="btn !py-1.5 !px-3 text-sm flex items-center gap-1"

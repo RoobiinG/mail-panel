@@ -147,14 +147,18 @@ router.get('/inbox', async (req, res) => {
     // laengst verlassen haben, gehoeren nicht in die Liste. Sie liessen sich nie
     // verschieben und tauchten trotzdem bei jedem Laden wieder auf.
     await inboxAbgleichen();
-    // Hole alle offene Mails, sowie Kontonamen für die Dropdowns
+    // Immer nur ein Postfach. Ohne diesen Filter standen Mails aus allen Konten
+    // in einer Liste, und die Ordner-Vorschläge daneben kamen vom gerade
+    // gewählten Konto — man bekam also Ordner angeboten, die es im Postfach der
+    // Mail gar nicht gibt.
+    const kontoId = Number(req.query.konto_id) || null;
     const inbox = db.prepare(`
       SELECT i.*, a.id AS account_id, a.name AS account_name
       FROM sort_inbox i
       LEFT JOIN accounts a ON a.id = i.konto_id OR a.name = i.konto
-      WHERE i.status = 'offen'
+      WHERE i.status = 'offen' AND (? IS NULL OR i.konto_id = ?)
       ORDER BY i.created_at DESC
-    `).all();
+    `).all(kontoId, kontoId);
     res.json(inbox);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -617,15 +621,19 @@ router.get('/vorschlaege', (req, res) => {
     // ist der Ort dafür: Was sich vor dieser Änderung angesammelt hat, soll sich
     // nicht erst nach und nach auflösen, sondern beim ersten Blick auf die Liste.
     themen.vorschlaegeAufraeumen();
+    // Auch hier nur ein Postfach: Ein Vorschlag gehört zu einem Konto, und die
+    // Ordner, in die man ihn umleiten kann, ebenfalls. Gemischt angezeigt sah
+    // man Vorschläge aus Konto B, während daneben die Ordner aus Konto A standen.
+    const kontoId = Number(req.query.konto_id) || null;
     res.json(db.prepare(`
       SELECT v.*, a.name AS konto_name,
              (SELECT COUNT(*) FROM sort_inbox i
                WHERE i.konto_id = v.konto_id AND i.status = 'offen' AND i.ki_ordner = v.ordner) AS wartend
       FROM ordner_vorschlaege v
       LEFT JOIN accounts a ON a.id = v.konto_id
-      WHERE v.status = 'offen'
+      WHERE v.status = 'offen' AND (? IS NULL OR v.konto_id = ?)
       ORDER BY v.anzahl DESC, v.created_at DESC
-    `).all());
+    `).all(kontoId, kontoId));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

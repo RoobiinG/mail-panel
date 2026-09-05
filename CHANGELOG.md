@@ -2,6 +2,23 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.10.0.1] - 2026-09-06 (Build 101) — *Eine Seite, ein Postfach*
+
+### Fix: Auf der Sortierung-Seite lief alles durcheinander
+- **Vorschläge und wartende Mails kamen aus allen Konten** — die Ordner daneben aber immer aus
+  dem gerade gewählten. Man bekam also Ordner angeboten, die es im Postfach der Mail gar nicht
+  gibt, und sah bei zwei Konten nie, was zu welchem gehört.
+- Beide Listen fragen jetzt mit Konto: `GET /inbox?konto_id=` und
+  `GET /vorschlaege?konto_id=`. Alles auf der Seite — Regeln, wartende Mails, Vorschläge,
+  Themen-Ordner, Umleitungen — gehört damit zu genau **einem** Postfach.
+- Die **Postfach-Auswahl steht jetzt oben neben den Registerkarten** und gilt für die ganze
+  Seite. Vorher war sie zweimal verstreut (in der Regel-Karte und seit Build 96 bei den
+  Themen-Ordnern) — und auf der Vorschlagsseite gab es gar keine.
+- Beim Wechsel wird alles neu geladen und Aufgeklapptes geschlossen, damit keine Reste des
+  vorherigen Kontos stehen bleiben.
+- Unberührt bleibt, was bewusst über alle Konten geht: die Zahlen im Dashboard und die
+  Belege-Übersicht.
+
 ## [3.10.0.0] - 2026-09-06 (Build 100) — *Die KI schließt aus der Beschreibung, statt nur abzugleichen*
 
 ### Fix: Die Beschreibung wirkte nur wörtlich
