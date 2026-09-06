@@ -442,6 +442,25 @@ export default function Einstellungen() {
                 onChange={e => set('bestand_intervall', e.target.value)} className={inputCls} />
             </div>
             <div className="space-y-1">
+              <label className="block text-xs text-panel-muted">Ersatz-Modell bei vollem Kontingent</label>
+              <p className="text-[10px] text-panel-muted/60">
+                Googles Kontingente gelten <span className="text-panel-text">je Modell</span>: Ist das
+                Tageslimit des ersten erreicht, hat ein anderes noch sein eigenes. Trägst du hier eines
+                ein, schaltet das Panel bei einer Abweisung automatisch um und am nächsten Tag zurück.
+                Leer = aus. Bewusst nicht vorbelegt: Das Ersatzmodell ist meist das größere, und mit
+                aktivierter Abrechnung kostet jede Anfrage dort mehr.
+              </p>
+              <input type="text" placeholder="z. B. gemini-3.5-flash — leer lassen = aus"
+                value={settings.gemini_modell_ersatz ?? ''}
+                disabled={settings.gemini_modell_ersatz_per_env}
+                onChange={e => set('gemini_modell_ersatz', e.target.value)} className={inputCls} />
+              <p className="text-[10px] text-panel-muted/60">
+                Erstes Modell: <span className="font-mono">{settings.gemini_modell || 'gemini-3.5-flash-lite'}</span>.
+                Ein Wechsel wirkt sofort — das Panel trägt ihn selbst in die Workflows ein.
+              </p>
+            </div>
+
+            <div className="space-y-1">
               <label className="block text-xs text-panel-muted">Pause zwischen KI-Anfragen (ms)</label>
               <p className="text-[10px] text-panel-muted/60">
                 Der Gratis-Tarif begrenzt auch die Anfragen pro Minute — und Inbox- und

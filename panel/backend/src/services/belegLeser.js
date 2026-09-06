@@ -19,9 +19,10 @@ const db = require('../db');
 const settings = require('./settings');
 const { loggen } = require('./panelLog');
 
-// gemini-2.5-flash-lite ist abgekuendigt — dieselbe Falle wie in aktionenKi.js.
-// Bewusst als Konstante, damit der naechste Modellwechsel eine Zeile ist.
-const MODELL = 'gemini-3.5-flash-lite';
+// Welches Modell gilt, entscheidet services/kiModell.js — eine Stelle fuer
+// Workflows und Panel. Damit folgt auch das Beleg-Lesen einem Wechsel auf das
+// Ersatzmodell, wenn Googles Tageskontingent aufgebraucht ist.
+const kiModell = require('./kiModell');
 
 const BELEG_TYPEN = ['rechnung', 'bestellung', 'mahnung', 'kontoauszug', 'vertrag', 'lieferschein'];
 // Woran die Heuristik (ohne KI) einen Beleg erkennt: eindeutige Woerter im
@@ -195,7 +196,7 @@ async function fragGemini(pdfBase64) {
   if (!key) return null; // ohne Schluessel kann nicht gelesen werden ⇒ Heuristik
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${MODELL}:generateContent`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${kiModell.aktiv()}:generateContent`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },

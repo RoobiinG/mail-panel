@@ -30,6 +30,13 @@ const FELDER = {
   // Wirkt erst nach Workflows -> Synchronisieren, weil der Wert in die
   // n8n-Knoten geschrieben wird.
   gemini_pause_ms:      { geheim: false, standard: '6000' },
+  // Welches Modell Workflows und Panel benutzen. Googles Kontingente gelten je
+  // Modell — ist das eine fuer heute leer, hat das andere noch sein eigenes.
+  // Gewechselt wird nur, wenn hier ein Ersatzmodell steht: Das ist meist das
+  // groessere, und mit aktivierter Abrechnung kostet es mehr. Solche
+  // Entscheidungen trifft das Panel nicht im Hintergrund.
+  gemini_modell:        { env: 'GEMINI_MODELL', geheim: false, standard: 'gemini-3.5-flash-lite' },
+  gemini_modell_ersatz: { env: 'GEMINI_MODELL_ERSATZ', geheim: false, standard: '' },
   telegram_chat_id:     { env: 'TELEGRAM_CHAT_ID', geheim: false },
   // Postausgang für Workflow 06 (Newsletter abbestellen per Mail)
   smtp_host:            { env: 'SMTP_HOST', geheim: false },

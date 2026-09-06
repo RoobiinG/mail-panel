@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import {
   AlertTriangle, Inbox, Gauge, ShieldCheck, HardDriveDownload, Target,
-  CheckCircle2, XCircle, Workflow, ArrowRight, Archive,
+  CheckCircle2, XCircle, Workflow, ArrowRight, Archive, Check,
 } from 'lucide-react';
 import api from '../api';
 
@@ -12,6 +12,13 @@ const COLORS = {
   Phishing: '#EF4444', // red-500
   Viren: '#8B5CF6'  // violet-500
 };
+
+// Etwas Luft unter dem, was Google zuletzt zugelassen hat: Genau auf die Kante
+// zu gehen heißt, beim nächsten Lauf wieder mittendrin abzubrechen.
+function empfohlenesBudget(beobachtet) {
+  const wert = Math.floor((Number(beobachtet) || 0) * 0.95 / 10) * 10;
+  return Math.max(50, wert);
+}
 
 // "vor 3 Std." statt einer nackten Uhrzeit — beim Blick aufs Dashboard will man
 // wissen, wie lange es her ist, nicht wann genau.
@@ -70,6 +77,7 @@ export default function Dashboard() {
   const [uebersicht, setUebersicht] = useState(null);
   const [startet, setStartet] = useState(false);
   const [startMeldung, setStartMeldung] = useState('');
+  const [budgetLaeuft, setBudgetLaeuft] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // Bestands-Triage von Hand anstoßen. n8n startet den Lauf und antwortet sofort —
@@ -86,6 +94,19 @@ export default function Dashboard() {
       setStartMeldung(err.response?.data?.error || 'Start fehlgeschlagen.');
     } finally {
       setStartet(false);
+    }
+  };
+
+  // Das Budget auf das setzen, was Google heute tatsächlich zugelassen hat —
+  // ein bisschen darunter, damit das Panel vorher stoppt und der Lauf sauber
+  // endet, statt mittendrin abzubrechen.
+  const budgetUebernehmen = async (beobachtet) => {
+    setBudgetLaeuft(true);
+    try {
+      await api.put('/einstellungen', { gemini_tagesbudget: String(empfohlenesBudget(beobachtet)) });
+      await laden();
+    } catch { /* die Anzeige bleibt, wie sie war */ } finally {
+      setBudgetLaeuft(false);
     }
   };
 
@@ -293,7 +314,7 @@ export default function Dashboard() {
                     an der sie abgewiesen hat, und damit die belastbarste Zahl,
                     die zu bekommen ist. */}
                 {b.beobachtet && (
-                  <div className="mt-3 pt-3 border-t border-panel-border text-xs space-y-1">
+                  <div className="mt-3 pt-3 border-t border-panel-border text-xs space-y-2">
                     <p className="text-panel-red">
                       Google hat heute bei <span className="font-bold">{b.beobachtet.stand}</span> Abfragen
                       abgewiesen.
@@ -305,6 +326,32 @@ export default function Dashboard() {
                       {b.grenze > b.beobachtet.stand && <> (steht auf {b.grenze})</>}, dann enden die
                       Läufe sauber, statt mittendrin abzubrechen.
                     </p>
+                    {b.grenze !== empfohlenesBudget(b.beobachtet.stand) && (
+                      <button onClick={() => budgetUebernehmen(b.beobachtet.stand)}
+                        disabled={budgetLaeuft}
+                        className="btn !py-1 !px-3 text-xs flex items-center gap-1">
+                        <Check size={13} />
+                        Budget auf {empfohlenesBudget(b.beobachtet.stand)} setzen
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Welches Modell gerade arbeitet — und ob das Panel gewechselt hat */}
+                {b.modell && (
+                  <div className="mt-3 pt-3 border-t border-panel-border text-[11px] text-panel-muted">
+                    Modell: <span className="font-mono text-panel-text">{b.modell.aktiv}</span>
+                    {b.modell.aufErsatz ? (
+                      <> — Ersatzmodell, weil das Kontingent von
+                        {' '}<span className="font-mono">{b.modell.primaer}</span> heute leer war.
+                        Morgen geht es wieder mit dem ersten weiter.</>
+                    ) : b.modell.ersatz ? (
+                      <> — bei erschöpftem Kontingent schaltet das Panel auf
+                        {' '}<span className="font-mono">{b.modell.ersatz}</span> um.</>
+                    ) : (
+                      <> — ohne Ersatzmodell. Eines unter <span className="text-panel-text">Einstellungen
+                        → KI</span> einzutragen verschafft dir bei vollem Kontingent einen zweiten Topf.</>
+                    )}
                   </div>
                 )}
               </div>

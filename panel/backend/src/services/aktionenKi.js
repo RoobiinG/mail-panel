@@ -8,10 +8,9 @@ const settings = require('./settings');
 const schema   = require('./aktionenSchema');
 const { loggen } = require('./panelLog');
 
-// gemini-2.5-flash-lite ist abgekuendigt ("no longer available to new users") —
-// dieselbe Falle wie in den Workflows. Steht hier bewusst als Konstante, damit
-// der naechste Modellwechsel eine einzige Zeile ist.
-const MODELL = 'gemini-3.5-flash-lite';
+// Welches Modell gilt, entscheidet services/kiModell.js — eine Stelle fuer
+// Workflows und Panel, damit ein Wechsel auf das Ersatzmodell ueberall greift.
+const kiModell = require('./kiModell');
 
 function promptBauen(beschreibung) {
   const s = schema.beschreibung();
@@ -72,7 +71,7 @@ async function entwurfBauen(beschreibung) {
   let rohtext = '';
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${MODELL}:generateContent`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${kiModell.aktiv()}:generateContent`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },

@@ -837,12 +837,18 @@ function geminiRequestReparieren(workflow) {
       }
     }
 
-    // Bugfix: Gemini 2.5 ist deprecated
+    // Das Modell kommt aus den Einstellungen — eine Stelle für alles. Damit
+    // wandert auch ein Wechsel auf das Ersatzmodell hierher, wenn Googles
+    // Tageskontingent für das erste aufgebraucht ist (services/kiModell.js).
+    // Nebenbei erledigt das den alten Fall mit: gemini-2.5-flash-lite ist
+    // abgekündigt, und wer noch darauf stand, wird hier umgeschrieben.
     if (knoten.parameters?.url) {
-      const altUrl = 'models/gemini-2.5-flash-lite:generateContent';
-      const neuUrl = 'models/gemini-3.5-flash-lite:generateContent';
-      if (knoten.parameters.url.includes(altUrl)) {
-        knoten.parameters.url = knoten.parameters.url.replace(altUrl, neuUrl);
+      const modell = require('./kiModell').aktiv();
+      const neuUrl = knoten.parameters.url.replace(
+        /models\/[^:/]+:generateContent/, `models/${modell}:generateContent`,
+      );
+      if (neuUrl !== knoten.parameters.url) {
+        knoten.parameters.url = neuUrl;
         geaendert = true;
       }
     }
@@ -1186,6 +1192,29 @@ function zugangsdatenVergessen() {
   return schluessel.length;
 }
 
+// Nur das Modell in den Gemini-Knoten nachziehen — sonst nichts.
+//
+// Gebraucht beim Wechsel auf das Ersatzmodell (services/kiModell.js): Der Wechsel
+// muss in n8n ankommen, sonst ruft der Workflow weiter das Modell auf, dessen
+// Kontingent gerade leer ist. Bewusst ein eigener, kleiner Durchlauf statt des
+// ganzen Syncs — der legt Knoten neu an, und das hat mitten am Tag nichts
+// verloren.
+async function geminiModellNachziehen() {
+  let angepasst = 0;
+  const alle = await n8n.workflowsAuflisten();
+  for (const wfInfo of alle) {
+    try {
+      const workflow = await n8n.workflowHolen(wfInfo.id);
+      if (!geminiRequestReparieren(workflow)) continue;
+      await n8n.workflowSpeichern(wfInfo.id, workflow);
+      angepasst += 1;
+    } catch (err) {
+      console.warn(`Modell in "${wfInfo.name || wfInfo.id}" nicht nachgezogen:`, err.message);
+    }
+  }
+  return angepasst;
+}
+
 // Synchronisiert die KI- und Telegram-Einstellungen in die Workflows
 async function kiUndBenachrichtigungenSynchronisieren() {
   const geminiKey = settings.hole('gemini_api_key');
@@ -1486,4 +1515,5 @@ module.exports = {
   bestandWebhookKnoten, BESTAND_WEBHOOK_PFAD,
   geminiRequestReparieren, credentialErneuern, bestandAuswahlKnoten, AUSWAHL_KNOTEN,
   fingerabdruck, zugangsdatenVergessen, absenderFallbackEinbauen, ABSENDER_MARKE,
+  geminiModellNachziehen,
 };

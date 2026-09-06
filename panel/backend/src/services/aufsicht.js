@@ -147,6 +147,11 @@ async function pruefen({ reparieren = null } = {}) {
   try { await require('./kiKontingent').nachAbweisungSehen(); }
   catch (err) { loggen('warn', 'aufsicht', `KI-Kontingent nicht pruefbar: ${err.message}`); }
 
+  // Neuer Tag, neues Kontingent: Steht das Panel noch auf dem Ersatzmodell,
+  // geht es zurueck auf das erste (services/kiModell.js).
+  try { await require('./kiModell').taeglichPruefen(); }
+  catch (err) { loggen('warn', 'aufsicht', `Modell nicht zurueckgesetzt: ${err.message}`); }
+
   if (repariert.length) {
     loggen('warn', 'aufsicht',
       `${repariert.length} Workflow(s) waren ausgeschaltet und wurden wieder eingeschaltet: ${repariert.join(', ')}.`);

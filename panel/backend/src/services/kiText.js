@@ -10,9 +10,10 @@
 const settings = require('./settings');
 const { loggen } = require('./panelLog');
 
-// Dasselbe Modell wie in den Workflows und im Beleg-Leser. Bewusst eine
-// Konstante: Der nächste Modellwechsel soll eine Zeile sein.
-const MODELL = 'gemini-3.5-flash-lite';
+// Dasselbe Modell wie in den Workflows und im Beleg-Leser — welches das ist,
+// entscheidet services/kiModell.js. Damit folgt auch dieser Aufruf einem Wechsel
+// auf das Ersatzmodell, wenn Googles Tageskontingent aufgebraucht ist.
+const kiModell = require('./kiModell');
 
 /**
  * @param {string} prompt
@@ -27,7 +28,7 @@ async function frageJson(prompt, opt = {}) {
   let rohtext = '';
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${MODELL}:generateContent`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${kiModell.aktiv()}:generateContent`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
@@ -63,4 +64,4 @@ async function frageJson(prompt, opt = {}) {
   }
 }
 
-module.exports = { frageJson, MODELL };
+module.exports = { frageJson };

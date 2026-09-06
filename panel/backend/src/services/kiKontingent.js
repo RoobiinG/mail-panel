@@ -66,6 +66,17 @@ function abweisungMerken(zeitpunkt) {
   loggen('warn', 'ki-kontingent',
     `Google hat abgewiesen — heute waren ${stand429} KI-Abfragen durchgegangen. `
     + 'Das KI-Tagesbudget knapp darunter zu setzen, beendet die Läufe künftig sauber.');
+
+  // Ist ein Ersatzmodell eingetragen, wird jetzt darauf gewechselt: Dessen
+  // Tageskontingent ist ein eigenes. Ohne Ersatzmodell passiert nichts.
+  // Absichtlich ohne await — der Wechsel schreibt in n8n und darf den Aufrufer
+  // (auch den Beleg-Leser mitten in einem Lauf) nicht aufhalten.
+  try {
+    require('./kiModell').beiAbweisung().catch((err) => {
+      loggen('warn', 'ki-kontingent', `Modellwechsel fehlgeschlagen: ${err.message}`);
+    });
+  } catch { /* kein Modellwechsel eingerichtet */ }
+
   return stand429;
 }
 

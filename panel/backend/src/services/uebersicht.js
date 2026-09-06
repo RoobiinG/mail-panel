@@ -99,6 +99,9 @@ async function laden({ mitPosteingang = true } = {}) {
       // Wo Google heute abgewiesen hat — das Nächste an einem echten Tageslimit,
       // was sich überhaupt beschaffen lässt. Siehe services/kiKontingent.js.
       beobachtet: kiKontingent.stand().beobachtet,
+      // Welches Modell gerade arbeitet. Nach einer Abweisung kann das Panel auf
+      // ein Ersatzmodell wechseln — dessen Kontingent ist ein eigenes.
+      modell: require('./kiModell').stand(),
     },
 
     // Qualität und Umfang

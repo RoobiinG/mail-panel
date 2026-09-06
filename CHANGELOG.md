@@ -2,6 +2,31 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.12.0.0] - 2026-09-06 (Build 104) — *Budget per Klick, Modellwechsel bei vollem Kontingent*
+
+### Neu: „Budget auf N setzen"
+- Unter der Zeile „Google hat heute bei 412 Abfragen abgewiesen" steht jetzt ein Knopf, der
+  genau das übernimmt — mit etwas Luft nach unten (95 %, auf Zehner gerundet). Genau auf die
+  Kante zu gehen hieße, beim nächsten Lauf wieder mittendrin abzubrechen.
+
+### Neu: Automatischer Modellwechsel, wenn das Kontingent voll ist
+- **Googles Kontingente gelten je Modell.** Ist das Tageslimit von `gemini-3.5-flash-lite`
+  erreicht, hat ein anderes Modell noch sein eigenes. Ein Wechsel verschafft also echte
+  zusätzliche Läufe — das ist kein Trick, sondern die Art, wie die Limits gebaut sind.
+- Trägst du unter *Einstellungen → KI* ein **Ersatz-Modell** ein, schaltet das Panel bei einer
+  Abweisung selbst um: in der Datenbank **und** in den Gemini-Knoten der Workflows. Am nächsten
+  Tag geht es automatisch mit dem ersten Modell weiter.
+- Der Wechsel gilt überall, wo das Panel Gemini fragt: Workflows, Beleg-Leser,
+  Beschreibungs-Vorschläge und die Kategorien.
+- **Bewusst nicht vorbelegt.** Das Ersatzmodell ist meist das größere, und mit aktivierter
+  Abrechnung kostet jede Anfrage dort mehr. Solange nichts eingetragen ist, passiert nichts.
+- Das Dashboard zeigt, welches Modell gerade arbeitet — und ob es das Ersatzmodell ist.
+
+### Aufgeräumt
+- Das Modell war in vier Dateien einzeln festverdrahtet. Es steht jetzt an einer Stelle
+  (`services/kiModell.js`); der alte Sonderfall „gemini-2.5-flash-lite ist abgekündigt" fällt
+  dabei von selbst weg.
+
 ## [3.11.0.0] - 2026-09-06 (Build 103) — *Aufräumen ohne KI: die größten Absender*
 
 ### Neu: Registerkarte „Absender"
