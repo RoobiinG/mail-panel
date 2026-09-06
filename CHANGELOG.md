@@ -2,6 +2,25 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.13.2.1] - 2026-09-06 (Build 111) — *„Multiple matches" in „Antwort parsen"*
+
+### Behoben: Ein leeres Item, das es nie geben durfte
+- Im ersten echten Lauf mit Bündeln scheiterte *Antwort parsen* mit
+  **„Multiple matches — the code uses `.item` and n8n can't figure out the matching item"**.
+- Ursache war eine gut gemeinte Zeile am Bündel-Knoten: `alwaysOutputData`. Der Gedanke war
+  „auch ohne Ergebnis etwas ausgeben, dann endet der Lauf ruhig" — tatsächlich **erfindet n8n
+  dann ein leeres Item**. Das lief bis *Antwort parsen* weiter, und ein erfundenes Item gehört
+  zu keiner Mail. Kommen keine Ergebnisse, läuft jetzt auch nichts weiter.
+- Zweitens gibt der Knoten die **Herkunft des Eingangs-Items** weiter, statt sie neu zu erfinden.
+  Er hat zwei Eingänge — mit und ohne Anhang —, und dort meint ein bloßer Index nicht mehr
+  dieselbe Mail.
+
+### Warum der Lauf überhaupt ohne Ergebnis blieb
+- Der Knoten gibt nichts aus, wenn keine Mail klassifiziert werden konnte — im Regelfall, weil
+  Googles Tageskontingent aufgebraucht war. Das ist so gewollt: Die Mails bleiben liegen und
+  kommen im nächsten Lauf wieder. Nur durfte daraus eben kein Phantom-Item werden.
+- Was los war, steht unter *Logs* beim Klassifizierer („X von Y Mails in Z Anfragen").
+
 ## [3.13.2.0] - 2026-09-06 (Build 110) — *Neue Post bleibt ungelesen*
 
 ### Behoben: Neue Mails waren schon gelesen, bevor du sie gesehen hast

@@ -1084,7 +1084,12 @@ function buendelCode() {
     '    json: Object.assign({}, __alle[__i].json, {',
     '      candidates: [{ content: { parts: [{ text: JSON.stringify(__k) }] } }],',
     '    }),',
-    '    pairedItem: { item: __i },',
+    '    // Die Herkunft des Eingangs-Items weiterreichen statt sie neu zu',
+    '    // erfinden: Der Knoten hat zwei Eingaenge (mit und ohne Anhang), da',
+    '    // meint ein blosser Index nicht mehr dieselbe Mail. "Antwort parsen"',
+    '    // greift ueber $(...).item auf sie zu und scheitert sonst mit',
+    '    // "Multiple matches".',
+    '    pairedItem: __alle[__i].pairedItem !== undefined ? __alle[__i].pairedItem : { item: __i },',
     '  });',
     '}',
     'return __raus;',
@@ -1105,10 +1110,14 @@ function geminiBuendelEinbauen(workflow) {
     type: 'n8n-nodes-base.code',
     typeVersion: 2,
     position: alt.position,
-    // Antwortet das Panel nicht, kommen keine Items heraus und der Lauf endet
-    // ruhig. Ein Fehlschlag waere hier irrefuehrend: Es ist nichts kaputt,
-    // es gab nur nichts zu tun.
-    alwaysOutputData: true,
+    // Ausdruecklich KEIN alwaysOutputData.
+    //
+    // Es klang richtig — "auch ohne Ergebnis etwas ausgeben, dann endet der Lauf
+    // ruhig" — und tat das Gegenteil: n8n erfindet dann ein leeres Item. Das
+    // lief bis "Antwort parsen" weiter, und dort scheiterte
+    // $('Pruefung auswerten').item mit "Multiple matches" — ein erfundenes Item
+    // gehoert zu keiner Mail. Kommen keine Items heraus, soll auch nichts
+    // weiterlaufen.
   };
   return true;
 }

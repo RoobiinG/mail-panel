@@ -215,3 +215,24 @@ describe('Buendel-Knoten in Workflow 04', () => {
     assert.equal(patcher.geminiBuendelEinbauen(wf), false);
   });
 });
+
+// Zwei Fehler aus dem ersten echten Lauf mit Buendeln — beide im selben Knoten,
+// beide gut gemeint.
+describe('Was der Buendel-Knoten NICHT tun darf', () => {
+  const workflowMit = (knoten) => ({ nodes: [knoten], connections: {} });
+
+  test('kein alwaysOutputData — n8n erfindet sonst ein leeres Item', () => {
+    const wf = workflowMit(geminiKnoten());
+    patcher.geminiBuendelEinbauen(wf);
+    assert.equal(wf.nodes[0].alwaysOutputData, undefined,
+      'das erfundene Item lief bis "Antwort parsen" und scheiterte dort mit "Multiple matches"');
+  });
+
+  test('die Herkunft des Eingangs-Items wird weitergereicht, nicht erfunden', () => {
+    const wf = workflowMit(geminiKnoten());
+    patcher.geminiBuendelEinbauen(wf);
+    const code = wf.nodes[0].parameters.jsCode;
+    assert.match(code, /pairedItem: __alle\[__i\]\.pairedItem !== undefined/,
+      'der Knoten hat zwei Eingaenge — ein blosser Index meint dort nicht dieselbe Mail');
+  });
+});
