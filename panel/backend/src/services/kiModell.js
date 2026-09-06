@@ -19,7 +19,19 @@ const STANDARD = 'gemini-3.5-flash-lite';
 const heute = () => new Date().toLocaleDateString('sv-SE');
 
 const primaer = () => String(settings.hole('gemini_modell') || STANDARD).trim() || STANDARD;
-const ersatz = () => String(settings.hole('gemini_modell_ersatz') || '').trim();
+
+// Ein Ersatzmodell, das dem ersten gleicht, ist keins.
+//
+// Steht in beiden Feldern dasselbe, hielte aufErsatz() das Panel von der ersten
+// Sekunde an für umgeschaltet — und beiAbweisung() täte dann nie etwas, weil es
+// glaubt, schon auf dem Ersatz zu stehen. Das Feld sähe gefüllt aus und wäre
+// wirkungslos. Genau das ist im Betrieb passiert. Die Oberfläche verhindert es
+// jetzt schon bei der Eingabe; hier steht die zweite Absicherung, denn alte
+// Einträge stehen ja bereits in der Datenbank.
+function ersatz() {
+  const zweit = String(settings.hole('gemini_modell_ersatz') || '').trim();
+  return zweit && zweit !== primaer() ? zweit : '';
+}
 
 /** Das Modell, das gerade in den Workflows und im Panel benutzt wird. */
 function aktiv() {
@@ -76,6 +88,58 @@ async function taeglichPruefen() {
   return primaer();
 }
 
+// ─── Welche Modelle gibt es überhaupt? ───────────────────────────────────────
+//
+// Ein Freitextfeld für einen Modellnamen ist eine Falle: Ein Tippfehler fällt
+// erst auf, wenn Google mit 404 antwortet — im Zweifel mitten in einem Lauf,
+// Stunden später. Google kann die Liste selbst liefern, also fragen wir sie.
+//
+// Der Schlüssel geht als Kopfzeile mit, nicht als URL-Parameter: Eine URL landet
+// in Protokollen und Verläufen, ein Geheimnis hat darin nichts verloren.
+//
+// Zwischengespeichert, weil die Einstellungsseite bei jedem Aufruf fragt und
+// sich die Liste allenfalls alle paar Wochen ändert.
+const LISTE_CACHE_MS = 60 * 60 * 1000;
+let listeCache = { zeit: 0, modelle: null };
+
+function listeVergessen() { listeCache = { zeit: 0, modelle: null }; }
+
+async function verfuegbare() {
+  if (listeCache.modelle && Date.now() - listeCache.zeit < LISTE_CACHE_MS) {
+    return { modelle: listeCache.modelle, fehler: null };
+  }
+  const key = settings.hole('gemini_api_key');
+  if (!key) return { modelle: [], fehler: 'Kein Gemini-Schlüssel hinterlegt.' };
+
+  try {
+    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', {
+      headers: { 'x-goog-api-key': key },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) {
+      return { modelle: [], fehler: `Google antwortete mit ${res.status}. Stimmt der Schlüssel?` };
+    }
+    const daten = await res.json();
+    const modelle = (daten?.models || [])
+      // Nur was klassifizieren kann. Einbettungs- und Bildmodelle stünden sonst
+      // zur Auswahl und würden bei der ersten Mail scheitern.
+      .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
+      .map((m) => ({
+        name: String(m.name || '').replace(/^models\//, ''),
+        anzeige: m.displayName || '',
+        beschreibung: String(m.description || '').slice(0, 200),
+      }))
+      .filter((m) => m.name)
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    listeCache = { zeit: Date.now(), modelle };
+    return { modelle, fehler: null };
+  } catch (err) {
+    loggen('warn', 'ki-modell', `Modellliste nicht abrufbar: ${err.message}`);
+    return { modelle: [], fehler: `Google war nicht erreichbar: ${err.message}` };
+  }
+}
+
 /** Für die Anzeige im Panel. */
 function stand() {
   return {
@@ -87,4 +151,7 @@ function stand() {
   };
 }
 
-module.exports = { STANDARD, aktiv, primaer, ersatz, aufErsatz, beiAbweisung, taeglichPruefen, stand };
+module.exports = {
+  STANDARD, aktiv, primaer, ersatz, aufErsatz, beiAbweisung, taeglichPruefen, stand,
+  verfuegbare, listeVergessen,
+};

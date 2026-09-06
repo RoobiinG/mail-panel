@@ -9,6 +9,7 @@ const nextcloud = require('../services/nextcloud');
 const smtp      = require('../services/smtp');
 const google    = require('../services/google');
 const themen    = require('../services/themen');
+const kiModell  = require('../services/kiModell');
 
 const router = express.Router();
 
@@ -32,12 +33,35 @@ router.get('/', (req, res) => {
   });
 });
 
+// GET /api/einstellungen/ki-modelle — welche Gemini-Modelle stehen zur Wahl?
+//
+// Google kennt seine Modelle selbst, also wird gefragt, statt den Nutzer einen
+// Namen eintippen zu lassen. Ein Tippfehler faellt sonst erst auf, wenn Google
+// mitten in einem Lauf mit 404 antwortet — Stunden spaeter.
+router.get('/ki-modelle', async (req, res) => {
+  res.json(await kiModell.verfuegbare());
+});
+
 router.put('/', (req, res) => {
   const update = db.prepare(`
     INSERT INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
   `);
   const geaendert = [];
+
+  // Ein Ersatz-Modell, das dem ersten gleicht, ist keins — es sieht nur so aus.
+  // Das Panel hielte sich damit von Anfang an für umgeschaltet und wechselte
+  // deshalb nie. Lieber klar abweisen als still wirkungslos speichern.
+  {
+    const b = req.body || {};
+    const erst = String(b.gemini_modell ?? settings.hole('gemini_modell') ?? '').trim();
+    const zweit = String(b.gemini_modell_ersatz ?? '').trim();
+    if (zweit && erst && zweit === erst) {
+      return res.status(400).json({
+        error: 'Das Ersatz-Modell muss ein anderes sein als das erste — sonst gibt es kein zweites Kontingent.',
+      });
+    }
+  }
 
   for (const [key, value] of Object.entries(req.body || {})) {
     // Zugangsdaten laufen über den Settings-Service (verschlüsselt)

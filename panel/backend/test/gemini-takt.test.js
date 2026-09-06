@@ -215,35 +215,3 @@ describe('Buendel-Knoten in Workflow 04', () => {
     assert.equal(patcher.geminiBuendelEinbauen(wf), false);
   });
 });
-
-// Der Mailtext fehlte dem Prompt, und niemandem fiel es auf: Der Normalisierer
-// schneidet ihn zu, gibt ihn aber nicht heraus — "Prüfung auswerten" setzt
-// danach `mail.text` ein, ein Feld, das es nicht gab. Gemini sah also nur
-// Absender und Betreff.
-describe('Der Mailtext kommt aus dem Normalisierer heraus', () => {
-  const normalisierer = (rueckgabe) => ({
-    nodes: [{
-      name: 'Sammeln + Normalisieren',
-      type: 'n8n-nodes-base.code',
-      parameters: { jsCode: rueckgabe },
-    }],
-  });
-
-  test('das Feld wird ergaenzt', () => {
-    const wf = normalisierer('  return {\n    konto,\n    von,\n    betreff,\n    ip: null,\n  };\n');
-    assert.equal(patcher.textFeldEinbauen(wf, 'Sammeln + Normalisieren'), true);
-    assert.match(wf.nodes[0].parameters.jsCode, /\n {4}betreff,\n {4}text,\n/);
-  });
-
-  test('die Einrueckung wird uebernommen', () => {
-    const wf = normalisierer('return {\n  json: {\n    von,\n    betreff,\n    ip: null,\n  },\n};\n');
-    patcher.textFeldEinbauen(wf, 'Sammeln + Normalisieren');
-    assert.match(wf.nodes[0].parameters.jsCode, /\n {4}betreff,\n {4}text,\n/);
-  });
-
-  test('ein zweiter Durchgang aendert nichts', () => {
-    const wf = normalisierer('  return {\n    von,\n    betreff,\n  };\n');
-    patcher.textFeldEinbauen(wf, 'Sammeln + Normalisieren');
-    assert.equal(patcher.textFeldEinbauen(wf, 'Sammeln + Normalisieren'), false);
-  });
-});

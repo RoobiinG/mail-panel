@@ -28,6 +28,52 @@ function Toggle({ on, onToggle }) {
   );
 }
 
+// ─── Modell-Auswahl ───────────────────────────────────────────────────────────
+//
+// Ein Freitextfeld für einen Modellnamen ist eine Falle: Ein Tippfehler fällt
+// erst auf, wenn Google mitten in einem Lauf mit 404 antwortet. Die Liste kommt
+// deshalb von Google selbst.
+//
+// Zwei Fälle müssen trotzdem funktionieren:
+//   * Die Liste ist nicht abrufbar (kein Schlüssel, keine Verbindung) — dann
+//     bleibt ein Textfeld, denn eine leere Auswahl wäre schlimmer als keine.
+//   * Der gespeicherte Wert steht nicht in der Liste (abgekündigt, oder per
+//     Umgebungsvariable gesetzt) — dann kommt er als eigener Eintrag dazu,
+//     sonst würde ein Blick auf die Seite ihn stillschweigend verwerfen.
+function ModellWahl({ wert, modelle, fehler, gesperrt, onWahl, leerText, standard, ausgeschlossen }) {
+  if (!modelle || modelle.length === 0) {
+    return (
+      <>
+        <input type="text" value={wert} disabled={gesperrt} className={inputCls}
+          placeholder={leerText ? 'leer lassen = aus' : (standard || '')}
+          onChange={e => onWahl(e.target.value)} />
+        <p className="text-[10px] text-panel-muted/60">
+          {modelle === null
+            ? 'Modellliste wird geladen …'
+            : `${fehler || 'Keine Modellliste verfügbar.'} Solange bleibt das Feld ein Textfeld.`}
+        </p>
+      </>
+    );
+  }
+
+  const bekannt = modelle.some(m => m.name === wert);
+  return (
+    <select value={wert} disabled={gesperrt} className={inputCls}
+      onChange={e => onWahl(e.target.value)}>
+      <option value="">{leerText || `Standard (${standard || '—'})`}</option>
+      {!bekannt && wert && (
+        <option value={wert}>{wert} — nicht in Googles Liste</option>
+      )}
+      {modelle.map(m => (
+        <option key={m.name} value={m.name} disabled={m.name === ausgeschlossen}>
+          {m.name}{m.anzeige && m.anzeige !== m.name ? ` — ${m.anzeige}` : ''}
+          {m.name === ausgeschlossen ? ' (schon das erste Modell)' : ''}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 // ─── Karten-Komponente (wie im Überwachungs-Panel) ────────────────────────────
 
 function Card({ title, children }) {
@@ -263,12 +309,21 @@ export default function Einstellungen() {
     try { const { data } = await api.get('/passkeys'); setPasskeys(data); } catch { /* ignorieren */ }
   };
 
+  // Die Modellliste holt sich das Panel bei Google. Schlägt das fehl (kein
+  // Schlüssel, keine Verbindung), bleibt das Feld ein Textfeld — dann ist eine
+  // leere Auswahlliste schlimmer als gar keine.
+  const [modelle, setModelle] = useState(null);
+  const [modellFehler, setModellFehler] = useState('');
+
   useEffect(() => {
     loadPasskeys();
     api.get('/einstellungen').then(res => {
       setSettings(res.data);
       try { setDnsblText(JSON.parse(res.data.dnsbl_listen || '[]').join('\n')); } catch { setDnsblText(''); }
     });
+    api.get('/einstellungen/ki-modelle')
+      .then(res => { setModelle(res.data.modelle || []); setModellFehler(res.data.fehler || ''); })
+      .catch(() => { setModelle([]); setModellFehler('Die Modellliste war nicht abrufbar.'); });
   }, []);
 
   const set = (key, val) => setSettings(s => ({ ...s, [key]: val }));
@@ -480,22 +535,42 @@ export default function Einstellungen() {
                 onChange={e => set('bestand_intervall', e.target.value)} className={inputCls} />
             </div>
             <div className="space-y-1">
+              <label className="block text-xs text-panel-muted">Erstes Modell</label>
+              <p className="text-[10px] text-panel-muted/60">
+                Das Modell, mit dem normalerweise klassifiziert wird. Ein Wechsel wirkt sofort —
+                das Panel trägt ihn selbst in die Workflows ein.
+              </p>
+              <ModellWahl wert={settings.gemini_modell ?? ''} standard="gemini-3.5-flash-lite"
+                modelle={modelle} fehler={modellFehler}
+                gesperrt={settings.gemini_modell_per_env}
+                onWahl={v => set('gemini_modell', v)} />
+            </div>
+
+            <div className="space-y-1">
               <label className="block text-xs text-panel-muted">Ersatz-Modell bei vollem Kontingent</label>
               <p className="text-[10px] text-panel-muted/60">
                 Googles Kontingente gelten <span className="text-panel-text">je Modell</span>: Ist das
-                Tageslimit des ersten erreicht, hat ein anderes noch sein eigenes. Trägst du hier eines
-                ein, schaltet das Panel bei einer Abweisung automatisch um und am nächsten Tag zurück.
-                Leer = aus. Bewusst nicht vorbelegt: Das Ersatzmodell ist meist das größere, und mit
-                aktivierter Abrechnung kostet jede Anfrage dort mehr.
+                Tageslimit des ersten erreicht, hat ein anderes noch sein eigenes. Wählst du hier eines,
+                schaltet das Panel bei einer Abweisung automatisch um und am nächsten Tag zurück.
+                Bewusst nicht vorbelegt: Das Ersatzmodell ist meist das größere, und mit aktivierter
+                Abrechnung kostet jede Anfrage dort mehr.
               </p>
-              <input type="text" placeholder="z. B. gemini-3.5-flash — leer lassen = aus"
-                value={settings.gemini_modell_ersatz ?? ''}
-                disabled={settings.gemini_modell_ersatz_per_env}
-                onChange={e => set('gemini_modell_ersatz', e.target.value)} className={inputCls} />
-              <p className="text-[10px] text-panel-muted/60">
-                Erstes Modell: <span className="font-mono">{settings.gemini_modell || 'gemini-3.5-flash-lite'}</span>.
-                Ein Wechsel wirkt sofort — das Panel trägt ihn selbst in die Workflows ein.
-              </p>
+              <ModellWahl wert={settings.gemini_modell_ersatz ?? ''} leerText="aus — kein Wechsel"
+                modelle={modelle} fehler={modellFehler}
+                gesperrt={settings.gemini_modell_ersatz_per_env}
+                ausgeschlossen={settings.gemini_modell || 'gemini-3.5-flash-lite'}
+                onWahl={v => set('gemini_modell_ersatz', v)} />
+              {/* Der häufigste Fehlgriff, und er sieht harmlos aus: Steht in
+                  beiden Feldern dasselbe, hält sich das Panel für längst
+                  umgeschaltet und wechselt nie. Deshalb steht es hier und wird
+                  beim Speichern abgewiesen. */}
+              {settings.gemini_modell_ersatz
+                && settings.gemini_modell_ersatz === (settings.gemini_modell || 'gemini-3.5-flash-lite') && (
+                <p className="text-[10px] text-panel-red">
+                  Das ist dasselbe Modell wie oben — dann gibt es kein zweites Kontingent und das Panel
+                  wechselt nie. Bitte ein anderes wählen oder auf „aus" stellen.
+                </p>
+              )}
             </div>
 
             <div className="space-y-1">

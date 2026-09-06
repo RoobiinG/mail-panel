@@ -545,29 +545,6 @@ function absenderFallbackEinbauen(workflow, normalisierer) {
   return true;
 }
 
-// Der Mailtext fehlte dem Prompt — und niemandem fiel es auf.
-//
-// Der Normalisierer schneidet den Text auf 1.500 Zeichen zu und baut daraus
-// seinen promptText. Herausgegeben hat er den Text aber nie. „Prüfung auswerten"
-// baut den Prompt danach neu (es kommen ja die Themen-Ordner dazu) und setzt
-// dort `mail.text` ein — ein Feld, das es nicht gibt. Gemini bekam also
-// ausschließlich Absender und Betreff zu sehen.
-//
-// Ein Zeichen mehr in der Rückgabe behebt das. Es ist die Voraussetzung dafür,
-// dass die Bündel-Klassifizierung überhaupt Material zum Einstufen hat.
-const TEXT_FELD = /(\n([ \t]*)betreff,\n)/;
-
-function textFeldEinbauen(workflow, normalisierer) {
-  const knoten = workflow.nodes.find((k) => k.name === normalisierer && k.type === 'n8n-nodes-base.code');
-  if (!knoten?.parameters?.jsCode) return false;
-  const code = String(knoten.parameters.jsCode);
-  if (/\n[ \t]*text,\n/.test(code)) return false; // schon drin
-  const treffer = code.match(TEXT_FELD);
-  if (!treffer) return false;
-  knoten.parameters.jsCode = code.replace(treffer[0], `${treffer[0]}${treffer[2]}text,\n`);
-  return true;
-}
-
 // Der IMAP-Trigger liefert die UID unter attributes, nicht direkt. Ohne diesen
 // Rückfall blieb sie null — und ohne UID konnte der Verschiebe-Knoten keine
 // einzige Mail einsortieren ("Unable to move email").
@@ -908,8 +885,6 @@ async function triageSynchronisieren(konten, credentialId, aktionenWorkflowId) {
   geminiRequestReparieren(workflow);
   anhangKetteReparieren(workflow, NORMALISIERER['01']);
   absenderFallbackEinbauen(workflow, NORMALISIERER['01']);
-  // Auch hier: Ohne das Feld sah Gemini nur Absender und Betreff.
-  textFeldEinbauen(workflow, NORMALISIERER['01']);
   themenKetteEinbauen(workflow, NORMALISIERER['01'], credentialId);
 
   for (const name of [ANKER.triage.ziel, ANKER.triage.weiche]) {
@@ -1126,7 +1101,6 @@ async function bestandSynchronisieren(konten, credentialId, aktionenWorkflowId) 
   geminiRequestReparieren(workflow);
   anhangKetteReparieren(workflow, NORMALISIERER['04']);
   absenderFallbackEinbauen(workflow, NORMALISIERER['04']);
-  textFeldEinbauen(workflow, NORMALISIERER['04']);
   themenKetteEinbauen(workflow, NORMALISIERER['04'], credentialId);
   // Zuletzt: Danach ist der Gemini-Knoten kein HTTP-Knoten mehr, und alles, was
   // oben nach einem solchen sucht, hat ihn schon gesehen.
@@ -1649,5 +1623,5 @@ module.exports = {
   geminiRequestReparieren, credentialErneuern, bestandAuswahlKnoten, AUSWAHL_KNOTEN,
   fingerabdruck, zugangsdatenVergessen, absenderFallbackEinbauen, ABSENDER_MARKE,
   geminiModellNachziehen,
-  geminiBuendelEinbauen, BUENDEL_MARKE, textFeldEinbauen,
+  geminiBuendelEinbauen, BUENDEL_MARKE,
 };

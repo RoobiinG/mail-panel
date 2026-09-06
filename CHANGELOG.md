@@ -2,6 +2,32 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.13.1.0] - 2026-09-06 (Build 109) — *Modelle auswählen statt tippen*
+
+### Neu: Auswahlliste statt Freitextfeld
+- Das Modell war ein Textfeld — ein Tippfehler fiel erst auf, wenn Google mitten in einem Lauf
+  mit 404 antwortete. Das Panel fragt jetzt Googles eigene Modellliste ab
+  (`GET /v1beta/models`) und stellt sie zur Auswahl, mit Anzeigenamen.
+- Gilt für **beide** Felder: das erste Modell (bisher gar nicht änderbar) und das Ersatz-Modell.
+- Gefiltert auf Modelle, die `generateContent` können — Einbettungs- und Bildmodelle standen
+  sonst zur Wahl und wären bei der ersten Mail gescheitert.
+- Der Schlüssel geht als Kopfzeile mit, nicht als URL-Parameter: Eine URL landet in Protokollen.
+- Ist die Liste nicht abrufbar (kein Schlüssel, keine Verbindung), bleibt das Feld ein Textfeld —
+  eine leere Auswahlliste wäre schlimmer als keine. Ein gespeicherter Wert, den Google nicht
+  (mehr) kennt, bleibt als eigener Eintrag stehen, statt still verworfen zu werden.
+
+### Behoben: Ein Ersatz-Modell, das dem ersten gleicht, war stumm wirkungslos
+- Stand in beiden Feldern dasselbe, hielt sich das Panel von der ersten Sekunde an für
+  umgeschaltet — und wechselte deshalb **nie**. Das Feld sah eingerichtet aus und tat nichts.
+- Jetzt dreifach abgesichert: Die Auswahlliste sperrt das erste Modell, die Seite warnt in Rot,
+  und das Speichern weist es mit Begründung ab. Ein bereits gespeicherter solcher Eintrag zählt
+  ab sofort als „kein Ersatzmodell".
+
+### Richtiggestellt: die Mailtext-Angabe aus Build 108
+- In Build 108 stand, Gemini sähe nur Absender und Betreff, weil der Normalisierer kein `text`
+  herausgibt. Das war falsch — ein älterer Patch benennt das Feld beim Synchronisieren längst
+  um. Die daraufhin ergänzte Zeile ist wieder entfernt, der Changelog-Eintrag korrigiert.
+
 ## [3.13.0.0] - 2026-09-06 (Build 108) — *Zwanzig Mails in einer Anfrage*
 
 ### Neu: Gebündelte Klassifizierung — aus 500 Mails am Tag werden rund 10.000
@@ -35,10 +61,11 @@ Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 - Jetzt entscheidet er im selben Schritt wie die eigenen Regeln — **vor** der KI, für null
   Kontingent. Eigene Regeln gehen weiterhin vor.
 
-### Behoben: Der Mailtext fehlte im Prompt
-- Der Normalisierer schneidet den Text auf 1.500 Zeichen zu, gab ihn aber nie heraus. *Prüfung
-  auswerten* baut den Prompt danach neu und setzte `mail.text` ein — ein Feld, das es nicht gab.
-  **Gemini sah also ausschließlich Absender und Betreff.** Gilt für beide Workflows.
+### ~~Behoben: Der Mailtext fehlte im Prompt~~ — diese Angabe war falsch
+- Nachträglich richtiggestellt in Build 109: Der Mailtext hat **nie** gefehlt. Der Normalisierer
+  gibt zwar `promptText` statt `text` zurück, aber ein älterer Patch (`themenKetteEinbauen`)
+  benennt das Feld beim Synchronisieren längst um. Die in Build 108 ergänzte Zeile war überflüssig
+  und ist wieder entfernt.
 
 ### Behoben: Ein Absturz bei Gemini warf nicht mehr den ganzen Lauf weg
 - Weist Google mittendrin ab, bricht das Panel die restlichen Bündel ab und gibt zurück, was
