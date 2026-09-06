@@ -6,9 +6,12 @@
 // Dashboard im AI Studio — sonst nichts. Wer eine Zahl im Panel sehen will,
 // bekommt sie also nur aus zwei eigenen Quellen:
 //
-//   1. **Selbst zählen.** Das tut das Panel seit Build 89 ehrlich: Jede Zeile im
-//      Quarantäne-Log mit ki = 1 war eine Abfrage bei Gemini. Regel-Mails, die an
-//      der KI vorbeilaufen, zählen nicht mit.
+//   1. **Selbst zählen.** Und zwar ANFRAGEN, nicht Mails — Googles Limit zählt
+//      Anfragen, und seit der Bündelung stecken bis zu zwanzig Mails in einer
+//      (services/klassifizierer.js). Gezählt wird im Moment des Aufrufs, nicht
+//      beim Protokollieren danach: Sonst fehlt genau das, was ein abgestürzter
+//      Lauf verbraucht hat. Mails, die eine Regel oder ein Stichwort sortiert,
+//      sehen Gemini nie und zählen gar nicht mit.
 //   2. **Das Limit lernen.** Weist Google ab, steht die Zahl in der Absage:
 //      „limit: 500, model: gemini-3.5-flash-lite". Das ist das echte Tageslimit
 //      für dieses Modell — und es zählt mehr als die eigene Zählung, die

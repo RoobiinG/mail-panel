@@ -116,7 +116,7 @@ describe('Verdachtsfaelle bekommen mehr', () => {
 
   test('er belegt drei Plaetze und bekommt die lange Textform', async () => {
     settings.setze('gemini_buendel', '6');
-    settings.setze('gemini_text_kurz', '20');
+    settings.setze('gemini_text_kurz', '100'); // weniger laesst der Dienst nicht zu
     settings.setze('gemini_text_lang', '400');
     antwortenMit(brav);
 
@@ -131,7 +131,7 @@ describe('Verdachtsfaelle bekommen mehr', () => {
 
     assert.equal(gefragt.length, 2, 'der Verdachtsfall kostet drei Plaetze');
     assert.match(gefragt[0], /Text: L{300}/, 'ihm wird nicht der Text gekuerzt');
-    assert.match(gefragt[0], /Text: L{20}\n/, 'den anderen schon');
+    assert.match(gefragt[0], /Text: L{100}\n/, 'den anderen schon');
   });
 
   test('Links stehen im Prompt — das staerkste Phishing-Merkmal', async () => {

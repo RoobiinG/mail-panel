@@ -13,10 +13,14 @@ const settings = require('../src/services/settings');
 const n8n = require('../src/services/n8n');
 const kontingent = require('../src/services/kiKontingent');
 
+// n Mails durch die KI — und n Anfragen dafuer. In Workflow 01 ist das dasselbe
+// (eine Mail je Ausloesung), und genau so zaehlt es das Panel: protokolliert
+// wird die Mail, vermerkt wird die Anfrage.
 const kiLog = (n) => {
   for (let i = 0; i < n; i += 1) {
     db.prepare("INSERT INTO quarantine_log (konto, von, ki) VALUES ('K', ?, 1)").run(`m${i}@x.de`);
   }
+  require('../src/services/budget').ausgabeMerken(n);
 };
 
 beforeEach(() => {

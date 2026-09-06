@@ -32,7 +32,7 @@ function postfachMit(uids) {
 beforeEach(() => {
   db.exec('DELETE FROM accounts; DELETE FROM sort_inbox; DELETE FROM bestand_erledigt;'
     + ' DELETE FROM quarantine_log; DELETE FROM sort_rules;');
-  db.prepare("DELETE FROM settings WHERE key LIKE 'bestand_zeiger_%' OR key = 'gemini_tagesbudget'").run();
+  db.prepare("DELETE FROM settings WHERE key LIKE 'bestand_zeiger_%' OR key LIKE 'gemini_%' OR key LIKE 'ki_%'").run();
 });
 
 describe('Auswahl der Bestands-Mails', () => {
@@ -96,9 +96,9 @@ describe('Auswahl der Bestands-Mails', () => {
   test('ist das Tagesbudget aufgebraucht, wird nichts angeboten', async () => {
     kontoAnlegen();
     postfachMit([1, 2, 3]);
+    // Gezaehlt werden Anfragen, nicht Mails — seit der Buendelung zweierlei.
     settings.setze('gemini_tagesbudget', '2');
-    db.prepare("INSERT INTO quarantine_log (konto, von, ki) VALUES ('K','a@b.de',1)").run();
-    db.prepare("INSERT INTO quarantine_log (konto, von, ki) VALUES ('K','b@b.de',1)").run();
+    require('../src/services/budget').ausgabeMerken(2);
     const a = await bestand.kandidaten();
     assert.equal(a.konten.K, bestand.KEINE,
       'sonst laeuft der Zeiger ueber Mails, die gar nicht drankamen');
