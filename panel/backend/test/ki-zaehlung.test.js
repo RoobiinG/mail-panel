@@ -53,7 +53,7 @@ beforeEach(() => {
     + ' DELETE FROM sort_inbox; DELETE FROM bestand_erledigt;');
   db.prepare("INSERT INTO accounts (name, host, port, username, password_enc, aktiv)"
     + " VALUES ('K', 'h', 993, 'u', 'x', 1)").run();
-  db.prepare("DELETE FROM settings WHERE key='gemini_tagesbudget'").run();
+  db.prepare("DELETE FROM settings WHERE key='gemini_tagesbudget' OR key LIKE 'ki_%'").run();
 });
 
 const kontoId = () => db.prepare("SELECT id FROM accounts WHERE name='K'").get().id;

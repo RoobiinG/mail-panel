@@ -9,10 +9,12 @@
 //   1. **Selbst zählen.** Das tut das Panel seit Build 89 ehrlich: Jede Zeile im
 //      Quarantäne-Log mit ki = 1 war eine Abfrage bei Gemini. Regel-Mails, die an
 //      der KI vorbeilaufen, zählen nicht mit.
-//   2. **Das Limit lernen.** Weist Google ab, ist der eigene Tagesstand in genau
-//      diesem Moment das, was durchgegangen ist — das praktische Tageslimit für
-//      dieses Konto und Modell. Danach lässt sich das Budget setzen, und das
-//      Panel stoppt künftig von selbst, bevor Google es tut.
+//   2. **Das Limit lernen.** Weist Google ab, steht die Zahl in der Absage:
+//      „limit: 500, model: gemini-3.5-flash-lite". Das ist das echte Tageslimit
+//      für dieses Modell — und es zählt mehr als die eigene Zählung, die
+//      zwangsläufig zu niedrig liegt. Ab da stoppt das Panel von selbst, bevor
+//      Google es tut. Nennt die Meldung keine Zahl, bleibt der eigene Stand im
+//      Moment der Abweisung die beste Schätzung.
 //
 // Punkt 2 braucht die Fehlermeldung aus n8n. Die holt sich die Aufsicht bei
 // ihrem Rundgang — und zwar sparsam: höchstens zwei Detailabfragen, und nur
@@ -25,6 +27,24 @@ const { loggen } = require('./panelLog');
 
 // Womit Google (über n8n) eine Abweisung wegen Kontingent meldet.
 const KONTINGENT = /too many requests|resource.?exhausted|rate.?limit|quota|\b429\b/i;
+
+// Und dann steht in derselben Meldung doch die Zahl, die es angeblich nicht
+// gibt. Im Klartext aus einem echten Lauf:
+//
+//   "Quota exceeded for metric:
+//    generativelanguage.googleapis.com/generate_content_free_tier_requests,
+//    limit: 500, model: gemini-3.5-flash-lite"
+//
+// Das ist Googles eigenes Tageslimit für genau dieses Modell — und damit weit
+// besser als die eigene Zählung, die zwangsläufig zu niedrig liegt: Stirbt ein
+// Lauf bei Gemini, protokolliert das Panel keine einzige der Mails, die vorher
+// sauber klassifiziert wurden. Verbraucht waren sie trotzdem.
+function limitAusMeldung(meldung) {
+  const t = String(meldung || '');
+  const zahl = t.match(/limit:\s*(\d+)/i);
+  const modell = t.match(/model:\s*([A-Za-z0-9._-]+)/i);
+  return { limit: zahl ? Number(zahl[1]) : 0, modell: modell ? modell[1] : null };
+}
 
 const heute = () => new Date().toLocaleDateString('sv-SE'); // YYYY-MM-DD, lokal
 
@@ -40,8 +60,16 @@ function stand() {
   let beobachtet = null;
   if (settings.hole('ki_429_tag') === heute()) {
     const zahl = Number(settings.hole('ki_429_stand'));
-    if (Number.isFinite(zahl) && zahl > 0) {
-      beobachtet = { stand: zahl, zeit: settings.hole('ki_429_zeit') || null };
+    const googleLimit = Number(settings.hole('ki_429_limit')) || 0;
+    if ((Number.isFinite(zahl) && zahl > 0) || googleLimit > 0) {
+      beobachtet = {
+        stand: Number.isFinite(zahl) ? zahl : 0,
+        zeit: settings.hole('ki_429_zeit') || null,
+        // Was Google selbst in der Fehlermeldung genannt hat — 0, wenn die
+        // Meldung nur "too many requests" hergab.
+        limit: googleLimit,
+        modell: settings.hole('ki_429_modell') || null,
+      };
     }
   }
 
@@ -58,14 +86,24 @@ function stand() {
 // Eine Abweisung festhalten. Der Tagesstand in diesem Moment ist die Zahl, auf
 // die es ankommt: So viele Abfragen sind heute durchgegangen, bevor Google
 // dichtmachte.
-function abweisungMerken(zeitpunkt) {
+function abweisungMerken(zeitpunkt, meldung) {
   const stand429 = budget.heuteVerbraucht();
+  const gelesen = limitAusMeldung(meldung);
   settings.setze('ki_429_tag', heute());
   settings.setze('ki_429_stand', String(stand429));
   settings.setze('ki_429_zeit', zeitpunkt || new Date().toISOString());
-  loggen('warn', 'ki-kontingent',
-    `Google hat abgewiesen — heute waren ${stand429} KI-Abfragen durchgegangen. `
-    + 'Das KI-Tagesbudget knapp darunter zu setzen, beendet die Läufe künftig sauber.');
+  // Für welches Modell die Abweisung galt. Ohne das würde der Deckel auch das
+  // Ersatzmodell aussperren — dabei ist genau dessen eigenes Kontingent der
+  // Grund, warum es überhaupt eingetragen wurde.
+  settings.setze('ki_429_modell', gelesen.modell || require('./kiModell').aktiv());
+  settings.setze('ki_429_limit', String(gelesen.limit || 0));
+
+  loggen('warn', 'ki-kontingent', gelesen.limit
+    ? `Google hat abgewiesen: ${gelesen.limit} Anfragen pro Tag für "${gelesen.modell || 'das aktive Modell'}". `
+      + `Das Panel hatte ${stand429} gezählt — die Lücke sind Mails aus Läufen, die bei Gemini `
+      + 'starben und deshalb nie protokolliert wurden. Ab jetzt gilt Googles Zahl.'
+    : `Google hat abgewiesen — heute waren ${stand429} KI-Abfragen durchgegangen. `
+      + 'Das KI-Tagesbudget knapp darunter zu setzen, beendet die Läufe künftig sauber.');
 
   // Ist ein Ersatzmodell eingetragen, wird jetzt darauf gewechselt: Dessen
   // Tageskontingent ist ein eigenes. Ohne Ersatzmodell passiert nichts.
@@ -110,13 +148,19 @@ async function nachAbweisungSehen() {
       const { data } = await n8n.client().get(`/executions/${lauf.id}`, { params: { includeData: true } });
       let daten = data.data;
       if (typeof daten === 'string') { try { daten = JSON.parse(daten); } catch { daten = null; } }
-      const meldung = String(daten?.resultData?.error?.message || '');
+      // Auch die Knotenfehler mitlesen: Die ausführliche Meldung mit "limit:"
+      // und "model:" steht am Gemini-Knoten, oben bleibt oft nur der erste Satz.
+      const oben = String(daten?.resultData?.error?.message || '');
+      const knoten = Object.values(daten?.resultData?.runData || {})
+        .map((l) => String(l?.[0]?.error?.message || l?.[0]?.error?.description || ''))
+        .filter(Boolean);
+      const meldung = [oben, ...knoten].join(' — ');
       if (KONTINGENT.test(meldung)) {
-        return abweisungMerken(lauf.stoppedAt || lauf.startedAt);
+        return abweisungMerken(lauf.stoppedAt || lauf.startedAt, meldung);
       }
     } catch { /* eine Ausführung, die sich nicht laden laesst, ist kein Drama */ }
   }
   return null;
 }
 
-module.exports = { stand, nachAbweisungSehen, abweisungMerken, KONTINGENT };
+module.exports = { stand, nachAbweisungSehen, abweisungMerken, limitAusMeldung, KONTINGENT };

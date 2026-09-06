@@ -39,7 +39,7 @@ function log({ von = 'a@b.de', kat = 'clean', ziel = 'Games', korr = null, alter
 
 beforeEach(() => {
   db.exec('DELETE FROM accounts; DELETE FROM quarantine_log; DELETE FROM sort_inbox; DELETE FROM sort_rules;');
-  db.prepare("DELETE FROM settings WHERE key IN ('gemini_tagesbudget','bestand_letzter_lauf','bestand_letzter_lauf_anzahl','bestand_letzter_lauf_gesamt','bestand_intervall') OR key LIKE 'ki_429%'").run();
+  db.prepare("DELETE FROM settings WHERE key IN ('gemini_tagesbudget','bestand_letzter_lauf','bestand_letzter_lauf_anzahl','bestand_letzter_lauf_gesamt','bestand_intervall') OR key LIKE 'ki_%'").run();
   uebersicht.cacheVerwerfen();
   imapStub.wirft = false; imapStub.naechste = new Set();
 });

@@ -158,10 +158,19 @@ function ruheVermerken(mails) {
   }
 }
 
+// Was hier herausgeht, ist an Gemini herausgegeben — auch wenn der Lauf danach
+// am Gemini-Knoten stirbt und keine einzige dieser Mails je protokolliert wird.
+// Googles Kontingent haben sie trotzdem gekostet. Deshalb wird der Verbrauch
+// hier vermerkt und nicht erst beim Einsortieren.
+function ausgabeVermerken(anzahl) {
+  try { budget.ausgabeMerken(anzahl); } catch { /* ein Vermerk darf den Lauf nicht aufhalten */ }
+}
+
 router.post('/budget-filter', express.json({ limit: '25mb' }), (req, res) => {
   try {
     const ergebnis = budget.filtern((req.body || {}).mails);
     ruheVermerken((ergebnis.ruheMails || []).map((m) => (m && m.json) || m));
+    ausgabeVermerken(ergebnis.kiAnfragen);
     bestandslaufMerken(ergebnis.mails?.length, ergebnis.gesamt);
     res.json(ergebnis);
   } catch (err) {
@@ -195,6 +204,7 @@ router.post('/budget', express.json({ limit: '512kb' }), (req, res) => {
     const kandidaten = (req.body || {}).kandidaten;
     const ergebnis = budget.entscheiden(kandidaten);
     ruheVermerken((ergebnis.ruheIndizes || []).map((i) => (kandidaten || [])[i]));
+    ausgabeVermerken(ergebnis.kiAnfragen);
     bestandslaufMerken(ergebnis.erlaubt?.length, ergebnis.gesamt);
     res.json(ergebnis);
   } catch (err) {

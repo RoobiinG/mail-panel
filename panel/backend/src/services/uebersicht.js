@@ -58,9 +58,12 @@ function tagesbudget() {
 // Wie viele KI-Einordnungen heute? Gezählt wird, was Gemini wirklich gesehen
 // hat: Mails, die eine eigene Sortier-Regel trifft, laufen im Workflow an der
 // KI vorbei (ki = 0) und dürfen das Tageslimit nicht verbrauchen.
+//
+// Über den Budget-Dienst, weil dort auch die Anfragen mitzählen, die ein
+// abgestürzter Lauf verbraucht hat, ohne sie je zu protokollieren — sonst zeigt
+// das Dashboard weniger an, als Google zählt.
 function heuteVerbraucht() {
-  return zahl("SELECT COUNT(*) n FROM quarantine_log WHERE created_at >= date('now','localtime')"
-    + ' AND IFNULL(ki, 1) = 1');
+  return require('./budget').heuteVerbraucht();
 }
 
 // ─── Die ganze Übersicht ─────────────────────────────────────────────────────

@@ -23,7 +23,7 @@ const kand = (n, konto = 'K') =>
 
 beforeEach(() => {
   db.exec('DELETE FROM quarantine_log; DELETE FROM sort_inbox; DELETE FROM sort_rules; DELETE FROM accounts;');
-  db.prepare("DELETE FROM settings WHERE key='gemini_tagesbudget' OR key LIKE 'ki_429%'").run();
+  db.prepare("DELETE FROM settings WHERE key='gemini_tagesbudget' OR key LIKE 'ki_%' OR key LIKE 'gemini_modell%'").run();
 });
 
 describe('Tagesdeckel', () => {
@@ -247,5 +247,102 @@ describe('Was Google heute schon abgewiesen hat', () => {
     assert.equal(e.erlaubt.length, 0, 'der Lauf endet sofort, statt bei Gemini zu sterben');
     assert.equal(e.budget.grenze, 3);
     assert.equal(e.budget.rest, 0);
+  });
+});
+
+// Googles Absage nennt das echte Limit. Die eigene Zaehlung kann es gar nicht
+// treffen: Stirbt ein Lauf am Gemini-Knoten, laeuft keine der vorher sauber
+// klassifizierten Mails bis zum Panel durch — protokolliert wird keine, bezahlt
+// haben sie alle. Genau das ist die Luecke zwischen 412 und 500.
+describe('Googles Zahl schlaegt die eigene', () => {
+  const heute = () => new Date().toLocaleDateString('sv-SE');
+
+  test('das Limit aus der Absage gilt, nicht der eigene Stand', () => {
+    settings.setze('gemini_tagesbudget', '50000');
+    settings.setze('ki_429_tag', heute());
+    settings.setze('ki_429_stand', '412');
+    settings.setze('ki_429_limit', '500');
+    assert.equal(budget.beobachteteGrenze(), 500);
+  });
+
+  test('ohne Zahl in der Meldung bleibt der eigene Stand', () => {
+    settings.setze('ki_429_tag', heute());
+    settings.setze('ki_429_stand', '412');
+    settings.setze('ki_429_limit', '0');
+    assert.equal(budget.beobachteteGrenze(), 412);
+  });
+
+  test('ein Wechsel auf ein anderes Modell hebt den Deckel auf', () => {
+    settings.setze('gemini_tagesbudget', '50000');
+    settings.setze('ki_429_tag', heute());
+    settings.setze('ki_429_limit', '500');
+    settings.setze('ki_429_modell', 'gemini-3.5-flash-lite');
+    settings.setze('gemini_modell_aktiv', 'gemini-3.5-flash');
+
+    assert.equal(budget.beobachteteGrenze(), 0,
+      'Kontingente gelten je Modell — sonst sperrt der Deckel genau das Ersatzmodell aus');
+    assert.equal(budget.tagesbudget(), 50000);
+  });
+
+  test('solange dasselbe Modell laeuft, bleibt der Deckel', () => {
+    settings.setze('ki_429_tag', heute());
+    settings.setze('ki_429_limit', '500');
+    settings.setze('ki_429_modell', 'gemini-3.5-flash-lite');
+    settings.setze('gemini_modell_aktiv', 'gemini-3.5-flash-lite');
+    assert.equal(budget.beobachteteGrenze(), 500);
+  });
+});
+
+// Was an Gemini herausgegeben wurde, ist verbraucht — auch wenn der Lauf danach
+// stirbt und nichts davon je im Protokoll landet.
+describe('Herausgegebene Anfragen zaehlen mit', () => {
+  test('ohne Vermerk zaehlt allein das Protokoll', () => {
+    heuteLog('K', 'a@x.de', '1');
+    assert.equal(budget.heuteVerbraucht(), 1);
+    assert.equal(budget.ausgegebenHeute(), 0);
+  });
+
+  test('ein Vermerk summiert sich ueber die Laeufe', () => {
+    budget.ausgabeMerken(101);
+    budget.ausgabeMerken(80);
+    assert.equal(budget.ausgegebenHeute(), 181);
+    assert.equal(budget.heuteVerbraucht(), 181, 'obwohl nichts protokolliert ist');
+  });
+
+  test('die hoehere der beiden Zahlen gilt', () => {
+    for (let i = 0; i < 5; i += 1) heuteLog('K', `m${i}@x.de`, 'x');
+    budget.ausgabeMerken(3);
+    assert.equal(budget.heuteVerbraucht(), 5,
+      'Workflow 01 protokolliert, ohne den Waechter zu fragen — sonst zaehlte das doppelt');
+  });
+
+  test('Unsinn wird nicht vermerkt', () => {
+    budget.ausgabeMerken(0);
+    budget.ausgabeMerken(-5);
+    budget.ausgabeMerken('viele');
+    assert.equal(budget.ausgegebenHeute(), 0);
+  });
+
+  test('der Vermerk von gestern zaehlt heute nicht mehr', () => {
+    budget.ausgabeMerken(101);
+    settings.setze('ki_ausgabe_tag', '2020-01-01');
+    assert.equal(budget.ausgegebenHeute(), 0);
+  });
+
+  test('nur die KI-Anfragen werden gemeldet, nicht die Regel-Mails', () => {
+    settings.setze('gemini_tagesbudget', '50');
+    const id = db.prepare(
+      "INSERT INTO accounts (name, host, port, username, password_enc, aktiv) VALUES ('K', 'h', 993, 'u', 'x', 1)",
+    ).run().lastInsertRowid;
+    db.prepare('INSERT INTO sort_rules (konto_id, typ, muster, zielordner, aktion) VALUES (?, ?, ?, ?, ?)')
+      .run(id, 'domain', 'shop.de', 'Bestellungen', 'verschieben');
+
+    const e = budget.entscheiden([
+      { konto: 'K', von: 'a@shop.de', betreff: '1' },
+      { konto: 'K', von: 'b@shop.de', betreff: '2' },
+      { konto: 'K', von: 'c@fremd.de', betreff: '3' },
+    ]);
+    assert.equal(e.erlaubt.length, 3);
+    assert.equal(e.kiAnfragen, 1, 'zwei Regel-Mails kosten Google nichts');
   });
 });

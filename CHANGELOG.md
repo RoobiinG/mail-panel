@@ -2,6 +2,31 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.12.2.0] - 2026-09-06 (Build 107) — *Google nennt die Zahl doch*
+
+### Neu: Das echte Tageslimit steht in der Absage
+- In der Fehlermeldung eines echten Laufs stand wörtlich: *„Quota exceeded for metric:
+  …generate_content_free_tier_requests, **limit: 500, model: gemini-3.5-flash-lite**"*. Damit ist
+  die Zahl da, von der es hieß, Google gebe sie nicht heraus — **500 Anfragen pro Tag** für dieses
+  Modell, in der Gratisstufe.
+- Das Panel liest Limit und Modell jetzt aus der Meldung und benutzt sie als Tagesgrenze. Die
+  ausführliche Meldung steht dabei am Gemini-Knoten, nicht in der Fehlerzeile oben — beides wird
+  durchsucht.
+- Im Dashboard steht die Zahl mit Modell dabei, und der Knopf setzt das Budget danach.
+
+### Behoben: Die eigene Zählung lag systematisch zu niedrig
+- Sie sagte 412, Google zählte 500. Der Grund: Stirbt ein Lauf am Gemini-Knoten, scheitert der
+  **ganze Knoten** — keine der Mails, die vorher sauber klassifiziert wurden, läuft je bis zum
+  Panel durch. Protokolliert wird keine davon; Googles Kontingent haben sie trotzdem gekostet.
+- Deshalb zählt das Panel jetzt schon beim **Herausgeben**: Was der Budget-Wächter an Gemini
+  freigibt, gilt als verbraucht, egal was danach passiert. Angezeigt wird die höhere der beiden
+  Zahlen — Workflow 01 protokolliert nämlich umgekehrt, ohne den Wächter zu fragen.
+
+### Behoben: Der Deckel sperrte das Ersatzmodell mit aus
+- Seit Build 105 gilt nach einer Abweisung Googles Grenze für den Rest des Tages. Das galt aber
+  auch nach einem Wechsel auf das Ersatzmodell — dessen eigenes, frisches Kontingent war der
+  einzige Grund für den Wechsel. Die Abweisung wird jetzt **je Modell** vermerkt.
+
 ## [3.12.1.0] - 2026-09-06 (Build 106) — *Sehen, woran ein Lauf gescheitert ist*
 
 ### Verbessert: Dauer und Grund bei jedem Lauf

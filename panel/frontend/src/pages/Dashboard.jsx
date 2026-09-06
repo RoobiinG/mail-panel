@@ -313,29 +313,59 @@ export default function Dashboard() {
                     gibt die Gemini-API nicht heraus — das hier ist die Stelle,
                     an der sie abgewiesen hat, und damit die belastbarste Zahl,
                     die zu bekommen ist. */}
-                {b.beobachtet && (
-                  <div className="mt-3 pt-3 border-t border-panel-border text-xs space-y-2">
-                    <p className="text-panel-red">
-                      Google hat heute bei <span className="font-bold">{b.beobachtet.stand}</span> Abfragen
-                      abgewiesen.
-                    </p>
-                    <p className="text-panel-muted">
-                      Das ist dein tatsächliches Tageskontingent — einen Rest-Zähler gibt die
-                      Gemini-API nicht heraus, das Panel zählt selbst mit und merkt sich, wo Google
-                      dichtmacht. Setz das Tagesbudget knapp darunter
-                      {b.grenze > b.beobachtet.stand && <> (steht auf {b.grenze})</>}, dann enden die
-                      Läufe sauber, statt mittendrin abzubrechen.
-                    </p>
-                    {b.grenze !== empfohlenesBudget(b.beobachtet.stand) && (
-                      <button onClick={() => budgetUebernehmen(b.beobachtet.stand)}
-                        disabled={budgetLaeuft}
-                        className="btn !py-1 !px-3 text-xs flex items-center gap-1">
-                        <Check size={13} />
-                        Budget auf {empfohlenesBudget(b.beobachtet.stand)} setzen
-                      </button>
-                    )}
-                  </div>
-                )}
+                {b.beobachtet && (() => {
+                  // Nennt Google in der Absage sein Limit („limit: 500, model: …"),
+                  // gilt das. Die eigene Zählung liegt zwangsläufig darunter: Ein
+                  // am Gemini-Knoten gestorbener Lauf protokolliert keine seiner
+                  // Mails, gekostet haben sie trotzdem. Ohne Zahl in der Meldung
+                  // bleibt der eigene Stand die beste Schätzung.
+                  const echt = Number(b.beobachtet.limit) > 0;
+                  const zahl = echt ? b.beobachtet.limit : b.beobachtet.stand;
+                  return (
+                    <div className="mt-3 pt-3 border-t border-panel-border text-xs space-y-2">
+                      <p className="text-panel-red">
+                        {echt ? (
+                          <>
+                            Google lässt <span className="font-bold">{zahl}</span> Anfragen pro Tag zu
+                            {b.beobachtet.modell && <> für <span className="font-mono">{b.beobachtet.modell}</span></>}
+                            {' '}— heute ist das Kontingent aufgebraucht.
+                          </>
+                        ) : (
+                          <>
+                            Google hat heute bei <span className="font-bold">{zahl}</span> Abfragen
+                            abgewiesen.
+                          </>
+                        )}
+                      </p>
+                      <p className="text-panel-muted">
+                        {echt ? (
+                          <>
+                            Diese Zahl steht wörtlich in Googles Absage. Selbst gezählt hat das Panel
+                            heute {b.beobachtet.stand} — die Lücke sind Mails aus Läufen, die bei
+                            Gemini starben und deshalb nie protokolliert wurden. Bis morgen enden
+                            weitere Läufe sofort, statt erst nach Minuten abzubrechen.
+                          </>
+                        ) : (
+                          <>
+                            Das ist dein tatsächliches Tageskontingent — einen Rest-Zähler gibt die
+                            Gemini-API nicht heraus, das Panel zählt selbst mit und merkt sich, wo
+                            Google dichtmacht. Setz das Tagesbudget knapp darunter
+                            {b.grenze > zahl && <> (steht auf {b.grenze})</>}, dann enden die
+                            Läufe sauber, statt mittendrin abzubrechen.
+                          </>
+                        )}
+                      </p>
+                      {b.grenze !== empfohlenesBudget(zahl) && (
+                        <button onClick={() => budgetUebernehmen(zahl)}
+                          disabled={budgetLaeuft}
+                          className="btn !py-1 !px-3 text-xs flex items-center gap-1">
+                          <Check size={13} />
+                          Budget auf {empfohlenesBudget(zahl)} setzen
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* Welches Modell gerade arbeitet — und ob das Panel gewechselt hat */}
                 {b.modell && (

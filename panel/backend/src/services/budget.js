@@ -43,18 +43,35 @@ function regelPruefer() {
   };
 }
 
-// Hat Google heute schon abgewiesen? Dann ist der Stand von damals die harte
-// Obergrenze für den Rest des Tages — egal, was im Panel eingestellt ist.
+// Hat Google heute schon abgewiesen? Dann gilt dessen Grenze für den Rest des
+// Tages — egal, was im Panel eingestellt ist.
 //
 // Ohne das lief Folgendes: Das Tagesbudget stand auf 50.000, Google machte bei
 // gut 400 dicht, und jeder weitere Lauf holte trotzdem 200 Mails, schickte 100
 // an die KI und starb dort. Vier Minuten Arbeit für nichts, alle vier Stunden.
-// Die Zahl kommt aus services/kiKontingent.js; hier wird sie nur gelesen —
-// jenes Modul liest umgekehrt dieses hier.
+//
+// Die Zahl kommt aus services/kiKontingent.js; hier wird sie nur gelesen — jenes
+// Modul liest umgekehrt dieses hier. Am liebsten die, die Google selbst in der
+// Absage nennt („limit: 500, model: …"); sonst der eigene Stand im Moment der
+// Abweisung.
 function beobachteteGrenze() {
   try {
     const heute = new Date().toLocaleDateString('sv-SE');
     if (settings.hole('ki_429_tag') !== heute) return 0;
+
+    // Kontingente gelten je Modell. Wurde inzwischen auf ein anderes gewechselt,
+    // hat das sein eigenes — die Abweisung von vorhin sagt darüber nichts. Ohne
+    // diese Prüfung würde der Deckel genau das Ersatzmodell aussperren, dessen
+    // frisches Kontingent der einzige Grund für den Wechsel war.
+    const abgewiesen = settings.hole('ki_429_modell');
+    if (abgewiesen && abgewiesen !== require('./kiModell').aktiv()) return 0;
+
+    // Googles eigene Zahl schlägt die eigene Zählung: Stirbt ein Lauf bei
+    // Gemini, wird keine der vorher klassifizierten Mails protokolliert —
+    // verbraucht waren sie trotzdem. Die eigene Zählung liegt also zu niedrig.
+    const vonGoogle = Number(settings.hole('ki_429_limit'));
+    if (Number.isFinite(vonGoogle) && vonGoogle > 0) return vonGoogle;
+
     const n = Number(settings.hole('ki_429_stand'));
     return Number.isFinite(n) && n > 0 ? n : 0;
   } catch { return 0; }
@@ -68,7 +85,39 @@ function tagesbudget() {
   return eingestellt ? Math.min(eingestellt, beobachtet) : beobachtet;
 }
 
-function heuteVerbraucht() {
+// Wie viele Anfragen hat das Panel heute an Gemini herausgegeben?
+//
+// Diese Zahl gibt es, weil die Protokollzählung systematisch zu niedrig liegt:
+// Stirbt ein Lauf am Gemini-Knoten, scheitert der ganze Knoten — die Mails, die
+// vorher sauber klassifiziert wurden, laufen nie bis zum Panel weiter und werden
+// deshalb nirgends protokolliert. Googles Kontingent haben sie trotzdem gekostet.
+// Genau daher die Lücke zwischen „412 gezählt" und „limit: 500".
+//
+// Gezählt wird beim Herausgeben, also bevor etwas schiefgehen kann. Lieber einmal
+// zu viel gezählt (ein Lauf stirbt vor Gemini) als ein Deckel, der zu spät greift.
+const AUSGABE_TAG = 'ki_ausgabe_tag';
+const AUSGABE_STAND = 'ki_ausgabe_stand';
+
+function ausgegebenHeute() {
+  try {
+    if (settings.hole(AUSGABE_TAG) !== new Date().toLocaleDateString('sv-SE')) return 0;
+    const n = Number(settings.hole(AUSGABE_STAND));
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  } catch { return 0; }
+}
+
+function ausgabeMerken(anzahl) {
+  const n = Number(anzahl);
+  if (!Number.isFinite(n) || n <= 0) return ausgegebenHeute();
+  try {
+    const stand = ausgegebenHeute() + n;
+    settings.setze(AUSGABE_TAG, new Date().toLocaleDateString('sv-SE'));
+    settings.setze(AUSGABE_STAND, String(stand));
+    return stand;
+  } catch { return 0; }
+}
+
+function protokolliertHeute() {
   try {
     return db.prepare(
       // ki = 0 sind Mails, die eine eigene Regel sortiert hat — die haben Gemini
@@ -77,6 +126,13 @@ function heuteVerbraucht() {
       + ' AND IFNULL(ki, 1) = 1',
     ).get().n;
   } catch { return 0; }
+}
+
+// Die höhere der beiden Zahlen ist die ehrliche: Workflow 01 protokolliert ohne
+// Ausgabe-Vermerk (er fragt den Wächter nicht), ein gestorbener Bestandslauf hat
+// den Vermerk ohne Protokoll.
+function heuteVerbraucht() {
+  return Math.max(protokolliertHeute(), ausgegebenHeute());
 }
 
 // Kennt das Panel diese Mail schon? von + betreff + konto, gegen die
@@ -138,6 +194,10 @@ function entscheiden(kandidaten) {
   return {
     erlaubt,
     ruheIndizes,
+    // Wie viele davon wirklich bei Gemini landen. Regel-Mails sind in
+    // erlaubt mit drin, kosten aber nichts — nur diese Zahl darf gezaehlt
+    // werden, wenn der Aufrufer den Verbrauch vermerkt.
+    kiAnfragen: kiPlaetze,
     budget: {
       grenze,
       verbraucht,
@@ -149,14 +209,17 @@ function entscheiden(kandidaten) {
   };
 }
 
-module.exports = { entscheiden, tagesbudget, heuteVerbraucht, schonGesehen, beobachteteGrenze };
+module.exports = {
+  entscheiden, tagesbudget, heuteVerbraucht, schonGesehen, beobachteteGrenze,
+  ausgegebenHeute, ausgabeMerken, protokolliertHeute,
+};
 
 // Für den Budget-Knoten in Workflow 04: nimmt die vollen Mail-Objekte, gibt die
 // erlaubten unverändert zurück. Der HTTP-Knoten reicht genau diese an Gemini
 // weiter — alles andere fällt vor dem KI-Aufruf weg und kostet kein Budget.
 function filtern(mails) {
   const liste = Array.isArray(mails) ? mails : [];
-  const { erlaubt, ruheIndizes, budget, uebersprungen } = entscheiden(
+  const { erlaubt, ruheIndizes, budget, uebersprungen, kiAnfragen } = entscheiden(
     liste.map((m) => ({ konto: m && m.konto, von: m && m.von, betreff: m && m.betreff })),
   );
   return {
@@ -164,6 +227,7 @@ function filtern(mails) {
     ruheMails: (ruheIndizes || []).map((i) => liste[i]),
     budget,
     uebersprungen,
+    kiAnfragen,
     gesamt: liste.length,
   };
 }
