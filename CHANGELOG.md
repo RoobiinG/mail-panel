@@ -2,6 +2,30 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.13.2.0] - 2026-09-06 (Build 110) — *Neue Post bleibt ungelesen*
+
+### Behoben: Neue Mails waren schon gelesen, bevor du sie gesehen hast
+- Wer sein Postfach in web.de, Gmail oder einem Mailclient öffnete, fand neue Post bereits als
+  **gelesen** vor — das Panel war schneller. Damit ist der wichtigste Hinweis weg, den ein
+  Postfach hat: „hier ist etwas Neues".
+- Schuld war nicht das Abholen — n8n holt die Mail flag-neutral. Es war allein die
+  Nachbehandlung am Konto-Auslöser, die sie hinterher ausdrücklich als gelesen markiert hat.
+  Die ist jetzt abschaltbar und **standardmäßig aus**.
+- Ungelesen bleibt die Mail auch dann, wenn das Panel sie in einen Themen-Ordner verschiebt:
+  Beim Verschieben nimmt IMAP die Kennzeichnungen mit.
+- **Verarbeitet wird trotzdem jede Mail nur einmal.** n8n merkt sich je Konto die zuletzt
+  gesehene Nachrichtennummer und überspringt alles darunter — und zwar unabhängig davon, ob als
+  gelesen markiert wird. Der Merker hängt an der Knoten-ID, und die bleibt beim Synchronisieren
+  dieselbe.
+- Der Altbestand war nie betroffen: Die Bestands-Triage liest ausschließlich mit `BODY.PEEK` und
+  fasst Kennzeichnungen nicht an. Gelesene Bestandsmails bleiben gelesen.
+
+### Neu: Karte „Umgang mit neuer Post"
+- Ein Schalter unter *Einstellungen*. Er steckt im Workflow — nach dem Ändern einmal
+  **Workflows → Synchronisieren** drücken.
+- Bewusst **keine** Wichtig-Markierung und kein Sternchen: Das Postfach soll aussehen wie ohne
+  Panel, nur einsortiert.
+
 ## [3.13.1.0] - 2026-09-06 (Build 109) — *Modelle auswählen statt tippen*
 
 ### Neu: Auswahlliste statt Freitextfeld

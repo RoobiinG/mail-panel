@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   CheckCircle2, XCircle, Loader2, PlugZap, ShieldCheck, Trash2,
   Eye, EyeOff, Save, KeyRound, Cpu, Mail, Cloud, Server,
-  Link, Wifi, TestTube2, User, Settings2, FolderTree,
+  Link, Wifi, TestTube2, User, Settings2, FolderTree, MailOpen,
 } from 'lucide-react';
 import api from '../api';
 import { useMelden } from '../components/ui/Meldungen';
@@ -585,6 +585,36 @@ export default function Einstellungen() {
                 onChange={e => set('gemini_pause_ms', e.target.value)} className={inputCls} />
             </div>
             <SpeichernBtn onSpeichern={() => speichern('ki')} meldung={meldung.ki} />
+          </Card>
+
+          <Card title={<><MailOpen size={13} /> Umgang mit neuer Post</>}>
+            <p className="text-xs text-panel-muted">
+              Was das Panel im Postfach hinterlässt, während es sortiert. Diese Einstellung steckt
+              im Workflow — nach dem Ändern einmal <b>Workflows → Synchronisieren</b> drücken.
+            </p>
+
+            <label className="flex items-center gap-3 cursor-pointer pt-1">
+              <Toggle
+                on={settings.neue_mails_ungelesen !== '0'}
+                onToggle={() => set('neue_mails_ungelesen', settings.neue_mails_ungelesen === '0' ? '1' : '0')}
+              />
+              <div className="flex flex-col">
+                <span className="text-sm text-panel-text">Neue Mails ungelesen lassen</span>
+                <span className="text-[10px] text-panel-muted/70">
+                  Sonst siehst du neue Post in deinem Mailclient bereits als gelesen — das Panel war
+                  schneller. Ungelesen bleibt sie auch dann, wenn sie in einen Themen-Ordner
+                  wandert: Beim Verschieben nimmt IMAP die Kennzeichnungen mit.
+                </span>
+              </div>
+            </label>
+
+            <p className="text-[10px] text-panel-muted/60">
+              Verarbeitet wird jede Mail trotzdem nur einmal — n8n merkt sich je Konto die zuletzt
+              gesehene Nachrichtennummer und überspringt alles darunter. Der Altbestand ist nicht
+              betroffen: Die Bestands-Triage fasst Kennzeichnungen ohnehin nicht an.
+            </p>
+
+            <SpeichernBtn onSpeichern={() => speichern('post')} meldung={meldung.post} />
           </Card>
 
           <Card title={<><Mail size={13} /> Telegram-Benachrichtigungen</>}>

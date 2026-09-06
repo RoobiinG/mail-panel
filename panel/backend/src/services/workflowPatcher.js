@@ -50,11 +50,33 @@ function ordnerName(wert, standard = '') {
 
 // ─── Knoten-Bausteine ────────────────────────────────────────────────────────
 
+// Bleibt neu eingegangene Post ungelesen?
+//
+// Wer sein Postfach öffnete, sah neue Mails bereits als gelesen — das Panel war
+// schneller. Damit ist der wichtigste Hinweis weg, den ein Postfach hat.
+//
+// Gelesen macht sie nicht das Abholen: n8n holt mit `markSeen: false`. Es ist
+// allein die Nachbehandlung, die hinterher `addFlags(processedUids, '\SEEN')`
+// ausführt — und genau die lässt sich abschalten.
+//
+// Die naheliegende Sorge, der Auslöser fände dieselbe Mail dann immer wieder,
+// ist unbegründet: n8n schreibt `staticData.lastMessageUid` **unabhängig** von
+// dieser Einstellung fort, grenzt die Suche damit ein (`UID <stand>:*`) und
+// überspringt zusätzlich jede Mail mit `uid <= lastMessageUid`. Der Merker hängt
+// an der Knoten-ID, und die bleibt bei jedem Synchronisieren dieselbe
+// (`panel-<kontoid>-trigger`) — beim Umstellen geht also nichts verloren.
+//
+// Die Verschiebung in einen Themen-Ordner ändert daran nichts: IMAP MOVE nimmt
+// die Kennzeichnungen mit, die Mail ist auch dort ungelesen.
+function ungelesenLassen() {
+  return settings.hole('neue_mails_ungelesen') !== '0';
+}
+
 function triggerKnoten(konto, position) {
   return {
     parameters: {
       mailbox: 'INBOX',
-      postProcessAction: 'read',
+      postProcessAction: ungelesenLassen() ? 'nothing' : 'read',
       // "resolved" liefert die vollständigen Kopfzeilen (nötig für die
       // Absender-IP der DNSBL-Prüfung).
       format: 'resolved',

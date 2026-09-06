@@ -45,6 +45,11 @@ const FELDER = {
   gemini_buendel:       { env: 'GEMINI_BUENDEL', geheim: false, standard: '20' },
   gemini_text_kurz:     { env: 'GEMINI_TEXT_KURZ', geheim: false, standard: '600' },
   gemini_text_lang:     { env: 'GEMINI_TEXT_LANG', geheim: false, standard: '1500' },
+  // Bleibt neu eingegangene Post im Postfach ungelesen? Standard ja — sonst
+  // sieht der Nutzer neue Mails in seinem Mailclient bereits als gelesen, weil
+  // das Panel schneller war. Steckt im Workflow, wirkt also erst nach
+  // "Workflows -> Synchronisieren". Siehe services/workflowPatcher.js.
+  neue_mails_ungelesen: { env: 'NEUE_MAILS_UNGELESEN', geheim: false, standard: '1' },
   telegram_chat_id:     { env: 'TELEGRAM_CHAT_ID', geheim: false },
   // Postausgang für Workflow 06 (Newsletter abbestellen per Mail)
   smtp_host:            { env: 'SMTP_HOST', geheim: false },
