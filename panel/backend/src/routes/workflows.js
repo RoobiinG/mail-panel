@@ -122,6 +122,17 @@ router.post('/:id/aktiv', async (req, res) => {
   }
 });
 
+// Wie lange lief eine Ausführung? Die Zahl steht schon in der Liste — sie musste
+// nur ausgerechnet werden. Sie trennt zwei ganz verschiedene Fehlschläge: Ein
+// Lauf über Minuten ist unterwegs gescheitert (meist an der KI), einer nach
+// 60 ms ist gar nicht erst losgelaufen. In der Liste sah beides gleich aus.
+function dauerVon(e) {
+  const a = Date.parse(e.startedAt || '');
+  const b = Date.parse(e.stoppedAt || '');
+  if (!Number.isFinite(a) || !Number.isFinite(b) || b < a) return null;
+  return b - a;
+}
+
 // GET /api/workflows/:id/laeufe — die letzten Ausführungen mit Fehlermeldung
 router.get('/:id/laeufe', async (req, res) => {
   try {
@@ -135,6 +146,7 @@ router.get('/:id/laeufe', async (req, res) => {
         gestartet: e.startedAt,
         beendet: e.stoppedAt,
         modus: e.mode,
+        dauerMs: dauerVon(e),
       }));
     res.json(eigene);
   } catch (err) {
@@ -161,11 +173,24 @@ router.get('/lauf/:id', async (req, res) => {
       };
     });
 
+    // Scheitert ein Lauf, bevor der erste Knoten Daten liefert, ist runData leer
+    // und die Meldung steckt woanders. Vorher stand dann eine leere Karte da —
+    // ausgerechnet bei den Fehlschlägen, die man am wenigsten versteht. Deshalb
+    // hier alle Stellen abklappern, an denen n8n den Grund ablegt.
+    const fehler = daten?.resultData?.error || {};
+    const meldung = fehler.message || fehler.description
+      || (typeof daten?.resultData?.error === 'string' ? daten.resultData.error : null)
+      || null;
+
     res.json({
       id: data.id,
       status: data.status,
       gestartet: data.startedAt,
-      fehlermeldung: daten?.resultData?.error?.message || null,
+      dauerMs: dauerVon(data),
+      // Welcher Knoten zuletzt lief — bei einem Absturz ganz am Anfang steht
+      // hier der Trigger, und genau das ist die Auskunft, die fehlte.
+      letzterKnoten: daten?.resultData?.lastNodeExecuted || fehler.node?.name || null,
+      fehlermeldung: meldung,
       knoten,
     });
   } catch (err) {

@@ -2,6 +2,20 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.12.1.0] - 2026-09-06 (Build 106) — *Sehen, woran ein Lauf gescheitert ist*
+
+### Verbessert: Dauer und Grund bei jedem Lauf
+- In der n8n-Liste standen nebeneinander Fehlschläge nach vier Minuten und welche nach
+  **63 Millisekunden** — im Panel sahen beide gleich aus. Es sind aber zwei ganz verschiedene
+  Krankheiten: Der lange Lauf ist unterwegs gestorben (fast immer an der KI), der kurze kam nie
+  über den Auslöser hinaus.
+- Unter *Workflows → aufklappen → Letzte Läufe* steht jetzt bei jedem Lauf die **Dauer**.
+- In der Detailkarte steht, **welcher Knoten zuletzt lief** — bei einem Absturz ganz am Anfang
+  ist das der Auslöser, und genau diese Auskunft fehlte.
+- Zu den kurzen Läufen speichert n8n überhaupt keine Knotendaten; die Karte blieb deshalb leer
+  — ausgerechnet bei den Fehlschlägen, die man am wenigsten versteht. Jetzt wird die Meldung
+  auch dort gezeigt, zusammen mit dem Hinweis, was ein solcher Lauf bedeutet.
+
 ## [3.12.0.1] - 2026-09-06 (Build 105) — *Nach dem Nein von Google ist Schluss für heute*
 
 ### Behoben: Läufe, die vier Minuten arbeiten und dann bei Gemini sterben

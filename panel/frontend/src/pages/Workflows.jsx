@@ -20,6 +20,17 @@ function dauer(seit) {
   return `${std} Std. ${Math.floor((s % 3600) / 60)} Min.`;
 }
 
+// Wie lange ein abgeschlossener Lauf gedauert hat. Millisekunden bleiben stehen,
+// solange es welche sind: Ein Fehlschlag nach 63 ms ist eine andere Geschichte
+// als einer nach vier Minuten — der eine kam gar nicht erst los, der andere ist
+// unterwegs gestorben. Genau das war in der Liste nicht zu sehen.
+function laufdauer(ms) {
+  if (!Number.isFinite(ms)) return '';
+  if (ms < 1000) return `${ms} ms`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(1).replace('.', ',')} Sek.`;
+  return `${Math.floor(ms / 60000)} Min. ${Math.round((ms % 60000) / 1000)} Sek.`;
+}
+
 const STATUS_TEXT = {
   success: 'erfolgreich',
   error: 'fehlgeschlagen',
@@ -146,6 +157,16 @@ function Einzelheiten({ id }) {
                 >
                   <StatusPunkt status={l.status} />
                   <span className="text-panel-muted">{zeit(l.gestartet)}</span>
+                  {laufdauer(l.dauerMs) && (
+                    <span
+                      className="text-xs text-panel-muted tabular-nums"
+                      title={l.status === 'error' && l.dauerMs < 1000
+                        ? 'So kurz heißt: Der Lauf ist am ersten Knoten gescheitert, nicht unterwegs.'
+                        : undefined}
+                    >
+                      {laufdauer(l.dauerMs)}
+                    </span>
+                  )}
                   <span className="text-xs text-panel-muted ml-auto">{l.modus}</span>
                 </button>
               </li>
@@ -168,19 +189,36 @@ function Einzelheiten({ id }) {
                   )}
                 </>
               )}
-              <ul className="space-y-1">
-                {(lauf.knoten || []).map((k) => (
-                  <li key={k.name} className="flex gap-2">
-                    <span className={k.fehler ? 'text-panel-red' : 'text-emerald-500'}>
-                      {k.fehler ? '✕' : '✓'}
-                    </span>
-                    <span className="text-panel-text">{k.name}</span>
-                    <span className="text-panel-muted">
-                      {k.fehler ? k.fehler : `${k.items} Element(e)`}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+              {(lauf.letzterKnoten || laufdauer(lauf.dauerMs)) && (
+                <p className="text-xs text-panel-muted mb-2">
+                  {lauf.letzterKnoten && <>Zuletzt gelaufen: <b>{lauf.letzterKnoten}</b></>}
+                  {lauf.letzterKnoten && laufdauer(lauf.dauerMs) && ' · '}
+                  {laufdauer(lauf.dauerMs) && `Dauer: ${laufdauer(lauf.dauerMs)}`}
+                </p>
+              )}
+              {(lauf.knoten || []).length === 0 ? (
+                // Kein einziger Knoten mit Daten: Dann ist der Lauf gescheitert,
+                // bevor überhaupt etwas lief — fast immer der Trigger selbst.
+                <p className="text-panel-muted text-xs">
+                  n8n hat zu diesem Lauf keine Knotendaten gespeichert. Das heißt in aller
+                  Regel: Er ist schon am Auslöser gescheitert und kam nie bis zur ersten
+                  Mail — etwa weil die IMAP-Verbindung des Kontos abgerissen ist.
+                </p>
+              ) : (
+                <ul className="space-y-1">
+                  {(lauf.knoten || []).map((k) => (
+                    <li key={k.name} className="flex gap-2">
+                      <span className={k.fehler ? 'text-panel-red' : 'text-emerald-500'}>
+                        {k.fehler ? '✕' : '✓'}
+                      </span>
+                      <span className="text-panel-text">{k.name}</span>
+                      <span className="text-panel-muted">
+                        {k.fehler ? k.fehler : `${k.items} Element(e)`}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </>
           )}
         </div>
