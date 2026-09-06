@@ -2,6 +2,61 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.13.0.0] - 2026-09-06 (Build 108) — *Zwanzig Mails in einer Anfrage*
+
+### Neu: Gebündelte Klassifizierung — aus 500 Mails am Tag werden rund 10.000
+- Googles Tageslimit zählt **Anfragen**, nicht Mails („limit: 500"). Workflow 04 schickte bisher
+  eine Anfrage je Mail — die teuerste denkbare Bauart. Bei 23.000 Bestandsmails wäre das
+  Postfach in Monaten nicht durch gewesen.
+- Der Knoten *Gemini klassifizieren* in Workflow 04 fragt jetzt das Panel statt Google. Dort
+  werden bis zu **20 Mails in eine Anfrage** gepackt. Name, Position und alle Verbindungen im
+  Workflow bleiben unverändert; auch *Antwort parsen* musste nicht angefasst werden.
+- Der große gemeinsame Teil des Prompts — Regeln, Themen-Ordner, Beschreibungen — steht damit
+  **einmal je Bündel** statt einmal je Mail.
+
+### Neu: Adaptive Textmenge — mehr Mails, ohne die Spam-Erkennung zu opfern
+- Thema und Kategorie hängen an Absender und Betreff, Spam hängt an Text und Links. Deshalb
+  bekommt der Normalfall 600 Zeichen plus die ersten Links, ein **Verdachtsfall** die vollen
+  1.500 — und er belegt drei Plätze im Bündel.
+- Als Verdachtsfall gilt, was die Panel-Prüfung schon markiert hat (DNSBL-Treffer,
+  Spam-Aufschlag) und jeder wildfremde Absender ohne Abmelde-Link. Wer hier seit Monaten
+  schreibt, braucht keine 1.500 Zeichen, um als Newsletter erkannt zu werden.
+- Verdachtsfälle werden außerdem **nie** mit anderen zusammengefasst.
+
+### Neu: Dubletten kosten nur einmal
+- Gleiche Absender-Domain und praktisch gleicher Betreff („Ihre Bestellung 4711" / „…4712"):
+  Einer geht an die KI, das Ergebnis gilt für die ganze Gruppe.
+
+### Behoben: Gelernte Absender kosteten trotzdem KI
+- Der Stichwort-Treffer — Ordner-Beschreibung, gelernte Absender, Umleitungen — wurde erst
+  **nach** dem Gemini-Aufruf ausgewertet. Die Mail wurde bezahlt und dann von etwas entschieden,
+  das schon vorher feststand. Damit war das Versprechen aus Build 100 („einmal von der KI
+  geschlossen, danach wörtliches Wissen") nie eingelöst.
+- Jetzt entscheidet er im selben Schritt wie die eigenen Regeln — **vor** der KI, für null
+  Kontingent. Eigene Regeln gehen weiterhin vor.
+
+### Behoben: Der Mailtext fehlte im Prompt
+- Der Normalisierer schneidet den Text auf 1.500 Zeichen zu, gab ihn aber nie heraus. *Prüfung
+  auswerten* baut den Prompt danach neu und setzte `mail.text` ein — ein Feld, das es nicht gab.
+  **Gemini sah also ausschließlich Absender und Betreff.** Gilt für beide Workflows.
+
+### Behoben: Ein Absturz bei Gemini warf nicht mehr den ganzen Lauf weg
+- Weist Google mittendrin ab, bricht das Panel die restlichen Bündel ab und gibt zurück, was
+  bis dahin fertig ist. Das wird eingeordnet und protokolliert, statt verloren zu gehen.
+- Mails ohne saubere Zuordnung fallen aus dem Lauf, statt geraten zu werden — sie kommen beim
+  nächsten Mal wieder. Eine falsch zugeordnete Antwort verschiebt eine Mail in den falschen
+  Ordner, und das merkt niemand.
+
+### Geändert: Das Budget zählt jetzt Anfragen
+- „KI-Einordnungen pro Tag" heißt jetzt **„KI-Anfragen pro Tag"** — vorher waren Mails und
+  Anfragen dasselbe, seit der Bündelung nicht mehr. Das Dashboard zeigt beide Zahlen
+  nebeneinander: Anfragen gegen das Limit, Mails als Ergebnis.
+- Das Abrufsfenster steigt von 100 auf **250 Mails je Konto und Lauf**. Die Begründung für die
+  100 war der alte KI-Takt; der Engpass ist jetzt IMAP.
+- Neue Einstellungen unter *KI*: Mails pro Anfrage, Textmenge normal, Textmenge bei Verdacht.
+
+**Nach dem Update einmal *Workflows → Synchronisieren*** — der Bündel-Knoten steckt im Workflow.
+
 ## [3.12.2.0] - 2026-09-06 (Build 107) — *Google nennt die Zahl doch*
 
 ### Neu: Das echte Tageslimit steht in der Absage

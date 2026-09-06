@@ -37,6 +37,14 @@ const FELDER = {
   // Entscheidungen trifft das Panel nicht im Hintergrund.
   gemini_modell:        { env: 'GEMINI_MODELL', geheim: false, standard: 'gemini-3.5-flash-lite' },
   gemini_modell_ersatz: { env: 'GEMINI_MODELL_ERSATZ', geheim: false, standard: '' },
+  // Wie viele Mails in eine Anfrage passen. Googles Tageslimit zaehlt Anfragen,
+  // nicht Mails — das ist der Unterschied zwischen 500 und 10.000 Mails am Tag.
+  // Verdachtsfaelle belegen drei Plaetze und bekommen die lange Textform:
+  // Kategorie und Thema haengen an Absender und Betreff, Spam an Text und Links.
+  // Siehe services/klassifizierer.js.
+  gemini_buendel:       { env: 'GEMINI_BUENDEL', geheim: false, standard: '20' },
+  gemini_text_kurz:     { env: 'GEMINI_TEXT_KURZ', geheim: false, standard: '600' },
+  gemini_text_lang:     { env: 'GEMINI_TEXT_LANG', geheim: false, standard: '1500' },
   telegram_chat_id:     { env: 'TELEGRAM_CHAT_ID', geheim: false },
   // Postausgang für Workflow 06 (Newsletter abbestellen per Mail)
   smtp_host:            { env: 'SMTP_HOST', geheim: false },

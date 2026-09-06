@@ -85,16 +85,17 @@ function tagesbudget() {
   return eingestellt ? Math.min(eingestellt, beobachtet) : beobachtet;
 }
 
-// Wie viele Anfragen hat das Panel heute an Gemini herausgegeben?
+// Wie viele Anfragen hat das Panel heute an Gemini gestellt?
 //
-// Diese Zahl gibt es, weil die Protokollzählung systematisch zu niedrig liegt:
-// Stirbt ein Lauf am Gemini-Knoten, scheitert der ganze Knoten — die Mails, die
-// vorher sauber klassifiziert wurden, laufen nie bis zum Panel weiter und werden
-// deshalb nirgends protokolliert. Googles Kontingent haben sie trotzdem gekostet.
-// Genau daher die Lücke zwischen „412 gezählt" und „limit: 500".
+// **Anfragen, nicht Mails.** Das ist seit der Bündelung nicht mehr dasselbe: Eine
+// Anfrage trägt bis zu zwanzig Mails, und Googles Limit („limit: 500") zählt
+// Anfragen. Wer hier Mails zählt, bremst bei 500, wo 10.000 gingen.
 //
-// Gezählt wird beim Herausgeben, also bevor etwas schiefgehen kann. Lieber einmal
-// zu viel gezählt (ein Lauf stirbt vor Gemini) als ein Deckel, der zu spät greift.
+// Gezählt wird im Moment des Aufrufs (services/klassifizierer.js), nicht beim
+// Protokollieren danach. Sonst geht die Zählung genau dann verloren, wenn es
+// darauf ankommt: Stirbt ein Lauf am Gemini-Knoten, wird keine der vorher
+// klassifizierten Mails protokolliert — bezahlt waren sie trotzdem. Genau daher
+// kam die Lücke zwischen „412 gezählt" und „limit: 500".
 const AUSGABE_TAG = 'ki_ausgabe_tag';
 const AUSGABE_STAND = 'ki_ausgabe_stand';
 
@@ -117,22 +118,25 @@ function ausgabeMerken(anzahl) {
   } catch { return 0; }
 }
 
+// Wie viele MAILS heute durch die KI gegangen sind. Eine andere Frage als die
+// nach den Anfragen — und die interessantere für „was hat das Panel heute
+// geschafft". Fürs Tageslimit ist sie es nicht.
 function protokolliertHeute() {
   try {
     return db.prepare(
-      // ki = 0 sind Mails, die eine eigene Regel sortiert hat — die haben Gemini
-      // nie gesehen und dürfen das Tageslimit nicht anknabbern.
+      // ki = 0 sind Mails, die eine eigene Regel oder ein Stichwort sortiert hat —
+      // die haben Gemini nie gesehen und dürfen das Tageslimit nicht anknabbern.
       "SELECT COUNT(*) n FROM quarantine_log WHERE created_at >= date('now','localtime')"
       + ' AND IFNULL(ki, 1) = 1',
     ).get().n;
   } catch { return 0; }
 }
 
-// Die höhere der beiden Zahlen ist die ehrliche: Workflow 01 protokolliert ohne
-// Ausgabe-Vermerk (er fragt den Wächter nicht), ein gestorbener Bestandslauf hat
-// den Vermerk ohne Protokoll.
+// Der Verbrauch am Tageslimit: Anfragen. Jede Stelle, die Gemini fragt, meldet
+// sich hier — der Bündel-Klassifizierer je Aufruf, Workflow 01 je Mail (dort
+// ist beides dasselbe).
 function heuteVerbraucht() {
-  return Math.max(protokolliertHeute(), ausgegebenHeute());
+  return ausgegebenHeute();
 }
 
 // Kennt das Panel diese Mail schon? von + betreff + konto, gegen die
@@ -156,13 +160,30 @@ function schonGesehen(konto, von, betreff) {
   }
 }
 
+// Wie viele Mails deckt eine Anfrage ab?
+//
+// Googles Tageslimit zählt ANFRAGEN, nicht Mails. Seit der Bündelung sind das
+// nicht mehr dieselben Dinge: Eine Anfrage trägt bis zu zwanzig Mails. Der
+// Deckel muss also umrechnen, sonst bremst er bei 500 Mails, wo 10.000 gingen.
+//
+// Vorsichtig gerechnet mit der halben Bündelgröße: Verdachtsfälle belegen drei
+// Plätze, und Dubletten fallen ganz weg — die tatsächliche Ausbeute je Anfrage
+// liegt darunter. Lieber ein Lauf zu wenig als einer, der bei Google aufläuft.
+function mailsJeAnfrage() {
+  try {
+    const n = require('./klassifizierer').buendelGroesse();
+    return Math.max(1, Math.floor(n / 2));
+  } catch { return 1; }
+}
+
 // kandidaten: [{ konto, von, betreff }] in der Reihenfolge, in der der
 // Sammel-Knoten sie hält.
 function entscheiden(kandidaten) {
   const liste = Array.isArray(kandidaten) ? kandidaten : [];
   const grenze = tagesbudget();
   const verbraucht = heuteVerbraucht();
-  const rest = grenze === 0 ? Infinity : Math.max(0, grenze - verbraucht);
+  const restAnfragen = grenze === 0 ? Infinity : Math.max(0, grenze - verbraucht);
+  const rest = restAnfragen === Infinity ? Infinity : restAnfragen * mailsJeAnfrage();
 
   const erlaubt = [];
   const ruheIndizes = [];
@@ -194,14 +215,17 @@ function entscheiden(kandidaten) {
   return {
     erlaubt,
     ruheIndizes,
-    // Wie viele davon wirklich bei Gemini landen. Regel-Mails sind in
-    // erlaubt mit drin, kosten aber nichts — nur diese Zahl darf gezaehlt
-    // werden, wenn der Aufrufer den Verbrauch vermerkt.
-    kiAnfragen: kiPlaetze,
+    // Wie viele der erlaubten Mails wirklich bei Gemini landen. Regel- und
+    // Stichwort-Mails sind in erlaubt mit drin, kosten aber nichts.
+    // Ausdrücklich MAILS, keine Anfragen — gezählt wird das Kontingent dort, wo
+    // es ausgegeben wird (services/klassifizierer.js).
+    kiMails: kiPlaetze,
     budget: {
-      grenze,
-      verbraucht,
+      grenze,                       // Anfragen pro Tag
+      verbraucht,                   // Anfragen heute
       rest: grenze === 0 ? null : Math.max(0, grenze - verbraucht),
+      // Wie viele Mails das noch trägt — die Zahl, die im Lauf zählt.
+      restMails: grenze === 0 ? null : Math.max(0, grenze - verbraucht) * mailsJeAnfrage(),
       unbegrenzt: grenze === 0,
     },
     uebersprungen: { gesehen: uebersprungenGesehen, budget: uebersprungenBudget, ruhe: uebersprungenRuhe },
@@ -211,7 +235,7 @@ function entscheiden(kandidaten) {
 
 module.exports = {
   entscheiden, tagesbudget, heuteVerbraucht, schonGesehen, beobachteteGrenze,
-  ausgegebenHeute, ausgabeMerken, protokolliertHeute,
+  ausgegebenHeute, ausgabeMerken, protokolliertHeute, mailsJeAnfrage,
 };
 
 // Für den Budget-Knoten in Workflow 04: nimmt die vollen Mail-Objekte, gibt die
@@ -219,7 +243,7 @@ module.exports = {
 // weiter — alles andere fällt vor dem KI-Aufruf weg und kostet kein Budget.
 function filtern(mails) {
   const liste = Array.isArray(mails) ? mails : [];
-  const { erlaubt, ruheIndizes, budget, uebersprungen, kiAnfragen } = entscheiden(
+  const { erlaubt, ruheIndizes, budget, uebersprungen, kiMails } = entscheiden(
     liste.map((m) => ({ konto: m && m.konto, von: m && m.von, betreff: m && m.betreff })),
   );
   return {
@@ -227,7 +251,7 @@ function filtern(mails) {
     ruheMails: (ruheIndizes || []).map((i) => liste[i]),
     budget,
     uebersprungen,
-    kiAnfragen,
+    kiMails,
     gesamt: liste.length,
   };
 }

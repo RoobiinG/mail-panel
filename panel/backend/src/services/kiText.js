@@ -33,7 +33,10 @@ async function frageJson(prompt, opt = {}) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: String(prompt).slice(0, 12000) }] }],
+          // Die Kappung schützt vor einem versehentlich riesigen Prompt. Ein
+          // Bündel aus 20 Mails ist aber legitim groß — deshalb einstellbar,
+          // statt still die halbe Anfrage abzuschneiden.
+          contents: [{ parts: [{ text: String(prompt).slice(0, opt.maxZeichen || 12000) }] }],
           generationConfig: { responseMimeType: 'application/json', temperature: 0.2 },
         }),
         signal: AbortSignal.timeout(opt.zeitlimit || 30000),
@@ -41,9 +44,21 @@ async function frageJson(prompt, opt = {}) {
     );
     // Eine Abweisung wegen Kontingent zählt auch hier: Sie sagt dasselbe wie
     // drüben in n8n — für heute ist Schluss (siehe services/kiKontingent.js).
+    //
+    // Der Antworttext geht mit: Darin steht Googles eigenes Limit
+    // („limit: 500, model: …"), und das ist die einzige harte Zahl, die je zu
+    // bekommen ist. Ohne sie bliebe nur die eigene, zu niedrige Zählung.
     if (res.status === 429) {
-      try { require('./kiKontingent').abweisungMerken(new Date().toISOString()); } catch { /* egal */ }
-      return { ok: false, fehler: 'Google hat abgewiesen — das Tageskontingent ist aufgebraucht.' };
+      let meldung = '';
+      try { meldung = (await res.text()).slice(0, 2000); } catch { /* dann eben ohne */ }
+      try { require('./kiKontingent').abweisungMerken(new Date().toISOString(), meldung); } catch { /* egal */ }
+      return {
+        ok: false,
+        // Damit der Aufrufer eine Kontingent-Absage von einem gewöhnlichen
+        // Fehler unterscheiden kann: Bei jener ist Weitermachen sinnlos.
+        kontingent: true,
+        fehler: 'Google hat abgewiesen — das Tageskontingent ist aufgebraucht.',
+      };
     }
     if (!res.ok) {
       const text = (await res.text()).slice(0, 200);

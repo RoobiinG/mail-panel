@@ -31,9 +31,14 @@ const { loggen } = require('./panelLog');
 // "wieder alles von vorn" — also lieber ausdrücklich nichts.
 const KEINE = '4294967295';
 
-// Wie viele Mails höchstens pro Konto und Lauf. Mehr bringt nichts: Die
-// Klassifizierung ist auf 10 Anfragen je Minute gedrosselt.
-const FENSTER = 100;
+// Wie viele Mails höchstens pro Konto und Lauf.
+//
+// Stand lange auf 100, weil die Klassifizierung eine Anfrage je Mail brauchte
+// und auf zehn Anfragen je Minute gedrosselt war. Seit der Bündelung
+// (services/klassifizierer.js) ist die KI nicht mehr der Engpass, sondern das
+// Abholen der Mails über IMAP — dafür sind 250 noch verträglich. Der
+// Budget-Deckel liegt weiterhin darüber und greift zuerst.
+const FENSTER = 250;
 
 function zahlOderNull(uid) {
   const n = Number(uid);
@@ -91,9 +96,13 @@ const zeigerSchluessel = (kontoId) => `bestand_zeiger_${kontoId}`;
 function fensterGroesse(anzahlKonten) {
   const grenze = budget.tagesbudget();
   if (grenze === 0) return FENSTER; // kein Deckel gesetzt
-  const rest = Math.max(0, grenze - budget.heuteVerbraucht());
-  if (rest === 0) return 0;
-  return Math.max(1, Math.min(FENSTER, Math.ceil(rest / Math.max(1, anzahlKonten))));
+  // Grenze und Verbrauch stehen in ANFRAGEN, das Fenster in Mails. Eine Anfrage
+  // trägt seit der Bündelung mehrere Mails — ohne die Umrechnung bliebe das
+  // Fenster bei einem Bruchteil dessen, was der Tag noch hergibt.
+  const restAnfragen = Math.max(0, grenze - budget.heuteVerbraucht());
+  if (restAnfragen === 0) return 0;
+  const restMails = restAnfragen * budget.mailsJeAnfrage();
+  return Math.max(1, Math.min(FENSTER, Math.ceil(restMails / Math.max(1, anzahlKonten))));
 }
 
 // Die Antwort für den Auswahl-Knoten in Workflow 04: je Konto die UIDs, die

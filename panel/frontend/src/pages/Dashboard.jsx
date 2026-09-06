@@ -292,14 +292,24 @@ export default function Dashboard() {
                   <div className="space-y-2">
                     <div className="flex justify-between items-end">
                       <span className="text-2xl font-bold">{b.heute}
-                        <span className="text-sm text-panel-muted font-normal"> / {b.grenze}</span></span>
+                        <span className="text-sm text-panel-muted font-normal"> / {b.grenze} Anfragen</span></span>
                       <span className="text-xs text-panel-muted">{b.rest} übrig heute</span>
                     </div>
                     <Balken anteil={budgetAnteil} ton={b.ausgeschoepft ? 'rot' : budgetAnteil > 80 ? 'warnung' : 'accent'} />
+                    {/* Anfragen sind die Währung — Googles Limit zählt die.
+                        Mails sind das Ergebnis, und seit der Bündelung stecken
+                        mehrere davon in einer Anfrage. Beide Zahlen gehören
+                        nebeneinander, sonst versteht niemand den Deckel. */}
+                    {b.mailsHeute > 0 && (
+                      <p className="text-xs text-panel-muted">
+                        Dabei eingeordnet: <b className="text-panel-text">{b.mailsHeute}</b> Mails
+                        {b.heute > 0 && <> — rund {Math.round(b.mailsHeute / b.heute)} je Anfrage</>}
+                      </p>
+                    )}
                     <p className="text-xs text-panel-muted pt-1">
                       {b.ausgeschoepft
-                        ? 'Heutiges Budget aufgebraucht — die Sortierung eines großen Bestands macht morgen weiter.'
-                        : 'So viele Mails ordnet die KI heute noch ein. Schützt das Gemini-Tageslimit.'}
+                        ? 'Heutiges Kontingent aufgebraucht — die Sortierung eines großen Bestands macht morgen weiter.'
+                        : `Googles Tageslimit zählt Anfragen, nicht Mails. Das Panel bündelt bis zu ${b.jeAnfrage * 2} Mails in eine.`}
                     </p>
                   </div>
                 ) : (

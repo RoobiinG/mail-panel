@@ -409,17 +409,55 @@ export default function Einstellungen() {
             <PwFeld label="Gemini API-Key" value={settings.gemini_api_key} placeholder="AIza…"
               disabled={settings.gemini_api_key_per_env} onChange={v => set('gemini_api_key', v)} />
             <div className="space-y-1">
-              <label className="block text-xs text-panel-muted">KI-Einordnungen pro Tag</label>
+              <label className="block text-xs text-panel-muted">KI-Anfragen pro Tag</label>
               <p className="text-[10px] text-panel-muted/60">
-                Schützt das Gemini-Tageslimit, wenn ein großer Altbestand aufgearbeitet wird.
-                0 = kein Deckel. Sinnvoll ist der Wert nur <span className="text-panel-text">unter</span> dem,
-                was Googles Gratis-Tarif am Tag zulässt: Steht er höher, bremst nicht mehr das
-                Panel, sondern Google — und dann bricht der Lauf mitten im Stapel mit „too many
-                requests" ab, statt sauber zu enden. Im Zweifel lieber zu niedrig.
+                Googles Tageslimit zählt <span className="text-panel-text">Anfragen</span>, nicht Mails —
+                in der Gratisstufe je nach Modell wenige hundert. Da das Panel bis zu 20 Mails in eine
+                Anfrage bündelt, ist das ein Vielfaches an Mails. 0 = kein Deckel. Sinnvoll ist der Wert
+                nur <span className="text-panel-text">unter</span> dem, was Google zulässt: Steht er
+                höher, bremst nicht mehr das Panel, sondern Google — und dann bricht der Lauf mitten im
+                Stapel mit „too many requests" ab, statt sauber zu enden.
               </p>
               <input type="number" min="0" step="10" value={settings.gemini_tagesbudget}
                 disabled={settings.gemini_tagesbudget_per_env}
                 onChange={e => set('gemini_tagesbudget', e.target.value)} className={inputCls} />
+            </div>
+            <div className="space-y-1">
+              <label className="block text-xs text-panel-muted">Mails pro KI-Anfrage</label>
+              <p className="text-[10px] text-panel-muted/60">
+                Der eigentliche Hebel: 20 Mails in einer Anfrage machen aus 500 Anfragen am Tag rund
+                10.000 Mails. Höher heißt mehr Durchsatz, aber eine unbrauchbare Antwort reißt auch
+                mehr Mails mit — die bleiben dann liegen und kommen im nächsten Lauf wieder.
+                Verdachtsfälle belegen automatisch drei Plätze und bekommen mehr Text. Leer = 20.
+              </p>
+              <input type="number" min="1" max="60" step="1" value={settings.gemini_buendel ?? ''}
+                placeholder="20"
+                disabled={settings.gemini_buendel_per_env}
+                onChange={e => set('gemini_buendel', e.target.value)} className={inputCls} />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <label className="block text-xs text-panel-muted">Textmenge normal</label>
+                <p className="text-[10px] text-panel-muted/60">
+                  Zeichen je Mail im Bündel. Thema und Kategorie hängen an Absender und Betreff —
+                  dafür reicht wenig. Leer = 600.
+                </p>
+                <input type="number" min="100" max="4000" step="100" value={settings.gemini_text_kurz ?? ''}
+                  placeholder="600"
+                  disabled={settings.gemini_text_kurz_per_env}
+                  onChange={e => set('gemini_text_kurz', e.target.value)} className={inputCls} />
+              </div>
+              <div className="space-y-1">
+                <label className="block text-xs text-panel-muted">Textmenge bei Verdacht</label>
+                <p className="text-[10px] text-panel-muted/60">
+                  Für DNSBL-Treffer und fremde Absender ohne Abmelde-Link: Spam-Erkennung braucht
+                  Text und Links. Leer = 1500.
+                </p>
+                <input type="number" min="200" max="8000" step="100" value={settings.gemini_text_lang ?? ''}
+                  placeholder="1500"
+                  disabled={settings.gemini_text_lang_per_env}
+                  onChange={e => set('gemini_text_lang', e.target.value)} className={inputCls} />
+              </div>
             </div>
             <div className="space-y-1">
               <label className="block text-xs text-panel-muted">Belege pro Tag auslesen</label>

@@ -9,6 +9,7 @@ const google  = require('../services/google');
 const sortierung = require('../services/sortierung');
 const budget  = require('../services/budget');
 const bestand = require('../services/bestand');
+const klassifizierer = require('../services/klassifizierer');
 const belegLeser = require('../services/belegLeser');
 const settings = require('../services/settings');
 const themen  = require('../services/themen');
@@ -119,6 +120,31 @@ router.post('/sort', (req, res) => {
         regelMerken(konto, uid);
         return res.json({ aktion: 'verschieben', ordner: match.ordner });
       }
+
+      // Und was ohnehin schon feststeht, muss die KI auch nicht mehr sagen.
+      //
+      // Der Stichwort-Treffer (Ordner-Beschreibung, gelernte Absender,
+      // Umleitungen) wurde bisher erst in themen.aufloesen() ausgewertet — also
+      // NACH dem Gemini-Aufruf. Die Mail wurde bezahlt und dann von etwas
+      // entschieden, das schon vorher feststand. Damit war das Versprechen
+      // „einmal von der KI geschlossen, danach wörtliches Wissen" nie eingelöst:
+      // Der zweite Absender derselben Firma kostete genauso viel wie der erste.
+      //
+      // Hier oben kostet er nichts. Der Zweig existiert schon — es ist derselbe,
+      // den die eigenen Regeln nehmen.
+      try {
+        if (themen.einstellungen().aktiv) {
+          const stich = themen.stichwortTreffer(account.id, von, betreff);
+          if (stich && stich.ordner) {
+            regelMerken(konto, uid);
+            return res.json({
+              aktion: 'verschieben',
+              ordner: stich.ordner,
+              grund: `Stichwort „${stich.wort}" (${stich.wo === 'absender' ? 'Absender' : 'Betreff'})`,
+            });
+          }
+        }
+      } catch { /* im Zweifel laeuft die Mail eben normal weiter zur KI */ }
     }
     // Kein Treffer: Die Mail laeuft weiter durch Pruefdienste und KI. In die
     // Sortier-Inbox kommt sie erst ganz am Ende in /einsortieren — sonst stuende
@@ -158,19 +184,37 @@ function ruheVermerken(mails) {
   }
 }
 
-// Was hier herausgeht, ist an Gemini herausgegeben — auch wenn der Lauf danach
-// am Gemini-Knoten stirbt und keine einzige dieser Mails je protokolliert wird.
-// Googles Kontingent haben sie trotzdem gekostet. Deshalb wird der Verbrauch
-// hier vermerkt und nicht erst beim Einsortieren.
-function ausgabeVermerken(anzahl) {
-  try { budget.ausgabeMerken(anzahl); } catch { /* ein Vermerk darf den Lauf nicht aufhalten */ }
+// Welche Mails hat der Buendel-Klassifizierer bearbeitet?
+//
+// Er zaehlt seine Anfragen selbst (eine je Buendel, nicht je Mail). Damit
+// /einsortieren fuer dieselben Mails nicht noch einmal je Mail eine Anfrage
+// vermerkt, merkt er sich hier, wen er in der Hand hatte — dieselbe Bauart wie
+// regelMerken() weiter oben, aus demselben Grund: Die Frage laesst sich nur im
+// Moment der Klassifizierung beantworten.
+const perBuendel = new Map();
+
+function buendelMerken(konto, uid) {
+  if (uid == null) return;
+  if (perBuendel.size > 20000) {
+    const grenze = Date.now() - REGEL_MERK_MS;
+    for (const [k, t] of perBuendel) if (t < grenze) perBuendel.delete(k);
+  }
+  perBuendel.set(`${konto}|${uid}`, Date.now());
+}
+
+function warGebuendelt(konto, uid) {
+  if (uid == null) return false;
+  const schluessel = `${konto}|${uid}`;
+  const zeit = perBuendel.get(schluessel);
+  if (zeit == null) return false;
+  perBuendel.delete(schluessel);
+  return Date.now() - zeit < REGEL_MERK_MS;
 }
 
 router.post('/budget-filter', express.json({ limit: '25mb' }), (req, res) => {
   try {
     const ergebnis = budget.filtern((req.body || {}).mails);
     ruheVermerken((ergebnis.ruheMails || []).map((m) => (m && m.json) || m));
-    ausgabeVermerken(ergebnis.kiAnfragen);
     bestandslaufMerken(ergebnis.mails?.length, ergebnis.gesamt);
     res.json(ergebnis);
   } catch (err) {
@@ -199,12 +243,38 @@ router.post('/bestand-kandidaten', express.json(), async (req, res) => {
   }
 });
 
+// Alle Mails eines Bestandslaufs auf einmal klassifizieren.
+//
+// Der Knoten "Gemini klassifizieren" in Workflow 04 ist deshalb kein
+// HTTP-Knoten mehr, sondern ein Code-Knoten, der genau hier anklopft: Googles
+// Tageslimit zaehlt ANFRAGEN, nicht Mails. Eine Anfrage je Mail waren 500 Mails
+// am Tag; zwanzig Mails je Anfrage sind zehntausend. Siehe
+// services/klassifizierer.js.
+//
+// Grosses Limit, weil der ganze Lauf auf einmal ankommt. Faellt hier etwas aus,
+// gibt der Knoten keine Items aus — die Mails bleiben unangetastet liegen und
+// kommen im naechsten Lauf wieder.
+router.post('/klassifizieren', express.json({ limit: '25mb' }), async (req, res) => {
+  try {
+    const mails = (req.body || {}).mails;
+    const ergebnis = await klassifizierer.klassifizieren(mails);
+    // Diese Mails sind bezahlt — und zwar gebuendelt. /einsortieren darf fuer
+    // sie keine zweite Anfrage vermerken.
+    (Array.isArray(mails) ? mails : []).forEach((m, i) => {
+      if (ergebnis.ergebnisse[i]) buendelMerken(m && m.konto, m && m.uid);
+    });
+    res.json(ergebnis);
+  } catch (err) {
+    console.error('Klassifizier-Fehler:', err.message);
+    res.status(500).json({ error: err.message, ergebnisse: [] });
+  }
+});
+
 router.post('/budget', express.json({ limit: '512kb' }), (req, res) => {
   try {
     const kandidaten = (req.body || {}).kandidaten;
     const ergebnis = budget.entscheiden(kandidaten);
     ruheVermerken((ergebnis.ruheIndizes || []).map((i) => (kandidaten || [])[i]));
-    ausgabeVermerken(ergebnis.kiAnfragen);
     bestandslaufMerken(ergebnis.erlaubt?.length, ergebnis.gesamt);
     res.json(ergebnis);
   } catch (err) {
@@ -417,7 +487,18 @@ router.post('/einsortieren', async (req, res) => {
     // Tagesbudget genau dann leergesaugt, wenn man sich Regeln angelegt hat.
     // Massgeblich ist der Vermerk aus /sort — nicht, ob jetzt gerade eine Regel
     // passt: Die kann in diesem Lauf erst dazugelernt worden sein.
-    triageProtokollieren({ ...b, zielordner: ordner, ki: warRegelSortiert(b.konto, b.uid) ? 0 : 1 });
+    const perKi = !warRegelSortiert(b.konto, b.uid);
+    triageProtokollieren({ ...b, zielordner: ordner, ki: perKi ? 1 : 0 });
+
+    // Und was hat diese Mail an Kontingent gekostet?
+    //
+    // Der Buendel-Klassifizierer zaehlt seine Anfragen selbst — eine je zwanzig
+    // Mails. Workflow 01 fragt Gemini dagegen weiter direkt und je Mail; dort ist
+    // eine Mail genau eine Anfrage, und gezaehlt wird sie hier. Ohne diese Zeile
+    // liefe die laufende Post am Tageslimit vorbei.
+    if (perKi && !warGebuendelt(b.konto, b.uid)) {
+      try { budget.ausgabeMerken(1); } catch { /* ein Vermerk darf nichts aufhalten */ }
+    }
 
     // Erst nach dem Protokollieren zaehlen — sonst uebersieht die Zaehlung die
     // gerade laufende Mail.

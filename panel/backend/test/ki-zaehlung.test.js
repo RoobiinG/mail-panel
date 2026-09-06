@@ -53,7 +53,8 @@ beforeEach(() => {
     + ' DELETE FROM sort_inbox; DELETE FROM bestand_erledigt;');
   db.prepare("INSERT INTO accounts (name, host, port, username, password_enc, aktiv)"
     + " VALUES ('K', 'h', 993, 'u', 'x', 1)").run();
-  db.prepare("DELETE FROM settings WHERE key='gemini_tagesbudget' OR key LIKE 'ki_%'").run();
+  db.prepare("DELETE FROM settings WHERE key LIKE 'gemini_%' OR key LIKE 'ki_%' OR key LIKE 'themen_%'").run();
+  db.exec('DELETE FROM konto_ordner;');
 });
 
 const kontoId = () => db.prepare("SELECT id FROM accounts WHERE name='K'").get().id;
@@ -97,5 +98,66 @@ describe('KI-Verbrauch ehrlich zaehlen', () => {
     await post('/api/internal/sort', { konto: 'K', von: 'c@shop.de', betreff: 'x' });
     await post('/api/internal/einsortieren', { konto: 'K', von: 'c@shop.de', betreff: 'x' });
     assert.equal(kiSpalte('c@shop.de'), 1, 'im Zweifel als KI-Aufruf — der Deckel darf nicht zu locker sein');
+  });
+});
+
+// Was schon feststeht, muss die KI nicht mehr sagen.
+//
+// Der Stichwort-Treffer — Ordner-Beschreibung, gelernte Absender, Umleitungen —
+// wurde bisher erst NACH dem Gemini-Aufruf ausgewertet. Die Mail wurde bezahlt
+// und dann von etwas entschieden, das schon vorher feststand. Damit war das
+// Versprechen "einmal von der KI geschlossen, danach woertliches Wissen" nie
+// eingeloest: Der zweite Absender derselben Firma kostete so viel wie der erste.
+describe('Stichworte entscheiden vor der KI', () => {
+  const ordnerAnlegen = (ordner, beschreibung, gelernt = null) => db.prepare(
+    'INSERT INTO konto_ordner (konto_id, ordner, beschreibung, gelernt, quelle) VALUES (?, ?, ?, ?, ?)',
+  ).run(kontoId(), ordner, beschreibung, gelernt, 'manuell');
+
+  test('ein Wort aus der Beschreibung reicht — ohne KI', async () => {
+    db.prepare("INSERT INTO settings (key, value) VALUES ('themen_sortierung_aktiv','1')").run();
+    ordnerAnlegen('Anbieter', 'Vodafone, Sky, Telekom');
+
+    const s = await post('/api/internal/sort', {
+      konto: 'K', von: 'info@vodafone.de', betreff: 'Ihre Rechnung', uid: 31,
+    });
+    assert.equal(s.json.aktion, 'verschieben');
+    assert.equal(s.json.ordner, 'Anbieter');
+    assert.match(s.json.grund, /Stichwort/);
+
+    await post('/api/internal/einsortieren', {
+      konto: 'K', von: 'info@vodafone.de', betreff: 'Ihre Rechnung', uid: 31,
+    });
+    assert.equal(kiSpalte('info@vodafone.de'), 0, 'Gemini hat diese Mail nie gesehen');
+    assert.equal(budget.heuteVerbraucht(), 0, 'und sie kostet kein Kontingent');
+  });
+
+  test('ein gelernter Absender ebenso — genau darum wird gelernt', async () => {
+    db.prepare("INSERT INTO settings (key, value) VALUES ('themen_sortierung_aktiv','1')").run();
+    ordnerAnlegen('Anbieter', 'Vodafone, Sky', 'o2.de');
+
+    const s = await post('/api/internal/sort', {
+      konto: 'K', von: 'news@o2.de', betreff: 'Neues Angebot', uid: 32,
+    });
+    assert.equal(s.json.ordner, 'Anbieter');
+    assert.equal(budget.heuteVerbraucht(), 0);
+  });
+
+  test('ohne Themen-Sortierung bleibt alles beim Alten', async () => {
+    ordnerAnlegen('Anbieter', 'Vodafone, Sky, Telekom');
+    const s = await post('/api/internal/sort', {
+      konto: 'K', von: 'info@vodafone.de', betreff: 'x', uid: 33,
+    });
+    assert.equal(s.json.aktion, 'inbox', 'dann entscheidet weiter die KI');
+  });
+
+  test('eine eigene Regel geht weiterhin vor', async () => {
+    db.prepare("INSERT INTO settings (key, value) VALUES ('themen_sortierung_aktiv','1')").run();
+    ordnerAnlegen('Anbieter', 'Vodafone');
+    regelAnlegen('vodafone.de', 'Meine Regel');
+
+    const s = await post('/api/internal/sort', {
+      konto: 'K', von: 'info@vodafone.de', betreff: 'x', uid: 34,
+    });
+    assert.equal(s.json.ordner, 'Meine Regel', 'was der Nutzer selbst eingetragen hat, zaehlt zuerst');
   });
 });

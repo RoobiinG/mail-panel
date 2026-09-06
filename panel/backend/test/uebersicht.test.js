@@ -24,6 +24,7 @@ const db = require('../src/db');
 const settings = require('../src/services/settings');
 const { verschluesseln } = require('../src/services/crypto');
 const uebersicht = require('../src/services/uebersicht');
+const budget = require('../src/services/budget');
 
 function konto(name) {
   db.prepare(`INSERT INTO accounts (name, host, port, username, password_enc, aktiv)
@@ -45,14 +46,20 @@ beforeEach(() => {
 });
 
 describe('KI-Tagesbudget', () => {
-  test('heute verbrauchte Einordnungen werden gezählt', () => {
-    log({}); log({}); log({ alter: 2 }); // zwei heute, eine vor zwei Tagen
-    assert.equal(uebersicht.heuteVerbraucht(), 2);
+  // Anfragen und Mails sind zweierlei: Googles Limit zaehlt Anfragen, eine davon
+  // traegt seit der Buendelung bis zu zwanzig Mails.
+  test('gezaehlt werden Anfragen, angezeigt auch die Mails', async () => {
+    log({}); log({}); log({ alter: 2 }); // zwei Mails heute, eine vor zwei Tagen
+    budget.ausgabeMerken(1);             // in einer einzigen Anfrage
+    assert.equal(uebersicht.heuteVerbraucht(), 1);
+    const u = await uebersicht.laden({ mitPosteingang: false });
+    assert.equal(u.budget.heute, 1, 'Anfragen');
+    assert.equal(u.budget.mailsHeute, 2, 'Mails');
   });
 
   test('Budget mit Grenze rechnet Rest und Ausschöpfung', async () => {
     settings.setze('gemini_tagesbudget', '5');
-    log({}); log({}); log({});
+    budget.ausgabeMerken(3);
     const u = await uebersicht.laden({ mitPosteingang: false });
     assert.equal(u.budget.grenze, 5);
     assert.equal(u.budget.heute, 3);
@@ -62,7 +69,7 @@ describe('KI-Tagesbudget', () => {
 
   test('aufgebrauchtes Budget wird erkannt', async () => {
     settings.setze('gemini_tagesbudget', '2');
-    log({}); log({}); log({});
+    budget.ausgabeMerken(3);
     const u = await uebersicht.laden({ mitPosteingang: false });
     assert.equal(u.budget.ausgeschoepft, true);
     assert.equal(u.budget.rest, 0, 'nie negativ');

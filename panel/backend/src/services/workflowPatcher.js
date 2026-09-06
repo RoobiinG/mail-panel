@@ -545,6 +545,29 @@ function absenderFallbackEinbauen(workflow, normalisierer) {
   return true;
 }
 
+// Der Mailtext fehlte dem Prompt — und niemandem fiel es auf.
+//
+// Der Normalisierer schneidet den Text auf 1.500 Zeichen zu und baut daraus
+// seinen promptText. Herausgegeben hat er den Text aber nie. „Prüfung auswerten"
+// baut den Prompt danach neu (es kommen ja die Themen-Ordner dazu) und setzt
+// dort `mail.text` ein — ein Feld, das es nicht gibt. Gemini bekam also
+// ausschließlich Absender und Betreff zu sehen.
+//
+// Ein Zeichen mehr in der Rückgabe behebt das. Es ist die Voraussetzung dafür,
+// dass die Bündel-Klassifizierung überhaupt Material zum Einstufen hat.
+const TEXT_FELD = /(\n([ \t]*)betreff,\n)/;
+
+function textFeldEinbauen(workflow, normalisierer) {
+  const knoten = workflow.nodes.find((k) => k.name === normalisierer && k.type === 'n8n-nodes-base.code');
+  if (!knoten?.parameters?.jsCode) return false;
+  const code = String(knoten.parameters.jsCode);
+  if (/\n[ \t]*text,\n/.test(code)) return false; // schon drin
+  const treffer = code.match(TEXT_FELD);
+  if (!treffer) return false;
+  knoten.parameters.jsCode = code.replace(treffer[0], `${treffer[0]}${treffer[2]}text,\n`);
+  return true;
+}
+
 // Der IMAP-Trigger liefert die UID unter attributes, nicht direkt. Ohne diesen
 // Rückfall blieb sie null — und ohne UID konnte der Verschiebe-Knoten keine
 // einzige Mail einsortieren ("Unable to move email").
@@ -885,6 +908,8 @@ async function triageSynchronisieren(konten, credentialId, aktionenWorkflowId) {
   geminiRequestReparieren(workflow);
   anhangKetteReparieren(workflow, NORMALISIERER['01']);
   absenderFallbackEinbauen(workflow, NORMALISIERER['01']);
+  // Auch hier: Ohne das Feld sah Gemini nur Absender und Betreff.
+  textFeldEinbauen(workflow, NORMALISIERER['01']);
   themenKetteEinbauen(workflow, NORMALISIERER['01'], credentialId);
 
   for (const name of [ANKER.triage.ziel, ANKER.triage.weiche]) {
@@ -992,6 +1017,105 @@ function budgetInSammeln(sammler) {
   sammler.parameters.jsCode = code.replace(/return out;\s*$/, `${block}\n`);
 }
 
+// ─── Workflow 04: aus einer Anfrage je Mail wird eine je zwanzig ─────────────
+//
+// Googles Absage nennt die Zahl: "limit: 500" — 500 ANFRAGEN am Tag, nicht 500
+// Mails. Ein HTTP-Knoten feuert je Item einmal; damit war bei 500 Mails Schluss,
+// und bei 23.000 Bestandsmails hätte das Monate gedauert.
+//
+// Deshalb wird der Knoten "Gemini klassifizieren" in Workflow 04 zu einem
+// Code-Knoten, der den ganzen Lauf auf einmal ans Panel gibt. Dort werden Mails
+// gebündelt, Dubletten zusammengefasst und Verdachtsfälle mit mehr Text bedacht
+// (services/klassifizierer.js).
+//
+// Wichtig: **Name und Position bleiben**, nur der Typ wechselt. Dadurch gelten
+// alle Verbindungen unverändert weiter. Und die Antwort hat die Form einer
+// Gemini-Antwort — damit bleibt auch "Antwort parsen" unangetastet.
+//
+// Workflow 01 behält seinen HTTP-Knoten: Dort kommt je Auslösung eine einzelne
+// Mail an, da gibt es nichts zu bündeln.
+const BUENDEL_MARKE = '// PANEL:BUENDEL v1';
+const GEMINI_KNOTEN = 'Gemini klassifizieren';
+
+function buendelCode() {
+  const geheim = process.env.PANEL_SECRET || '';
+  return [
+    `${BUENDEL_MARKE} — vom Mail-Panel gepflegt, bitte nicht von Hand aendern.`,
+    '// Gibt den ganzen Lauf auf einmal ans Panel und bekommt je Mail die',
+    '// Einstufung zurueck — in wenigen Anfragen statt einer je Mail.',
+    `const __geheim = ${JSON.stringify(geheim)};`,
+    'const __alle = $input.all();',
+    'if (__alle.length === 0) return [];',
+    '',
+    'let __antwort;',
+    'try {',
+    '  __antwort = await this.helpers.httpRequest({',
+    "    method: 'POST', url: 'http://panel:3002/api/internal/klassifizieren',",
+    "    headers: { 'X-Panel-Secret': __geheim, 'Content-Type': 'application/json' },",
+    '    body: {',
+    '      mails: __alle.map((__it) => ({',
+    '        konto: __it.json.konto,',
+    '        uid: __it.json.uid,',
+    '        von: __it.json.von,',
+    '        betreff: __it.json.betreff,',
+    "        text: __it.json.text || '',",
+    '        links: __it.json.links || [],',
+    '        listUnsubscribe: __it.json.listUnsubscribe || null,',
+    '        score_aufschlag: __it.json.score_aufschlag || 0,',
+    '        dnsbl_treffer: __it.json.dnsbl_treffer || [],',
+    '        nie_quarantaene: Boolean(__it.json.nie_quarantaene),',
+    '      })),',
+    '    },',
+    '    json: true, timeout: 900000,',
+    '  });',
+    '} catch (__e) {',
+    "  console.log('Klassifizierung nicht moeglich: ' + (__e.message || __e) + ' — es wird nichts sortiert.');",
+    '  return [];',
+    '}',
+    '',
+    'const __erg = (__antwort && __antwort.ergebnisse) || [];',
+    "if (__antwort && __antwort.hinweis) console.log(__antwort.hinweis);",
+    '',
+    '// Ohne Einstufung faellt die Mail aus dem Lauf. Sie weiterzureichen hiesse,',
+    '// sie als "sonstiges, unsicher" zu protokollieren — danach gaelte sie als',
+    '// gesehen und kaeme nie wieder. So kommt sie beim naechsten Lauf zurueck.',
+    'const __raus = [];',
+    'for (let __i = 0; __i < __alle.length; __i++) {',
+    '  const __k = __erg[__i];',
+    '  if (!__k) continue;',
+    '  __raus.push({',
+    '    json: Object.assign({}, __alle[__i].json, {',
+    '      candidates: [{ content: { parts: [{ text: JSON.stringify(__k) }] } }],',
+    '    }),',
+    '    pairedItem: { item: __i },',
+    '  });',
+    '}',
+    'return __raus;',
+  ].join('\n');
+}
+
+function geminiBuendelEinbauen(workflow) {
+  const i = workflow.nodes.findIndex((k) => k.name === GEMINI_KNOTEN);
+  if (i < 0) return false;
+  const alt = workflow.nodes[i];
+  const code = buendelCode();
+  if (alt.type === 'n8n-nodes-base.code' && alt.parameters?.jsCode === code) return false;
+
+  workflow.nodes[i] = {
+    parameters: { mode: 'runOnceForAllItems', jsCode: code },
+    id: alt.id,
+    name: alt.name,
+    type: 'n8n-nodes-base.code',
+    typeVersion: 2,
+    position: alt.position,
+    // Antwortet das Panel nicht, kommen keine Items heraus und der Lauf endet
+    // ruhig. Ein Fehlschlag waere hier irrefuehrend: Es ist nichts kaputt,
+    // es gab nur nichts zu tun.
+    alwaysOutputData: true,
+  };
+  return true;
+}
+
 async function bestandSynchronisieren(konten, credentialId, aktionenWorkflowId) {
   const info = await workflowSuchen(ANKER.bestand.workflowPraefix);
   const workflow = await n8n.workflowHolen(info.id);
@@ -1002,7 +1126,11 @@ async function bestandSynchronisieren(konten, credentialId, aktionenWorkflowId) 
   geminiRequestReparieren(workflow);
   anhangKetteReparieren(workflow, NORMALISIERER['04']);
   absenderFallbackEinbauen(workflow, NORMALISIERER['04']);
+  textFeldEinbauen(workflow, NORMALISIERER['04']);
   themenKetteEinbauen(workflow, NORMALISIERER['04'], credentialId);
+  // Zuletzt: Danach ist der Gemini-Knoten kein HTTP-Knoten mehr, und alles, was
+  // oben nach einem solchen sucht, hat ihn schon gesehen.
+  geminiBuendelEinbauen(workflow);
 
   const sammler = workflow.nodes.find((k) => k.name === ANKER.bestand.ziel);
   const kopf    = workflow.nodes.find((k) => k.name === ANKER.bestand.kopf);
@@ -1285,7 +1413,12 @@ async function kiUndBenachrichtigungenSynchronisieren() {
       if (geminiRequestReparieren(workflow)) geaendert = true;
 
       for (const knoten of workflow.nodes) {
-        if (['Gemini klassifizieren', 'Gemini zusammenfassen'].includes(knoten.name)) {
+        // Nur echte HTTP-Knoten: In Workflow 04 heißt der Bündel-Knoten genauso,
+        // ist aber ein Code-Knoten und ruft Google gar nicht mehr selbst auf.
+        // Ohne diese Prüfung bekäme er bei jedem Rundgang Zugangsdaten
+        // angeheftet, die er nicht braucht — und würde jedes Mal neu gespeichert.
+        if (knoten.type === 'n8n-nodes-base.httpRequest'
+          && ['Gemini klassifizieren', 'Gemini zusammenfassen'].includes(knoten.name)) {
           if (geminiCredId) {
             knoten.credentials = { httpHeaderAuth: { id: String(geminiCredId), name: 'Gemini API' } };
             geaendert = true;
@@ -1516,4 +1649,5 @@ module.exports = {
   geminiRequestReparieren, credentialErneuern, bestandAuswahlKnoten, AUSWAHL_KNOTEN,
   fingerabdruck, zugangsdatenVergessen, absenderFallbackEinbauen, ABSENDER_MARKE,
   geminiModellNachziehen,
+  geminiBuendelEinbauen, BUENDEL_MARKE, textFeldEinbauen,
 };

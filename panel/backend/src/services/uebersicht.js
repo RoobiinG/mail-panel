@@ -95,10 +95,15 @@ async function laden({ mitPosteingang = true } = {}) {
       offeneEntscheidungen: zahl("SELECT COUNT(*) n FROM sort_inbox WHERE status='offen'"),
     },
 
-    // KI-Tagesbudget
+    // KI-Tagesbudget. Gezählt werden ANFRAGEN — Googles Limit zählt die, und
+    // eine Anfrage trägt seit der Bündelung bis zu zwanzig Mails.
     budget: {
       grenze: budget,               // 0 = nicht gesetzt
-      heute: verbraucht,
+      heute: verbraucht,            // Anfragen
+      // Wie viele Mails dabei herausgekommen sind. Die eigentlich interessante
+      // Zahl für „was hat das Panel heute geschafft".
+      mailsHeute: require('./budget').protokolliertHeute(),
+      jeAnfrage: require('./budget').mailsJeAnfrage(),
       rest: budget ? Math.max(0, budget - verbraucht) : null,
       ausgeschoepft: budget ? verbraucht >= budget : false,
       // Wo Google heute abgewiesen hat — das Nächste an einem echten Tageslimit,

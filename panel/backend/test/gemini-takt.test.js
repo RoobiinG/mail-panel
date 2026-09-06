@@ -146,3 +146,104 @@ describe('credentialErneuern', () => {
     assert.equal(settings.hole('n8n_gemini_credential_id_fp'), '');
   });
 });
+
+// Aus einer Anfrage je Mail wird eine je zwanzig.
+//
+// Googles Absage nennt "limit: 500" — das sind 500 ANFRAGEN am Tag. Ein
+// HTTP-Knoten feuert je Item einmal; damit war bei 500 Mails Schluss. Deshalb
+// wird der Knoten in Workflow 04 zum Code-Knoten, der den ganzen Lauf auf einmal
+// ans Panel gibt. Entscheidend ist dabei, was NICHT passiert: Name und Position
+// bleiben, damit keine einzige Verbindung im Workflow nachgezogen werden muss.
+describe('Buendel-Knoten in Workflow 04', () => {
+  const workflowMit = (knoten) => ({
+    nodes: [
+      { name: 'Prüfung auswerten', type: 'n8n-nodes-base.code', parameters: { jsCode: '// x' } },
+      knoten,
+    ],
+    connections: {
+      'Prüfung auswerten': { main: [[{ node: 'Gemini klassifizieren', type: 'main', index: 0 }]] },
+      'Gemini klassifizieren': { main: [[{ node: 'Antwort parsen', type: 'main', index: 0 }]] },
+    },
+  });
+
+  test('aus dem HTTP-Knoten wird ein Code-Knoten — unter demselben Namen', () => {
+    const wf = workflowMit({ ...geminiKnoten(), id: 'abc', position: [1, 2] });
+    assert.equal(patcher.geminiBuendelEinbauen(wf), true);
+
+    const k = wf.nodes.find((n) => n.name === 'Gemini klassifizieren');
+    assert.equal(k.type, 'n8n-nodes-base.code');
+    assert.equal(k.parameters.mode, 'runOnceForAllItems');
+    assert.equal(k.id, 'abc', 'gleiche id');
+    assert.deepEqual(k.position, [1, 2], 'gleiche Stelle');
+    assert.ok(wf.connections['Gemini klassifizieren'], 'die Verbindungen bleiben unangetastet');
+  });
+
+  test('er fragt das Panel, nicht mehr Google', () => {
+    const wf = workflowMit(geminiKnoten());
+    patcher.geminiBuendelEinbauen(wf);
+    const code = wf.nodes[1].parameters.jsCode;
+    assert.match(code, /api\/internal\/klassifizieren/);
+    assert.doesNotMatch(code, /generativelanguage/);
+    assert.match(code, /test-geheim-123/, 'mit dem Panel-Geheimnis');
+  });
+
+  test('die Antwort hat die Form einer Gemini-Antwort', () => {
+    const wf = workflowMit(geminiKnoten());
+    patcher.geminiBuendelEinbauen(wf);
+    assert.match(wf.nodes[1].parameters.jsCode, /candidates: \[\{ content: \{ parts:/,
+      'nur so bleibt "Antwort parsen" unveraendert');
+    assert.match(wf.nodes[1].parameters.jsCode, /pairedItem/,
+      'sonst findet der naechste Knoten die zugehoerige Mail nicht mehr');
+  });
+
+  test('nicht klassifizierte Mails fallen aus dem Lauf', () => {
+    const wf = workflowMit(geminiKnoten());
+    patcher.geminiBuendelEinbauen(wf);
+    assert.match(wf.nodes[1].parameters.jsCode, /if \(!__k\) continue;/,
+      'sie weiterzureichen hiesse, sie faelschlich als entschieden zu protokollieren');
+  });
+
+  test('ein zweiter Durchgang aendert nichts mehr', () => {
+    const wf = workflowMit(geminiKnoten());
+    patcher.geminiBuendelEinbauen(wf);
+    assert.equal(patcher.geminiBuendelEinbauen(wf), false,
+      'sonst schreibt jeder Sync denselben Workflow neu nach n8n');
+  });
+
+  test('ohne den Knoten passiert nichts', () => {
+    const wf = { nodes: [{ name: 'Irgendwas', type: 'n8n-nodes-base.code', parameters: {} }] };
+    assert.equal(patcher.geminiBuendelEinbauen(wf), false);
+  });
+});
+
+// Der Mailtext fehlte dem Prompt, und niemandem fiel es auf: Der Normalisierer
+// schneidet ihn zu, gibt ihn aber nicht heraus — "Prüfung auswerten" setzt
+// danach `mail.text` ein, ein Feld, das es nicht gab. Gemini sah also nur
+// Absender und Betreff.
+describe('Der Mailtext kommt aus dem Normalisierer heraus', () => {
+  const normalisierer = (rueckgabe) => ({
+    nodes: [{
+      name: 'Sammeln + Normalisieren',
+      type: 'n8n-nodes-base.code',
+      parameters: { jsCode: rueckgabe },
+    }],
+  });
+
+  test('das Feld wird ergaenzt', () => {
+    const wf = normalisierer('  return {\n    konto,\n    von,\n    betreff,\n    ip: null,\n  };\n');
+    assert.equal(patcher.textFeldEinbauen(wf, 'Sammeln + Normalisieren'), true);
+    assert.match(wf.nodes[0].parameters.jsCode, /\n {4}betreff,\n {4}text,\n/);
+  });
+
+  test('die Einrueckung wird uebernommen', () => {
+    const wf = normalisierer('return {\n  json: {\n    von,\n    betreff,\n    ip: null,\n  },\n};\n');
+    patcher.textFeldEinbauen(wf, 'Sammeln + Normalisieren');
+    assert.match(wf.nodes[0].parameters.jsCode, /\n {4}betreff,\n {4}text,\n/);
+  });
+
+  test('ein zweiter Durchgang aendert nichts', () => {
+    const wf = normalisierer('  return {\n    von,\n    betreff,\n  };\n');
+    patcher.textFeldEinbauen(wf, 'Sammeln + Normalisieren');
+    assert.equal(patcher.textFeldEinbauen(wf, 'Sammeln + Normalisieren'), false);
+  });
+});

@@ -23,7 +23,10 @@ const kand = (n, konto = 'K') =>
 
 beforeEach(() => {
   db.exec('DELETE FROM quarantine_log; DELETE FROM sort_inbox; DELETE FROM sort_rules; DELETE FROM accounts;');
-  db.prepare("DELETE FROM settings WHERE key='gemini_tagesbudget' OR key LIKE 'ki_%' OR key LIKE 'gemini_modell%'").run();
+  db.prepare("DELETE FROM settings WHERE key LIKE 'gemini_%' OR key LIKE 'ki_%'").run();
+  // Ein Buendel von 1 macht aus Anfragen wieder Mails — nur so lassen sich die
+  // Grenzfaelle des Deckels ueberhaupt auf eine Mail genau pruefen.
+  settings.setze('gemini_buendel', '1');
 });
 
 describe('Tagesdeckel', () => {
@@ -38,8 +41,7 @@ describe('Tagesdeckel', () => {
 
   test('schon heute Verbrauchtes zählt gegen das Budget', () => {
     settings.setze('gemini_tagesbudget', '5');
-    heuteLog('K', 'schon@x.de', 'egal');  // 1 heute schon verbraucht
-    heuteLog('K', 'auch@x.de', 'egal');   // 2
+    budget.ausgabeMerken(2); // zwei Anfragen sind heute schon raus
     const e = budget.entscheiden(kand(10));
     assert.equal(e.erlaubt.length, 3, '5 minus 2 bereits verbraucht');
     assert.equal(e.budget.verbraucht, 2);
@@ -48,7 +50,7 @@ describe('Tagesdeckel', () => {
 
   test('aufgebrauchtes Budget lässt nichts mehr durch', () => {
     settings.setze('gemini_tagesbudget', '2');
-    heuteLog('K', 'a@x.de', 'x'); heuteLog('K', 'b@x.de', 'y');
+    budget.ausgabeMerken(2);
     const e = budget.entscheiden(kand(5));
     assert.equal(e.erlaubt.length, 0);
     assert.equal(e.budget.rest, 0);
@@ -176,14 +178,14 @@ describe('Regeln kosten kein Budget', () => {
     assert.equal(e.uebersprungen.budget, 1);
   });
 
-  test('nur ein KI-Aufruf zaehlt gegen das Budget', () => {
+  test('nur eine KI-Mail steht im Protokoll', () => {
     settings.setze('gemini_tagesbudget', '5');
     // Vier Zeilen von heute, aber drei davon hat eine Regel sortiert.
     db.prepare("INSERT INTO quarantine_log (konto, von, ki) VALUES ('K','a@x.de',0)").run();
     db.prepare("INSERT INTO quarantine_log (konto, von, ki) VALUES ('K','b@x.de',0)").run();
     db.prepare("INSERT INTO quarantine_log (konto, von, ki) VALUES ('K','c@x.de',0)").run();
     db.prepare("INSERT INTO quarantine_log (konto, von, ki) VALUES ('K','d@x.de',1)").run();
-    assert.equal(budget.heuteVerbraucht(), 1);
+    assert.equal(budget.protokolliertHeute(), 1);
   });
 
   test('die in Ruhe gelassenen werden mit Index gemeldet', () => {
@@ -241,7 +243,7 @@ describe('Was Google heute schon abgewiesen hat', () => {
   test('nach der Abweisung darf keine Mail mehr an die KI', () => {
     settings.setze('gemini_tagesbudget', '50000');
     abweisungVon(3);
-    heuteLog('K', 'a@x.de', '1'); heuteLog('K', 'b@x.de', '2'); heuteLog('K', 'c@x.de', '3');
+    budget.ausgabeMerken(3);
 
     const e = budget.entscheiden(kand(200));
     assert.equal(e.erlaubt.length, 0, 'der Lauf endet sofort, statt bei Gemini zu sterben');
@@ -293,27 +295,30 @@ describe('Googles Zahl schlaegt die eigene', () => {
   });
 });
 
-// Was an Gemini herausgegeben wurde, ist verbraucht — auch wenn der Lauf danach
-// stirbt und nichts davon je im Protokoll landet.
-describe('Herausgegebene Anfragen zaehlen mit', () => {
-  test('ohne Vermerk zaehlt allein das Protokoll', () => {
+// Anfragen und Mails sind seit der Buendelung zwei verschiedene Zahlen. Googles
+// Limit zaehlt Anfragen, das Protokoll zaehlt Mails. Wer sie verwechselt, bremst
+// bei 500 Mails, wo 10.000 gegangen waeren.
+describe('Anfragen und Mails sind zweierlei', () => {
+  test('das Protokoll allein bewegt den Verbrauch nicht', () => {
     heuteLog('K', 'a@x.de', '1');
-    assert.equal(budget.heuteVerbraucht(), 1);
-    assert.equal(budget.ausgegebenHeute(), 0);
+    assert.equal(budget.protokolliertHeute(), 1, 'eine Mail ist eingeordnet');
+    assert.equal(budget.heuteVerbraucht(), 0, 'aber keine Anfrage vermerkt');
   });
 
   test('ein Vermerk summiert sich ueber die Laeufe', () => {
-    budget.ausgabeMerken(101);
-    budget.ausgabeMerken(80);
-    assert.equal(budget.ausgegebenHeute(), 181);
-    assert.equal(budget.heuteVerbraucht(), 181, 'obwohl nichts protokolliert ist');
+    budget.ausgabeMerken(7);
+    budget.ausgabeMerken(3);
+    assert.equal(budget.ausgegebenHeute(), 10);
+    assert.equal(budget.heuteVerbraucht(), 10);
   });
 
-  test('die hoehere der beiden Zahlen gilt', () => {
-    for (let i = 0; i < 5; i += 1) heuteLog('K', `m${i}@x.de`, 'x');
-    budget.ausgabeMerken(3);
-    assert.equal(budget.heuteVerbraucht(), 5,
-      'Workflow 01 protokolliert, ohne den Waechter zu fragen — sonst zaehlte das doppelt');
+  test('zwanzig Mails in einer Anfrage kosten eine', () => {
+    // So rechnet der Klassifizierer: je Buendel ein Vermerk, egal wie viele
+    // Mails darin stecken.
+    for (let i = 0; i < 20; i += 1) heuteLog('K', `m${i}@x.de`, 'x');
+    budget.ausgabeMerken(1);
+    assert.equal(budget.protokolliertHeute(), 20);
+    assert.equal(budget.heuteVerbraucht(), 1, 'darum geht die ganze Uebung');
   });
 
   test('Unsinn wird nicht vermerkt', () => {
@@ -343,6 +348,29 @@ describe('Herausgegebene Anfragen zaehlen mit', () => {
       { konto: 'K', von: 'c@fremd.de', betreff: '3' },
     ]);
     assert.equal(e.erlaubt.length, 3);
-    assert.equal(e.kiAnfragen, 1, 'zwei Regel-Mails kosten Google nichts');
+    assert.equal(e.kiMails, 1, 'zwei Regel-Mails kosten Google nichts');
+  });
+});
+
+// Der Deckel steht in Anfragen, das Fenster in Mails. Ohne Umrechnung boete das
+// Panel bei 500 uebrigen Anfragen 500 Mails an — statt zehntausend.
+describe('Von Anfragen auf Mails umrechnen', () => {
+  test('eine uebrige Anfrage traegt mehrere Mails', () => {
+    settings.setze('gemini_buendel', '20');
+    settings.setze('gemini_tagesbudget', '2');
+    const e = budget.entscheiden(kand(100));
+    // Vorsichtig gerechnet mit der halben Buendelgroesse: 2 Anfragen x 10.
+    assert.equal(budget.mailsJeAnfrage(), 10);
+    assert.equal(e.erlaubt.length, 20);
+    assert.equal(e.budget.restMails, 20);
+  });
+
+  test('keine Anfrage uebrig heisst keine Mail', () => {
+    settings.setze('gemini_buendel', '20');
+    settings.setze('gemini_tagesbudget', '2');
+    budget.ausgabeMerken(2);
+    const e = budget.entscheiden(kand(100));
+    assert.equal(e.erlaubt.length, 0);
+    assert.equal(e.budget.restMails, 0);
   });
 });
