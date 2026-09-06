@@ -43,9 +43,29 @@ function regelPruefer() {
   };
 }
 
+// Hat Google heute schon abgewiesen? Dann ist der Stand von damals die harte
+// Obergrenze für den Rest des Tages — egal, was im Panel eingestellt ist.
+//
+// Ohne das lief Folgendes: Das Tagesbudget stand auf 50.000, Google machte bei
+// gut 400 dicht, und jeder weitere Lauf holte trotzdem 200 Mails, schickte 100
+// an die KI und starb dort. Vier Minuten Arbeit für nichts, alle vier Stunden.
+// Die Zahl kommt aus services/kiKontingent.js; hier wird sie nur gelesen —
+// jenes Modul liest umgekehrt dieses hier.
+function beobachteteGrenze() {
+  try {
+    const heute = new Date().toLocaleDateString('sv-SE');
+    if (settings.hole('ki_429_tag') !== heute) return 0;
+    const n = Number(settings.hole('ki_429_stand'));
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  } catch { return 0; }
+}
+
 function tagesbudget() {
   const n = Number(settings.hole('gemini_tagesbudget'));
-  return Number.isFinite(n) && n > 0 ? n : 0; // 0 = kein Deckel
+  const eingestellt = Number.isFinite(n) && n > 0 ? n : 0; // 0 = kein Deckel
+  const beobachtet = beobachteteGrenze();
+  if (!beobachtet) return eingestellt;
+  return eingestellt ? Math.min(eingestellt, beobachtet) : beobachtet;
 }
 
 function heuteVerbraucht() {
@@ -129,7 +149,7 @@ function entscheiden(kandidaten) {
   };
 }
 
-module.exports = { entscheiden, tagesbudget, heuteVerbraucht, schonGesehen };
+module.exports = { entscheiden, tagesbudget, heuteVerbraucht, schonGesehen, beobachteteGrenze };
 
 // Für den Budget-Knoten in Workflow 04: nimmt die vollen Mail-Objekte, gibt die
 // erlaubten unverändert zurück. Der HTTP-Knoten reicht genau diese an Gemini

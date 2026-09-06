@@ -2,6 +2,22 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.12.0.1] - 2026-09-06 (Build 105) — *Nach dem Nein von Google ist Schluss für heute*
+
+### Behoben: Läufe, die vier Minuten arbeiten und dann bei Gemini sterben
+- Beobachtet an einem echten Lauf: 194 Mails geholt, 93 per Regel sortiert, der Rest an die
+  KI — und dort `The service is receiving too many requests from you`. Der Lauf endete als
+  „fehlgeschlagen", und vier Stunden später fing derselbe Ablauf von vorne an.
+- Grund war eine Zahl, die niemand glaubte: Das Tagesbudget stand auf 50.000, Google machte
+  aber schon bei gut 400 dicht. Das Panel kannte diese Grenze längst (sie steht seit Build 95
+  im Dashboard) — nur hat der Budget-Wächter sie nicht benutzt.
+- **Jetzt gilt die niedrigere von beiden.** Hat Google heute abgewiesen, ist dessen Stand die
+  Obergrenze für den Rest des Tages; morgen zählt wieder das eingestellte Budget. Folge: Der
+  nächste Lauf holt gar keine Mails mehr und ist nach Sekunden fertig, statt vier Minuten
+  Postfach zu lesen für einen Fehler am Ende.
+- Das Dashboard zeigt jetzt dieselbe Zahl, nach der auch gearbeitet wird — vorher stand dort
+  die Wunschzahl, während das Panel längst gegen die echte Grenze lief.
+
 ## [3.12.0.0] - 2026-09-06 (Build 104) — *Budget per Klick, Modellwechsel bei vollem Kontingent*
 
 ### Neu: „Budget auf N setzen"

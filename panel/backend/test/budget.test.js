@@ -23,7 +23,7 @@ const kand = (n, konto = 'K') =>
 
 beforeEach(() => {
   db.exec('DELETE FROM quarantine_log; DELETE FROM sort_inbox; DELETE FROM sort_rules; DELETE FROM accounts;');
-  db.prepare("DELETE FROM settings WHERE key='gemini_tagesbudget'").run();
+  db.prepare("DELETE FROM settings WHERE key='gemini_tagesbudget' OR key LIKE 'ki_429%'").run();
 });
 
 describe('Tagesdeckel', () => {
@@ -195,5 +195,57 @@ describe('Regeln kosten kein Budget', () => {
       { konto: 'K', von: 'b@ruhe.de', betreff: '2' },
     ]);
     assert.deepEqual(e.ruheIndizes, [1], 'damit das Panel sie dauerhaft vermerken kann');
+  });
+});
+
+// Der Fall aus dem Betrieb: Tagesbudget 50.000 eingestellt, Google macht bei
+// gut 400 dicht. Ohne diese Bremse holt jeder folgende Lauf trotzdem 200 Mails,
+// schickt 100 an die KI und stirbt dort — vier Minuten Arbeit fuer nichts.
+describe('Was Google heute schon abgewiesen hat', () => {
+  const heute = () => new Date().toLocaleDateString('sv-SE');
+  const abweisungVon = (stand, tag = heute()) => {
+    settings.setze('ki_429_tag', tag);
+    settings.setze('ki_429_stand', String(stand));
+  };
+
+  test('ohne Abweisung gilt das eingestellte Budget', () => {
+    settings.setze('gemini_tagesbudget', '50000');
+    assert.equal(budget.beobachteteGrenze(), 0);
+    assert.equal(budget.tagesbudget(), 50000);
+  });
+
+  test('die beobachtete Grenze schlaegt das eingestellte Budget', () => {
+    settings.setze('gemini_tagesbudget', '50000');
+    abweisungVon(412);
+    assert.equal(budget.tagesbudget(), 412, 'was Google nicht gibt, hilft kein Wunschwert');
+  });
+
+  test('ein kleineres eingestelltes Budget bleibt kleiner', () => {
+    settings.setze('gemini_tagesbudget', '100');
+    abweisungVon(412);
+    assert.equal(budget.tagesbudget(), 100, 'die Bremse darf nie lockern, nur anziehen');
+  });
+
+  test('ohne eingestelltes Budget gilt allein die Beobachtung', () => {
+    settings.setze('gemini_tagesbudget', '0');
+    abweisungVon(412);
+    assert.equal(budget.tagesbudget(), 412);
+  });
+
+  test('die Abweisung von gestern bremst heute nicht mehr', () => {
+    settings.setze('gemini_tagesbudget', '50000');
+    abweisungVon(412, '2020-01-01');
+    assert.equal(budget.tagesbudget(), 50000, 'Kontingente laufen taeglich neu');
+  });
+
+  test('nach der Abweisung darf keine Mail mehr an die KI', () => {
+    settings.setze('gemini_tagesbudget', '50000');
+    abweisungVon(3);
+    heuteLog('K', 'a@x.de', '1'); heuteLog('K', 'b@x.de', '2'); heuteLog('K', 'c@x.de', '3');
+
+    const e = budget.entscheiden(kand(200));
+    assert.equal(e.erlaubt.length, 0, 'der Lauf endet sofort, statt bei Gemini zu sterben');
+    assert.equal(e.budget.grenze, 3);
+    assert.equal(e.budget.rest, 0);
   });
 });

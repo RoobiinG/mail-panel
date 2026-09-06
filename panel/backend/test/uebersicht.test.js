@@ -39,7 +39,7 @@ function log({ von = 'a@b.de', kat = 'clean', ziel = 'Games', korr = null, alter
 
 beforeEach(() => {
   db.exec('DELETE FROM accounts; DELETE FROM quarantine_log; DELETE FROM sort_inbox; DELETE FROM sort_rules;');
-  db.prepare("DELETE FROM settings WHERE key IN ('gemini_tagesbudget','bestand_letzter_lauf','bestand_letzter_lauf_anzahl','bestand_letzter_lauf_gesamt','bestand_intervall')").run();
+  db.prepare("DELETE FROM settings WHERE key IN ('gemini_tagesbudget','bestand_letzter_lauf','bestand_letzter_lauf_anzahl','bestand_letzter_lauf_gesamt','bestand_intervall') OR key LIKE 'ki_429%'").run();
   uebersicht.cacheVerwerfen();
   imapStub.wirft = false; imapStub.naechste = new Set();
 });
@@ -75,6 +75,18 @@ describe('KI-Tagesbudget', () => {
     assert.equal(u.budget.grenze, 0);
     assert.equal(u.budget.rest, null);
     assert.equal(u.budget.ausgeschoepft, false);
+  });
+
+  // Sonst steht im Dashboard weiter die Wunschzahl, waehrend das Panel laengst
+  // nach der von Google gesetzten Grenze arbeitet — zwei Wahrheiten, von denen
+  // die sichtbare die falsche waere.
+  test('was Google heute abgewiesen hat, ist die angezeigte Grenze', async () => {
+    settings.setze('gemini_tagesbudget', '50000');
+    settings.setze('ki_429_tag', new Date().toLocaleDateString('sv-SE'));
+    settings.setze('ki_429_stand', '412');
+    const u = await uebersicht.laden({ mitPosteingang: false });
+    assert.equal(u.budget.grenze, 412);
+    assert.equal(u.budget.beobachtet.stand, 412);
   });
 });
 

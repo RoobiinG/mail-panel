@@ -48,9 +48,11 @@ function zahl(sql, ...args) {
   try { return db.prepare(sql).get(...args)?.n ?? 0; } catch { return 0; }
 }
 
+// Bewusst über den Budget-Dienst statt direkt aus den Einstellungen: Hat Google
+// heute schon abgewiesen, gilt dessen Stand als Obergrenze — und dann soll im
+// Dashboard auch die stehen und nicht die eingestellte Wunschzahl.
 function tagesbudget() {
-  const n = Number(settings.hole('gemini_tagesbudget'));
-  return Number.isFinite(n) && n > 0 ? n : 0; // 0 = kein Deckel gesetzt
+  return require('./budget').tagesbudget();
 }
 
 // Wie viele KI-Einordnungen heute? Gezählt wird, was Gemini wirklich gesehen
