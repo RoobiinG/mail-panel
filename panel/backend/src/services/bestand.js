@@ -90,6 +90,25 @@ function ruheVergessen(kontoId) {
 
 const zeigerSchluessel = (kontoId) => `bestand_zeiger_${kontoId}`;
 
+// Welche UIDs der letzte Lauf angeboten bekommen hat.
+//
+// Nur so laesst sich die Frage beantworten, ob er ueberhaupt etwas geschafft
+// hat — und ob dasselbe Fenster deshalb noch einmal drankommen muss.
+const fensterSchluessel = (kontoId) => `bestand_fenster_${kontoId}`;
+
+function fensterMerken(kontoId, uids) {
+  try {
+    settings.setze(fensterSchluessel(kontoId), (uids || []).join(','));
+  } catch { /* ein fehlender Vermerk darf den Lauf nicht aufhalten */ }
+}
+
+function letztesFenster(kontoId) {
+  try {
+    return String(settings.hole(fensterSchluessel(kontoId)) || '')
+      .split(',').map(Number).filter((n) => Number.isFinite(n) && n > 0);
+  } catch { return []; }
+}
+
 // Wie viele Mails darf dieser Lauf überhaupt anfassen? Mehr anzubieten, als das
 // Tagesbudget hergibt, wäre schädlich: Der Zeiger würde über Mails hinweglaufen,
 // die gar nicht drankamen — die wären dann eine ganze Runde lang weg.
@@ -123,15 +142,30 @@ async function kandidaten(grenze = 0) {
       raus.offen[konto.name] = offen.length;
       if (offen.length === 0) continue;
 
-      // Ab dem Zeiger weiter, sonst von vorn. Der Zeiger ist die Versicherung
-      // gegen Mails, die sich nicht entscheiden lassen (kein Absender, Ordner
-      // fehlt): Sie blockieren höchstens ein Fenster, nicht den ganzen Bestand.
+      // Hat der letzte Lauf für dieses Konto überhaupt etwas geschafft?
+      //
+      // Der Zeiger rückte bisher nach jedem Angebot weiter — auch wenn der Lauf
+      // danach an Googles Kontingent starb und keine einzige Mail einsortiert
+      // wurde. Die angebotenen Mails galten damit als „schon dran gewesen" und
+      // kamen erst nach einem kompletten Durchlauf des Postfachs wieder. Bei
+      // 23.000 Mails ist das eine halbe Ewigkeit.
+      //
+      // Deshalb: Wurde aus dem letzten Fenster nichts erledigt, wird es noch
+      // einmal angeboten, statt weiterzuspringen. Die Sicherung gegen Mails, die
+      // sich nie entscheiden lassen, bleibt trotzdem — sobald auch nur eine des
+      // Fensters durchkam, geht es vorwärts.
       const zeiger = Number(settings.hole(zeigerSchluessel(konto.id))) || 0;
-      let fenster = offen.filter((u) => u > zeiger).slice(0, proKonto);
+      const vorherigesFenster = letztesFenster(konto.id);
+      const nichtsGeschafft = vorherigesFenster.length > 0
+        && !vorherigesFenster.some((u) => erledigt.has(u));
+      const ab = nichtsGeschafft ? Math.min(...vorherigesFenster) - 1 : zeiger;
+
+      let fenster = offen.filter((u) => u > ab).slice(0, proKonto);
       if (fenster.length === 0) fenster = offen.slice(0, proKonto);
 
       raus.konten[konto.name] = fenster.join(',');
       settings.setze(zeigerSchluessel(konto.id), String(fenster[fenster.length - 1]));
+      fensterMerken(konto.id, fenster);
     } catch (err) {
       // Ein nicht erreichbares Postfach darf den Lauf der anderen nicht kippen.
       loggen('warn', 'backend:bestand', `Bestand von ${konto.name} nicht lesbar: ${err.message}`);

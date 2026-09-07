@@ -2,6 +2,29 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.14.1.0] - 2026-09-07 (Build 121) — *Warum nicht alles sortiert wurde*
+
+### Behoben: Drei von fünf Mails wurden je Lauf still übersprungen
+- Der Abruf-Knoten holte **fest 100** Mails. Solange das Fenster ebenfalls 100 war, passte das —
+  seit Build 108 bietet das Panel aber **250** an. Der Knoten holte 100 davon, und der Zeiger im
+  Panel rückte trotzdem hinter alle 250.
+- Die übrigen 150 galten damit als „schon dran gewesen", **ohne je geholt worden zu sein**. Sie
+  kamen erst nach einem kompletten Durchlauf des Postfachs wieder — bei 23.000 Mails eine halbe
+  Ewigkeit.
+- Das Limit folgt jetzt dem Fenster, das das Panel für diesen Lauf ausgesucht hat.
+
+### Behoben: Ein gescheiterter Lauf kostete ein ganzes Fenster
+- Der Zeiger rückte nach jedem Angebot weiter — auch wenn der Lauf danach an Googles Kontingent
+  starb und keine einzige Mail einsortiert wurde. Die angebotenen Mails waren damit für eine
+  ganze Runde weg.
+- Wurde aus dem letzten Fenster **nichts** erledigt, wird es jetzt noch einmal angeboten. Die
+  Sicherung gegen Mails, die sich nie entscheiden lassen, bleibt: Sobald auch nur **eine** des
+  Fensters durchkam, geht es vorwärts.
+
+### Was das zusammen bedeutet
+- Beide Lücken erklären dasselbe Bild: Läufe laufen grün durch, das Postfach wird trotzdem kaum
+  leerer. Sie kosten keine KI-Anfragen — sie verlieren nur Mails aus dem Blickfeld.
+
 ## [3.14.0.2] - 2026-09-07 (Build 120) — *Durchgang durch alle sieben Workflows*
 
 ### Behoben: Das Zeitlimit fehlte genau bei den Knoten, die hängen können

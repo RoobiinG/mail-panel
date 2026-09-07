@@ -284,7 +284,16 @@ function bestandKnoten(konto, position) {
       resource: 'email',
       operation: 'getEmailsList',
       mailboxPath: postfach('INBOX'),
-      limit: 100,
+      // Das Limit folgt dem Fenster, das das Panel gerade ausgesucht hat.
+      //
+      // Vorher stand hier fest 100. Solange das Fenster ebenfalls 100 war, fiel
+      // das nicht auf — seit Build 108 sind es 250. Der Knoten holte also 100
+      // von 250 angebotenen Mails, und der Zeiger im Panel rueckte trotzdem
+      // hinter alle 250. Die uebrigen 150 galten damit als "schon dran gewesen"
+      // und kamen erst nach einem kompletten Durchlauf des Postfachs wieder.
+      // Bei 23.000 Mails hiess das: drei von fuenf Mails je Lauf still
+      // uebersprungen.
+      limit: `={{ ${auswahl}?.fenster || 100 }}`,
       // Nur die Mails, die das Panel fuer diesen Lauf ausgesucht hat.
       emailSearchFilters: {
         uid: `={{ ${auswahl}?.konten?.[${JSON.stringify(konto.name)}] || '${KEINE_UID}' }}`,

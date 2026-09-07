@@ -32,7 +32,7 @@ function postfachMit(uids) {
 beforeEach(() => {
   db.exec('DELETE FROM accounts; DELETE FROM sort_inbox; DELETE FROM bestand_erledigt;'
     + ' DELETE FROM quarantine_log; DELETE FROM sort_rules;');
-  db.prepare("DELETE FROM settings WHERE key LIKE 'bestand_zeiger_%' OR key LIKE 'gemini_%' OR key LIKE 'ki_%'").run();
+  db.prepare("DELETE FROM settings WHERE key LIKE 'bestand_%' OR key LIKE 'gemini_%' OR key LIKE 'ki_%'").run();
 });
 
 describe('Auswahl der Bestands-Mails', () => {
@@ -131,5 +131,49 @@ describe('Der Abruf-Knoten in Workflow 04', () => {
     assert.equal(k.credentials.httpHeaderAuth.id, 'cred-1');
     assert.match(k.parameters.url, /bestand-kandidaten$/);
     assert.match(String(k.id), /^panel-/);
+  });
+});
+
+// "Wird wirklich alles sortiert?" — die Frage, an der zwei stille Luecken
+// haengen.
+//
+// 1. Der Abruf-Knoten holte fest 100 Mails, das Panel bot seit Build 108 aber
+//    250 an. Der Zeiger rueckte trotzdem hinter alle 250 — drei von fuenf Mails
+//    galten damit als "schon dran gewesen", ohne je geholt worden zu sein.
+// 2. Der Zeiger rueckte auch dann weiter, wenn der Lauf danach an Googles
+//    Kontingent starb. Ein gescheiterter Lauf kostete so ein ganzes Fenster.
+describe('Kein Fenster geht still verloren', () => {
+  test('das Fenster wird mitgeteilt, damit der Abruf ihm folgen kann', async () => {
+    kontoAnlegen();
+    postfachMit([1, 2, 3]);
+    const a = await bestand.kandidaten();
+    assert.equal(typeof a.fenster, 'number');
+    assert.ok(a.fenster > 0, 'ohne diese Zahl holt der Knoten wieder seine festen 100');
+  });
+
+  test('hat der Lauf nichts geschafft, kommt dasselbe Fenster erneut', async () => {
+    kontoAnlegen();
+    postfachMit([10, 11, 12, 13]);
+
+    const erst = await bestand.kandidaten(2);
+    assert.equal(erst.konten.K, '10,11');
+
+    // Nichts erledigt — der naechste Lauf muss dieselben beiden anbieten.
+    const zweit = await bestand.kandidaten(2);
+    assert.equal(zweit.konten.K, '10,11',
+      'sonst waeren zwei Mails weg, nur weil ein Lauf an der KI gestorben ist');
+  });
+
+  test('sobald eine durchkam, geht es vorwaerts', async () => {
+    const id = kontoAnlegen();
+    postfachMit([10, 11, 12, 13]);
+
+    const erst = await bestand.kandidaten(2);
+    assert.equal(erst.konten.K, '10,11');
+    bestand.erledigtMerken(id, 10, 'ruhe');
+
+    const zweit = await bestand.kandidaten(2);
+    assert.equal(zweit.konten.K, '12,13',
+      'eine unentscheidbare Mail darf den Bestand nicht dauerhaft blockieren');
   });
 });
