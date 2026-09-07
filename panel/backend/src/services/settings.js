@@ -35,7 +35,7 @@ const FELDER = {
   // Gewechselt wird nur, wenn hier ein Ersatzmodell steht: Das ist meist das
   // groessere, und mit aktivierter Abrechnung kostet es mehr. Solche
   // Entscheidungen trifft das Panel nicht im Hintergrund.
-  gemini_modell:        { env: 'GEMINI_MODELL', geheim: false, standard: 'gemini-3.8-flash' },
+  gemini_modell:        { env: 'GEMINI_MODELL', geheim: false, standard: 'gemini-3.5-flash-lite' },
   gemini_modell_ersatz: { env: 'GEMINI_MODELL_ERSATZ', geheim: false, standard: '' },
   // Wie viele Mails in eine Anfrage passen. Googles Tageslimit zaehlt Anfragen,
   // nicht Mails — das ist der Unterschied zwischen 500 und 10.000 Mails am Tag.

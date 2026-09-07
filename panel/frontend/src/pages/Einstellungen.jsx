@@ -559,7 +559,7 @@ export default function Einstellungen() {
                 Das Modell, mit dem normalerweise klassifiziert wird. Ein Wechsel wirkt sofort —
                 das Panel trägt ihn selbst in die Workflows ein.
               </p>
-              <ModellWahl wert={settings.gemini_modell ?? ''} standard="gemini-3.8-flash"
+              <ModellWahl wert={settings.gemini_modell ?? ''} standard="gemini-3.5-flash-lite"
                 modelle={modelle} fehler={modellFehler}
                 gesperrt={settings.gemini_modell_per_env}
                 onWahl={v => set('gemini_modell', v)} />
@@ -577,18 +577,18 @@ export default function Einstellungen() {
               <ModellWahl wert={settings.gemini_modell_ersatz ?? ''} leerText="aus — kein Wechsel"
                 modelle={modelle} fehler={modellFehler}
                 gesperrt={settings.gemini_modell_ersatz_per_env}
-                ausgeschlossen={settings.gemini_modell || 'gemini-3.8-flash'}
+                ausgeschlossen={settings.gemini_modell || 'gemini-3.5-flash-lite'}
                 onWahl={v => set('gemini_modell_ersatz', v)} />
               {/* Der häufigste Fehlgriff, und er sieht harmlos aus: Steht in
                   beiden Feldern dasselbe, hält sich das Panel für längst
                   umgeschaltet und wechselt nie. Deshalb steht es hier und wird
                   beim Speichern abgewiesen. */}
               {settings.gemini_modell_ersatz
-                && settings.gemini_modell_ersatz === (settings.gemini_modell || 'gemini-3.8-flash') && (
-                <div className="mt-1 text-xs text-panel-red border-l-2 border-panel-red pl-2">
+                && settings.gemini_modell_ersatz === (settings.gemini_modell || 'gemini-3.5-flash-lite') && (
+                <p className="text-[10px] text-panel-red">
                   Das ist dasselbe Modell wie oben — dann gibt es kein zweites Kontingent und das Panel
                   wechselt nie. Bitte ein anderes wählen oder auf „aus" stellen.
-                </div>
+                </p>
               )}
             </div>
 
