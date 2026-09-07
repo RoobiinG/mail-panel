@@ -6,6 +6,7 @@ Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 ### Angepasst: Gemini Modelle 3.8 Flash integriert
 - Nachdem das Panel in der Google Cloud Preisstufe 1 läuft und Guthaben geladen ist, wurden die Fehler wegen aufgebrauchter Kontingente ("prepayment credits depleted") obsolet.
 - Als neues Standardmodell ist nun überall das leistungsfähigere `gemini-3.8-flash` hinterlegt statt des veralteten `gemini-3.5-flash-lite`.
+- Die n8n-Fehlermeldungen im Panel wurden erweitert: Falls das Prepaid-Guthaben doch einmal leerlaufen sollte, erkennt die Workflow-Übersicht nun exakt diesen Fehler statt pauschal auf den alten Gratis-Tarif zu verweisen.
 
 ### Behoben: E-Mails mit Anhängen verloren ihren Inhalt vor der Klassifizierung
 - Der HTTP-Knoten `Anhänge scannen` ersetzte in n8n das komplette Item, sodass das vorher generierte Feld `promptText` verschwand. 
