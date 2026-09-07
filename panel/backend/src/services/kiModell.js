@@ -16,7 +16,7 @@ const { loggen } = require('./panelLog');
 // Dasselbe Modell wie bisher überall fest verdrahtet — jetzt an einer Stelle.
 const STANDARD = 'gemini-3.5-flash-lite';
 
-const heute = () => new Date().toLocaleDateString('sv-SE');
+const { kiTag: heute } = require('./kiTag'); // Googles Tag, nicht unserer
 
 const primaer = () => String(settings.hole('gemini_modell') || STANDARD).trim() || STANDARD;
 

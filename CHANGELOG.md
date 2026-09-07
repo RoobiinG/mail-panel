@@ -2,6 +2,22 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.13.3.2] - 2026-09-07 (Build 114) — *Googles Tag beginnt um neun*
+
+### Behoben: Nachts lief die Bestands-Triage ins Leere
+- Zu sehen an den Läufen um 00:00, 03:17, 04:00 und 04:27: zwanzig bis dreißig Sekunden,
+  Meldung „erfolgreich" — und **keine einzige sortierte Mail**.
+- Der Grund steht in Googles Dokumentation: *„Requests per day (RPD) quotas reset at midnight
+  **Pacific time**."* Das Panel rechnete dagegen mit der lokalen Mitternacht. Zwischen 00:00 und
+  09:00 unserer Zeit hielt es den Tag deshalb für neu, während Google noch den alten zählte:
+  Der Anfragen-Zähler stand auf 0, die beobachtete Grenze von gestern war verworfen, also holte
+  jeder Lauf brav 200 Mails, schickte sie an Gemini — und bekam sie alle abgewiesen.
+- Die Tagesgrenze des KI-Kontingents folgt jetzt Googles Zeitzone. Damit greift der Deckel auch
+  nachts, und ein Lauf ohne Kontingent endet wieder nach Sekunden, statt zwei Konten leerzulesen.
+- Auch die Mail-Zählung im Dashboard rechnet ab Googles Tagesbeginn — sonst meinte sie einen
+  anderen Tag als der Anfragen-Zähler daneben.
+- Sommer- und Winterzeit werden ausgerechnet, nicht geraten (sieben bzw. acht Stunden).
+
 ## [3.13.3.1] - 2026-09-07 (Build 113) — *Auch die laufende Post fragt jetzt nach dem Kontingent*
 
 ### Behoben: Workflow 01 rannte nach aufgebrauchtem Kontingent weiter in Gemini

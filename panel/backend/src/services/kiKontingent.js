@@ -69,7 +69,7 @@ function limitAusMeldung(meldung) {
   };
 }
 
-const heute = () => new Date().toLocaleDateString('sv-SE'); // YYYY-MM-DD, lokal
+const { kiTag: heute } = require('./kiTag'); // Googles Tag, nicht unserer
 
 /**
  * Was das Panel über das Tageslimit weiß.

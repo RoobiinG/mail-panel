@@ -20,6 +20,7 @@
 // Plätze — eindeutig, auch wenn zwei Mails gleich aussehen.
 const db = require('../db');
 const settings = require('./settings');
+const { kiTag, tagesBeginnIso } = require('./kiTag');
 const sortierung = require('./sortierung');
 
 // "In Ruhe lassen"-Regeln: Mails, die der Nutzer bewusst nicht angefasst haben
@@ -56,7 +57,7 @@ function regelPruefer() {
 // Abweisung.
 function beobachteteGrenze() {
   try {
-    const heute = new Date().toLocaleDateString('sv-SE');
+    const heute = kiTag();
     if (settings.hole('ki_429_tag') !== heute) return 0;
 
     // Kontingente gelten je Modell. Wurde inzwischen auf ein anderes gewechselt,
@@ -101,7 +102,7 @@ const AUSGABE_STAND = 'ki_ausgabe_stand';
 
 function ausgegebenHeute() {
   try {
-    if (settings.hole(AUSGABE_TAG) !== new Date().toLocaleDateString('sv-SE')) return 0;
+    if (settings.hole(AUSGABE_TAG) !== kiTag()) return 0;
     const n = Number(settings.hole(AUSGABE_STAND));
     return Number.isFinite(n) && n > 0 ? n : 0;
   } catch { return 0; }
@@ -112,7 +113,7 @@ function ausgabeMerken(anzahl) {
   if (!Number.isFinite(n) || n <= 0) return ausgegebenHeute();
   try {
     const stand = ausgegebenHeute() + n;
-    settings.setze(AUSGABE_TAG, new Date().toLocaleDateString('sv-SE'));
+    settings.setze(AUSGABE_TAG, kiTag());
     settings.setze(AUSGABE_STAND, String(stand));
     return stand;
   } catch { return 0; }
@@ -126,9 +127,12 @@ function protokolliertHeute() {
     return db.prepare(
       // ki = 0 sind Mails, die eine eigene Regel oder ein Stichwort sortiert hat —
       // die haben Gemini nie gesehen und dürfen das Tageslimit nicht anknabbern.
-      "SELECT COUNT(*) n FROM quarantine_log WHERE created_at >= date('now','localtime')"
-      + ' AND IFNULL(ki, 1) = 1',
-    ).get().n;
+      //
+      // Gezählt wird ab dem Beginn von GOOGLES Tag, nicht ab unserer Mitternacht:
+      // Sonst meinte diese Zahl einen anderen Tag als der Anfragen-Zähler
+      // daneben, und der Deckel wäre nicht mehr nachvollziehbar.
+      'SELECT COUNT(*) n FROM quarantine_log WHERE created_at >= ? AND IFNULL(ki, 1) = 1',
+    ).get(tagesBeginnIso()).n;
   } catch { return 0; }
 }
 
