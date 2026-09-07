@@ -2,6 +2,26 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.13.3.0] - 2026-09-07 (Build 112) — *Zwei verschiedene 429*
+
+### Behoben: Ein Minutenlimit legte den ganzen Tag still
+- Google begrenzt **pro Tag** und **pro Minute**. Das Panel behandelte jede Abweisung als
+  „Tageskontingent leer", trug sie als Tagesgrenze ein und machte bis Mitternacht dicht — auch
+  wenn es nur ein zu schneller Stapel war, der sich nach 30 Sekunden von selbst erledigt hätte.
+- Unterschieden wird jetzt an der `quotaId`, die Google mitschickt (`…PerMinute…` gegen
+  `…PerDay…`). Bei einem Minutenlimit wartet das Panel so lange, wie Google sagt, und fragt
+  dasselbe Bündel noch einmal. Nur ein echtes Tageslimit beendet den Lauf.
+- Bleibt es auch nach dem Warten dabei, steht das jetzt auch so da — vorher hätte die Meldung
+  „Tageskontingent aufgebraucht" dazu verleitet, das Budget herunterzusetzen.
+
+### Behoben: Die Drosselung war beim Umbau verloren gegangen
+- Die Pause zwischen zwei KI-Anfragen steckte in den Optionen des Gemini-HTTP-Knotens — und
+  verschwand mit ihm, als der Bündel-Knoten seinen Platz einnahm (Build 108). Bei vier Bündeln
+  fiel das nicht auf; bei vollem Fenster wären es dreizehn Anfragen in wenigen Sekunden.
+- Dieselbe Einstellung (*Pause zwischen KI-Anfragen*) greift jetzt wieder — nur je **Bündel**
+  statt je Mail, also zwanzigmal seltener. Auf 0 gestellt heißt jetzt wirklich „keine Pause";
+  vorher wurde die 0 als „nicht gesetzt" gelesen und stillschweigend durch 6000 ersetzt.
+
 ## [3.13.2.1] - 2026-09-06 (Build 111) — *„Multiple matches" in „Antwort parsen"*
 
 ### Behoben: Ein leeres Item, das es nie geben durfte

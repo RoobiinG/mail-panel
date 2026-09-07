@@ -272,3 +272,89 @@ describe('Der Prompt', () => {
     assert.match(gefragt[0], /- Games — Steam, Epic/);
   });
 });
+
+// Es gibt zwei ganz verschiedene 429: pro Tag und pro Minute. Bisher galt jede
+// Abweisung als "Tageskontingent leer" — ein einziger zu schneller Stapel haette
+// damit bis Mitternacht alles stillgelegt.
+describe('Minutenlimit ist kein Tageslimit', () => {
+  const proMinute = {
+    ok: false, kontingent: true, proMinute: true, wartenMs: 0,
+    fehler: 'zu viele Anfragen pro Minute',
+  };
+
+  test('nach kurzem Warten wird dasselbe Buendel noch einmal gefragt', async () => {
+    settings.setze('gemini_buendel', '20');
+    settings.setze('gemini_pause_ms', '0'); // im Test nicht wirklich warten
+    let ruf = 0;
+    kiText.frageJson = async (prompt) => {
+      ruf += 1;
+      if (ruf === 1) return proMinute;
+      return brav(prompt);
+    };
+
+    const e = await k.klassifizieren([mail(1), mail(2)]);
+    assert.equal(ruf, 2, 'der zweite Versuch fehlt');
+    assert.equal(e.abgebrochen, false, 'ein Minutenlimit darf den Lauf nicht beenden');
+    assert.equal(e.klassifiziert, 2);
+  });
+
+  test('die abgewiesene Anfrage kostet kein Kontingent, die geglueckte schon', async () => {
+    settings.setze('gemini_pause_ms', '0');
+    let ruf = 0;
+    kiText.frageJson = async (prompt) => {
+      ruf += 1;
+      return ruf === 1 ? proMinute : brav(prompt);
+    };
+    await k.klassifizieren([mail(1)]);
+    assert.equal(budget.ausgegebenHeute(), 1, 'abgewiesen heisst: nicht ausgefuehrt');
+  });
+
+  test('bleibt es dabei, endet der Lauf — aber mit der richtigen Begruendung', async () => {
+    settings.setze('gemini_pause_ms', '0');
+    kiText.frageJson = async () => proMinute;
+    const e = await k.klassifizieren([mail(1)]);
+    assert.equal(e.abgebrochen, true);
+    assert.match(e.hinweis, /Pause zwischen den B/,
+      'sonst stuende da "Tageskontingent", und der Nutzer setzt das Budget herunter');
+  });
+
+  test('ein echtes Tageslimit beendet den Lauf sofort, ohne zweiten Versuch', async () => {
+    settings.setze('gemini_buendel', '1');
+    settings.setze('gemini_pause_ms', '0');
+    let ruf = 0;
+    kiText.frageJson = async () => {
+      ruf += 1;
+      return { ok: false, kontingent: true, proMinute: false, fehler: 'Tageskontingent aufgebraucht' };
+    };
+    const e = await k.klassifizieren([mail(1), mail(2)]);
+    assert.equal(ruf, 1, 'ein zweiter Versuch waere hier reine Zeitverschwendung');
+    assert.equal(e.abgebrochen, true);
+    assert.match(e.hinweis, /Tageskontingent/);
+  });
+});
+
+// Die Drosselung steckte frueher in den Optionen des Gemini-HTTP-Knotens — und
+// verschwand mit ihm, als der Buendel-Knoten seinen Platz einnahm.
+describe('Pause zwischen den Buendeln', () => {
+  test('vor dem ersten Buendel wird nicht gewartet, danach schon', async () => {
+    settings.setze('gemini_buendel', '1');
+    settings.setze('gemini_pause_ms', '60');
+    antwortenMit(brav);
+
+    const start = Date.now();
+    await k.klassifizieren([mail(1), mail(2), mail(3)]);
+    const gebraucht = Date.now() - start;
+
+    assert.equal(gefragt.length, 3);
+    assert.ok(gebraucht >= 110, `zwei Pausen à 60 ms erwartet, gebraucht: ${gebraucht} ms`);
+  });
+
+  test('auf 0 gestellt wird gar nicht gewartet', async () => {
+    settings.setze('gemini_buendel', '1');
+    settings.setze('gemini_pause_ms', '0');
+    antwortenMit(brav);
+    const start = Date.now();
+    await k.klassifizieren([mail(1), mail(2), mail(3)]);
+    assert.ok(Date.now() - start < 100);
+  });
+});

@@ -42,11 +42,31 @@ const KONTINGENT = /too many requests|resource.?exhausted|rate.?limit|quota|\b42
 // besser als die eigene Zählung, die zwangsläufig zu niedrig liegt: Stirbt ein
 // Lauf bei Gemini, protokolliert das Panel keine einzige der Mails, die vorher
 // sauber klassifiziert wurden. Verbraucht waren sie trotzdem.
+// Und: Es gibt zwei ganz verschiedene 429.
+//
+// Google begrenzt die Anfragen **pro Tag** und **pro Minute**. Bisher galt jede
+// Abweisung als „Tageskontingent leer" — dabei erledigt sich ein Minutenlimit
+// nach ein paar Sekunden von selbst. Ein einziger zu schneller Stapel hätte so
+// den ganzen Tag stillgelegt.
+//
+// Unterscheiden lässt es sich an der `quotaId`, die Google mitschickt:
+// „GenerateRequestsPerMinutePerProjectPerModel-FreeTier" gegen
+// „...PerDayPerProjectPerModel-FreeTier". Der Metrikname taugt dafür nicht — der
+// ist bei beiden gleich.
 function limitAusMeldung(meldung) {
   const t = String(meldung || '');
   const zahl = t.match(/limit:\s*(\d+)/i);
   const modell = t.match(/model:\s*([A-Za-z0-9._-]+)/i);
-  return { limit: zahl ? Number(zahl[1]) : 0, modell: modell ? modell[1] : null };
+  // Wie lange Google warten lässt — als Zahl in Millisekunden. Steht mal als
+  // "retryDelay": "53s" im Rumpf, mal als "Please retry in 53.8s" im Klartext.
+  const warten = t.match(/retryDelay"?\s*:\s*"?(\d+(?:\.\d+)?)s/i)
+    || t.match(/retry in (\d+(?:\.\d+)?)\s*s/i);
+  return {
+    limit: zahl ? Number(zahl[1]) : 0,
+    modell: modell ? modell[1] : null,
+    proMinute: /PerMinute/i.test(t),
+    wartenMs: warten ? Math.round(Number(warten[1]) * 1000) : 0,
+  };
 }
 
 const heute = () => new Date().toLocaleDateString('sv-SE'); // YYYY-MM-DD, lokal
@@ -92,6 +112,17 @@ function stand() {
 function abweisungMerken(zeitpunkt, meldung) {
   const stand429 = budget.heuteVerbraucht();
   const gelesen = limitAusMeldung(meldung);
+
+  // Ein Minutenlimit ist kein Tageslimit. Es vergeht von selbst, und daraus
+  // eine Tagesgrenze zu machen hiesse, wegen eines zu schnellen Stapels bis
+  // Mitternacht nichts mehr zu tun. Der Aufrufer wartet stattdessen kurz und
+  // fragt noch einmal (siehe services/klassifizierer.js).
+  if (gelesen.proMinute) {
+    loggen('warn', 'ki-kontingent',
+      'Google hat wegen zu vieler Anfragen pro Minute abgewiesen — das ist kein Tageslimit. '
+      + `Warten und erneut fragen (${Math.round((gelesen.wartenMs || 0) / 1000)} s).`);
+    return null;
+  }
   settings.setze('ki_429_tag', heute());
   settings.setze('ki_429_stand', String(stand429));
   settings.setze('ki_429_zeit', zeitpunkt || new Date().toISOString());

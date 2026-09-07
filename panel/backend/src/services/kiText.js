@@ -51,13 +51,21 @@ async function frageJson(prompt, opt = {}) {
     if (res.status === 429) {
       let meldung = '';
       try { meldung = (await res.text()).slice(0, 2000); } catch { /* dann eben ohne */ }
-      try { require('./kiKontingent').abweisungMerken(new Date().toISOString(), meldung); } catch { /* egal */ }
+      const kontingent = require('./kiKontingent');
+      // Merkt nur ein echtes Tageslimit — ein Minutenlimit laesst es liegen.
+      try { kontingent.abweisungMerken(new Date().toISOString(), meldung); } catch { /* egal */ }
+      const gelesen = kontingent.limitAusMeldung(meldung);
       return {
         ok: false,
-        // Damit der Aufrufer eine Kontingent-Absage von einem gewöhnlichen
-        // Fehler unterscheiden kann: Bei jener ist Weitermachen sinnlos.
+        // Damit der Aufrufer die drei Faelle auseinanderhalten kann: Bei einem
+        // Tageslimit ist Weitermachen sinnlos, bei einem Minutenlimit lohnt sich
+        // kurz warten, alles andere ist ein gewoehnlicher Fehler.
         kontingent: true,
-        fehler: 'Google hat abgewiesen — das Tageskontingent ist aufgebraucht.',
+        proMinute: gelesen.proMinute,
+        wartenMs: gelesen.wartenMs,
+        fehler: gelesen.proMinute
+          ? 'Google hat abgewiesen — zu viele Anfragen pro Minute.'
+          : 'Google hat abgewiesen — das Tageskontingent ist aufgebraucht.',
       };
     }
     if (!res.ok) {

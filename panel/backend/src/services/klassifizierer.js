@@ -51,6 +51,27 @@ const textLang = () => zahl('gemini_text_lang', 1500, 200, 8000);
 const PLAETZE_VERDACHT = 3;
 const LINKS_MAX = 5;
 
+// Pause zwischen zwei Bündeln.
+//
+// Der alte Gemini-HTTP-Knoten hatte diese Drosselung in seinen Optionen — und
+// mit ihm ist sie verschwunden, als er dem Bündel-Knoten wich. Das fiel nicht
+// auf, solange ein Lauf vier Bündel hatte; bei vollem Fenster sind es schnell
+// dreizehn in wenigen Sekunden, und der Gratis-Tarif begrenzt auch die Anfragen
+// **pro Minute**. Dieselbe Einstellung wie früher, nur greift sie jetzt je
+// Bündel statt je Mail — also zwanzigmal seltener.
+// Nicht über zahl(): Das behandelt 0 als „nicht gesetzt" und gäbe den Standard
+// zurück — die Pause ließe sich dann nie abschalten. Hier ist 0 eine Ansage.
+function pause() {
+  const n = Number(settings.hole('gemini_pause_ms'));
+  if (!Number.isFinite(n) || n < 0) return 6000;
+  return Math.min(60000, Math.round(n));
+}
+const schlafen = (ms) => (ms > 0 ? new Promise((f) => { setTimeout(f, ms); }) : Promise.resolve());
+
+// Wie lange nach einem Minutenlimit gewartet wird, höchstens. Google nennt die
+// Zeit selbst; mehr als anderthalb Minuten wären für einen Lauf zu viel.
+const WARTEN_MAX_MS = 90000;
+
 // ─── Verdachtsfall oder Alltag? ──────────────────────────────────────────────
 
 // Absender, mit denen dieses Konto schon zu tun hatte. Einmal je Lauf geladen —
@@ -229,6 +250,17 @@ function antwortZuordnen(daten, gruppen) {
 
 // ─── Der Lauf ────────────────────────────────────────────────────────────────
 
+// Ein Bündel fragen. Reichlich Luft beim Zeichenlimit: 20 Mails à 600 Zeichen
+// plus Themen-Block. Die Standardkappung von 12.000 würde die hinteren Mails
+// abschneiden — ihre Nummern fehlten dann in der Antwort, und sie blieben liegen.
+function fragen(teil, konto, bekannt) {
+  return kiText.frageJson(promptBauen(teil, konto, bekannt), {
+    quelle: 'backend:klassifizierer',
+    zeitlimit: 90000,
+    maxZeichen: 200000,
+  });
+}
+
 /**
  * @param {Array<object>} mails Mails eines Laufs, in der Reihenfolge des Workflows.
  * @returns {Promise<{ergebnisse:Array<object|null>, anfragen:number, klassifiziert:number,
@@ -265,15 +297,24 @@ async function klassifizieren(mails) {
     const buendel = buendeln(gruppen, bekannt);
 
     for (const teil of buendel) {
-      const antwort = await kiText.frageJson(promptBauen(teil, konto, bekannt), {
-        quelle: 'backend:klassifizierer',
-        zeitlimit: 90000,
-        // Reichlich Luft: 20 Mails à 600 Zeichen plus Themen-Block. Die
-        // Standardkappung von 12.000 würde die hinteren Mails abschneiden —
-        // ihre Nummern fehlten dann in der Antwort, und sie blieben liegen.
-        maxZeichen: 200000,
-      });
+      // Vor jedem Bündel außer dem ersten kurz Luft holen — siehe pause().
+      if (anfragen > 0) await schlafen(pause());
+
+      let antwort = await fragen(teil, konto, bekannt);
       anfragen += 1;
+
+      // Ein Minutenlimit ist kein Tageslimit: Es vergeht von selbst. Also
+      // einmal so lange warten, wie Google sagt, und noch einmal fragen —
+      // statt deswegen bis Mitternacht stillzustehen.
+      if (antwort.kontingent && antwort.proMinute) {
+        const warten = Math.min(Math.max(Number(antwort.wartenMs) || 0, pause()), WARTEN_MAX_MS);
+        loggen('info', 'klassifizierer',
+          `Zu viele Anfragen pro Minute — ${Math.round(warten / 1000)} s warten und noch einmal fragen.`);
+        await schlafen(warten);
+        antwort = await fragen(teil, konto, bekannt);
+        anfragen += 1;
+      }
+
       // Auch eine Anfrage mit unlesbarer Antwort ist bezahlt — Google hat sie
       // ausgefuehrt. Eine wegen vollem Kontingent abgewiesene dagegen nicht:
       // Die wurde gar nicht erst bearbeitet und knabbert nichts ab.
@@ -285,7 +326,10 @@ async function klassifizieren(mails) {
           // kosten; was bis hier klassifiziert ist, wird trotzdem zurueckgegeben
           // und eingeordnet.
           abgebrochen = true;
-          hinweis = `Googles Tageskontingent ist aufgebraucht — ${klassifiziert} von ${liste.length} Mails sind klassifiziert.`;
+          hinweis = (antwort.proMinute
+            ? 'Google weist weiter ab, auch nach dem Warten — Pause zwischen den Bündeln erhöhen'
+            : 'Googles Tageskontingent ist aufgebraucht')
+            + ` — ${klassifiziert} von ${liste.length} Mails sind klassifiziert.`;
           loggen('warn', 'klassifizierer', hinweis);
           break;
         }
