@@ -172,7 +172,6 @@ describe('Googles eigene Zahl aus der Absage', () => {
       'sonst steht das Panel wegen eines zu schnellen Stapels bis Mitternacht still');
     assert.equal(kontingent.stand().beobachtet, null);
   });
-  });
 
   test('die Abweisung merkt sich beides', () => {
     kiLog(412);
