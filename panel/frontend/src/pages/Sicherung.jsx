@@ -39,6 +39,15 @@ export default function Sicherung() {
 
   useEffect(() => { holen(); }, []);
 
+  // Solange eine Sicherung läuft, alle zehn Sekunden nachsehen. Ein Lauf über
+  // 23.000 Mails dauert Minuten — ohne das bliebe die Seite auf dem Stand von
+  // vorhin stehen, und man wüsste nie, ob noch etwas passiert.
+  useEffect(() => {
+    if (!stand?.laeuft) return undefined;
+    const uhr = setInterval(holen, 10000);
+    return () => clearInterval(uhr);
+  }, [stand?.laeuft?.seit]);
+
   const feld = (name) => ({
     value: form?.[name] ?? '',
     onChange: (e) => setForm((f) => ({ ...f, [name]: e.target.value })),
@@ -96,22 +105,18 @@ export default function Sicherung() {
     setAktion(trockenlauf ? 'probe' : 'sichern'); setMeldung(null);
     try {
       await uebernehmen();
-      const { data } = await api.post('/sicherung/starten', { trockenlauf });
-      const konten = (data.konten || [])
-        .map((k) => `${k.konto}: ${k.fehler ? `FEHLER ${k.fehler}` : `${k.mails} Mails`}`).join(' · ');
+      // Nur anstoßen. Auf das Ende zu warten hieße, eine HTTP-Anfrage über
+      // viele Minuten offen zu halten — die läuft unterwegs ab, und die Seite
+      // meldete dann „fehlgeschlagen", während die Sicherung munter weiterlief.
+      await api.post('/sicherung/starten', { trockenlauf });
       setMeldung({
-        art: data.unvollstaendig ? 'hinweis' : 'gut',
-        text: (data.unvollstaendig
-          ? `UNVOLLSTÄNDIG — nicht gesichert: ${(data.fehlendeKonten || []).join('; ')}. `
-          : '')
-          + `${trockenlauf ? 'Probe' : 'Sicherung'} fertig: ${data.mails} Mails, ${mb(data.groesse)}, `
-          + `${data.dauer} s. ${konten}`
-          + (trockenlauf ? ' — nichts hochgeladen, die Datei liegt im Arbeitsverzeichnis.' : ''),
+        art: 'gut',
+        text: `${trockenlauf ? 'Probe' : 'Sicherung'} gestartet — sie läuft im Hintergrund weiter, `
+          + 'auch wenn du diese Seite verlässt. Das Ergebnis erscheint gleich unter „Letzter Stand".',
       });
-      holen();
     } catch (err) {
-      setMeldung({ art: 'fehler', text: err.response?.data?.error || 'Lauf fehlgeschlagen.' });
-    } finally { setAktion(''); }
+      setMeldung({ art: 'fehler', text: err.response?.data?.error || 'Start fehlgeschlagen.' });
+    } finally { setAktion(''); holen(); }
   };
 
   if (laden) {
@@ -121,7 +126,9 @@ export default function Sicherung() {
   }
 
   const letzter = stand?.letzterLauf;
-  const laeuft = Boolean(aktion);
+  // „Läuft" heißt jetzt: Der Dienst arbeitet gerade — nicht bloß, dass dieser
+  // Browser eben auf einen Knopf gedrückt hat.
+  const laeuft = Boolean(aktion) || Boolean(stand?.laeuft);
 
   return (
     <div className="space-y-6 max-w-4xl">
@@ -142,6 +149,22 @@ export default function Sicherung() {
           {meldung.art === 'fehler' ? <AlertTriangle size={16} className="mt-0.5 shrink-0" />
             : <CheckCircle2 size={16} className="mt-0.5 shrink-0 text-green-500" />}
           <span>{meldung.text}</span>
+        </div>
+      )}
+
+      {/* Läuft gerade eine? Das gehört nach oben und sichtbar — sonst sieht die
+          Seite bei einem langen Lauf aus, als sei nichts los, und der Knopf
+          antwortet bloß „läuft bereits". */}
+      {stand?.laeuft && (
+        <div className="card !py-3 flex items-start gap-2 text-sm border-panel-accent/60">
+          <Loader2 size={16} className="mt-0.5 shrink-0 animate-spin text-panel-accent" />
+          <span>
+            <strong>Eine Sicherung läuft gerade.</strong>{' '}
+            Gestartet um {new Date(stand.laeuft.seit).toLocaleTimeString('de-DE')} — das sind{' '}
+            {Math.max(1, Math.round((Date.now() - new Date(stand.laeuft.seit).getTime()) / 60000))} Minuten.
+            Bei vielen tausend Mails dauert das eine Weile; die Seite meldet sich von selbst,
+            sobald sie fertig ist.
+          </span>
         </div>
       )}
 

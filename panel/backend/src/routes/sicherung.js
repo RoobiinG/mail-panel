@@ -11,8 +11,9 @@ const { loggen } = require('../services/panelLog');
 
 const router = express.Router();
 
-// Damit ein langer Lauf nicht doppelt startet, wenn jemand zweimal klickt.
-let laeuft = false;
+// Die Sperre gegen Doppelstarts sitzt im Dienst selbst
+// (postfachSicherung.laeuftGerade). Dort greift sie auch für den Zeitplan und
+// nicht nur für den Knopf — zwei Sperren nebeneinander wären eine zu viel.
 
 router.get('/', (req, res) => {
   const e = sicherung.einstellungen();
@@ -31,6 +32,10 @@ router.get('/', (req, res) => {
     passwortGesetzt: Boolean(e.passwort),
     ftpPasswortGesetzt: Boolean(e.ftpPasswort),
     fehlt: sicherung.bereit(e),
+    // Läuft gerade eine? Ohne diese Auskunft sah die Seite bei einem langen
+    // Lauf aus, als sei nichts los — und der Knopf antwortete bloß „läuft
+    // bereits", ohne zu sagen, seit wann.
+    laeuft: sicherung.laeuftGerade(),
     letzterLauf: sicherung.letzterLauf(),
     laeuft,
   });
@@ -83,16 +88,32 @@ router.post('/test', async (req, res) => {
   }
 });
 
-router.post('/starten', async (req, res) => {
-  if (laeuft) return res.status(409).json({ error: 'Es läuft bereits eine Sicherung.' });
-  laeuft = true;
-  try {
-    res.json(await sicherung.lauf({ trockenlauf: Boolean((req.body || {}).trockenlauf) }));
-  } catch (err) {
-    res.status(502).json({ error: err.message });
-  } finally {
-    laeuft = false;
+// Anstoßen und sofort antworten — nicht auf das Ende warten.
+//
+// Vorher hing die Antwort am ganzen Lauf. Bei 23.000 Mails dauert der viele
+// Minuten, und die HTTP-Anfrage lief unterwegs in einen Zeitüberlauf: Die Seite
+// meldete „Lauf fehlgeschlagen", während die Sicherung in Wahrheit weiterlief
+// und die Sperre hielt. Wer dann noch einmal drückte, bekam nur „läuft
+// bereits" — ohne zu erfahren, dass das die eigene, längst gestartete war.
+//
+// Jetzt läuft sie im Hintergrund, und die Seite fragt den Stand ab.
+router.post('/starten', (req, res) => {
+  const laeuft = sicherung.laeuftGerade();
+  if (laeuft) {
+    const minuten = Math.round((Date.now() - new Date(laeuft.seit).getTime()) / 60000);
+    return res.status(409).json({
+      error: `Es läuft bereits eine Sicherung — seit ${minuten} Minuten.`,
+      laeuft,
+    });
   }
+
+  const trockenlauf = Boolean((req.body || {}).trockenlauf);
+  // Fehler landen im Protokoll und im „letzten Stand" — das erledigt der Dienst
+  // selbst. Hier darf nichts unbehandelt bleiben, sonst reisst es den Prozess ab.
+  sicherung.lauf({ trockenlauf }).catch((err) => {
+    loggen('error', 'sicherung', `Sicherung fehlgeschlagen: ${err.message}`);
+  });
+  res.json({ gestartet: true, trockenlauf });
 });
 
 module.exports = router;

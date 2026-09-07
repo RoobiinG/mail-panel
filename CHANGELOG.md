@@ -2,6 +2,24 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.13.4.0] - 2026-09-07 (Build 115) — *Die Sicherung sagt endlich, was sie tut*
+
+### Behoben: „Lauf fehlgeschlagen", während er in Wahrheit weiterlief
+- Der Knopf wartete auf das **Ende** der Sicherung. Bei 23.000 Mails dauert das viele Minuten,
+  und die HTTP-Anfrage lief unterwegs in einen Zeitüberlauf. Die Seite meldete „fehlgeschlagen",
+  während die Sicherung munter weiterarbeitete — und die Sperre hielt. Wer dann noch einmal
+  drückte, bekam nur „Es läuft bereits eine Sicherung." und wusste nicht, dass das die eigene war.
+- Der Lauf wird jetzt angestoßen und arbeitet im Hintergrund weiter, auch wenn du die Seite
+  verlässt. Das Ergebnis erscheint unter *Letzter Stand*.
+
+### Neu: Sichtbar, dass gerade eine läuft
+- Ein Hinweis oben auf der Seite nennt Startzeit und Dauer, und die Seite fragt alle zehn
+  Sekunden nach, solange etwas läuft. Vorher sah sie bei einem langen Lauf aus, als sei nichts
+  los.
+- Die Absage nennt jetzt die Minuten: „Es läuft bereits eine Sicherung — seit 14 Minuten."
+- Die doppelte Sperre ist weg: Es gilt nur noch die im Dienst, und die schützt auch den
+  Zeitplan, nicht bloß den Knopf.
+
 ## [3.13.3.2] - 2026-09-07 (Build 114) — *Googles Tag beginnt um neun*
 
 ### Behoben: Nachts lief die Bestands-Triage ins Leere
