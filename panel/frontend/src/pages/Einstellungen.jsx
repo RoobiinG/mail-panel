@@ -340,11 +340,28 @@ export default function Einstellungen() {
     api.get('/einstellungen').then(res => {
       setSettings(res.data);
       try { setDnsblText(JSON.parse(res.data.dnsbl_listen || '[]').join('\n')); } catch { setDnsblText(''); }
+      
+      // Lade Ollama Modelle, wenn URL vorhanden
+      api.post('/einstellungen/ollama/modelle', { url: res.data.ollama_url })
+        .then(r => { setOllamaModelle(r.data.map(m => ({ name: m }))); setOllamaModellFehler(''); })
+        .catch(err => { setOllamaModelle([]); setOllamaModellFehler(err.response?.data?.error || 'Fehler beim Laden'); });
     });
     api.get('/einstellungen/ki-modelle')
       .then(res => { setModelle(res.data.modelle || []); setModellFehler(res.data.fehler || ''); })
       .catch(() => { setModelle([]); setModellFehler('Die Modellliste war nicht abrufbar.'); });
   }, []);
+
+  const [ollamaModelle, setOllamaModelle] = useState(null);
+  const [ollamaModellFehler, setOllamaModellFehler] = useState('');
+
+  // Wenn der Benutzer die Ollama URL ändert, neu laden
+  useEffect(() => {
+    if (settings && settings.ollama_url) {
+      api.post('/einstellungen/ollama/modelle', { url: settings.ollama_url })
+        .then(r => { setOllamaModelle(r.data.map(m => ({ name: m }))); setOllamaModellFehler(''); })
+        .catch(err => { setOllamaModelle([]); setOllamaModellFehler(err.response?.data?.error || 'Fehler beim Laden'); });
+    }
+  }, [settings?.ollama_url]);
 
   const set = (key, val) => setSettings(s => ({ ...s, [key]: val }));
 
@@ -509,10 +526,10 @@ export default function Einstellungen() {
                     <p className="text-[10px] text-panel-muted/60">
                       Der Name des Modells (z. B. llama3.1 oder gemma2), das heruntergeladen wurde.
                     </p>
-                    <input type="text" value={settings.ollama_modell ?? ''}
-                      placeholder="llama3.1"
-                      disabled={settings.ollama_modell_per_env}
-                      onChange={e => set('ollama_modell', e.target.value)} className={inputCls} />
+                    <ModellWahl wert={settings.ollama_modell ?? ''} standard="llama3.1"
+                      modelle={ollamaModelle} fehler={ollamaModellFehler}
+                      gesperrt={settings.ollama_modell_per_env}
+                      onWahl={v => set('ollama_modell', v)} />
                   </div>
                 </div>
               ) : (

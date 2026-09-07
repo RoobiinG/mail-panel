@@ -1,6 +1,12 @@
 # Changelog — Mail-Panel
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
+## [4.1.0.1] - 2026-09-07 (Build 130) — *Ollama Modell-Auswahl & Statistik Fix*
+
+### Verbesserungen
+- **Ollama Modell-Auswahl**: Statt eines Freitextfeldes wird nun ein dynamisches Dropdown verwendet, das die geladenen Modelle direkt vom konfigurierten Ollama-Server abruft. So lassen sich Tippfehler bei den Modellnamen vermeiden.
+- **Bugfix (Statistik 404)**: Ein Fehler in der API-URL der neuen Statistik-Seite wurde behoben, durch den die Daten nicht geladen werden konnten.
+
 ## [4.1.0.0] - 2026-09-07 (Build 129) — *Statistiken & Zero-Knowledge Logs*
 
 ### Feature: Statistik-Dashboard

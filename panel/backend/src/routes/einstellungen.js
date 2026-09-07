@@ -185,4 +185,17 @@ router.post('/test/:dienst', async (req, res) => {
   }
 });
 
+router.post('/ollama/modelle', async (req, res) => {
+  const url = req.body.url || require('../db').prepare('SELECT value FROM settings WHERE key = ?').get('ollama_url')?.value;
+  if (!url) return res.status(400).json({ error: 'Keine Ollama URL angegeben' });
+  try {
+    const r = await fetch(url.replace(/\/$/, '') + '/api/tags', { signal: AbortSignal.timeout(5000) });
+    const body = await r.json();
+    if (!r.ok) throw new Error(`Ollama antwortete mit HTTP ${r.status}`);
+    res.json(body.models?.map(m => m.name) || []);
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
 module.exports = router;

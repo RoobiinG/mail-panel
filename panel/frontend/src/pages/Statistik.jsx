@@ -19,7 +19,7 @@ export default function Statistik() {
   useEffect(() => {
     const ladeDaten = async () => {
       try {
-        const res = await api.get('/api/statistik');
+        const res = await api.get('/statistik');
         setData(res.data.konten || []);
       } catch (err) {
         setError(err.message || 'Fehler beim Laden der Statistiken');
