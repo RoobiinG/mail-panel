@@ -239,7 +239,8 @@ router.post('/ignorieren', (req, res) => {
 // eine Regel, die kuenftig vor der KI greift.
 
 // GET /api/sortierung/entscheidungen
-//   ?konto_id=1|alle & suche=… & nur=ki|regel|korrigiert|liegen & seite=1 & limit=50
+//   ?konto_id=1|alle & suche=… & nur=ki|regel|korrigiert|liegen|spam
+//   & tage=7 & seite=1 & limit=50
 //
 // Die Antwort ist ein Objekt, kein Array: Ohne Gesamtzahl gibt es kein
 // Blättern, und ohne Blättern wäre man wieder auf die letzten paar Zeilen
@@ -256,6 +257,7 @@ router.get('/entscheidungen', (req, res) => {
       konto: konto ? konto.name : null,
       suche: req.query.suche,
       nur: req.query.nur,
+      tage: req.query.tage,
       seite: req.query.seite,
       limit: req.query.limit,
     }));

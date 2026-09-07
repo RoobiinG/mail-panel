@@ -2,6 +2,56 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.2.1.0] - 2026-09-07 (Build 133) — *Warum ist die Mail dort gelandet?*
+
+Die Chronik aus Build 132 beantwortete, **was** entschieden wurde. Sie beantwortet jetzt auch,
+**weshalb** — und danach fragt man bei einer Fehleinordnung als Erstes.
+
+### Feature: Der Grund wird festgehalten
+Das Panel rechnet für jede Mail eine Begründung aus (`Stichwort „steam" aus der
+Ordner-Beschreibung (Absender)`, `Kein Thema erkannt`, `Obergrenze von 30 KI-Ordnern erreicht`,
+`Zielordner "X" existiert im Postfach nicht`). Die ging bisher nur an n8n zurück und in die
+Sortier-Inbox — im Protokoll fehlte sie. Sobald die Mail verschoben war, war sie weg.
+
+- Neue Spalte `quarantine_log.grund`, geschrieben von `/api/internal/einsortieren`.
+- **Regel-Mails werden richtig begründet.** Eine Mail, die schon in `/sort` von einer eigenen
+  Regel abgebogen ist, hat die KI nie gesehen; die Themen-Auflösung lief ins Leere und meldete
+  „Kein Thema erkannt". Das im Protokoll stehen zu lassen, hätte bei der Fehlersuche in die
+  falsche Richtung gezeigt. Jetzt steht dort `Eigene Regel [domain] amazon.de → Bestellungen`.
+- **Spam und Virus werden auseinandergehalten.** Bisher hieß beides `Spam, Blacklist oder
+  Virus — Ziel steht fest`. Neu: `Virus gefunden: <Name>` bzw. `Spam-Wert 0.91 — Ziel steht fest`.
+- Der Grund wird **mitdurchsucht**: „existiert nicht" findet auf einen Schlag alle Mails, die an
+  einem fehlenden Zielordner gescheitert sind.
+
+### Feature: Aufklappbare Zeile
+Ein Klick auf eine Zeile zeigt Grund, vollen Betreff, Kurzfassung der KI, Kategorie, Sicherheit,
+Spam-Wert, DNSBL-Treffer, Virusnamen, UID und Postfach. Kurzfassung und Spam-Wert wurden vorher
+mitgeliefert und nirgends angezeigt.
+
+Das Korrektur-Formular („War falsch") sitzt jetzt in derselben aufgeklappten Zeile — zwei
+getrennte Aufklapp-Mechaniken in einer Tabelle waren nur verwirrend.
+
+### Feature: Zeitraum und Spam-Filter
+- **Zeitraum**: gesamter Zeitraum · 24 Stunden · 7 Tage · 30 Tage. „Letzte Woche" ist die Art, wie
+  man sich an eine Mail erinnert.
+- **Filter „Spam/Virus"**: Virenfund, DNSBL-Treffer oder Spam-Wert über der Schwelle. Die Schwelle
+  kommt aus `spam_schwellwert` und ist nicht fest verdrahtet — sonst zeigte der Filter etwas
+  anderes an, als in den Workflows tatsächlich passiert ist.
+
+### Verbesserungen
+- **Klick auf den Absender** sucht nach ihm — „alles von diesem Absender" ohne Tippen.
+- **Seite springt beim Postfach-Wechsel auf 1 zurück.** Vorher blieb man auf Seite 5, der Server
+  deckelte auf das, was es dort gibt, und es kostete eine überflüssige Runde.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **DB-Migrationen:** `ALTER TABLE quarantine_log ADD COLUMN grund TEXT`, läuft automatisch beim
+  Start. **Nur neue Mails bekommen einen Grund** — bei den bestehenden Zeilen steht „nicht
+  festgehalten". Nachträglich lässt sich das nicht rekonstruieren.
+- **API:** `GET /api/sortierung/entscheidungen` versteht zusätzlich `tage=1|7|30` und
+  `nur=spam`; die Antwort führt `grund` und `dnsbl_treffer` mit.
+- **n8n-Workflow-Kompatibilität:** Keine. Kein Synchronisieren nötig.
+- **Neustart-/Session-Verhalten:** Keine Änderung.
+
 ## [4.2.0.0] - 2026-09-07 (Build 132) — *Entscheidungs-Chronik*
 
 ### Feature: Alle Entscheidungen, durchsuchbar

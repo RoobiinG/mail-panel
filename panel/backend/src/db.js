@@ -319,6 +319,11 @@ const migrations = [
   // Nutzertext, damit der nie ueberschrieben wird — und beim naechsten Mal
   // trifft schon der Stichwort-Vergleich, ganz ohne KI.
   'ALTER TABLE konto_ordner ADD COLUMN gelernt TEXT',
+  // Warum ist diese Mail dort gelandet? Die Begründung stand bisher nur in der
+  // Antwort an n8n und in der Sortier-Inbox — im Protokoll fehlte sie. Damit war
+  // die häufigste Frage bei einer Fehleinordnung („wieso das?") nicht mehr zu
+  // beantworten, sobald die Mail einmal verschoben war.
+  'ALTER TABLE quarantine_log ADD COLUMN grund TEXT',
   // Die Entscheidungs-Chronik wird seitenweise durchblättert und durchsucht;
   // ohne Index las SQLite dafür bei jedem Klick die ganze Tabelle. Bei
   // fünfstelligen Zeilenzahlen ist das der Unterschied zwischen sofort und

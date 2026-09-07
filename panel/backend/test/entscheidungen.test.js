@@ -11,24 +11,45 @@ require('./umgebung');
 const db = require('../src/db');
 const e = require('../src/services/entscheidungen');
 
-const eintragen = (zeile) => db.prepare(`
+// „versatz" ist die Altersangabe für SQLite: '-0 days' heißt eben passiert,
+// '-40 days' eine Zeile von vor gut einem Monat. Ohne die ließe sich der
+// Zeitraum-Filter nicht prüfen.
+const anlegen = (zeile) => db.prepare(`
   INSERT INTO quarantine_log (konto, von, betreff, kategorie, thema, konfidenz,
-                              zielordner, korrigiert_zu, ki, spam_score)
+                              zielordner, korrigiert_zu, ki, spam_score, virus_name,
+                              grund, created_at)
   VALUES (@konto, @von, @betreff, @kategorie, @thema, @konfidenz,
-          @zielordner, @korrigiert_zu, @ki, @spam_score)
+          @zielordner, @korrigiert_zu, @ki, @spam_score, @virus_name,
+          @grund, datetime('now', @versatz))
 `).run({
   konto: 'Post', von: 'x@example.com', betreff: null, kategorie: null, thema: null,
   konfidenz: null, zielordner: 'Archiv', korrigiert_zu: null, ki: 1, spam_score: null,
+  virus_name: null, grund: null, versatz: '-0 days',
   ...zeile,
 });
 
 db.prepare('DELETE FROM quarantine_log').run();
-eintragen({ von: 'rechnung@amazon.de', betreff: 'Ihre Bestellung', thema: 'Bestellungen', zielordner: 'Bestellungen' });
-eintragen({ von: 'newsletter@amazon.de', betreff: 'Angebote der Woche', thema: 'Newsletter', zielordner: 'Newsletter' });
-eintragen({ von: 'info@stadtwerke.example', betreff: 'Rechnung 2026-04', zielordner: 'Rechnungen', ki: 0 });
-eintragen({ von: 'chef@firma.example', betreff: 'Urlaub', zielordner: 'Archiv', korrigiert_zu: 'Arbeit' });
-eintragen({ von: 'unklar@nirgendwo.example', betreff: '50% Rabatt', zielordner: null });
-eintragen({ konto: 'Zweitpostfach', von: 'rechnung@amazon.de', betreff: 'Rechnung', zielordner: 'Rechnungen' });
+anlegen({
+  von: 'rechnung@amazon.de', betreff: 'Ihre Bestellung', thema: 'Bestellungen',
+  zielordner: 'Bestellungen', grund: 'Vorhandener Themen-Ordner', versatz: '-40 days',
+});
+anlegen({
+  von: 'newsletter@amazon.de', betreff: 'Angebote der Woche', thema: 'Newsletter',
+  zielordner: 'Newsletter', virus_name: 'Eicar-Test-Signature', versatz: '-10 days',
+});
+anlegen({
+  von: 'info@stadtwerke.example', betreff: 'Rechnung 2026-04', zielordner: 'Rechnungen',
+  ki: 0, grund: 'Eigene Regel [domain] stadtwerke.example',
+});
+anlegen({ von: 'chef@firma.example', betreff: 'Urlaub', zielordner: 'Archiv', korrigiert_zu: 'Arbeit' });
+anlegen({
+  von: 'unklar@nirgendwo.example', betreff: '50% Rabatt', zielordner: null,
+  grund: 'Zielordner "Werbung" existiert im Postfach nicht',
+});
+anlegen({
+  konto: 'Zweitpostfach', von: 'rechnung@amazon.de', betreff: 'Rechnung',
+  zielordner: 'Rechnungen', spam_score: 0.95,
+});
 
 describe('Suche — man sucht nach dem, woran man sich erinnert', () => {
   test('nach Absender', () => {
@@ -111,6 +132,73 @@ describe('Filter', () => {
 
   test('ohne Filter sind sie trotzdem dabei', () => {
     assert.ok(e.suchen({}).eintraege.some((z) => z.zielordner === null));
+  });
+
+  // Der Blick für „ich glaube, die Spam- und Virenprüfung stimmt nicht".
+  test('Spam und Viren zusammen', () => {
+    const t = e.suchen({ nur: 'spam' });
+    assert.equal(t.gesamt, 2, 'ein Virenfund und ein Wert über der Schwelle');
+    assert.ok(t.eintraege.some((z) => z.virus_name));
+    assert.ok(t.eintraege.some((z) => z.spam_score >= 0.8));
+  });
+
+  // Die Schwelle darf nicht im Code stehen: Sonst zeigt der Filter etwas
+  // anderes an, als in den Workflows tatsächlich passiert ist.
+  test('die Schwelle kommt aus den Einstellungen', () => {
+    const settings = require('../src/services/settings');
+    const vorher = settings.hole('spam_schwellwert');
+    try {
+      settings.setze('spam_schwellwert', '0.99');
+      const t = e.suchen({ nur: 'spam' });
+      assert.equal(t.gesamt, 1, 'bei 0,99 bleibt nur noch der Virenfund übrig');
+      assert.ok(t.eintraege[0].virus_name);
+    } finally {
+      settings.setze('spam_schwellwert', vorher || '0.8');
+    }
+  });
+});
+
+describe('Zeitraum', () => {
+  test('die letzten 7 Tage lassen alles Ältere weg', () => {
+    assert.equal(e.suchen({ tage: 7 }).gesamt, 4, 'ohne die Zeilen von vor 10 und 40 Tagen');
+  });
+
+  test('30 Tage nehmen die von vor 10 Tagen wieder mit', () => {
+    assert.equal(e.suchen({ tage: 30 }).gesamt, 5);
+  });
+
+  test('ohne Angabe zählt alles', () => {
+    assert.equal(e.suchen({ tage: 0 }).gesamt, 6);
+    assert.equal(e.suchen({}).gesamt, 6);
+  });
+
+  test('Unsinn im Feld grenzt nicht versehentlich ein', () => {
+    assert.equal(e.suchen({ tage: 'übermorgen' }).gesamt, 6);
+    assert.equal(e.suchen({ tage: -5 }).gesamt, 6);
+  });
+
+  test('Zeitraum und Suche greifen zusammen', () => {
+    assert.equal(e.suchen({ suche: 'amazon' }).gesamt, 3);
+    assert.equal(e.suchen({ suche: 'amazon', tage: 7 }).gesamt, 1, 'nur die aus dem Zweitpostfach');
+  });
+});
+
+describe('Der Grund — weshalb ist die Mail dort gelandet?', () => {
+  test('er kommt mit der Zeile heraus', () => {
+    const t = e.suchen({ suche: 'stadtwerke' });
+    assert.equal(t.eintraege[0].grund, 'Eigene Regel [domain] stadtwerke.example');
+  });
+
+  // Der Grund ist das schnellste Sieb: „existiert nicht" findet auf einen
+  // Schlag alle Mails, die an einem fehlenden Zielordner gescheitert sind.
+  test('nach ihm lässt sich suchen', () => {
+    const t = e.suchen({ suche: 'existiert nicht' });
+    assert.equal(t.gesamt, 1);
+    assert.equal(t.eintraege[0].von, 'unklar@nirgendwo.example');
+  });
+
+  test('Zeilen ohne Grund stören die Suche nicht', () => {
+    assert.equal(e.suchen({ suche: 'Urlaub' }).eintraege[0].grund, null);
   });
 });
 

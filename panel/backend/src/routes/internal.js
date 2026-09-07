@@ -424,8 +424,8 @@ router.get('/config', (req, res) => {
 // Aufgerufen von /log und von /einsortieren.
 function triageProtokollieren(b) {
   db.prepare(`
-    INSERT INTO quarantine_log (konto, von, betreff, kategorie, spam_score, zielordner, kurzfassung, list_unsubscribe, virus_name, dnsbl_treffer, thema, konfidenz, uid, ki)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO quarantine_log (konto, von, betreff, kategorie, spam_score, zielordner, kurzfassung, list_unsubscribe, virus_name, dnsbl_treffer, thema, konfidenz, uid, ki, grund)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     String(b.konto), String(b.von), b.betreff ?? null, b.kategorie ?? null,
     b.spam_score != null ? Number(b.spam_score) : null, b.zielordner ?? null,
@@ -434,6 +434,10 @@ function triageProtokollieren(b) {
     b.thema ?? null, b.konfidenz != null ? Number(b.konfidenz) : null,
     b.uid != null ? String(b.uid) : null,
     b.ki === 0 ? 0 : 1,
+    // Warum diese Mail dort gelandet ist. Ohne die Zeile steht in der Chronik
+    // zwar, WAS entschieden wurde, aber nie WESHALB — und danach fragt man bei
+    // einer Fehleinordnung als Erstes.
+    b.grund ? String(b.grund).slice(0, 500) : null,
   );
 
   // Newsletter-Absender fuer die Abbestellen-Seite mitzaehlen
@@ -498,7 +502,13 @@ router.post('/einsortieren', async (req, res) => {
       && (regel.aktion || 'verschieben') === 'behalten';
 
     if (b.ziel_fest) {
-      grund = 'Spam, Blacklist oder Virus — Ziel steht fest';
+      // „Spam, Blacklist oder Virus" sagt nicht, welches davon. Genau das ist
+      // aber die Frage, wenn eine harmlose Mail in der Quarantaene liegt.
+      grund = b.virus_name
+        ? `Virus gefunden: ${b.virus_name}`
+        : b.spam_score != null
+          ? `Spam-Wert ${Number(b.spam_score).toFixed(2)} — Ziel steht fest`
+          : 'Blacklist oder feste Vorgabe — Ziel steht fest';
     } else if (inRuhe) {
       ordner = null;
       grund = 'Eigene Regel: bleibt unangetastet im Posteingang';
@@ -534,7 +544,20 @@ router.post('/einsortieren', async (req, res) => {
     // Massgeblich ist der Vermerk aus /sort — nicht, ob jetzt gerade eine Regel
     // passt: Die kann in diesem Lauf erst dazugelernt worden sein.
     const perKi = !warRegelSortiert(b.konto, b.uid);
-    triageProtokollieren({ ...b, zielordner: ordner, ki: perKi ? 1 : 0 });
+
+    // Was ins Protokoll kommt, muss die Entscheidung erklaeren, die wirklich
+    // gefallen ist. Eine Mail, die schon in /sort von einer eigenen Regel oder
+    // einem Stichwort abgebogen ist, hat die KI nie gesehen — themen.aufloesen()
+    // lief dann ins Leere und meldet "Kein Thema erkannt". Das im Protokoll
+    // stehen zu lassen, waere schlicht falsch und wuerde bei der Fehlersuche in
+    // die verkehrte Richtung zeigen.
+    let protokollGrund = grund;
+    if (!perKi && !ausThema && !b.ziel_fest && !inRuhe) {
+      protokollGrund = regel
+        ? `Eigene Regel [${regel.typ}] ${regel.muster} → ${regel.zielordner}`
+        : 'Vor der KI entschieden — eigene Regel oder Stichwort';
+    }
+    triageProtokollieren({ ...b, zielordner: ordner, ki: perKi ? 1 : 0, grund: protokollGrund });
 
     // Und was hat diese Mail an Kontingent gekostet?
     //

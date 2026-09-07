@@ -28,10 +28,19 @@ const REGEL_TYPEN = {
 // die häufigste Antwort auf „warum ist die nicht sortiert worden?“.
 const CHRONIK_FILTER = [
   { wert: 'alle', text: 'Alle', hilfe: 'Jede Entscheidung' },
-  { wert: 'ki', text: 'KI', hilfe: 'Von Gemini eingeordnet' },
+  { wert: 'ki', text: 'KI', hilfe: 'Von der KI eingeordnet' },
   { wert: 'regel', text: 'Regel', hilfe: 'Von einer eigenen Regel einsortiert, ohne KI' },
   { wert: 'korrigiert', text: 'Korrigiert', hilfe: 'Schon einmal von Hand geradegezogen' },
   { wert: 'liegen', text: 'Liegengeblieben', hilfe: 'Nicht verschoben — Regel „in Ruhe lassen“ oder Zielordner fehlte' },
+  { wert: 'spam', text: 'Spam/Virus', hilfe: 'Virenfund, DNSBL-Treffer oder Spam-Wert über der Schwelle' },
+];
+
+// „Letzte Woche“ ist die Art, wie man sich an eine Mail erinnert.
+const ZEITRAEUME = [
+  { wert: 0, text: 'gesamter Zeitraum' },
+  { wert: 1, text: 'letzte 24 Stunden' },
+  { wert: 7, text: 'letzte 7 Tage' },
+  { wert: 30, text: 'letzte 30 Tage' },
 ];
 
 // SQLite schreibt CURRENT_TIMESTAMP als „2026-09-07 14:00:00“ — das ist UTC,
@@ -48,6 +57,18 @@ const zeitpunkt = (s) => {
 };
 
 const CHRONIK_LEER = { eintraege: [], gesamt: 0, seite: 1, seiten: 1, limit: 50 };
+
+// Die DNSBL-Treffer liegen als JSON-Text in der Spalte. Kaputtes JSON darf die
+// aufgeklappte Zeile nicht mitreißen — dann steht eben der Rohwert da.
+const dnsblText = (roh) => {
+  if (!roh) return null;
+  try {
+    const liste = JSON.parse(roh);
+    return Array.isArray(liste) ? liste.join(', ') : String(roh);
+  } catch {
+    return String(roh);
+  }
+};
 
 // Eine Registerkarte der Sortierung-Seite. Aktiv = hervorgehoben; die Zahl zeigt,
 // wo gerade etwas wartet, damit man den Bereich nicht erst aufklappen muss.
@@ -133,11 +154,15 @@ export default function Sortierung() {
   const [suche, setSuche] = useState('');            // was im Feld steht
   const [suchbegriff, setSuchbegriff] = useState(''); // was davon schon abgeschickt ist
   const [nur, setNur] = useState('alle');
+  const [tage, setTage] = useState(0);                // 0 = gesamter Zeitraum
   const [seite, setSeite] = useState(1);
   const [alleKonten, setAlleKonten] = useState(false);
   const [chronikLaedt, setChronikLaedt] = useState(false);
   const [chronikTakt, setChronikTakt] = useState(0);  // hochzählen = neu laden
-  const [korrekturOffen, setKorrekturOffen] = useState(null);   // log_id
+  // Eine aufgeklappte Zeile zeigt Grund, Kurzfassung und Prüfwerte — und, wo es
+  // etwas zu korrigieren gibt, gleich das Formular dafür. Zwei getrennte
+  // Aufklapp-Mechaniken in derselben Tabelle wären nur verwirrend.
+  const [offeneZeile, setOffeneZeile] = useState(null);   // log_id
   const [korrekturOrdner, setKorrekturOrdner] = useState('');
   const [korrekturRegel, setKorrekturRegel] = useState('domain');
 
@@ -219,6 +244,7 @@ export default function Sortierung() {
         });
         if (suchbegriff.trim()) p.set('suche', suchbegriff.trim());
         if (nur !== 'alle') p.set('nur', nur);
+        if (tage > 0) p.set('tage', String(tage));
         const { data } = await api.get(`/sortierung/entscheidungen?${p.toString()}`);
         if (verworfen) return;
         setEntscheidungen(data && Array.isArray(data.eintraege) ? data : CHRONIK_LEER);
@@ -234,9 +260,23 @@ export default function Sortierung() {
     })();
     // Eine überholte Antwort darf eine neuere nicht überschreiben.
     return () => { verworfen = true; };
-  }, [aktivesKonto, alleKonten, suchbegriff, nur, seite, chronikTakt]);
+  }, [aktivesKonto, alleKonten, suchbegriff, nur, tage, seite, chronikTakt]);
+
+  // Beim Postfach-Wechsel zurück auf Seite 1. Sonst blieb man auf Seite 5, der
+  // Server deckelte auf das, was es dort überhaupt gibt, und es kostete eine
+  // überflüssige Runde durch die Leitung.
+  useEffect(() => { setSeite(1); setOffeneZeile(null); }, [aktivesKonto]);
 
   const chronikSpalten = alleKonten ? 8 : 7;
+
+  // Eine Zeile auf- oder zuklappen. Die Korrektur-Felder gehören zu der Zeile,
+  // die gerade offen ist — beim Wechsel müssen sie leer sein, sonst steht der
+  // Ordner der vorigen Mail im Feld.
+  const zeileUmschalten = (id) => {
+    setOffeneZeile(alt => (alt === id ? null : id));
+    setKorrekturOrdner('');
+    setKorrekturRegel('domain');
+  };
 
   const korrigieren = async (eintrag) => {
     const ziel = korrekturOrdner.trim();
@@ -253,7 +293,7 @@ export default function Sortierung() {
       if (data.nachsortiert?.verschoben) teile.push(`${data.nachsortiert.verschoben} wartende Mail(s) mitsortiert.`);
       if (data.hinweis) teile.push(data.hinweis);
       melden(teile.join('\n'));
-      setKorrekturOffen(null);
+      setOffeneZeile(null);
       setKorrekturOrdner('');
       setChronikTakt(t => t + 1);
       regelnLaden(aktivesKonto);
@@ -1268,6 +1308,14 @@ export default function Sortierung() {
                 </button>
               ))}
             </div>
+            <select
+              value={tage}
+              onChange={ev => { setTage(Number(ev.target.value)); setSeite(1); }}
+              className="text-xs bg-panel-bg rounded px-2 py-1.5 border border-panel-border"
+              title="Zeitraum eingrenzen"
+            >
+              {ZEITRAEUME.map(z => <option key={z.wert} value={z.wert}>{z.text}</option>)}
+            </select>
             {/* Wer eine falsch einsortierte Mail sucht, weiß oft nicht mehr, in
                 welchem Postfach sie ankam. Erst raten zu müssen, wäre eine Hürde
                 ohne Zweck. */}
@@ -1301,18 +1349,32 @@ export default function Sortierung() {
                 <tr>
                   <td colSpan={chronikSpalten} className="py-8 px-4 text-center text-panel-muted text-sm">
                     {chronikLaedt ? 'Sucht …'
-                      : suchbegriff || nur !== 'alle'
-                        ? 'Dazu ist nichts eingetragen. Anderer Suchbegriff oder Filter „Alle“?'
+                      : suchbegriff || nur !== 'alle' || tage > 0
+                        ? 'Dazu ist nichts eingetragen. Anderer Suchbegriff, Filter „Alle“ oder größerer Zeitraum?'
                         : 'Noch keine Entscheidung getroffen.'}
                   </td>
                 </tr>
               )}
               {entscheidungen.eintraege.map(e => (
                 <React.Fragment key={e.id}>
-                  <tr className="border-b border-panel-border/50 hover:bg-panel-bg/30 transition-colors">
+                  <tr
+                    onClick={() => zeileUmschalten(e.id)}
+                    className="border-b border-panel-border/50 hover:bg-panel-bg/30 transition-colors cursor-pointer"
+                    title="Aufklappen: warum ist diese Mail dort gelandet?"
+                  >
                     <td className="py-2 px-4 text-xs text-panel-muted whitespace-nowrap">{zeitpunkt(e.created_at)}</td>
                     {alleKonten && <td className="py-2 px-4 text-xs whitespace-nowrap">{e.konto}</td>}
-                    <td className="py-2 px-4 truncate max-w-[200px]" title={e.von}>{e.von}</td>
+                    <td className="py-2 px-4 max-w-[200px]">
+                      {/* Ein Klick auf den Absender sucht nach ihm — „alles von
+                          diesem Absender" ist die häufigste Anschlussfrage. */}
+                      <button
+                        onClick={ev => { ev.stopPropagation(); setSuche(adresse(e.von)); }}
+                        title={`Alles von ${adresse(e.von)} suchen`}
+                        className="block truncate w-full text-left hover:text-panel-accent transition-colors"
+                      >
+                        {e.von}
+                      </button>
+                    </td>
                     <td className="py-2 px-4 truncate max-w-[240px] text-panel-muted" title={e.betreff}>
                       {e.betreff || '(kein Betreff)'}
                       {e.virus_name && (
@@ -1341,50 +1403,95 @@ export default function Sortierung() {
                         : <span className="inline-flex items-center gap-1 text-panel-muted"><Tag size={12} /> Regel</span>}
                     </td>
                     <td className="py-2 px-4 text-right whitespace-nowrap">
-                      {!e.korrigiert_zu && e.zielordner && (
-                        <button
-                          onClick={() => {
-                            setKorrekturOffen(korrekturOffen === e.id ? null : e.id);
-                            setKorrekturOrdner('');
-                            setKorrekturRegel('domain');
-                          }}
-                          className="btn-ghost !py-1 !px-2 text-xs flex items-center gap-1 ml-auto"
-                          title="Diese Mail gehört woanders hin"
-                        >
-                          <Undo2 size={14} /> War falsch
-                        </button>
-                      )}
+                      <div className="flex items-center justify-end gap-1">
+                        {!e.korrigiert_zu && e.zielordner && (
+                          <button
+                            onClick={ev => { ev.stopPropagation(); zeileUmschalten(e.id); }}
+                            className="btn-ghost !py-1 !px-2 text-xs flex items-center gap-1"
+                            title="Diese Mail gehört woanders hin"
+                          >
+                            <Undo2 size={14} /> War falsch
+                          </button>
+                        )}
+                        <ChevronDown
+                          size={14}
+                          className={`text-panel-muted transition-transform ${offeneZeile === e.id ? 'rotate-180' : ''}`}
+                        />
+                      </div>
                     </td>
                   </tr>
-                  {korrekturOffen === e.id && (
+
+                  {/* Die aufgeklappte Zeile beantwortet „warum das?" — und bietet
+                      gleich daneben die Korrektur an, falls die Antwort nicht
+                      überzeugt. */}
+                  {offeneZeile === e.id && (
                     <tr className="bg-panel-bg/50">
                       <td colSpan={chronikSpalten} className="px-4 py-3">
-                        <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
-                          <input
-                            type="text"
-                            autoFocus
-                            placeholder={`Richtiger Ordner statt „${e.zielordner}“`}
-                            value={korrekturOrdner}
-                            onChange={ev => setKorrekturOrdner(ev.target.value)}
-                            list="ordner-vorschlaege"
-                            className="flex-1 text-sm"
-                          />
-                          <select
-                            value={korrekturRegel}
-                            onChange={ev => setKorrekturRegel(ev.target.value)}
-                            className="text-sm bg-panel-bg"
-                          >
-                            <option value="domain">Merken: alles von @{domainVon(e.von)}</option>
-                            <option value="absender">Merken: nur {adresse(e.von)}</option>
-                            <option value="keine">Nur diese Mail, nichts merken</option>
-                          </select>
-                          <button onClick={() => korrigieren(e)} className="btn !py-1.5 !px-3 text-sm whitespace-nowrap">
-                            Verschieben &amp; merken
-                          </button>
-                          <button onClick={() => setKorrekturOffen(null)} className="btn-ghost !py-1.5 !px-2 text-sm">
-                            Abbrechen
-                          </button>
+                        <div className="grid gap-x-6 gap-y-1.5 sm:grid-cols-2 text-xs">
+                          <div className="sm:col-span-2">
+                            <span className="text-panel-muted">Warum: </span>
+                            {e.grund || (
+                              <span className="text-panel-muted italic">
+                                nicht festgehalten — Einträge von vor Build 133 tragen keinen Grund
+                              </span>
+                            )}
+                          </div>
+                          {e.betreff && (
+                            <div className="sm:col-span-2">
+                              <span className="text-panel-muted">Betreff: </span>{e.betreff}
+                            </div>
+                          )}
+                          {e.kurzfassung && (
+                            <div className="sm:col-span-2">
+                              <span className="text-panel-muted">Kurzfassung der KI: </span>{e.kurzfassung}
+                            </div>
+                          )}
+                          <div><span className="text-panel-muted">Kategorie: </span>{e.kategorie || '—'}</div>
+                          <div>
+                            <span className="text-panel-muted">Sicherheit: </span>
+                            {e.konfidenz != null ? `${Math.round(e.konfidenz * 100)} %` : '—'}
+                          </div>
+                          <div>
+                            <span className="text-panel-muted">Spam-Wert: </span>
+                            {e.spam_score != null ? Number(e.spam_score).toFixed(2) : '—'}
+                            {e.virus_name && <span className="text-red-400"> · Virus: {e.virus_name}</span>}
+                          </div>
+                          <div>
+                            <span className="text-panel-muted">DNSBL: </span>
+                            {dnsblText(e.dnsbl_treffer) || '—'}
+                          </div>
+                          <div><span className="text-panel-muted">UID im Postfach: </span>{e.uid || '—'}</div>
+                          <div><span className="text-panel-muted">Postfach: </span>{e.konto}</div>
                         </div>
+
+                        {!e.korrigiert_zu && e.zielordner && (
+                          <div className="mt-3 pt-3 border-t border-panel-border flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+                            <input
+                              type="text"
+                              autoFocus
+                              placeholder={`Richtiger Ordner statt „${e.zielordner}“`}
+                              value={korrekturOrdner}
+                              onChange={ev => setKorrekturOrdner(ev.target.value)}
+                              list="ordner-vorschlaege"
+                              className="flex-1 text-sm"
+                            />
+                            <select
+                              value={korrekturRegel}
+                              onChange={ev => setKorrekturRegel(ev.target.value)}
+                              className="text-sm bg-panel-bg"
+                            >
+                              <option value="domain">Merken: alles von @{domainVon(e.von)}</option>
+                              <option value="absender">Merken: nur {adresse(e.von)}</option>
+                              <option value="keine">Nur diese Mail, nichts merken</option>
+                            </select>
+                            <button onClick={() => korrigieren(e)} className="btn !py-1.5 !px-3 text-sm whitespace-nowrap">
+                              Verschieben &amp; merken
+                            </button>
+                            <button onClick={() => setOffeneZeile(null)} className="btn-ghost !py-1.5 !px-2 text-sm">
+                              Schließen
+                            </button>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   )}
