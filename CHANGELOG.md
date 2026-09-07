@@ -2,6 +2,17 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.2.2.0] - 2026-09-07 (Build 134) — *Ollama Model Installer*
+
+### Feature & Verbesserungen
+- **Ollama Modell-Installation**: Über die Einstellungen im Tab "KI & Prüfung" lassen sich nun Ollama-Modelle direkt aus dem Panel heraus installieren.
+- Ein Ladebalken informiert über den Echtzeit-Download-Fortschritt via SSE-Verbindung. 
+- Erfolgreich installierte Modelle werden sofort in der Dropdown-Auswahl angezeigt.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Backend**: Ein neuer Stream-Endpunkt (`/api/einstellungen/ollama/pull`) wurde ergänzt, der den Download-Fortschritt der Ollama-API an das Panel durchreicht.
+- **Datenbank & Workflows:** Keine Änderungen.
+
 ## [4.2.1.0] - 2026-09-07 (Build 133) — *Warum ist die Mail dort gelandet?*
 
 Die Chronik aus Build 132 beantwortete, **was** entschieden wurde. Sie beantwortet jetzt auch,

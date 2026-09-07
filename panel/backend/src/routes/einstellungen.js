@@ -198,4 +198,44 @@ router.post('/ollama/modelle', async (req, res) => {
   }
 });
 
+router.get('/ollama/pull', async (req, res) => {
+  const model = req.query.model;
+  const url = req.query.url || require('../db').prepare('SELECT value FROM settings WHERE key = ?').get('ollama_url')?.value;
+
+  if (!model || !url) return res.status(400).end();
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  try {
+    const r = await fetch(url.replace(/\/$/, '') + '/api/pull', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, stream: true }),
+    });
+
+    if (!r.ok) {
+      res.write(`data: {"error": "Ollama Error HTTP ${r.status}"}\n\n`);
+      return res.end();
+    }
+
+    // Read the stream chunk by chunk
+    for await (const chunk of r.body) {
+      // split by newline just in case there are multiple JSON objects in one chunk
+      const lines = chunk.toString().split('\n').filter(Boolean);
+      for (const line of lines) {
+        res.write(`data: ${line}\n\n`);
+      }
+    }
+    
+    res.write('data: {"status": "success"}\n\n');
+    res.end();
+  } catch (err) {
+    res.write(`data: {"error": "${err.message}"}\n\n`);
+    res.end();
+  }
+});
+
 module.exports = router;

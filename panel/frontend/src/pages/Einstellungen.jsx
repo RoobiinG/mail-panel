@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   CheckCircle2, XCircle, Loader2, PlugZap, ShieldCheck, Trash2,
   Eye, EyeOff, Save, KeyRound, Cpu, Mail, Cloud, Server,
-  Link, Wifi, TestTube2, User, Settings2, FolderTree, MailOpen,
+  Link, Wifi, TestTube2, User, Settings2, FolderTree, MailOpen, Download,
 } from 'lucide-react';
 import api from '../api';
 import { useMelden } from '../components/ui/Meldungen';
@@ -363,6 +363,48 @@ export default function Einstellungen() {
     }
   }, [settings?.ollama_url]);
 
+  const [installModelName, setInstallModelName] = useState('');
+  const [installProgress, setInstallProgress] = useState(null);
+  const [installError, setInstallError] = useState(null);
+
+  const installModel = () => {
+    if (!installModelName || !settings?.ollama_url) return;
+    setInstallProgress({ status: 'Verbinde...', completed: 0, total: 100 });
+    setInstallError(null);
+    
+    const es = new EventSource(`/api/einstellungen/ollama/pull?model=${encodeURIComponent(installModelName)}&url=${encodeURIComponent(settings.ollama_url)}`);
+    
+    es.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.error) {
+          setInstallError(data.error);
+          setInstallProgress(null);
+          es.close();
+        } else if (data.status === 'success') {
+          setInstallProgress({ status: 'Erfolgreich installiert!', completed: 100, total: 100 });
+          setInstallModelName('');
+          es.close();
+          // Aktualisiere Modellliste
+          api.post('/einstellungen/ollama/modelle', { url: settings.ollama_url })
+            .then(r => { setOllamaModelle(r.data.map(m => ({ name: m }))); setOllamaModellFehler(''); })
+            .catch(err => { setOllamaModelle([]); setOllamaModellFehler(err.response?.data?.error || 'Fehler beim Laden'); });
+          
+          setTimeout(() => setInstallProgress(null), 5000);
+        } else {
+          setInstallProgress(data);
+        }
+      } catch(err) {
+        // Parse-Fehler ignorieren, da evtl. kaputter Chunk
+      }
+    };
+    es.onerror = () => {
+      setInstallError("Verbindung zum Server abgebrochen.");
+      setInstallProgress(null);
+      es.close();
+    };
+  };
+
   const set = (key, val) => setSettings(s => ({ ...s, [key]: val }));
 
   const speichern = async (sektion) => {
@@ -530,6 +572,40 @@ export default function Einstellungen() {
                       modelle={ollamaModelle} fehler={ollamaModellFehler}
                       gesperrt={settings.ollama_modell_per_env}
                       onWahl={v => set('ollama_modell', v)} />
+                  </div>
+                  <div className="space-y-1 pt-3 border-t border-panel-border/30">
+                    <label className="block text-xs text-panel-muted">Neues Modell installieren</label>
+                    <p className="text-[10px] text-panel-muted/60">
+                      Lädt ein Modell (z.B. <code className="text-panel-text">llama3.2</code>) direkt über das Panel herunter. Dies kann bei großen Modellen einige Minuten dauern.
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <input type="text" value={installModelName}
+                        placeholder="Modellname, z.B. llama3.1"
+                        disabled={installProgress !== null}
+                        onChange={e => setInstallModelName(e.target.value)} 
+                        className={inputCls} 
+                        style={{ flex: 1 }} />
+                      <button onClick={installModel} disabled={!installModelName || installProgress !== null}
+                        className="btn py-[7px] px-3 text-xs flex items-center gap-1">
+                        <Download size={13} /> Installieren
+                      </button>
+                    </div>
+                    {installError && <p className="text-xs text-panel-red mt-1">{installError}</p>}
+                    {installProgress && (
+                      <div className="mt-2 p-2 bg-panel-darker rounded border border-panel-border space-y-1">
+                        <div className="flex justify-between text-[11px] text-panel-muted">
+                          <span>{installProgress.status}</span>
+                          {installProgress.total ? (
+                            <span>{Math.round((installProgress.completed / installProgress.total) * 100)}%</span>
+                          ) : null}
+                        </div>
+                        {installProgress.total ? (
+                          <div className="w-full bg-panel-surface rounded-full h-1.5 overflow-hidden">
+                            <div className="bg-emerald-500 h-full transition-all duration-300" style={{ width: `${Math.round((installProgress.completed / installProgress.total) * 100)}%` }}></div>
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : (
