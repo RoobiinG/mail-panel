@@ -17,9 +17,9 @@ Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 - Der Zeiger rückte nach jedem Angebot weiter — auch wenn der Lauf danach an Googles Kontingent
   starb und keine einzige Mail einsortiert wurde. Die angebotenen Mails waren damit für eine
   ganze Runde weg.
-- Wurde aus dem letzten Fenster **nichts** erledigt, wird es jetzt noch einmal angeboten. Die
-  Sicherung gegen Mails, die sich nie entscheiden lassen, bleibt: Sobald auch nur **eine** des
-  Fensters durchkam, geht es vorwärts.
+- Wurde aus dem letzten Fenster **nichts** erledigt, wird es **einmal** noch einmal angeboten. Die
+  Sicherung gegen Mails, die sich nie entscheiden lassen, bleibt doppelt: Sobald auch nur **eine** des
+  Fensters durchkam, geht es sofort vorwärts — und mehr als eine zweite Chance gibt es nie.
 
 ### Was das zusammen bedeutet
 - Beide Lücken erklären dasselbe Bild: Läufe laufen grün durch, das Postfach wird trotzdem kaum

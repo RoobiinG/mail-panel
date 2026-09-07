@@ -95,6 +95,9 @@ const zeigerSchluessel = (kontoId) => `bestand_zeiger_${kontoId}`;
 // Nur so laesst sich die Frage beantworten, ob er ueberhaupt etwas geschafft
 // hat — und ob dasselbe Fenster deshalb noch einmal drankommen muss.
 const fensterSchluessel = (kontoId) => `bestand_fenster_${kontoId}`;
+// Wurde dieses Fenster schon einmal wiederholt? Mehr als eine zweite Chance
+// gibt es nicht — siehe die Begruendung bei kandidaten().
+const zweitVersuchSchluessel = (kontoId) => `bestand_fenster_zweit_${kontoId}`;
 
 function fensterMerken(kontoId, uids) {
   try {
@@ -158,7 +161,12 @@ async function kandidaten(grenze = 0) {
       const vorherigesFenster = letztesFenster(konto.id);
       const nichtsGeschafft = vorherigesFenster.length > 0
         && !vorherigesFenster.some((u) => erledigt.has(u));
-      const ab = nichtsGeschafft ? Math.min(...vorherigesFenster) - 1 : zeiger;
+      // Genau EINE zweite Chance. Endlos zu wiederholen waere der Stillstand,
+      // den der Zeiger verhindern soll: Mails ohne Absender oder mit fehlendem
+      // Zielordner kommen nie durch und blockierten sonst den ganzen Bestand.
+      const wiederholen = nichtsGeschafft
+        && settings.hole(zweitVersuchSchluessel(konto.id)) !== '1';
+      const ab = wiederholen ? Math.min(...vorherigesFenster) - 1 : zeiger;
 
       let fenster = offen.filter((u) => u > ab).slice(0, proKonto);
       if (fenster.length === 0) fenster = offen.slice(0, proKonto);
@@ -166,6 +174,7 @@ async function kandidaten(grenze = 0) {
       raus.konten[konto.name] = fenster.join(',');
       settings.setze(zeigerSchluessel(konto.id), String(fenster[fenster.length - 1]));
       fensterMerken(konto.id, fenster);
+      settings.setze(zweitVersuchSchluessel(konto.id), wiederholen ? '1' : '0');
     } catch (err) {
       // Ein nicht erreichbares Postfach darf den Lauf der anderen nicht kippen.
       loggen('warn', 'backend:bestand', `Bestand von ${konto.name} nicht lesbar: ${err.message}`);

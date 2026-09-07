@@ -59,21 +59,38 @@ describe('Auswahl der Bestands-Mails', () => {
     assert.equal((await bestand.kandidaten()).konten.K, '1,3');
   });
 
-  test('der Zeiger schiebt das Fenster weiter — das war der ganze Fehler', async () => {
+  // Der Zeiger muss vorwaerts gehen — aber nicht ueber ein Fenster hinweg, das
+  // gar nicht drankam. Der Kompromiss: genau eine zweite Chance.
+  test('ein fruchtloses Fenster bekommt eine zweite Chance, dann geht es weiter', async () => {
     kontoAnlegen();
     postfachMit([1, 2, 3, 4, 5, 6]);
     assert.equal((await bestand.kandidaten(2)).konten.K, '1,2');
-    assert.equal((await bestand.kandidaten(2)).konten.K, '3,4', 'sonst kaeme ewig wieder 1,2');
+    assert.equal((await bestand.kandidaten(2)).konten.K, '1,2',
+      'nichts erledigt — ein gescheiterter Lauf darf keine Mails kosten');
+    assert.equal((await bestand.kandidaten(2)).konten.K, '3,4',
+      'aber nur einmal: unentscheidbare Mails duerfen den Bestand nicht blockieren');
+    assert.equal((await bestand.kandidaten(2)).konten.K, '3,4');
     assert.equal((await bestand.kandidaten(2)).konten.K, '5,6');
   });
 
+  test('was durchkam, schiebt das Fenster sofort weiter', async () => {
+    const id = kontoAnlegen();
+    postfachMit([1, 2, 3, 4]);
+    assert.equal((await bestand.kandidaten(2)).konten.K, '1,2');
+    bestand.erledigtMerken(id, 1, 'ruhe');
+    assert.equal((await bestand.kandidaten(2)).konten.K, '3,4',
+      'eine erledigte Mail im Fenster genuegt — dann war der Lauf nicht umsonst');
+  });
+
   test('am Ende faengt die Runde von vorn an', async () => {
-    kontoAnlegen();
+    const id = kontoAnlegen();
     postfachMit([1, 2, 3]);
-    await bestand.kandidaten(2);
-    await bestand.kandidaten(2); // 3 — danach ist nichts mehr ueber dem Zeiger
-    assert.equal((await bestand.kandidaten(2)).konten.K, '1,2',
-      'liegen gebliebene Mails bekommen eine neue Runde');
+    await bestand.kandidaten(2);          // 1,2
+    bestand.erledigtMerken(id, 1, 'ruhe'); // damit es weitergeht
+    await bestand.kandidaten(2);          // 3 — danach ist nichts mehr darueber
+    bestand.erledigtMerken(id, 3, 'ruhe');
+    const rest = (await bestand.kandidaten(2)).konten.K;
+    assert.equal(rest, '2', 'liegen gebliebene Mails bekommen eine neue Runde');
   });
 
   test('leerer Posteingang: eine UID, die es nicht gibt', async () => {
