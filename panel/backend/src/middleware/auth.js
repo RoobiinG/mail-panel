@@ -14,7 +14,7 @@ const db  = require('../db');
 // nur noch Fehler. Genau deshalb steht das hier jetzt getrennt.
 function auth(req, res, next) {
   const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+  const token = (authHeader && authHeader.split(' ')[1]) || req.query.token;
   if (!token) return res.status(401).json({ error: 'Nicht angemeldet.', code: 'kein_token' });
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);

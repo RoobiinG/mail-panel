@@ -2,6 +2,16 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.2.2.1] - 2026-09-08 (Build 135) — *Bugfixes*
+
+### Fixes
+- **Ollama Modell-Installation**: SSE-Verbindungen (EventSource) im Frontend können keinen Authorization-Header mitsenden, was zu einem 401 Unauthorized und sofortigem Verbindungsabbruch beim Installieren führte. Das Token wird nun als URL-Parameter übergeben, und die Auth-Middleware im Backend liest es von dort aus.
+- **Log-Links (Paste)**: Ein 404 Fehler beim Erstellen verschlüsselter Log-Links wurde behoben (die Frontend-Route lautete fälschlicherweise `/api/paste` statt `/paste`, was in `api.js` zu `/api/api/paste` führte).
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Backend**: Auth-Middleware akzeptiert nun Fallback-Tokens in `req.query.token`.
+- **Workflows**: Der 404 Fehler in den n8n-Logs bezüglich "model 'llama3.1' not found" verschwindet automatisch, sobald das Modell über das reparierte Tool erfolgreich installiert wurde.
+
 ## [4.2.2.0] - 2026-09-07 (Build 134) — *Ollama Model Installer*
 
 ### Feature & Verbesserungen

@@ -317,7 +317,7 @@ export default function Logs() {
         .join('');
         
       // Ans Backend senden
-      const res = await api.post('/api/paste', { payload: payloadBase64 });
+      const res = await api.post('/paste', { payload: payloadBase64 });
       
       // Link generieren und kopieren
       const link = `${window.location.origin}/paste/${res.data.id}#key=${hexKey}`;

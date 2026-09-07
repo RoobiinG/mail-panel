@@ -372,37 +372,40 @@ export default function Einstellungen() {
     setInstallProgress({ status: 'Verbinde...', completed: 0, total: 100 });
     setInstallError(null);
     
-    const es = new EventSource(`/api/einstellungen/ollama/pull?model=${encodeURIComponent(installModelName)}&url=${encodeURIComponent(settings.ollama_url)}`);
-    
-    es.onmessage = (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        if (data.error) {
-          setInstallError(data.error);
-          setInstallProgress(null);
-          es.close();
-        } else if (data.status === 'success') {
-          setInstallProgress({ status: 'Erfolgreich installiert!', completed: 100, total: 100 });
-          setInstallModelName('');
-          es.close();
-          // Aktualisiere Modellliste
-          api.post('/einstellungen/ollama/modelle', { url: settings.ollama_url })
-            .then(r => { setOllamaModelle(r.data.map(m => ({ name: m }))); setOllamaModellFehler(''); })
-            .catch(err => { setOllamaModelle([]); setOllamaModellFehler(err.response?.data?.error || 'Fehler beim Laden'); });
-          
-          setTimeout(() => setInstallProgress(null), 5000);
-        } else {
-          setInstallProgress(data);
+    import('../lib/session').then(({ token }) => {
+      const t = token() || '';
+      const es = new EventSource(`/api/einstellungen/ollama/pull?model=${encodeURIComponent(installModelName)}&url=${encodeURIComponent(settings.ollama_url)}&token=${encodeURIComponent(t)}`);
+      
+      es.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data.error) {
+            setInstallError(data.error);
+            setInstallProgress(null);
+            es.close();
+          } else if (data.status === 'success') {
+            setInstallProgress({ status: 'Erfolgreich installiert!', completed: 100, total: 100 });
+            setInstallModelName('');
+            es.close();
+            // Aktualisiere Modellliste
+            api.post('/einstellungen/ollama/modelle', { url: settings.ollama_url })
+              .then(r => { setOllamaModelle(r.data.map(m => ({ name: m }))); setOllamaModellFehler(''); })
+              .catch(err => { setOllamaModelle([]); setOllamaModellFehler(err.response?.data?.error || 'Fehler beim Laden'); });
+            
+            setTimeout(() => setInstallProgress(null), 5000);
+          } else {
+            setInstallProgress(data);
+          }
+        } catch(err) {
+          // Parse-Fehler ignorieren, da evtl. kaputter Chunk
         }
-      } catch(err) {
-        // Parse-Fehler ignorieren, da evtl. kaputter Chunk
-      }
-    };
-    es.onerror = () => {
-      setInstallError("Verbindung zum Server abgebrochen.");
-      setInstallProgress(null);
-      es.close();
-    };
+      };
+      es.onerror = () => {
+        setInstallError("Verbindung zum Server abgebrochen.");
+        setInstallProgress(null);
+        es.close();
+      };
+    });
   };
 
   const set = (key, val) => setSettings(s => ({ ...s, [key]: val }));
