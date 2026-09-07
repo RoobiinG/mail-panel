@@ -204,7 +204,8 @@ describe('Regeln kosten kein Budget', () => {
 // gut 400 dicht. Ohne diese Bremse holt jeder folgende Lauf trotzdem 200 Mails,
 // schickt 100 an die KI und stirbt dort — vier Minuten Arbeit fuer nichts.
 describe('Was Google heute schon abgewiesen hat', () => {
-  const heute = () => new Date().toLocaleDateString('sv-SE');
+  // Dieselbe Definition wie im Code: Googles Tag, nicht unserer.
+  const { kiTag: heute } = require('../src/services/kiTag');
   const abweisungVon = (stand, tag = heute()) => {
     settings.setze('ki_429_tag', tag);
     settings.setze('ki_429_stand', String(stand));
@@ -257,7 +258,8 @@ describe('Was Google heute schon abgewiesen hat', () => {
 // klassifizierten Mails bis zum Panel durch — protokolliert wird keine, bezahlt
 // haben sie alle. Genau das ist die Luecke zwischen 412 und 500.
 describe('Googles Zahl schlaegt die eigene', () => {
-  const heute = () => new Date().toLocaleDateString('sv-SE');
+  // Dieselbe Definition wie im Code: Googles Tag, nicht unserer.
+  const { kiTag: heute } = require('../src/services/kiTag');
 
   test('das Limit aus der Absage gilt, nicht der eigene Stand', () => {
     settings.setze('gemini_tagesbudget', '50000');

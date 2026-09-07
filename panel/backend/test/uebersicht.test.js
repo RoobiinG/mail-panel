@@ -89,7 +89,7 @@ describe('KI-Tagesbudget', () => {
   // die sichtbare die falsche waere.
   test('was Google heute abgewiesen hat, ist die angezeigte Grenze', async () => {
     settings.setze('gemini_tagesbudget', '50000');
-    settings.setze('ki_429_tag', new Date().toLocaleDateString('sv-SE'));
+    settings.setze('ki_429_tag', require('../src/services/kiTag').kiTag());
     settings.setze('ki_429_stand', '412');
     const u = await uebersicht.laden({ mitPosteingang: false });
     assert.equal(u.budget.grenze, 412);

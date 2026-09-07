@@ -13,7 +13,8 @@ const settings = require('../src/services/settings');
 const patcher = require('../src/services/workflowPatcher');
 const kiModell = require('../src/services/kiModell');
 
-const heute = () => new Date().toLocaleDateString('sv-SE');
+// Dieselbe Definition wie im Code: Googles Tag, nicht unserer.
+const { kiTag: heute } = require('../src/services/kiTag');
 
 beforeEach(() => {
   db.prepare("DELETE FROM settings WHERE key LIKE 'gemini_modell%'").run();

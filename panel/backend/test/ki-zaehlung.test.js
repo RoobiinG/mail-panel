@@ -168,7 +168,8 @@ describe('Stichworte entscheiden vor der KI', () => {
 // da — 21 Sekunden fuer nichts, und das bei jeder einzelnen Mail.
 describe('Ohne Kontingent gar nicht erst fragen', () => {
   const settings = require('../src/services/settings');
-  const heute = () => new Date().toLocaleDateString('sv-SE');
+  // Dieselbe Definition wie im Code: Googles Tag, nicht unserer.
+  const { kiTag: heute } = require('../src/services/kiTag');
 
   test('ist das Budget aufgebraucht, bleibt die Mail liegen', async () => {
     settings.setze('gemini_tagesbudget', '10');
