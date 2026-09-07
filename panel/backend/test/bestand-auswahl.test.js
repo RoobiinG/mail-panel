@@ -59,35 +59,52 @@ describe('Auswahl der Bestands-Mails', () => {
     assert.equal((await bestand.kandidaten()).konten.K, '1,3');
   });
 
-  // Der Zeiger muss vorwaerts gehen — aber nicht ueber ein Fenster hinweg, das
-  // gar nicht drankam. Der Kompromiss: genau eine zweite Chance.
-  test('ein fruchtloses Fenster bekommt eine zweite Chance, dann geht es weiter', async () => {
-    kontoAnlegen();
+  // Die Kernfrage: Kann eine Mail aus dem Blick geraten, ohne dass es auffaellt?
+  //
+  // Die zweite Chance galt frueher fuers ganze Fenster. Wurden 200 von 250 Mails
+  // sortiert, rueckte der Zeiger ueber alle 250 — und die 50, die liegen blieben,
+  // warteten einen kompletten Durchlauf des Postfachs. Jetzt wird je Mail
+  // nachgehalten.
+  test('was liegen blieb, kommt beim naechsten Lauf zuerst dran', async () => {
+    const id = kontoAnlegen();
     postfachMit([1, 2, 3, 4, 5, 6]);
-    assert.equal((await bestand.kandidaten(2)).konten.K, '1,2');
-    assert.equal((await bestand.kandidaten(2)).konten.K, '1,2',
-      'nichts erledigt — ein gescheiterter Lauf darf keine Mails kosten');
-    assert.equal((await bestand.kandidaten(2)).konten.K, '3,4',
-      'aber nur einmal: unentscheidbare Mails duerfen den Bestand nicht blockieren');
-    assert.equal((await bestand.kandidaten(2)).konten.K, '3,4');
-    assert.equal((await bestand.kandidaten(2)).konten.K, '5,6');
+    assert.equal((await bestand.kandidaten(3)).konten.K, '1,2,3');
+
+    // Zwei sind durch, die 2 blieb liegen — sie muss vorn wieder auftauchen.
+    bestand.erledigtMerken(id, 1, 'ruhe');
+    bestand.erledigtMerken(id, 3, 'ruhe');
+    assert.equal((await bestand.kandidaten(3)).konten.K, '2,4,5',
+      'sonst wartet die 2 einen ganzen Durchlauf des Postfachs');
   });
 
-  test('was durchkam, schiebt das Fenster sofort weiter', async () => {
+  test('wer zweimal drankam und immer noch liegt, wird vermerkt statt ewig angeboten', async () => {
     const id = kontoAnlegen();
     postfachMit([1, 2, 3, 4]);
     assert.equal((await bestand.kandidaten(2)).konten.K, '1,2');
+    assert.equal((await bestand.kandidaten(2)).konten.K, '1,2', 'zweite Chance');
+
+    const dritt = (await bestand.kandidaten(2)).konten.K;
+    assert.equal(dritt, '3,4', 'danach geht es weiter — sonst steht der Bestand fuer immer');
+    assert.equal(bestand.unklareAnzahl(id), 2,
+      'und sie sind gezaehlt, nicht still verschwunden');
+  });
+
+  test('eine erledigte Mail blockiert nichts', async () => {
+    const id = kontoAnlegen();
+    postfachMit([1, 2, 3, 4]);
+    await bestand.kandidaten(2);
     bestand.erledigtMerken(id, 1, 'ruhe');
-    assert.equal((await bestand.kandidaten(2)).konten.K, '3,4',
-      'eine erledigte Mail im Fenster genuegt — dann war der Lauf nicht umsonst');
+    bestand.erledigtMerken(id, 2, 'ruhe');
+    assert.equal((await bestand.kandidaten(2)).konten.K, '3,4');
+    assert.equal(bestand.unklareAnzahl(id), 0, 'hier war nichts unklar');
   });
 
   test('am Ende faengt die Runde von vorn an', async () => {
     const id = kontoAnlegen();
     postfachMit([1, 2, 3]);
-    await bestand.kandidaten(2);          // 1,2
-    bestand.erledigtMerken(id, 1, 'ruhe'); // damit es weitergeht
-    await bestand.kandidaten(2);          // 3 — danach ist nichts mehr darueber
+    await bestand.kandidaten(2);           // 1,2
+    bestand.erledigtMerken(id, 1, 'ruhe');
+    await bestand.kandidaten(2);           // 2 (Nachzuegler) + 3
     bestand.erledigtMerken(id, 3, 'ruhe');
     const rest = (await bestand.kandidaten(2)).konten.K;
     assert.equal(rest, '2', 'liegen gebliebene Mails bekommen eine neue Runde');
@@ -151,46 +168,3 @@ describe('Der Abruf-Knoten in Workflow 04', () => {
   });
 });
 
-// "Wird wirklich alles sortiert?" — die Frage, an der zwei stille Luecken
-// haengen.
-//
-// 1. Der Abruf-Knoten holte fest 100 Mails, das Panel bot seit Build 108 aber
-//    250 an. Der Zeiger rueckte trotzdem hinter alle 250 — drei von fuenf Mails
-//    galten damit als "schon dran gewesen", ohne je geholt worden zu sein.
-// 2. Der Zeiger rueckte auch dann weiter, wenn der Lauf danach an Googles
-//    Kontingent starb. Ein gescheiterter Lauf kostete so ein ganzes Fenster.
-describe('Kein Fenster geht still verloren', () => {
-  test('das Fenster wird mitgeteilt, damit der Abruf ihm folgen kann', async () => {
-    kontoAnlegen();
-    postfachMit([1, 2, 3]);
-    const a = await bestand.kandidaten();
-    assert.equal(typeof a.fenster, 'number');
-    assert.ok(a.fenster > 0, 'ohne diese Zahl holt der Knoten wieder seine festen 100');
-  });
-
-  test('hat der Lauf nichts geschafft, kommt dasselbe Fenster erneut', async () => {
-    kontoAnlegen();
-    postfachMit([10, 11, 12, 13]);
-
-    const erst = await bestand.kandidaten(2);
-    assert.equal(erst.konten.K, '10,11');
-
-    // Nichts erledigt — der naechste Lauf muss dieselben beiden anbieten.
-    const zweit = await bestand.kandidaten(2);
-    assert.equal(zweit.konten.K, '10,11',
-      'sonst waeren zwei Mails weg, nur weil ein Lauf an der KI gestorben ist');
-  });
-
-  test('sobald eine durchkam, geht es vorwaerts', async () => {
-    const id = kontoAnlegen();
-    postfachMit([10, 11, 12, 13]);
-
-    const erst = await bestand.kandidaten(2);
-    assert.equal(erst.konten.K, '10,11');
-    bestand.erledigtMerken(id, 10, 'ruhe');
-
-    const zweit = await bestand.kandidaten(2);
-    assert.equal(zweit.konten.K, '12,13',
-      'eine unentscheidbare Mail darf den Bestand nicht dauerhaft blockieren');
-  });
-});

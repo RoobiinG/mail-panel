@@ -144,6 +144,11 @@ async function laden({ mitPosteingang = true } = {}) {
       verarbeitet: Number(settings.hole('bestand_letzter_lauf_anzahl')) || 0,
       gesamt: Number(settings.hole('bestand_letzter_lauf_gesamt')) || 0,
       intervallStunden: Number(settings.hole('bestand_intervall')) || 0,
+      // Mails, die zweimal angeboten wurden und trotzdem liegen blieben — kein
+      // Absender, Zielordner fehlt, so etwas. Sie werden nicht mehr angeboten,
+      // damit sie den Bestand nicht blockieren; sichtbar müssen sie trotzdem
+      // sein, sonst ist es dasselbe stille Verschwinden wie zuvor.
+      unklar: require('./bestand').unklareAnzahl(),
     },
 
     // „Läuft alles?"

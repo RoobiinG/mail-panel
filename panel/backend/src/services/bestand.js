@@ -90,26 +90,38 @@ function ruheVergessen(kontoId) {
 
 const zeigerSchluessel = (kontoId) => `bestand_zeiger_${kontoId}`;
 
-// Welche UIDs der letzte Lauf angeboten bekommen hat.
+// Welche UIDs die letzten beiden Läufe angeboten bekommen haben.
 //
-// Nur so laesst sich die Frage beantworten, ob er ueberhaupt etwas geschafft
-// hat — und ob dasselbe Fenster deshalb noch einmal drankommen muss.
+// Zwei, nicht eines: Erst der Vergleich sagt, ob eine Mail schon zweimal
+// drangewesen und immer noch offen ist — dann lässt sie sich offenbar nicht
+// einordnen und darf den Bestand nicht weiter blockieren.
 const fensterSchluessel = (kontoId) => `bestand_fenster_${kontoId}`;
-// Wurde dieses Fenster schon einmal wiederholt? Mehr als eine zweite Chance
-// gibt es nicht — siehe die Begruendung bei kandidaten().
-const zweitVersuchSchluessel = (kontoId) => `bestand_fenster_zweit_${kontoId}`;
+const vorFensterSchluessel = (kontoId) => `bestand_fenster_vor_${kontoId}`;
 
 function fensterMerken(kontoId, uids) {
   try {
+    settings.setze(vorFensterSchluessel(kontoId), settings.hole(fensterSchluessel(kontoId)) || '');
     settings.setze(fensterSchluessel(kontoId), (uids || []).join(','));
   } catch { /* ein fehlender Vermerk darf den Lauf nicht aufhalten */ }
 }
 
-function letztesFenster(kontoId) {
+function letztesFenster(kontoId, davor = false) {
   try {
-    return String(settings.hole(fensterSchluessel(kontoId)) || '')
+    const schluessel = davor ? vorFensterSchluessel(kontoId) : fensterSchluessel(kontoId);
+    return String(settings.hole(schluessel) || '')
       .split(',').map(Number).filter((n) => Number.isFinite(n) && n > 0);
   } catch { return []; }
+}
+
+// Wie viele Mails liessen sich nicht einordnen? Sie liegen weiter im
+// Posteingang — nur bietet der Bestandslauf sie nicht mehr an. Das gehört
+// sichtbar gemacht, sonst ist es dasselbe stille Verschwinden wie vorher.
+function unklareAnzahl(kontoId = null) {
+  try {
+    return kontoId
+      ? db.prepare("SELECT COUNT(*) n FROM bestand_erledigt WHERE grund = 'unklar' AND konto_id = ?").get(kontoId).n
+      : db.prepare("SELECT COUNT(*) n FROM bestand_erledigt WHERE grund = 'unklar'").get().n;
+  } catch { return 0; }
 }
 
 // Wie viele Mails darf dieser Lauf überhaupt anfassen? Mehr anzubieten, als das
@@ -145,36 +157,43 @@ async function kandidaten(grenze = 0) {
       raus.offen[konto.name] = offen.length;
       if (offen.length === 0) continue;
 
-      // Hat der letzte Lauf für dieses Konto überhaupt etwas geschafft?
+      // Was vom letzten Fenster übrig blieb, kommt zuerst wieder dran.
       //
-      // Der Zeiger rückte bisher nach jedem Angebot weiter — auch wenn der Lauf
-      // danach an Googles Kontingent starb und keine einzige Mail einsortiert
-      // wurde. Die angebotenen Mails galten damit als „schon dran gewesen" und
-      // kamen erst nach einem kompletten Durchlauf des Postfachs wieder. Bei
-      // 23.000 Mails ist das eine halbe Ewigkeit.
+      // Die zweite Chance galt bisher fürs ganze Fenster: Wurden 200 von 250
+      // Mails sortiert, rückte der Zeiger über alle 250 — und die 50, die
+      // liegen blieben (Budget alle, keine Antwort, Zielordner fehlt), warteten
+      // einen kompletten Durchlauf des Postfachs. Bei 23.000 Mails heisst das:
+      // wochenlang unsichtbar.
       //
-      // Deshalb: Wurde aus dem letzten Fenster nichts erledigt, wird es noch
-      // einmal angeboten, statt weiterzuspringen. Die Sicherung gegen Mails, die
-      // sich nie entscheiden lassen, bleibt trotzdem — sobald auch nur eine des
-      // Fensters durchkam, geht es vorwärts.
+      // Jetzt wird je Mail nachgehalten. „Übrig geblieben" ist genau, was noch
+      // im Posteingang liegt und nicht als entschieden vermerkt ist.
       const zeiger = Number(settings.hole(zeigerSchluessel(konto.id))) || 0;
-      const vorherigesFenster = letztesFenster(konto.id);
-      const nichtsGeschafft = vorherigesFenster.length > 0
-        && !vorherigesFenster.some((u) => erledigt.has(u));
-      // Genau EINE zweite Chance. Endlos zu wiederholen waere der Stillstand,
-      // den der Zeiger verhindern soll: Mails ohne Absender oder mit fehlendem
-      // Zielordner kommen nie durch und blockierten sonst den ganzen Bestand.
-      const wiederholen = nichtsGeschafft
-        && settings.hole(zweitVersuchSchluessel(konto.id)) !== '1';
-      const ab = wiederholen ? Math.min(...vorherigesFenster) - 1 : zeiger;
+      const offenSet = new Set(offen);
+      const vorherige = letztesFenster(konto.id);
+      const davor = letztesFenster(konto.id, true);
 
-      let fenster = offen.filter((u) => u > ab).slice(0, proKonto);
-      if (fenster.length === 0) fenster = offen.slice(0, proKonto);
+      // Wer zweimal hintereinander angeboten wurde und immer noch offen ist,
+      // laesst sich offenbar nicht einordnen — eine Mail ohne Absender, ein
+      // fehlender Zielordner. Die wird vermerkt, damit sie den Bestand nicht
+      // dauerhaft blockiert, und im Panel als solche gezaehlt.
+      const haengen = vorherige.filter((u) => offenSet.has(u));
+      for (const u of haengen) {
+        if (davor.includes(u)) {
+          erledigtMerken(konto.id, u, 'unklar');
+          offenSet.delete(u);
+        }
+      }
+
+      const nachzuegler = haengen.filter((u) => offenSet.has(u));
+      const frisch = offen.filter((u) => u > zeiger && !vorherige.includes(u));
+      let fenster = [...nachzuegler, ...frisch].slice(0, proKonto);
+      // Nichts mehr über dem Zeiger: neue Runde von vorn.
+      if (fenster.length === 0) fenster = [...offenSet].sort((a, b) => a - b).slice(0, proKonto);
+      if (fenster.length === 0) continue;
 
       raus.konten[konto.name] = fenster.join(',');
-      settings.setze(zeigerSchluessel(konto.id), String(fenster[fenster.length - 1]));
+      settings.setze(zeigerSchluessel(konto.id), String(Math.max(...fenster)));
       fensterMerken(konto.id, fenster);
-      settings.setze(zweitVersuchSchluessel(konto.id), wiederholen ? '1' : '0');
     } catch (err) {
       // Ein nicht erreichbares Postfach darf den Lauf der anderen nicht kippen.
       loggen('warn', 'backend:bestand', `Bestand von ${konto.name} nicht lesbar: ${err.message}`);
@@ -183,4 +202,6 @@ async function kandidaten(grenze = 0) {
   return raus;
 }
 
-module.exports = { kandidaten, erledigtMerken, erledigteUids, ruheVergessen, KEINE, FENSTER };
+module.exports = {
+  kandidaten, erledigtMerken, erledigteUids, ruheVergessen, unklareAnzahl, KEINE, FENSTER,
+};
