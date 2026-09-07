@@ -1727,8 +1727,14 @@ async function basisSetup() {
     // Prüfen, ob das Verzeichnis überhaupt da ist
     if (!fs.existsSync(workflowDir)) return;
     
-    const dateien = fs.readdirSync(workflowDir).filter((d) => d.endsWith('.json'));
-    console.log(`[basisSetup] ${dateien.length} Vorlagen gefunden:`, dateien);
+    const anbieter = settings.hole('ki_anbieter') || 'gemini';
+    const dateien = fs.readdirSync(workflowDir).filter((d) => {
+      if (!d.endsWith('.json')) return false;
+      if (d.includes('-gemini.json') && anbieter !== 'gemini') return false;
+      if (d.includes('-ollama.json') && anbieter !== 'ollama') return false;
+      return true;
+    });
+    console.log(`[basisSetup] ${dateien.length} Vorlagen gefunden (KI: ${anbieter}):`, dateien);
     
     for (const datei of dateien) {
       const inhalt = fs.readFileSync(path.join(workflowDir, datei), 'utf-8');

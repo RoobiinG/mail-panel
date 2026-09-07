@@ -112,6 +112,7 @@ async function laden({ mitPosteingang = true } = {}) {
       // Welches Modell gerade arbeitet. Nach einer Abweisung kann das Panel auf
       // ein Ersatzmodell wechseln — dessen Kontingent ist ein eigenes.
       modell: require('./kiModell').stand(),
+      kiAnbieter: settings.hole('ki_anbieter') || 'gemini',
     },
 
     // Qualität und Umfang

@@ -1,0 +1,657 @@
+﻿{
+    "name":  "04 - Bestands-Triage (vorhandene Mails)",
+    "nodes":  [
+                  {
+                      "parameters":  {
+                                         "content":  "## Bestands-Triage â€” fÃ¼r Mails, die SCHON im Postfach liegen\n\nWorkflow 01 reagiert nur auf neu eintreffende Mails. Dieser Workflow arbeitet den vorhandenen\nBestand auf: gleiche Klassifizierung, gleiche Ordner-Logik.\n\n**Benutzung:**\n1. Im Mail-Panel die Konten anlegen und auf der Seite *Workflows* **Synchronisieren** drÃ¼cken â€”\n   die Abruf- und Verschiebe-Knoten entstehen dabei von selbst.\n2. Hier manuell starten (Knopf â€žExecute Workflow\"). Pro Lauf werden je Konto hÃ¶chstens\n   100 Mails verarbeitet.\n3. So oft wiederholen, bis der Bestand durch ist.\n\n**AnhÃ¤nge werden mitgeprÃ¼ft.** Der Abruf-Knoten liefert nur die Namen der AnhÃ¤nge; die\nDateien holt sich das Panel Ã¼ber die Nachrichten-Nummer selbst und gibt sie an ClamAV weiter.\n\n**Wichtig:**\n- Die Gemini-Aufrufe sind auf eine Anfrage alle vier Sekunden gedrosselt (Free-Tier-Limit).\n  300 Mails brauchen etwa 20 Minuten â€” das ist normal.\n- Erst mit wenigen Mails testen: in den Abruf-Knoten das Limit auf zum Beispiel 10 stellen.",
+                                         "height":  420,
+                                         "width":  460
+                                     },
+                      "id":  "sticky-bestand",
+                      "name":  "Hinweise",
+                      "type":  "n8n-nodes-base.stickyNote",
+                      "typeVersion":  1,
+                      "position":  [
+                                       -60,
+                                       -460
+                                   ]
+                  },
+                  {
+                      "parameters":  {
+
+                                     },
+                      "id":  "manual-trigger",
+                      "name":  "Manuell starten",
+                      "type":  "n8n-nodes-base.manualTrigger",
+                      "typeVersion":  1,
+                      "position":  [
+                                       0,
+                                       100
+                                   ]
+                  },
+                  {
+                      "parameters":  {
+                                         "mode":  "runOnceForAllItems",
+                                         "jsCode":  "// Quelle fÃ¼r den Sammel-Knoten in Workflow 04 (wird als jsCode eingebettet).\n// Holt die Mails aller Konten zusammen und bereitet sie wie in Workflow 01 auf.\n\n// Die Quellenliste pflegt das Mail-Panel â€” der Bereich zwischen den Markern\n// wird bei jedem Konto-Sync neu geschrieben.\nconst quellen = [\n// PANEL:QUELLEN-START\n// PANEL:QUELLEN-ENDE\n];\n\nfunction safeAll(name) {\n  try { return $(name).all().filter((i) =\u003e i.json \u0026\u0026 Object.keys(i.json).length \u003e 0); }\n  catch (e) { return []; }\n}\n\nfunction absenderIp(j, h) {\n  let received = h.received || h.Received;\n  if (!received \u0026\u0026 Array.isArray(j.headerLines)) {\n    received = j.headerLines\n      .filter((z) =\u003e String(z.key || \u0027\u0027).toLowerCase() === \u0027received\u0027)\n      .map((z) =\u003e z.line);\n  }\n  if (!received) return null;\n  const zeilen = Array.isArray(received) ? received : [received];\n  const intern = /^(10\\.|127\\.|169\\.254\\.|192\\.168\\.|172\\.(1[6-9]|2\\d|3[01])\\.|0\\.)/;\n  for (const zeile of zeilen) {\n    const gefunden = String(zeile).match(/\\b\\d{1,3}(?:\\.\\d{1,3}){3}\\b/g) || [];\n    const treffer = gefunden.find((ip) =\u003e !intern.test(ip));\n    if (treffer) return treffer;\n  }\n  return null;\n}\n\nfunction normalisieren(j, konto) {\n  const e = j.envelope || {};\n  const h = j.headers || {};\n\n  const von = (e.from \u0026\u0026 e.from[0] \u0026\u0026 e.from[0].address)\n    || (j.from \u0026\u0026 j.from.value \u0026\u0026 j.from.value[0] \u0026\u0026 j.from.value[0].address)\n    || (j.from \u0026\u0026 j.from.text)\n    || (typeof j.from === \u0027string\u0027 ? j.from : \u0027\u0027)\n    || \u0027\u0027;\n  const betreff = e.subject || j.subject || j.Subject || \u0027(kein Betreff)\u0027;\n\n  let volltext = j.textContent || j.textPlain || j.text || j.snippet || j.textHtml || \u0027\u0027;\n  if (typeof volltext !== \u0027string\u0027) volltext = JSON.stringify(volltext);\n\n  const links = [...new Set((volltext.match(/https?:\\/\\/[^\\s\u003c\u003e\"\u0027)\\]]+/gi) || []))].slice(0, 20);\n  const listUnsubscribe = h[\u0027list-unsubscribe\u0027]\n    || (h.list \u0026\u0026 h.list.unsubscribe \u0026\u0026 (h.list.unsubscribe.url || h.list.unsubscribe.id))\n    || null;\n\n  const text = volltext.replace(/\u003c[^\u003e]+\u003e/g, \u0027 \u0027).replace(/\\s+/g, \u0027 \u0027).trim().slice(0, 1500);\n\n  const promptText = `Du bist ein E-Mail-Klassifizierer. Analysiere die folgende E-Mail und antworte NUR mit einem JSON-Objekt in exakt diesem Format:\n{\"kategorie\": \"spam|rechnung|bestellung|newsletter|persoenlich|sonstiges\", \"spam_score\": 0.0, \"kurzfassung\": \"Ein Satz Zusammenfassung auf Deutsch\"}\n\nRegeln:\n- spam_score: 0.0 (sicher kein Spam) bis 1.0 (sicher Spam). Phishing, Betrugsversuche, unserioese Werbung = hoher Score.\n- kategorie \"rechnung\": Rechnungen, Zahlungsaufforderungen, Kontoauszuege, Vertraege.\n- kategorie \"bestellung\": Bestell-/Versandbestaetigungen, Lieferstatus.\n- kategorie \"newsletter\": Newsletter und Marketing serioeser Absender.\n- kategorie \"persoenlich\": Mails von echten Menschen (privat oder geschaeftlich).\n- Alles andere: \"sonstiges\".\n\nE-Mail:\nVon: ${von}\nBetreff: ${betreff}\nText: ${text}`;\n\n  return {\n    konto,\n    // Der IMAP-Trigger legt die UID unter attributes ab, der Abruf-Knoten\n    // direkt daneben â€” ohne sie kann spÃ¤ter nichts verschoben werden.\n    uid: j.uid ?? j.attributes?.uid ?? null,\n    // FÃ¼r den Virenscan: Der Abruf-Knoten liefert nur die Namen der AnhÃ¤nge,\n    // die Dateien holt sich das Panel spÃ¤ter selbst Ã¼ber die UID.\n    hat_anhang: Array.isArray(j.attachmentsInfo) \u0026\u0026 j.attachmentsInfo.length \u003e 0,\n    id: j.id ?? null,\n    von,\n    betreff,\n    ip: absenderIp(j, h),\n    links,\n    listUnsubscribe: typeof listUnsubscribe === \u0027string\u0027 ? listUnsubscribe : null,\n    promptText,\n  };\n}\n\nconst out = [];\nfor (const [konto, nodeName] of quellen) {\n  for (const item of safeAll(nodeName)) {\n    const mail = normalisieren(item.json, konto);\n    // Knoten ohne Zugangsdaten liefern\n    // Platzhalter-Items ohne Absender â€” die sind keine Mail und fliegen raus.\n    if (!mail.von) continue;\n    out.push({ json: mail });\n  }\n}\n\nif (out.length === 0) {\n  // Nichts zu tun heisst: keine Items. Ein Hinweis-Item liefe als Schein-Mail\n  // durch die ganze Kette und kostete am Ende eine KI-Abfrage mit leerem Text.\n  return [];\n}\nreturn out;\n"
+                                     },
+                      "id":  "code-collect-bestand",
+                      "name":  "Sammeln + Normalisieren",
+                      "type":  "n8n-nodes-base.code",
+                      "typeVersion":  2,
+                      "position":  [
+                                       880,
+                                       100
+                                   ]
+                  },
+                  {
+                      "parameters":  {
+                                         "method":  "POST",
+                                         "url":  "http://ollama:11434/api/generate",
+                                         "authentication":  "none",
+                                         "sendBody":  true,
+                                         "specifyBody":  "json",
+                                         "jsonBody":  "={{ JSON.stringify({ model: \u0027llama3.1\u0027, prompt: String($json.promptText || \u0027\u0027), stream: false, format: \u0027json\u0027, options: { temperature: 0.1 } }) }}",
+                                         "options":  {
+
+                                                     }
+                                     },
+                      "retryOnFail":  true,
+                      "maxTries":  3,
+                      "waitBetweenTries":  2000,
+                      "id":  "http-gemini-bestand",
+                      "name":  "Ollama klassifizieren",
+                      "type":  "n8n-nodes-base.httpRequest",
+                      "typeVersion":  4.2,
+                      "position":  [
+                                       2640,
+                                       100
+                                   ]
+                  },
+                  {
+                      "parameters":  {
+                                         "mode":  "runOnceForEachItem",
+                                         "jsCode":  "// Gemini-Antwort auswerten und den Zielordner bestimmen.\n// Die Panel-PrÃ¼fung (Listen, DNSBL) flieÃŸt dabei mit ein.\nconst mail = $(\u0027PrÃ¼fung auswerten\u0027).item.json;\n\nlet raw = \u0027\u0027;\ntry { raw = $json.response; } catch (e) { /* leer lassen */ }\nraw = String(raw).replace(/```json|```/g, \u0027\u0027).trim();\n\nlet k = { kategorie: \u0027sonstiges\u0027, spam_score: 0, kurzfassung: \u0027\u0027 };\ntry { k = { ...k, ...JSON.parse(raw) }; } catch (e) { /* Fallback: sonstiges */ }\n\n\n// DNSBL-Treffer erhÃ¶hen die Bewertung der KI\nconst schwelle = Number(mail.spam_schwellwert) || 0.8;\nconst score = Math.min(1, (Number(k.spam_score) || 0) + (Number(mail.score_aufschlag) || 0));\n\nlet zielordner = null;\nif (score \u003e schwelle \u0026\u0026 !mail.nie_quarantaene) zielordner = mail.folder_spam || \u0027Quarantaene\u0027;\nelse if (k.kategorie === \u0027rechnung\u0027) zielordner = mail.folder_invoices || \u0027Rechnungen\u0027;\nelse if (k.kategorie === \u0027bestellung\u0027) zielordner = mail.folder_orders || \u0027Bestellungen\u0027;\nelse if (k.kategorie === \u0027newsletter\u0027) zielordner = mail.folder_newsletter || \u0027Newsletter\u0027;\n\nreturn {\n  json: {\n    ...mail,\n    kategorie: k.kategorie,\n    spam_score: score,\n    kurzfassung: k.kurzfassung,\n    zielordner,\n  },\n};\n"
+                                     },
+                      "id":  "code-parse-bestand",
+                      "name":  "Antwort parsen",
+                      "type":  "n8n-nodes-base.code",
+                      "typeVersion":  2,
+                      "position":  [
+                                       2860,
+                                       100
+                                   ]
+                  },
+                  {
+                      "parameters":  {
+                                         "conditions":  {
+                                                            "options":  {
+                                                                            "caseSensitive":  true,
+                                                                            "leftValue":  "",
+                                                                            "typeValidation":  "loose",
+                                                                            "version":  2
+                                                                        },
+                                                            "conditions":  [
+                                                                               {
+                                                                                   "id":  "cond-ziel-bestand",
+                                                                                   "leftValue":  "={{ $json.zielordner }}",
+                                                                                   "rightValue":  "",
+                                                                                   "operator":  {
+                                                                                                    "type":  "string",
+                                                                                                    "operation":  "notEmpty",
+                                                                                                    "singleValue":  true
+                                                                                                }
+                                                                               }
+                                                                           ],
+                                                            "combinator":  "and"
+                                                        },
+                                         "options":  {
+
+                                                     }
+                                     },
+                      "id":  "if-move-bestand",
+                      "name":  "Verschieben?",
+                      "type":  "n8n-nodes-base.if",
+                      "typeVersion":  2.2,
+                      "position":  [
+                                       3080,
+                                       100
+                                   ]
+                  },
+                  {
+                      "parameters":  {
+
+                                     },
+                      "id":  "noop-bestand",
+                      "name":  "Bleibt in der Inbox",
+                      "type":  "n8n-nodes-base.noOp",
+                      "typeVersion":  1,
+                      "position":  [
+                                       3320,
+                                       280
+                                   ]
+                  },
+                  {
+                      "parameters":  {
+                                         "method":  "POST",
+                                         "url":  "http://panel:3002/api/internal/check",
+                                         "authentication":  "genericCredentialType",
+                                         "genericAuthType":  "httpHeaderAuth",
+                                         "sendBody":  true,
+                                         "specifyBody":  "json",
+                                         "jsonBody":  "={{ JSON.stringify({ von: $json.von, ip: $json.ip, links: $json.links }) }}",
+                                         "options":  {
+
+                                                     }
+                                     },
+                      "id":  "check-http",
+                      "name":  "Panel-PrÃ¼fung",
+                      "type":  "n8n-nodes-base.httpRequest",
+                      "typeVersion":  4.2,
+                      "position":  [
+                                       1100,
+                                       100
+                                   ],
+                      "alwaysOutputData":  true,
+                      "onError":  "continueRegularOutput"
+                  },
+                  {
+                      "parameters":  {
+                                         "mode":  "runOnceForEachItem",
+                                         "jsCode":  "// Ergebnis der Panel-PrÃ¼fung mit der Mail zusammenfÃ¼hren.\n// Whitelist beendet die PrÃ¼fung sofort, Blacklist geht ohne KI in die QuarantÃ¤ne.\nconst mail = $(\u0027Sammeln + Normalisieren\u0027).item.json;\nconst p = $json || {};\n\nconst entscheidung = p.entscheidung || \u0027weiter\u0027;\nconst gruende = Array.isArray(p.gruende) ? p.gruende : [];\n\nreturn {\n  json: {\n    ...mail,\n    entscheidung,\n    score_aufschlag: Number(p.score_aufschlag) || 0,\n    spam_schwellwert: Number(p.spam_schwellwert) || 0.8,\n    gruende,\n    dnsbl_treffer: p.dnsbl_treffer || [],\n    // Blacklist braucht keine KI-Abfrage mehr\n    direkt_quarantaene: entscheidung === \u0027quarantaene\u0027,\n    // Whitelist Ã¼bersteuert spÃ¤ter auch die KI-Bewertung\n    nie_quarantaene: entscheidung === \u0027freigeben\u0027,\n  },\n};"
+                                     },
+                      "id":  "check-auswerten",
+                      "name":  "PrÃ¼fung auswerten",
+                      "type":  "n8n-nodes-base.code",
+                      "typeVersion":  2,
+                      "position":  [
+                                       1540,
+                                       100
+                                   ]
+                  },
+                  {
+                      "parameters":  {
+                                         "conditions":  {
+                                                            "options":  {
+                                                                            "caseSensitive":  true,
+                                                                            "leftValue":  "",
+                                                                            "typeValidation":  "loose",
+                                                                            "version":  2
+                                                                        },
+                                                            "conditions":  [
+                                                                               {
+                                                                                   "id":  "cond-direkt",
+                                                                                   "leftValue":  "={{ $json.direkt_quarantaene }}",
+                                                                                   "rightValue":  "true",
+                                                                                   "operator":  {
+                                                                                                    "type":  "boolean",
+                                                                                                    "operation":  "true",
+                                                                                                    "singleValue":  true
+                                                                                                }
+                                                                               }
+                                                                           ],
+                                                            "combinator":  "and"
+                                                        },
+                                         "options":  {
+
+                                                     }
+                                     },
+                      "id":  "check-weiche",
+                      "name":  "Blacklist?",
+                      "type":  "n8n-nodes-base.if",
+                      "typeVersion":  2.2,
+                      "position":  [
+                                       1760,
+                                       100
+                                   ]
+                  },
+                  {
+                      "parameters":  {
+                                         "mode":  "runOnceForEachItem",
+                                         "jsCode":  "// Blacklist-Treffer: ohne KI direkt in die QuarantÃ¤ne\nconst m = $json;\nreturn { json: { ...m, kategorie: \u0027spam\u0027, spam_score: 1, kurzfassung: m.gruende.join(\u0027; \u0027) || \u0027Absender steht auf der Blacklist\u0027, zielordner: \u0027Quarantaene\u0027 } };"
+                                     },
+                      "id":  "check-blacklist",
+                      "name":  "Blacklist: QuarantÃ¤ne",
+                      "type":  "n8n-nodes-base.code",
+                      "typeVersion":  2,
+                      "position":  [
+                                       1760,
+                                       300
+                                   ]
+                  },
+                  {
+                      "id":  "check-attachment",
+                      "name":  "Hat Anhang?",
+                      "type":  "n8n-nodes-base.if",
+                      "typeVersion":  2.2,
+                      "position":  [
+                                       1540,
+                                       200
+                                   ],
+                      "parameters":  {
+                                         "conditions":  {
+                                                            "options":  {
+
+                                                                        },
+                                                            "conditions":  [
+                                                                               {
+                                                                                   "id":  "cond-has-binary",
+                                                                                   "leftValue":  "={{ $json.hat_anhang }}",
+                                                                                   "rightValue":  true,
+                                                                                   "operator":  {
+                                                                                                    "type":  "boolean",
+                                                                                                    "operation":  "true",
+                                                                                                    "singleValue":  true
+                                                                                                }
+                                                                               }
+                                                                           ],
+                                                            "combinator":  "and"
+                                                        }
+                                     }
+                  },
+                  {
+                      "id":  "scan-attachment",
+                      "name":  "AnhÃ¤nge scannen",
+                      "type":  "n8n-nodes-base.httpRequest",
+                      "typeVersion":  4.2,
+                      "position":  [
+                                       1760,
+                                       50
+                                   ],
+                      "parameters":  {
+                                         "method":  "POST",
+                                         "url":  "http://panel:3002/api/internal/scan-anhaenge",
+                                         "sendBody":  true,
+                                         "options":  {
+
+                                                     },
+                                         "authentication":  "genericCredentialType",
+                                         "genericAuthType":  "httpHeaderAuth",
+                                         "contentType":  "json",
+                                         "specifyBody":  "json",
+                                         "jsonBody":  "={{ JSON.stringify({ konto: $json.konto, uid: $json.uid, ordner: \"INBOX\" }) }}"
+                                     }
+                  },
+                  {
+                      "id":  "check-virus",
+                      "name":  "Virus gefunden?",
+                      "type":  "n8n-nodes-base.if",
+                      "typeVersion":  2.2,
+                      "position":  [
+                                       1980,
+                                       50
+                                   ],
+                      "parameters":  {
+                                         "conditions":  {
+                                                            "options":  {
+
+                                                                        },
+                                                            "conditions":  [
+                                                                               {
+                                                                                   "id":  "cond-virus",
+                                                                                   "leftValue":  "={{ $json.clean }}",
+                                                                                   "rightValue":  false,
+                                                                                   "operator":  {
+                                                                                                    "type":  "boolean",
+                                                                                                    "operation":  "false",
+                                                                                                    "singleValue":  true
+                                                                                                }
+                                                                               }
+                                                                           ],
+                                                            "combinator":  "and"
+                                                        }
+                                     }
+                  },
+                  {
+                      "id":  "virus-telegram",
+                      "name":  "Virus Warnung (Telegram)",
+                      "type":  "n8n-nodes-base.telegram",
+                      "typeVersion":  1.2,
+                      "position":  [
+                                       2200,
+                                       -100
+                                   ],
+                      "parameters":  {
+                                         "operation":  "sendMessage",
+                                         "chatId":  "BITTE_EINTRAGEN",
+                                         "text":  "={{ \u0027âš ï¸ *VIRUS GEFUNDEN* âš ï¸\\n\\nVon: \u0027 + $(\u0027Sammeln + Normalisieren\u0027).item.json.von + \u0027\\nBetreff: \u0027 + $(\u0027Sammeln + Normalisieren\u0027).item.json.betreff + \u0027\\nVirus: \u0027 + $json.virus }}",
+                                         "additionalFields":  {
+
+                                                              }
+                                     }
+                  },
+                  {
+                      "id":  "virus-quarantaene",
+                      "name":  "Virus: QuarantÃ¤ne",
+                      "type":  "n8n-nodes-base.code",
+                      "typeVersion":  2,
+                      "position":  [
+                                       2200,
+                                       50
+                                   ],
+                      "parameters":  {
+                                         "mode":  "runOnceForEachItem",
+                                         "jsCode":  "const m = $(\u0027Sammeln + Normalisieren\u0027).item.json;\nreturn { json: { ...m, kategorie: \u0027spam\u0027, spam_score: 1, virus_name: $(\u0027AnhÃ¤nge scannen\u0027).item.json.virus || \u0027Unbekannt\u0027, kurzfassung: \u0027Malware-Anhang entfernt\u0027, zielordner: \u0027Quarantaene\u0027 } };"
+                                     }
+                  },
+                  {
+                      "parameters":  {
+                                         "method":  "POST",
+                                         "url":  "http://panel:3002/api/internal/sort",
+                                         "authentication":  "genericCredentialType",
+                                         "genericAuthType":  "httpHeaderAuth",
+                                         "sendBody":  true,
+                                         "specifyBody":  "json",
+                                         "jsonBody":  "={{ JSON.stringify({ konto: $json.konto, von: $json.von, betreff: $json.betreff, uid: $json.uid }) }}",
+                                         "options":  {
+
+                                                     }
+                                     },
+                      "id":  "sort-http-bestand",
+                      "name":  "Sortierung prÃ¼fen",
+                      "type":  "n8n-nodes-base.httpRequest",
+                      "typeVersion":  4.2,
+                      "position":  [
+                                       1100,
+                                       -120
+                                   ],
+                      "alwaysOutputData":  true,
+                      "onError":  "continueRegularOutput"
+                  },
+                  {
+                      "parameters":  {
+                                         "conditions":  {
+                                                            "options":  {
+                                                                            "caseSensitive":  true,
+                                                                            "leftValue":  "",
+                                                                            "typeValidation":  "strict",
+                                                                            "version":  2
+                                                                        },
+                                                            "conditions":  [
+                                                                               {
+                                                                                   "id":  "cond-verschieben",
+                                                                                   "leftValue":  "={{ $json.sort_aktion }}",
+                                                                                   "rightValue":  "verschieben",
+                                                                                   "operator":  {
+                                                                                                    "type":  "string",
+                                                                                                    "operation":  "equals"
+                                                                                                }
+                                                                               }
+                                                                           ],
+                                                            "combinator":  "and"
+                                                        },
+                                         "options":  {
+
+                                                     }
+                                     },
+                      "id":  "sort-weiche-bestand",
+                      "name":  "Gleich sortieren?",
+                      "type":  "n8n-nodes-base.if",
+                      "typeVersion":  2.2,
+                      "position":  [
+                                       1540,
+                                       -120
+                                   ]
+                  },
+                  {
+                      "parameters":  {
+                                         "mode":  "runOnceForEachItem",
+                                         "jsCode":  "// Die Sortier-Regel hat gegriffen â€” Zielordner Ã¼bernehmen, ohne KI-Abfrage\nconst m = $json;\nreturn {\n  json: {\n    ...m,\n    zielordner: m.sort_ordner,\n    kategorie: \u0027sortierung\u0027,\n    spam_score: 0,\n    kurzfassung: \u0027Automatisch nach eigener Regel einsortiert\u0027,\n  },\n};"
+                                     },
+                      "id":  "sort-code-bestand",
+                      "name":  "Zielordner Ã¼bernehmen",
+                      "type":  "n8n-nodes-base.code",
+                      "typeVersion":  2,
+                      "position":  [
+                                       1760,
+                                       -120
+                                   ]
+                  },
+                  {
+                      "parameters":  {
+                                         "mode":  "runOnceForEachItem",
+                                         "jsCode":  "// Antwort des Panels mit der Mail zusammenfÃ¼hren.\n// Der HTTP-Knoten davor ersetzt das Item durch seine Antwort â€” ohne diesen\n// Schritt hÃ¤tten alle folgenden Knoten keine Maildaten mehr.\nconst mail = $(\u0027Sammeln + Normalisieren\u0027).item.json;\nconst s = $json || {};\nreturn {\n  json: {\n    ...mail,\n    sort_aktion: s.aktion || \u0027inbox\u0027,\n    sort_ordner: s.ordner || null,\n  },\n};"
+                                     },
+                      "id":  "sort-auswerten",
+                      "name":  "Sortierung auswerten",
+                      "type":  "n8n-nodes-base.code",
+                      "typeVersion":  2,
+                      "position":  [
+                                       1320,
+                                       -120
+                                   ]
+                  }
+              ],
+    "connections":  {
+                        "Manuell starten":  {
+                                                "main":  [
+                                                             [
+
+                                                             ]
+                                                         ]
+                                            },
+                        "Sammeln + Normalisieren":  {
+                                                        "main":  [
+                                                                     [
+                                                                         {
+                                                                             "node":  "Sortierung prÃ¼fen",
+                                                                             "type":  "main",
+                                                                             "index":  0
+                                                                         }
+                                                                     ]
+                                                                 ]
+                                                    },
+                        "Ollama klassifizieren":  {
+                                                      "main":  [
+                                                                   [
+                                                                       {
+                                                                           "node":  "Antwort parsen",
+                                                                           "type":  "main",
+                                                                           "index":  0
+                                                                       }
+                                                                   ]
+                                                               ]
+                                                  },
+                        "Antwort parsen":  {
+                                               "main":  [
+                                                            [
+                                                                {
+                                                                    "node":  "Verschieben?",
+                                                                    "type":  "main",
+                                                                    "index":  0
+                                                                }
+                                                            ]
+                                                        ]
+                                           },
+                        "Verschieben?":  {
+                                             "main":  [
+                                                          [
+
+                                                          ],
+                                                          [
+                                                              {
+                                                                  "node":  "Bleibt in der Inbox",
+                                                                  "type":  "main",
+                                                                  "index":  0
+                                                              }
+                                                          ]
+                                                      ]
+                                         },
+                        "Panel-PrÃ¼fung":  {
+                                               "main":  [
+                                                            [
+                                                                {
+                                                                    "node":  "PrÃ¼fung auswerten",
+                                                                    "type":  "main",
+                                                                    "index":  0
+                                                                }
+                                                            ]
+                                                        ]
+                                           },
+                        "PrÃ¼fung auswerten":  {
+                                                   "main":  [
+                                                                [
+                                                                    {
+                                                                        "node":  "Blacklist?",
+                                                                        "type":  "main",
+                                                                        "index":  0
+                                                                    }
+                                                                ]
+                                                            ]
+                                               },
+                        "Blacklist?":  {
+                                           "main":  [
+                                                        [
+                                                            {
+                                                                "node":  "Blacklist: QuarantÃ¤ne",
+                                                                "type":  "main",
+                                                                "index":  0
+                                                            }
+                                                        ],
+                                                        [
+                                                            {
+                                                                "node":  "Hat Anhang?",
+                                                                "type":  "main",
+                                                                "index":  0
+                                                            }
+                                                        ]
+                                                    ]
+                                       },
+                        "Blacklist: QuarantÃ¤ne":  {
+                                                       "main":  [
+                                                                    [
+                                                                        {
+                                                                            "node":  "Verschieben?",
+                                                                            "type":  "main",
+                                                                            "index":  0
+                                                                        }
+                                                                    ]
+                                                                ]
+                                                   },
+                        "Hat Anhang?":  {
+                                            "main":  [
+                                                         [
+                                                             {
+                                                                 "node":  "AnhÃ¤nge scannen",
+                                                                 "type":  "main",
+                                                                 "index":  0
+                                                             }
+                                                         ],
+                                                         [
+                                                             {
+                                                                 "node":  "Gemini klassifizieren",
+                                                                 "type":  "main",
+                                                                 "index":  0
+                                                             }
+                                                         ]
+                                                     ]
+                                        },
+                        "Virus gefunden?":  {
+                                                "main":  [
+                                                             [
+                                                                 {
+                                                                     "node":  "Virus Warnung (Telegram)",
+                                                                     "type":  "main",
+                                                                     "index":  0
+                                                                 }
+                                                             ],
+                                                             [
+                                                                 {
+                                                                     "node":  "Gemini klassifizieren",
+                                                                     "type":  "main",
+                                                                     "index":  0
+                                                                 }
+                                                             ]
+                                                         ]
+                                            },
+                        "Virus Warnung (Telegram)":  {
+                                                         "main":  [
+                                                                      [
+                                                                          {
+                                                                              "node":  "Virus: QuarantÃ¤ne",
+                                                                              "type":  "main",
+                                                                              "index":  0
+                                                                          }
+                                                                      ]
+                                                                  ]
+                                                     },
+                        "Virus: QuarantÃ¤ne":  {
+                                                   "main":  [
+                                                                [
+                                                                    {
+                                                                        "node":  "Verschieben?",
+                                                                        "type":  "main",
+                                                                        "index":  0
+                                                                    }
+                                                                ]
+                                                            ]
+                                               },
+                        "Sortierung prÃ¼fen":  {
+                                                   "main":  [
+                                                                [
+                                                                    {
+                                                                        "node":  "Sortierung auswerten",
+                                                                        "type":  "main",
+                                                                        "index":  0
+                                                                    }
+                                                                ]
+                                                            ]
+                                               },
+                        "Gleich sortieren?":  {
+                                                  "main":  [
+                                                               [
+                                                                   {
+                                                                       "node":  "Zielordner Ã¼bernehmen",
+                                                                       "type":  "main",
+                                                                       "index":  0
+                                                                   }
+                                                               ],
+                                                               [
+                                                                   {
+                                                                       "node":  "Panel-PrÃ¼fung",
+                                                                       "type":  "main",
+                                                                       "index":  0
+                                                                   }
+                                                               ]
+                                                           ]
+                                              },
+                        "Zielordner Ã¼bernehmen":  {
+                                                       "main":  [
+                                                                    [
+                                                                        {
+                                                                            "node":  "Verschieben?",
+                                                                            "type":  "main",
+                                                                            "index":  0
+                                                                        }
+                                                                    ]
+                                                                ]
+                                                   },
+                        "Sortierung auswerten":  {
+                                                     "main":  [
+                                                                  [
+                                                                      {
+                                                                          "node":  "Gleich sortieren?",
+                                                                          "type":  "main",
+                                                                          "index":  0
+                                                                      }
+                                                                  ]
+                                                              ]
+                                                 },
+                        "AnhÃ¤nge scannen":  {
+                                                 "main":  [
+                                                              [
+                                                                  {
+                                                                      "node":  "Virus gefunden?",
+                                                                      "type":  "main",
+                                                                      "index":  0
+                                                                  }
+                                                              ]
+                                                          ]
+                                             }
+                    },
+    "settings":  {
+                     "executionOrder":  "v1"
+                 },
+    "pinData":  {
+
+                }
+}

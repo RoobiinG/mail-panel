@@ -1,6 +1,18 @@
 # Changelog — Mail-Panel
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
+
+## [4.1.1.0] - 2026-09-07 (Build 131) — *Workflow Provider Split*
+
+### Feature & Verbesserungen
+- **Workflow-Vorlagen aufgeteilt**: Es liegen nun pro Prozess (Inbox, Bestand, Digest) zwei getrennte Workflow-Vorlagen bereit (eine für Gemini, eine für Ollama). 
+- **Automatischer Workflow-Import**: Die Setup-Routine (`basisSetup`) prüft beim Initial-Import den konfigurierten `ki_anbieter` und importiert ausschließlich die zum System passenden Workflows.
+- **UI-Anpassung**: Die "KI-Tagesbudget"-Karte auf dem Dashboard wird automatisch ausgeblendet, sofern "Ollama" als KI-Anbieter aktiv ist, da lokale Modelle nicht limitiert sind.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Workflows:** Wer Ollama nutzt, sollte seine Workflows löschen und durch das Panel neu importieren lassen oder in den Einstellungen auf Speichern drücken, damit `geminiRequestReparieren` die neuen Vorlagen greift. Die `.json` Vorlagen im Ordner `workflows/` haben sich grundlegend geändert.
+- **Datenbank & Session:** Keine Änderungen.
+
 ## [4.1.0.1] - 2026-09-07 (Build 130) — *Ollama Modell-Auswahl & Statistik Fix*
 
 ### Verbesserungen

@@ -284,7 +284,8 @@ export default function Dashboard() {
               </div>
 
               {/* KI-Tagesbudget */}
-              <div className="card">
+              {b.kiAnbieter !== 'ollama' && (
+                <div className="card">
                 <h2 className="font-medium flex items-center gap-2 mb-3">
                   <Gauge size={16} className="text-panel-accent" /> KI-Tagesbudget
                 </h2>
@@ -395,6 +396,7 @@ export default function Dashboard() {
                   </div>
                 )}
               </div>
+              )}
             </div>
 
             {/* Belege in Nextcloud */}
