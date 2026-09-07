@@ -848,6 +848,38 @@ function geminiPause() {
 // Morgen mit "This model models/gemini-2.5-flash-lite is no longer available".
 // Dasselbe Muster wie bei panelKnotenVerdrahten: über die URL, damit kein Knoten
 // übrig bleibt, wenn später weitere dazukommen.
+// Kein Panel-Aufruf ohne Zeitlimit.
+//
+// Am 7.9. standen zehn Laeufe von Workflow 01 gleichzeitig ueber zehn Minuten
+// auf „Running". Ein HTTP-Knoten ohne Zeitlimit wartet sehr lange, und die
+// Knoten, die das Panel fragen, koennen durchaus haengen: „Panel-Pruefung"
+// schlaegt DNSBL-Listen nach, „Anhaenge scannen" laedt Anhaenge ueber IMAP.
+//
+// Build 119 hat nur die Knoten abgesichert, die das Panel selbst anlegt — die
+// haengenden stehen aber in der Vorlage. Deshalb hier alle, die auf das Panel
+// zeigen, egal wer sie angelegt hat.
+//
+// Anhaenge duerfen laenger brauchen: Da wird wirklich etwas heruntergeladen.
+const PANEL_ZEITLIMIT = 60000;
+const PANEL_ZEITLIMIT_LANG = 120000;
+
+function panelZeitlimitSetzen(workflow) {
+  let geaendert = false;
+  for (const knoten of workflow.nodes || []) {
+    if (knoten.type !== 'n8n-nodes-base.httpRequest') continue;
+    const url = String(knoten.parameters?.url || '');
+    if (!url.includes('panel:3002')) continue;
+
+    const grenze = url.includes('scan-anhaenge') ? PANEL_ZEITLIMIT_LANG : PANEL_ZEITLIMIT;
+    knoten.parameters.options = knoten.parameters.options || {};
+    if (knoten.parameters.options.timeout !== grenze) {
+      knoten.parameters.options.timeout = grenze;
+      geaendert = true;
+    }
+  }
+  return geaendert;
+}
+
 function geminiRequestReparieren(workflow) {
   let geaendert = false;
   for (const knoten of workflow.nodes) {
@@ -1443,6 +1475,8 @@ async function kiUndBenachrichtigungenSynchronisieren() {
       // Auch hier, nicht nur in 01 und 04: Sonst bleibt der Digest-Workflow auf
       // dem abgekündigten Gemini-Modell stehen, weil ihn sonst niemand anfasst.
       if (geminiRequestReparieren(workflow)) geaendert = true;
+      // Auch die Vorlagen-Knoten, die das Panel fragen — siehe panelZeitlimitSetzen.
+      if (panelZeitlimitSetzen(workflow)) geaendert = true;
 
       for (const knoten of workflow.nodes) {
         // Nur echte HTTP-Knoten: In Workflow 04 heißt der Bündel-Knoten genauso,
@@ -1681,5 +1715,5 @@ module.exports = {
   geminiRequestReparieren, credentialErneuern, bestandAuswahlKnoten, AUSWAHL_KNOTEN,
   fingerabdruck, zugangsdatenVergessen, absenderFallbackEinbauen, ABSENDER_MARKE,
   geminiModellNachziehen,
-  geminiBuendelEinbauen, BUENDEL_MARKE,
+  geminiBuendelEinbauen, BUENDEL_MARKE, panelZeitlimitSetzen,
 };

@@ -279,3 +279,55 @@ describe('Denkstufe steht auch im Workflow-Knoten', () => {
       'sonst waechst der Knoten bei jedem Sync um eine Angabe');
   });
 });
+
+// Zehn Laeufe von Workflow 01 standen gleichzeitig ueber zehn Minuten auf
+// "Running". Ein HTTP-Knoten ohne Zeitlimit wartet sehr lange -- und die
+// Knoten, die das Panel fragen, koennen haengen: "Panel-Pruefung" schlaegt
+// DNSBL-Listen nach, "Anhaenge scannen" laedt Anhaenge ueber IMAP.
+//
+// Build 119 sicherte nur die Knoten ab, die das Panel selbst anlegt. Die
+// haengenden stehen aber in der Vorlage.
+describe('Zeitlimit auf allen Panel-Aufrufen', () => {
+  const panelKnoten = (pfad, options = {}) => ({
+    name: pfad, type: 'n8n-nodes-base.httpRequest',
+    parameters: { method: 'POST', url: `http://panel:3002/api/internal/${pfad}`, options },
+  });
+
+  test('die Vorlagen-Knoten bekommen eine Grenze', () => {
+    const wf = { nodes: [panelKnoten('sort'), panelKnoten('check')] };
+    assert.equal(patcher.panelZeitlimitSetzen(wf), true);
+    assert.equal(wf.nodes[0].parameters.options.timeout, 60000);
+    assert.equal(wf.nodes[1].parameters.options.timeout, 60000);
+  });
+
+  test('Anhaenge duerfen laenger brauchen — da wird wirklich geladen', () => {
+    const wf = { nodes: [panelKnoten('scan-anhaenge')] };
+    patcher.panelZeitlimitSetzen(wf);
+    assert.equal(wf.nodes[0].parameters.options.timeout, 120000);
+  });
+
+  test('fremde Knoten bleiben unangetastet', () => {
+    const wf = {
+      nodes: [{
+        name: 'Irgendwohin', type: 'n8n-nodes-base.httpRequest',
+        parameters: { url: 'https://example.invalid/x', options: {} },
+      }],
+    };
+    assert.equal(patcher.panelZeitlimitSetzen(wf), false);
+    assert.equal(wf.nodes[0].parameters.options.timeout, undefined);
+  });
+
+  test('vorhandene Optionen bleiben erhalten', () => {
+    const wf = { nodes: [panelKnoten('sort', { redirect: { followRedirects: false } })] };
+    patcher.panelZeitlimitSetzen(wf);
+    assert.equal(wf.nodes[0].parameters.options.redirect.followRedirects, false);
+    assert.equal(wf.nodes[0].parameters.options.timeout, 60000);
+  });
+
+  test('ein zweiter Durchgang aendert nichts', () => {
+    const wf = { nodes: [panelKnoten('sort')] };
+    patcher.panelZeitlimitSetzen(wf);
+    assert.equal(patcher.panelZeitlimitSetzen(wf), false,
+      'sonst schreibt jeder Rundgang alle Workflows neu nach n8n');
+  });
+});

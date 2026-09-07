@@ -2,6 +2,28 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.14.0.2] - 2026-09-07 (Build 120) — *Durchgang durch alle sieben Workflows*
+
+### Behoben: Das Zeitlimit fehlte genau bei den Knoten, die hängen können
+- Build 119 hat nur die Knoten abgesichert, die das Panel selbst anlegt. Die zehn Läufe, die
+  über zehn Minuten auf „Running" standen, hingen aber an **Vorlagen-Knoten**: *Panel-Prüfung*
+  schlägt DNSBL-Listen nach, *Anhänge scannen* lädt Anhänge über IMAP.
+- Jeder HTTP-Knoten, der auf das Panel zeigt, bekommt jetzt eine Grenze — **60 Sekunden**,
+  für *Anhänge scannen* **120**, weil dort wirklich etwas heruntergeladen wird. Das gilt für
+  alle Workflows, auch für *Daten vom Panel holen* im Digest.
+
+### Durchgesehen, ohne Befund
+- **Methoden und Pfade** aller Panel-Aufrufe stimmen mit den Routen überein (`/sort`, `/check`,
+  `/scan-anhaenge` als POST, `/digest` als GET).
+- **Die Denkstufe aus Build 118 erreicht alle drei Gemini-Knoten** — auch den im Digest, dessen
+  Aufruf anders aufgebaut ist (`generationConfig: { temperature: 0.3 }` ohne JSON-Format).
+- **Der „liegen lassen"-Zweig aus Build 113** endet sauber: Ein leerer Zielordner läuft in
+  *Bleibt in der Inbox*. Das ist kein Sonderfall — persönliche Mails nehmen denselben Weg
+  täglich.
+- **03, 05, 06 und 07** rufen weder Gemini noch das Panel auf. Dass 05 und 06 „noch nie
+  gelaufen" sind, ist richtig: Sie warten auf einen Telegram-Knopf beziehungsweise auf das
+  Abbestellen aus der Newsletter-Seite.
+
 ## [3.14.0.1] - 2026-09-07 (Build 119) — *Zurückgenommen: neue Post bleibt wieder gelesen*
 
 ### Behoben: Zehn Läufe stapelten sich, jeder über zehn Minuten
