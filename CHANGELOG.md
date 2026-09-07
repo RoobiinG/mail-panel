@@ -2,6 +2,24 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.14.2.0] - 2026-09-07 (Build 123) — *Nichts geht mehr still verloren*
+
+### Behoben: Liegengebliebene Mails warteten einen ganzen Durchlauf
+- Die zweite Chance aus Build 121 galt fürs **ganze Fenster**. Wurden 200 von 250 Mails
+  sortiert, rückte der Zeiger über alle 250 — und die 50, die liegen blieben (Budget alle,
+  keine Antwort, Zielordner fehlt), warteten einen kompletten Durchlauf des Postfachs. Bei
+  23.000 Mails: wochenlang unsichtbar.
+- Jetzt wird **je Mail** nachgehalten. Was noch im Posteingang liegt und nicht entschieden ist,
+  steht im nächsten Fenster vorn.
+
+### Neu: Was sich nicht einordnen lässt, wird sichtbar statt still übergangen
+- Eine Mail, die **zweimal** drankam und immer noch liegt, wird zurückgestellt — sonst
+  blockierte sie den Bestand für immer. Sie ist dann aber **gezählt** und steht im Dashboard.
+- **Nur wenn der Lauf davor etwas geschafft hat.** Starb er an Googles Kontingent, liegt es
+  nicht an dieser Mail; sie dafür abzustempeln wäre die falsche Schuldzuweisung.
+- **Zurückgestellt heißt nicht aufgegeben:** Beginnt eine neue Runde durchs Postfach, bekommen
+  sie wieder eine Chance. Ein fehlender Ordner kann inzwischen angelegt sein.
+
 ## [3.14.1.1] - 2026-09-07 (Build 122) — *Eine Absage ist kein Feierabend*
 
 ### Behoben: Ein einziges „too many requests" legte den ganzen Nachmittag still

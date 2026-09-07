@@ -77,37 +77,43 @@ describe('Auswahl der Bestands-Mails', () => {
       'sonst wartet die 2 einen ganzen Durchlauf des Postfachs');
   });
 
-  test('wer zweimal drankam und immer noch liegt, wird vermerkt statt ewig angeboten', async () => {
+  test('wer zweimal drankam und immer noch liegt, wird zurueckgestellt', async () => {
     const id = kontoAnlegen();
-    postfachMit([1, 2, 3, 4]);
+    postfachMit([1, 2, 3, 4, 5, 6]);
     assert.equal((await bestand.kandidaten(2)).konten.K, '1,2');
-    assert.equal((await bestand.kandidaten(2)).konten.K, '1,2', 'zweite Chance');
 
-    const dritt = (await bestand.kandidaten(2)).konten.K;
-    assert.equal(dritt, '3,4', 'danach geht es weiter — sonst steht der Bestand fuer immer');
-    assert.equal(bestand.unklareAnzahl(id), 2,
-      'und sie sind gezaehlt, nicht still verschwunden');
+    // Der Lauf hat etwas geschafft (1), die 2 blieb liegen.
+    bestand.erledigtMerken(id, 1, 'ruhe');
+    assert.equal((await bestand.kandidaten(2)).konten.K, '2,3', 'die 2 kommt zuerst wieder');
+
+    // Wieder etwas geschafft (3), die 2 liegt immer noch — zweimal drangewesen.
+    bestand.erledigtMerken(id, 3, 'ruhe');
+    assert.equal((await bestand.kandidaten(2)).konten.K, '4,5',
+      'danach geht es weiter, sonst steht der Bestand fuer immer');
+    assert.equal(bestand.unklareAnzahl(id), 1, 'gezaehlt, nicht still verschwunden');
   });
 
-  test('eine erledigte Mail blockiert nichts', async () => {
+  test('ein gescheiterter Lauf stempelt keine Mail als unklar ab', async () => {
     const id = kontoAnlegen();
     postfachMit([1, 2, 3, 4]);
+    await bestand.kandidaten(2);   // 1,2
+    await bestand.kandidaten(2);   // nichts geschafft -> wieder 1,2
     await bestand.kandidaten(2);
-    bestand.erledigtMerken(id, 1, 'ruhe');
-    bestand.erledigtMerken(id, 2, 'ruhe');
-    assert.equal((await bestand.kandidaten(2)).konten.K, '3,4');
-    assert.equal(bestand.unklareAnzahl(id), 0, 'hier war nichts unklar');
+    assert.equal(bestand.unklareAnzahl(id), 0,
+      'starb der Lauf an Googles Kontingent, liegt es nicht an der Mail');
   });
 
-  test('am Ende faengt die Runde von vorn an', async () => {
+  test('zurueckgestellte Mails kommen in der naechsten Runde wieder', async () => {
     const id = kontoAnlegen();
     postfachMit([1, 2, 3]);
     await bestand.kandidaten(2);           // 1,2
     bestand.erledigtMerken(id, 1, 'ruhe');
     await bestand.kandidaten(2);           // 2 (Nachzuegler) + 3
-    bestand.erledigtMerken(id, 3, 'ruhe');
-    const rest = (await bestand.kandidaten(2)).konten.K;
-    assert.equal(rest, '2', 'liegen gebliebene Mails bekommen eine neue Runde');
+    bestand.erledigtMerken(id, 3, 'ruhe'); // etwas geschafft, 2 liegt weiter
+    await bestand.kandidaten(2);           // 2 wird zurueckgestellt, nichts mehr da
+    assert.equal((await bestand.kandidaten(2)).konten.K, '2',
+      '„unklar" heisst zurueckgestellt, nicht aufgegeben');
+    assert.equal(bestand.unklareAnzahl(id), 0);
   });
 
   test('leerer Posteingang: eine UID, die es nicht gibt', async () => {

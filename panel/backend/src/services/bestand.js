@@ -113,6 +113,15 @@ function letztesFenster(kontoId, davor = false) {
   } catch { return []; }
 }
 
+
+// Zurückgestellte Mails wieder freigeben. „Unklar" ist kein Urteil für immer:
+// Ein Zielordner kann angelegt worden sein, das Budget wieder da. Aufgerufen
+// wird das, wenn eine neue Runde durchs Postfach beginnt.
+function unklarVergessen(kontoId) {
+  try {
+    db.prepare("DELETE FROM bestand_erledigt WHERE konto_id = ? AND grund = 'unklar'").run(kontoId);
+  } catch { /* nicht kritisch */ }
+}
 // Wie viele Mails liessen sich nicht einordnen? Sie liegen weiter im
 // Posteingang — nur bietet der Bestandslauf sie nicht mehr an. Das gehört
 // sichtbar gemacht, sonst ist es dasselbe stille Verschwinden wie vorher.
@@ -176,19 +185,32 @@ async function kandidaten(grenze = 0) {
       // laesst sich offenbar nicht einordnen — eine Mail ohne Absender, ein
       // fehlender Zielordner. Die wird vermerkt, damit sie den Bestand nicht
       // dauerhaft blockiert, und im Panel als solche gezaehlt.
+      // Aber nur, wenn der Lauf davor ueberhaupt etwas geschafft hat. Starb er
+      // an Googles Kontingent, liegt es nicht an dieser Mail — sie dafuer als
+      // unklar abzustempeln waere die falsche Schuldzuweisung.
+      const etwasGeschafft = vorherige.some((u) => !offenSet.has(u));
       const haengen = vorherige.filter((u) => offenSet.has(u));
-      for (const u of haengen) {
-        if (davor.includes(u)) {
-          erledigtMerken(konto.id, u, 'unklar');
-          offenSet.delete(u);
+      if (etwasGeschafft) {
+        for (const u of haengen) {
+          if (davor.includes(u)) {
+            erledigtMerken(konto.id, u, 'unklar');
+            offenSet.delete(u);
+          }
         }
       }
 
       const nachzuegler = haengen.filter((u) => offenSet.has(u));
       const frisch = offen.filter((u) => u > zeiger && !vorherige.includes(u));
       let fenster = [...nachzuegler, ...frisch].slice(0, proKonto);
-      // Nichts mehr über dem Zeiger: neue Runde von vorn.
-      if (fenster.length === 0) fenster = [...offenSet].sort((a, b) => a - b).slice(0, proKonto);
+      // Nichts mehr über dem Zeiger: neue Runde. Dann bekommen auch die
+      // geparkten Mails wieder eine Chance — „unklar" heisst zurückgestellt,
+      // nicht aufgegeben. Sonst wäre das Parken doch wieder das stille
+      // Verschwinden, gegen das die ganze Übung geht.
+      if (fenster.length === 0) {
+        unklarVergessen(konto.id);
+        const neueRunde = erledigteUids(konto.id);
+        fenster = [...da].filter((u) => !neueRunde.has(u)).sort((a, b) => a - b).slice(0, proKonto);
+      }
       if (fenster.length === 0) continue;
 
       raus.konten[konto.name] = fenster.join(',');
@@ -203,5 +225,6 @@ async function kandidaten(grenze = 0) {
 }
 
 module.exports = {
-  kandidaten, erledigtMerken, erledigteUids, ruheVergessen, unklareAnzahl, KEINE, FENSTER,
+  kandidaten, erledigtMerken, erledigteUids, ruheVergessen, unklarVergessen, unklareAnzahl,
+  KEINE, FENSTER,
 };
