@@ -635,6 +635,7 @@ export default function Einstellungen() {
                 </pre>
               )}
             </div>
+            </div>
 
             <SpeichernBtn onSpeichern={() => speichern('ki')} meldung={meldung.ki} />
           </Card>

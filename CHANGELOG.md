@@ -1,6 +1,16 @@
 # Changelog — Mail-Panel
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
+## [4.0.0.1] - 2026-09-07 (Build 128) — *Vite Build Fehler behoben*
+
+### Behoben: Syntax-Fehler in den Einstellungen
+- Ein fehlendes `</div>`-Tag in den Einstellungen führte dazu, dass der React-Build in der GitHub Action abbrach. Der Fehler wurde behoben, sodass das Docker-Image wieder gebaut werden kann.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- DB-Migrationen: Keine.
+- n8n-Workflow-Kompatibilität: Keine.
+- Neustart-/Session-Verhalten: Keine.
+
 ## [4.0.0.0] - 2026-09-07 (Build 127) — *Ollama Integration*
 
 ### Feature: Lokale KI über Ollama
