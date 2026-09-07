@@ -3,9 +3,9 @@
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 ## [3.14.3.1] - 2026-09-07 (Build 126) — *Gemini Limits und fehlender Text bei Anhängen behoben*
 
-### Behoben: Rate-Limit bei Gemini durch falsches Modell
-- Das verwendete Gemini-Modell in den Workflows `01`, `02` und `04` stand fälschlicherweise auf `gemini-3.5-flash-lite`, einem kostenpflichtigen Modell, wodurch Rate-Limits und Fehlermeldungen wegen aufgebrauchten Guthabens ("prepayment credits depleted") auftraten und der Workflow sich aufhängte.
-- Das Modell wurde wieder auf das kostenlose `gemini-2.5-flash-lite` zurückgesetzt, welches innerhalb der Free-Tier-Limits reibungslos läuft.
+### Angepasst: Gemini Modelle 3.8 Flash integriert
+- Nachdem das Panel in der Google Cloud Preisstufe 1 läuft und Guthaben geladen ist, wurden die Fehler wegen aufgebrauchter Kontingente ("prepayment credits depleted") obsolet.
+- Als neues Standardmodell ist nun überall das leistungsfähigere `gemini-3.8-flash` hinterlegt statt des veralteten `gemini-3.5-flash-lite`.
 
 ### Behoben: E-Mails mit Anhängen verloren ihren Inhalt vor der Klassifizierung
 - Der HTTP-Knoten `Anhänge scannen` ersetzte in n8n das komplette Item, sodass das vorher generierte Feld `promptText` verschwand. 

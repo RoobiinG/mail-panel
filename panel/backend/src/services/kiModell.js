@@ -14,7 +14,7 @@ const settings = require('./settings');
 const { loggen } = require('./panelLog');
 
 // Dasselbe Modell wie bisher überall fest verdrahtet — jetzt an einer Stelle.
-const STANDARD = 'gemini-3.5-flash-lite';
+const STANDARD = 'gemini-3.8-flash';
 
 const { kiTag: heute } = require('./kiTag'); // Googles Tag, nicht unserer
 
