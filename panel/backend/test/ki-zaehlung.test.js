@@ -161,3 +161,62 @@ describe('Stichworte entscheiden vor der KI', () => {
     assert.equal(s.json.ordner, 'Meine Regel', 'was der Nutzer selbst eingetragen hat, zaehlt zuerst');
   });
 });
+
+// Der Deckel schuetzte nur die Bestands-Triage. Neu eintreffende Post fragte
+// gar nicht erst nach dem Kontingent: Jede Mail rannte in Gemini, bekam "too
+// many requests", wiederholte es fuenfmal und stand als fehlgeschlagener Lauf
+// da — 21 Sekunden fuer nichts, und das bei jeder einzelnen Mail.
+describe('Ohne Kontingent gar nicht erst fragen', () => {
+  const settings = require('../src/services/settings');
+  const heute = () => new Date().toLocaleDateString('sv-SE');
+
+  test('ist das Budget aufgebraucht, bleibt die Mail liegen', async () => {
+    settings.setze('gemini_tagesbudget', '10');
+    budget.ausgabeMerken(10);
+
+    const s = await post('/api/internal/sort', { konto: 'K', von: 'neu@fremd.de', betreff: 'x', uid: 41 });
+    assert.equal(s.json.warten, true);
+    assert.equal(s.json.ordner, null,
+      'ohne Zielordner laeuft die Mail nach "Bleibt in der Inbox" — kein neuer Knoten noetig');
+    assert.match(s.json.grund, /Kontingent/);
+  });
+
+  test('hat Google heute abgewiesen, zaehlt das mehr als die eigene Zaehlung', async () => {
+    settings.setze('gemini_tagesbudget', '50000');
+    settings.setze('ki_429_tag', heute());
+    settings.setze('ki_429_limit', '500');
+    // Eigene Zaehlung weit unter der Grenze — trotzdem ist Schluss.
+    budget.ausgabeMerken(12);
+
+    const s = await post('/api/internal/sort', { konto: 'K', von: 'neu@fremd.de', betreff: 'x', uid: 42 });
+    assert.equal(s.json.warten, true);
+  });
+
+  test('eine eigene Regel greift trotzdem — sie kostet ja nichts', async () => {
+    settings.setze('gemini_tagesbudget', '1');
+    budget.ausgabeMerken(5);
+    regelAnlegen('shop.de', 'Bestellungen');
+
+    const s = await post('/api/internal/sort', { konto: 'K', von: 'a@shop.de', betreff: 'x', uid: 43 });
+    assert.equal(s.json.ordner, 'Bestellungen');
+    assert.notEqual(s.json.warten, true, 'Regeln duerfen nie am KI-Deckel haengen');
+  });
+
+  test('ein Stichwort ebenso', async () => {
+    settings.setze('gemini_tagesbudget', '1');
+    budget.ausgabeMerken(5);
+    db.prepare("INSERT INTO settings (key, value) VALUES ('themen_sortierung_aktiv','1')").run();
+    db.prepare('INSERT INTO konto_ordner (konto_id, ordner, beschreibung, quelle) VALUES (?, ?, ?, ?)')
+      .run(kontoId(), 'Anbieter', 'Vodafone, Sky', 'manuell');
+
+    const s = await post('/api/internal/sort', { konto: 'K', von: 'x@vodafone.de', betreff: 'y', uid: 44 });
+    assert.equal(s.json.ordner, 'Anbieter');
+  });
+
+  test('ohne Deckel laeuft alles wie bisher', async () => {
+    settings.setze('gemini_tagesbudget', '0');
+    budget.ausgabeMerken(9999);
+    const s = await post('/api/internal/sort', { konto: 'K', von: 'neu@fremd.de', betreff: 'x', uid: 45 });
+    assert.equal(s.json.aktion, 'inbox', 'dann entscheidet die KI');
+  });
+});

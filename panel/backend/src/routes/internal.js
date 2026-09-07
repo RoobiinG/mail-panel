@@ -98,6 +98,26 @@ function warRegelSortiert(konto, uid) {
   return Date.now() - zeit < REGEL_MERK_MS;
 }
 
+// Darf heute ueberhaupt noch jemand Gemini fragen?
+//
+// Zwei Gruende koennen dagegensprechen, und der erste wiegt schwerer: Hat
+// Google heute schon abgewiesen, ist Schluss — egal, was die eigene Zaehlung
+// sagt. Die liegt naemlich zwangslaeufig darunter (siehe services/budget.js).
+// Sonst zaehlt der eingestellte Deckel.
+//
+// Im Zweifel arbeiten lassen: Eine kaputte Pruefung darf nicht die ganze
+// Sortierung anhalten.
+function kiPlatzFrei() {
+  try {
+    if (budget.beobachteteGrenze() > 0) return false;
+    const grenze = budget.tagesbudget();
+    if (grenze === 0) return true; // kein Deckel gesetzt
+    return budget.heuteVerbraucht() < grenze;
+  } catch {
+    return true;
+  }
+}
+
 // ─── SORTIERUNG (VOR GEMINI) ─────────────────────────────────────────────────
 router.post('/sort', (req, res) => {
   const { konto, von, betreff, uid } = req.body || {};
@@ -145,6 +165,31 @@ router.post('/sort', (req, res) => {
           }
         }
       } catch { /* im Zweifel laeuft die Mail eben normal weiter zur KI */ }
+    }
+
+    // Ist fuer heute ueberhaupt noch KI-Kontingent da?
+    //
+    // Der Deckel schuetzte bisher nur die Bestands-Triage. Neu eintreffende Post
+    // fragte gar nicht erst: Jede Mail rannte in Gemini, bekam "too many
+    // requests", wiederholte es fuenfmal und stand danach als fehlgeschlagener
+    // Lauf da — 21 Sekunden fuer nichts, und das bei jeder einzelnen Mail.
+    //
+    // Diese Pruefung steht ganz bewusst NACH den Regeln und Stichworten: Die
+    // kosten kein Kontingent und muessen weiterarbeiten, auch wenn Google fuer
+    // heute zu hat.
+    //
+    // Der Ausstieg braucht keinen neuen Knoten. "Verschieben?" prueft, ob ein
+    // Zielordner dasteht — ohne einen laeuft die Mail nach "Bleibt in der
+    // Inbox". Genau das ist hier gewollt: nichts anfassen, nichts
+    // protokollieren. Die Mail bleibt ungelesen liegen und wird spaeter von der
+    // Bestands-Triage geholt, die ihr eigenes Budget verwaltet.
+    if (!kiPlatzFrei()) {
+      return res.json({
+        aktion: 'verschieben',
+        ordner: null,
+        warten: true,
+        grund: 'KI-Kontingent fuer heute aufgebraucht — die Mail bleibt liegen',
+      });
     }
     // Kein Treffer: Die Mail laeuft weiter durch Pruefdienste und KI. In die
     // Sortier-Inbox kommt sie erst ganz am Ende in /einsortieren — sonst stuende

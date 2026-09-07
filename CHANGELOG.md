@@ -2,6 +2,21 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.13.3.1] - 2026-09-07 (Build 113) — *Auch die laufende Post fragt jetzt nach dem Kontingent*
+
+### Behoben: Workflow 01 rannte nach aufgebrauchtem Kontingent weiter in Gemini
+- Zu sehen an drei Fehlläufen um 03:53 — je **eine** Mail, je **21 Sekunden**: Das waren die
+  fünf Wiederholversuche am Gemini-Knoten, bevor der Lauf als fehlgeschlagen endete.
+- Der Deckel aus Build 105 schützte nur die Bestands-Triage. Bei neu eintreffender Post fragte
+  das Panel gar nicht erst, ob heute noch Kontingent da ist — dabei weiß es das längst.
+- Jetzt bleibt die Mail liegen, sobald Google für heute abgewiesen hat oder das Tagesbudget
+  erreicht ist. Sie ist ungelesen (Build 110) und wird später von der Bestands-Triage geholt,
+  die ihr eigenes Budget verwaltet.
+- **Regeln und Stichworte greifen weiterhin.** Die Prüfung sitzt ausdrücklich hinter ihnen —
+  was ohne KI entschieden wird, darf nie am KI-Deckel hängen.
+- Ohne neuen Knoten: „Verschieben?" prüft ohnehin, ob ein Zielordner dasteht. Ohne einen läuft
+  die Mail nach *Bleibt in der Inbox* — nichts angefasst, nichts protokolliert.
+
 ## [3.13.3.0] - 2026-09-07 (Build 112) — *Zwei verschiedene 429*
 
 ### Behoben: Ein Minutenlimit legte den ganzen Tag still
