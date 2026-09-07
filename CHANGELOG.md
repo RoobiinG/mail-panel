@@ -2,7 +2,26 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
-## [3.14.2.1] - 2026-09-07 (Build 124) — *„Task execution timed out after 300 seconds"*
+## [3.14.3.0] - 2026-09-07 (Build 125) — *Ein gescheiterter Virenscan sah aus wie ein sauberer*
+
+### Behoben: „clean" hieß auch, wenn gar nicht geprüft wurde
+- Ist ClamAV nicht erreichbar, warf der Scan — und die Route fing den Fehler ab und antwortete
+  **`clean: true`**. Für den Workflow war die Mail damit virenfrei. Sie war aber nur
+  **ungeprüft**, und nirgends stand das.
+- Jetzt wird jeder Anhang einzeln behandelt: Was sich nicht prüfen ließ, zählt als
+  `ungeprueft` und steht mit Namen und Grund im Protokoll unter *Logs*. Die Mail läuft weiter
+  — sie in Quarantäne zu schieben wäre schlimmer —, aber sie gilt nicht mehr als geprüft.
+- Und der Schalter *Virenscan aktiv* wird endlich beachtet: Steht er auf aus, lädt das Panel
+  nicht mehr jeden Anhang über IMAP herunter, um ihn an einen Dienst zu schicken, den es nicht
+  gibt. Die Antwort sagt dann ausdrücklich, dass nicht geprüft wurde.
+
+### Behoben: Der Bündel-Knoten lief in n8ns Zeitgrenze
+- 520 Mails sind 26 Bündel; n8n beendet einen Code-Knoten nach **300 Sekunden**, und mit dem
+  Abbruch war **alles** weg — auch die längst fertigen Bündel.
+- Das Panel hört jetzt nach 240 Sekunden von sich aus auf und gibt zurück, was fertig ist. Der
+  Rest kommt im nächsten Lauf zuerst wieder dran.
+
+## [3.14.2.1] - 2026-09-07 (Build 124) — *„Task execution timed out after 300 seconds"* (nicht ausgeliefert)
 
 ### Behoben: Der Bündel-Knoten lief in n8ns Zeitgrenze
 - Der Lauf um 16:10 hat gezeigt, dass die Reparaturen greifen: **750 Mails geholt** statt 100,

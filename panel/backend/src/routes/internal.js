@@ -15,6 +15,7 @@ const settings = require('../services/settings');
 const themen  = require('../services/themen');
 const imap    = require('../services/imap');
 const { entschluesseln } = require('../services/crypto');
+const { loggen } = require('../services/panelLog');
 
 const router = express.Router();
 
@@ -655,13 +656,40 @@ router.post('/scan-anhaenge', express.json({ limit: '16kb' }), async (req, res) 
       uid,
     });
 
+    // Ist der Virenscanner überhaupt eingeschaltet? Ohne diese Frage lädt das
+    // Panel jeden Anhang über IMAP herunter, um ihn dann an einen Dienst zu
+    // schicken, den es nicht gibt.
+    if (einstellung('clamav_aktiv', '1') !== '1') {
+      return res.json({
+        clean: true, virus: null, gefunden, geprueft: 0, ungeprueft: gefunden, dateien: [],
+        fehler: gefunden ? 'Virenscanner ist abgeschaltet — Anhänge wurden nicht geprüft.' : null,
+      });
+    }
+
     const dateien = [];
     let virus = null;
+    let ungeprueft = 0;
     for (const anhang of anhaenge) {
-      if (anhang.fehler) { dateien.push({ name: anhang.name, fehler: anhang.fehler }); continue; }
-      const ergebnis = await clamav.scan(anhang.inhalt);
-      dateien.push({ name: anhang.name, clean: ergebnis.clean, virus: ergebnis.virus || null });
-      if (!ergebnis.clean && !virus) virus = ergebnis.virus;
+      if (anhang.fehler) {
+        dateien.push({ name: anhang.name, fehler: anhang.fehler });
+        ungeprueft += 1;
+        continue;
+      }
+      // Ein Scanner, der nicht antwortet, darf nicht wie ein sauberes Ergebnis
+      // aussehen. Genau das ist vorher passiert: Fiel ClamAV aus, kam für jede
+      // Mail „clean: true" zurück — die Virenprüfung lief ins Leere, ohne dass
+      // es irgendwo stand.
+      try {
+        const ergebnis = await clamav.scan(anhang.inhalt);
+        dateien.push({ name: anhang.name, clean: ergebnis.clean, virus: ergebnis.virus || null });
+        if (!ergebnis.clean && !virus) virus = ergebnis.virus;
+      } catch (err) {
+        ungeprueft += 1;
+        dateien.push({ name: anhang.name, fehler: `Scanner nicht erreichbar: ${err.message}` });
+        loggen('warn', 'virenscan',
+          `Anhang "${anhang.name}" von ${konto} konnte nicht geprüft werden: ${err.message}. `
+          + 'Die Mail läuft weiter — sie gilt aber NICHT als geprüft.');
+      }
     }
 
     res.json({
@@ -671,6 +699,9 @@ router.post('/scan-anhaenge', express.json({ limit: '16kb' }), async (req, res) 
       // im Workflow sieht man damit sofort, ob etwas übersprungen wurde.
       gefunden,
       geprueft: dateien.filter((d) => !d.fehler).length,
+      // Wie viele Anhänge NICHT geprüft werden konnten. „clean" heißt dann
+      // bloß „kein Fund", nicht „nichts gefunden, weil gesucht wurde".
+      ungeprueft,
       dateien,
     });
   } catch (err) {

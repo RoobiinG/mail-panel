@@ -399,7 +399,7 @@ describe('Das Zeitbudget eines Laufs', () => {
       assert.equal(ruf, 1, 'nach dem ersten Buendel ist die Frist um');
       assert.equal(e.abgebrochen, true);
       assert.match(e.hinweis, /Zeitbudget/);
-      assert.match(e.hinweis, /naechsten Lauf/, 'der Nutzer muss wissen, dass nichts verloren ist');
+      assert.match(e.hinweis, /Lauf zuerst wieder dran/, 'der Nutzer muss wissen, dass nichts verloren ist');
     } finally {
       Date.now = echt;
     }
