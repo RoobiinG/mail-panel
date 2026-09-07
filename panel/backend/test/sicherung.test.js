@@ -242,14 +242,18 @@ describe('Zwei Sicherungen gleichzeitig', () => {
   });
 });
 
-// Die Seite log den Nutzer an: /starten wartete auf den ganzen Lauf. Bei 23.000
-// Mails dauert der viele Minuten, die HTTP-Anfrage lief unterwegs ab — und die
-// Seite meldete "fehlgeschlagen", waehrend die Sicherung munter weiterlief und
-// die Sperre hielt.
+// Die Seite log den Nutzer an: /starten wartete auf das ENDE des Laufs. Bei
+// 23.000 Mails dauert der viele Minuten, die HTTP-Anfrage lief unterwegs ab —
+// und die Seite meldete "fehlgeschlagen", waehrend die Sicherung munter
+// weiterlief und die Sperre hielt.
+//
+// Der eigentliche Lauf wird hier ersetzt: Was geprueft wird, ist die Route —
+// ob sie sofort antwortet, den zweiten Start abweist und den Zustand meldet.
+// Eine echte Sicherung anzustossen hiesse, sie im Hintergrund weiterlaufen zu
+// lassen; der Testprozess wartet dann auf ihre offenen Verbindungen.
 describe('Starten wartet nicht auf das Ende', () => {
   const http = require('http');
   const express = require('express');
-  const settings2 = require('../src/services/settings');
 
   const anfrage = (port, pfad, methode = 'GET', rumpf = null) => new Promise((fertig, schief) => {
     const text = rumpf ? JSON.stringify(rumpf) : null;
@@ -265,39 +269,38 @@ describe('Starten wartet nicht auf das Ende', () => {
     a.end(text);
   });
 
-  test('die Antwort kommt sofort, und der Stand sagt "laeuft"', async () => {
-    for (const [k, v] of [
-      ['sicherung_passwort', 'geheim'], ['sicherung_ftp_host', 'ftp.example.invalid'],
-      ['sicherung_ftp_user', 'u'], ['sicherung_ftp_passwort', 'p'],
-    ]) settings2.setze(k, v);
-    require('../src/db').exec('DELETE FROM accounts;');
-    require('../src/db').prepare("INSERT INTO accounts (name, host, port, username, password_enc, aktiv)"
-      + " VALUES ('K','unerreichbar.invalid',993,'u','x',1)").run();
+  test('sofortige Antwort, zweiter Start abgewiesen, Zustand sichtbar', async () => {
+    const echtLauf = sich.lauf;
+    const echtLaeuft = sich.laeuftGerade;
+    let seit = null;
+    // Ein Lauf, der nie fertig wird — aber auch nichts offen haelt.
+    sich.lauf = () => { seit = new Date().toISOString(); return new Promise(() => {}); };
+    sich.laeuftGerade = () => (seit ? { seit } : null);
 
     const app = express();
     app.use(express.json());
     app.use('/api/sicherung', require('../src/routes/sicherung'));
-    const server = await new Promise((f) => {
-      const s = app.listen(0, () => f(s));
-    });
+    const server = await new Promise((f) => { const s = app.listen(0, () => f(s)); });
     const port = server.address().port;
 
     try {
-      const start = Date.now();
+      const begonnen = Date.now();
       const a = await anfrage(port, '/api/sicherung/starten', 'POST', { trockenlauf: true });
       assert.equal(a.status, 200);
       assert.equal(a.json.gestartet, true);
-      assert.ok(Date.now() - start < 3000, 'die Antwort darf nicht am Lauf haengen');
+      assert.ok(Date.now() - begonnen < 3000, 'die Antwort darf nicht am Lauf haengen');
 
-      // Ein zweiter Versuch wird abgewiesen — und sagt, seit wann.
       const b = await anfrage(port, '/api/sicherung/starten', 'POST', { trockenlauf: true });
       assert.equal(b.status, 409);
-      assert.match(b.json.error, /seit \d+ Minuten/);
+      assert.match(b.json.error, /seit \d+ Minuten/,
+        'ohne die Minuten weiss niemand, ob das der eigene Lauf von eben ist');
 
       const stand = await anfrage(port, '/api/sicherung');
       assert.ok(stand.json.laeuft?.seit, 'die Seite muss sehen koennen, dass etwas laeuft');
     } finally {
       server.close();
+      sich.lauf = echtLauf;
+      sich.laeuftGerade = echtLaeuft;
     }
   });
 });
