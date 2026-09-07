@@ -263,3 +263,61 @@ describe('Die Seite kann sehen, dass eine Sicherung laeuft', () => {
       'ohne sie zeigt die Seite bei einem langen Lauf, als sei nichts los');
   });
 });
+
+// Der teuerste Fehler dieser Sitzung, und einer der billigsten zu finden.
+//
+// Beim Aufraeumen in Build 115 blieb in der GET-Antwort eine Zeile stehen, die
+// auf eine geloeschte Variable zeigte. Jeder Aufruf warf einen ReferenceError,
+// die Seite bekam "Interner Serverfehler" -- und zeigte ein LEERES Formular
+// samt "Noch nie gelaufen". Es sah aus, als waeren FTP-Zugang und
+// Archiv-Passwort verloren. Sie waren die ganze Zeit da.
+//
+// Kein HTTP-Server: Der Handler wird direkt aus dem Router geholt und mit einer
+// Attrappe aufgerufen. Das ist schneller, kann nicht haengen — und haette
+// genuegt, um den Fehler zu fangen.
+describe('Der Stand laesst sich ueberhaupt ausliefern', () => {
+  const router = require('../src/routes/sicherung');
+
+  const handlerFuer = (methode, pfad) => {
+    const schicht = router.stack.find((s) => s.route?.path === pfad && s.route.methods[methode]);
+    assert.ok(schicht, `Route ${methode.toUpperCase()} ${pfad} fehlt`);
+    return schicht.route.stack[schicht.route.stack.length - 1].handle;
+  };
+
+  const attrappe = () => {
+    const antwort = { code: 200, koerper: null };
+    return {
+      res: {
+        status(c) { antwort.code = c; return this; },
+        json(k) { antwort.koerper = k; return this; },
+      },
+      antwort,
+    };
+  };
+
+  test('GET / liefert den Stand, nicht 500', () => {
+    const { res, antwort } = attrappe();
+    handlerFuer('get', '/')({}, res);
+
+    assert.equal(antwort.code, 200,
+      `Der Stand war nicht ausliefebar: ${antwort.koerper && antwort.koerper.error}`);
+    assert.ok(antwort.koerper, 'ohne Antwort steht die Seite mit leeren Feldern da');
+    // Die Felder, an denen der Nutzer merkt, ob seine Einrichtung noch da ist.
+    for (const feld of ['host', 'benutzer', 'pfad', 'passwortGesetzt', 'ftpPasswortGesetzt',
+      'fehlt', 'laeuft', 'letzterLauf', 'intervallStunden']) {
+      assert.ok(feld in antwort.koerper, `Feld "${feld}" fehlt in der Antwort`);
+    }
+  });
+
+  test('gespeicherte Werte kommen auch wirklich heraus', () => {
+    const settings3 = require('../src/services/settings');
+    settings3.setze('sicherung_ftp_host', 'ftp.beispiel.invalid');
+    settings3.setze('sicherung_passwort', 'ein-langes-geheimnis');
+
+    const { res, antwort } = attrappe();
+    handlerFuer('get', '/')({}, res);
+    assert.equal(antwort.koerper.host, 'ftp.beispiel.invalid');
+    assert.equal(antwort.koerper.passwortGesetzt, true, 'aber nie das Passwort selbst');
+    assert.equal(antwort.koerper.passwort, undefined);
+  });
+});

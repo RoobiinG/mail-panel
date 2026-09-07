@@ -15,9 +15,28 @@ const router = express.Router();
 // (postfachSicherung.laeuftGerade). Dort greift sie auch für den Zeitplan und
 // nicht nur für den Knopf — zwei Sperren nebeneinander wären eine zu viel.
 
+// Ohne Auffangnetz sah ein Fehler hier aus wie ein Datenverlust.
+//
+// In Build 115 blieb beim Aufräumen eine Zeile stehen, die auf eine gelöschte
+// Variable zeigte. Jedes GET warf damit einen ReferenceError, die Seite bekam
+// nur „Interner Serverfehler" — und zeigte ein **leeres Formular** samt „Noch
+// nie gelaufen". Es sah aus, als wären FTP-Zugang und Archiv-Passwort weg. Sie
+// waren die ganze Zeit da; das Panel konnte sie bloß nicht ausliefern.
 router.get('/', (req, res) => {
+  try {
+    res.json(stand());
+  } catch (err) {
+    loggen('error', 'sicherung', `Stand nicht lesbar: ${err.message}`, { stack: err.stack });
+    res.status(500).json({
+      error: `Der Stand liess sich nicht laden: ${err.message}. `
+        + 'Deine Einstellungen sind davon nicht betroffen — sie stehen in der Datenbank.',
+    });
+  }
+});
+
+function stand() {
   const e = sicherung.einstellungen();
-  res.json({
+  return {
     aktiv: e.aktiv,
     host: e.host,
     port: e.port,
@@ -37,9 +56,8 @@ router.get('/', (req, res) => {
     // bereits", ohne zu sagen, seit wann.
     laeuft: sicherung.laeuftGerade(),
     letzterLauf: sicherung.letzterLauf(),
-    laeuft,
-  });
-});
+  };
+}
 
 const SCHALTER = {
   sicherung_aktiv: 'aktiv',

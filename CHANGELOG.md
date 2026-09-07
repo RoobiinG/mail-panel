@@ -2,6 +2,24 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.13.5.1] - 2026-09-07 (Build 117) — *Die Sicherungsseite war nur blind, nicht leer*
+
+### Behoben: „Interner Serverfehler" und ein leeres Formular
+- Die Seite zeigte plötzlich **„Noch nie gelaufen"**, ein leeres Archiv-Passwort und einen
+  leeren FTP-Zugang. Es sah aus, als wäre die ganze Einrichtung verloren.
+- **War sie nicht.** In Build 115 blieb beim Entfernen der alten Doppelstart-Sperre eine Zeile
+  stehen, die auf die gelöschte Variable zeigte. Jeder Aufruf der Seite warf damit einen
+  ReferenceError; die Oberfläche bekam nur „Interner Serverfehler" und zeichnete daraufhin ihre
+  leeren Standardfelder. Die Daten lagen die ganze Zeit unverändert in der Datenbank.
+- Die Zeile ist weg. Zusätzlich fängt die Seite einen Fehler jetzt ab und sagt, was los ist —
+  samt dem Hinweis, dass die Einstellungen davon nicht betroffen sind.
+
+### Warum das durchgerutscht ist
+- Es gab keinen Test, der die Seite auch nur einmal aufgerufen hätte. Jetzt gibt es einen: Er
+  holt den Handler direkt aus dem Router und prüft, dass die Antwort kommt und die Felder
+  enthält, an denen man die eigene Einrichtung wiedererkennt — ohne HTTP-Server, damit er
+  weder hängen noch flackern kann.
+
 ## [3.13.5.0] - 2026-09-07 (Build 116) — *Was Google wirklich antwortet*
 
 ### Neu: Die ungekürzte Antwort, statt des ersten Satzes
