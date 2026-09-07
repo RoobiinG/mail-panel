@@ -163,7 +163,13 @@ async function pruefen() {
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
         body: JSON.stringify({
           contents: [{ parts: [{ text: 'Antworte nur mit: ok' }] }],
-          generationConfig: { maxOutputTokens: 8 },
+          // Reichlich Platz, obwohl ein Wort erwartet wird.
+          //
+          // Mit 8 Token kam bei einem denkenden Modell `content: {}` und
+          // `finishReason: MAX_TOKENS` zurück — das Modell hatte sein ganzes
+          // Budget vernachdacht. Eine Prüfung, die deshalb wie ein Ausfall
+          // aussieht, ist schlimmer als keine.
+          generationConfig: { maxOutputTokens: 512 },
         }),
         signal: AbortSignal.timeout(20000),
       },

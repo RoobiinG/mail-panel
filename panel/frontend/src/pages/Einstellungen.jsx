@@ -603,6 +603,26 @@ export default function Einstellungen() {
               <input type="number" min="1000" max="60000" step="500" value={settings.gemini_pause_ms}
                 onChange={e => set('gemini_pause_ms', e.target.value)} className={inputCls} />
             </div>
+            <div className="space-y-1">
+              <label className="block text-xs text-panel-muted">Wie viel darf die KI nachdenken?</label>
+              <p className="text-[10px] text-panel-muted/60">
+                Die neueren Modelle (Gemini 3.7/3.8 Flash) denken von Haus aus — und bezahlen das
+                aus demselben Budget, aus dem die Antwort kommt. Beim Einsortieren bringt das
+                nichts und kann alles kosten: Kam die Antwort leer zurück, meldete der Lauf
+                trotzdem „erfolgreich" und sortierte keine einzige Mail. <b>Niedrig</b> ist hier
+                richtig; „aus" schickt die Angabe gar nicht mit, falls ein Modell sie nicht kennt.
+              </p>
+              <select value={settings.gemini_denkstufe || 'low'}
+                disabled={settings.gemini_denkstufe_per_env}
+                onChange={e => set('gemini_denkstufe', e.target.value)} className={inputCls}>
+                <option value="minimal">so wenig wie möglich</option>
+                <option value="low">niedrig (empfohlen)</option>
+                <option value="medium">mittel</option>
+                <option value="high">hoch</option>
+                <option value="aus">gar nicht mitschicken</option>
+              </select>
+            </div>
+
             {/* Der kürzeste Weg von „es scheitert" zu „deshalb".
                 „The service is receiving too many requests from you" sagt nicht,
                 WELCHES Limit gemeint ist — das steht im Antwortrumpf. Eine

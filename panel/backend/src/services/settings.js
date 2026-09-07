@@ -45,6 +45,11 @@ const FELDER = {
   gemini_buendel:       { env: 'GEMINI_BUENDEL', geheim: false, standard: '20' },
   gemini_text_kurz:     { env: 'GEMINI_TEXT_KURZ', geheim: false, standard: '600' },
   gemini_text_lang:     { env: 'GEMINI_TEXT_LANG', geheim: false, standard: '1500' },
+  // Wie viel darf das Modell nachdenken? Gemini 3.7/3.8 Flash denken von Haus
+  // aus und zahlen das aus demselben Budget, aus dem die Antwort kommt — bei
+  // einer Einstufung ist das verschenkt. "aus" schickt das Feld gar nicht mit
+  // (fuer Modelle, die es nicht kennen). Siehe services/kiText.js.
+  gemini_denkstufe:     { env: 'GEMINI_DENKSTUFE', geheim: false, standard: 'low' },
   // Bleibt neu eingegangene Post im Postfach ungelesen? Standard ja — sonst
   // sieht der Nutzer neue Mails in seinem Mailclient bereits als gelesen, weil
   // das Panel schneller war. Steckt im Workflow, wirkt also erst nach

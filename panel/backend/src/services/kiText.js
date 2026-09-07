@@ -15,6 +15,25 @@ const { loggen } = require('./panelLog');
 // auf das Ersatzmodell, wenn Googles Tageskontingent aufgebraucht ist.
 const kiModell = require('./kiModell');
 
+// Wie viel darf das Modell nachdenken?
+//
+// Gemini 3.7 und 3.8 Flash denken von Haus aus — und zahlen das aus demselben
+// Ausgabebudget, aus dem die Antwort kommt. Für eine Einstufung ist das
+// verschenkt: „Ist das ein Newsletter?" braucht keine Gedankenkette. Im Betrieb
+// kam deshalb `content: {}` mit `finishReason: MAX_TOKENS` zurück — das Modell
+// hatte nachgedacht und nichts gesagt. Die Läufe meldeten „erfolgreich" und
+// sortierten keine einzige Mail.
+//
+// Leer = Feld gar nicht mitschicken (für Modelle, die es nicht kennen).
+function denkstufeAbschalten() {
+  try { settings.setze('gemini_denkstufe', 'aus'); } catch { /* dann eben beim naechsten Mal */ }
+}
+
+function denkstufe() {
+  const wert = String(settings.hole('gemini_denkstufe') ?? 'low').trim().toLowerCase();
+  return ['minimal', 'low', 'medium', 'high'].includes(wert) ? wert : '';
+}
+
 /**
  * @param {string} prompt
  * @param {{zeitlimit?: number, quelle?: string}} opt
@@ -26,6 +45,8 @@ async function frageJson(prompt, opt = {}) {
 
   const quelle = opt.quelle || 'backend:kiText';
   let rohtext = '';
+  let grund = '';
+  let gedanken = 0;
   try {
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${kiModell.aktiv()}:generateContent`,
@@ -37,7 +58,19 @@ async function frageJson(prompt, opt = {}) {
           // Bündel aus 20 Mails ist aber legitim groß — deshalb einstellbar,
           // statt still die halbe Anfrage abzuschneiden.
           contents: [{ parts: [{ text: String(prompt).slice(0, opt.maxZeichen || 12000) }] }],
-          generationConfig: { responseMimeType: 'application/json', temperature: 0.2 },
+          generationConfig: {
+            responseMimeType: 'application/json',
+            temperature: 0.2,
+            // Genug Platz für die Antwort. Ohne eigene Grenze schneiden manche
+            // Modelle früh ab, und eine halbe JSON-Antwort ist keine.
+            maxOutputTokens: opt.maxAntwort || 8192,
+            // Denkende Modelle (Gemini 3.7/3.8 Flash) verbrauchen einen Teil des
+            // Ausgabebudgets fürs Nachdenken — sichtbar als thoughtsTokenCount.
+            // Bei einer Einstufung bringt das nichts und kann alles kosten: Im
+            // Betrieb kam `content: {}` mit `finishReason: MAX_TOKENS` zurück,
+            // also gar keine Antwort. Deshalb so wenig Nachdenken wie möglich.
+            ...(denkstufe() ? { thinking_level: denkstufe() } : {}),
+          },
         }),
         signal: AbortSignal.timeout(opt.zeitlimit || 30000),
       },
@@ -69,11 +102,21 @@ async function frageJson(prompt, opt = {}) {
       };
     }
     if (!res.ok) {
-      const text = (await res.text()).slice(0, 200);
+      const text = (await res.text()).slice(0, 400);
+      // Kennt das Modell die Denkstufe nicht, ist das kein Grund aufzugeben:
+      // einmal ohne das Feld nachfragen und es künftig weglassen.
+      if (res.status === 400 && /thinking/i.test(text) && !opt.ohneDenkstufe) {
+        loggen('info', quelle,
+          `Das Modell kennt die Denkstufe nicht — ab jetzt ohne. Googles Antwort: ${text.slice(0, 150)}`);
+        denkstufeAbschalten();
+        return frageJson(prompt, { ...opt, ohneDenkstufe: true });
+      }
       loggen('warn', quelle, `Gemini antwortete mit ${res.status}: ${text}`);
       return { ok: false, fehler: `Gemini antwortete mit ${res.status}. Stimmt der Schlüssel?` };
     }
     const daten = await res.json();
+    grund = daten?.candidates?.[0]?.finishReason || '';
+    gedanken = daten?.usageMetadata?.thoughtsTokenCount || 0;
     rohtext = daten?.candidates?.[0]?.content?.parts?.[0]?.text || '';
   } catch (err) {
     loggen('warn', quelle, `Gemini nicht erreichbar: ${err.message}`);
@@ -83,7 +126,16 @@ async function frageJson(prompt, opt = {}) {
   try {
     return { ok: true, daten: JSON.parse(String(rohtext).replace(/```json|```/g, '').trim()) };
   } catch {
-    return { ok: false, fehler: 'Die Antwort der KI war nicht lesbar. Versuch es noch einmal.' };
+    // Warum die Antwort unlesbar war, ist der halbe Weg zur Lösung. „MAX_TOKENS"
+    // mit gezählten Gedanken heisst: Das Modell hat nachgedacht, bis das Budget
+    // weg war, und nichts gesagt. Das stand vorher nirgends — die Läufe meldeten
+    // nur „erfolgreich" und sortierten keine Mail.
+    const warum = grund === 'MAX_TOKENS'
+      ? `Die Antwort war abgeschnitten (${grund}${gedanken ? `, ${gedanken} Token fürs Nachdenken` : ''}). `
+        + 'Kleinere Bündel oder eine niedrigere Denkstufe helfen.'
+      : `Die Antwort der KI war nicht lesbar${grund ? ` (${grund})` : ''}.`;
+    loggen('warn', quelle, warum);
+    return { ok: false, fehler: warum, abgeschnitten: grund === 'MAX_TOKENS' };
   }
 }
 

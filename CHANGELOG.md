@@ -2,6 +2,35 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.14.0.0] - 2026-09-07 (Build 118) — *Das Modell hat nachgedacht und nichts gesagt*
+
+### Behoben: Läufe meldeten „erfolgreich" und sortierten keine einzige Mail
+- Der Grund stand in einer einzigen Antwort von Google:
+  `"candidates": [{ "content": {}, "finishReason": "MAX_TOKENS" }]` mit
+  `"thoughtsTokenCount": 5`. Also: **nachgedacht, nichts gesagt.**
+- Das aktive Modell ist `gemini-3.7-flash` — ein denkendes Modell. Solche Modelle bezahlen ihr
+  Nachdenken aus demselben Budget, aus dem die Antwort kommt. Beim Einsortieren bringt das
+  nichts und kann alles kosten: Kommt nichts zurück, bleibt jede Mail liegen — und der Lauf
+  meldet trotzdem „erfolgreich".
+- Das Panel schickt jetzt **`thinking_level: low`** und ein großzügiges Antwortbudget mit — im
+  Klassifizierer **und** in den Gemini-Knoten von Workflow 01 und 02, die Google direkt aufrufen.
+- Einstellbar unter *Einstellungen → KI*: von „so wenig wie möglich" bis „hoch", oder ganz
+  weglassen. Kennt ein Modell das Feld nicht, fragt das Panel **einmal** ohne es nach und merkt
+  sich das — ein unbekanntes Feld darf nicht die ganze Sortierung stoppen.
+
+### Behoben: Eine unlesbare Antwort sagte nicht, warum
+- Bisher stand da nur „Die Antwort der KI war nicht lesbar." Jetzt steht dort der Grund
+  (`MAX_TOKENS`) samt der Zahl der Denk-Token — und was hilft: kleinere Bündel oder eine
+  niedrigere Denkstufe.
+
+### Behoben: Die Prüfung log selbst
+- Der in Build 116 eingebaute Knopf „Eine Anfrage stellen" gab dem Modell nur 8 Token. Ein
+  denkendes Modell verbraucht die fürs Nachdenken und antwortet leer — die Prüfung sah aus wie
+  ein Ausfall, obwohl alles in Ordnung war. Sie bekommt jetzt Platz.
+
+**Nach dem Update einmal *Workflows → Synchronisieren***, sonst behalten Workflow 01 und 02 ihre
+alte Anfrage.
+
 ## [3.13.5.1] - 2026-09-07 (Build 117) — *Die Sicherungsseite war nur blind, nicht leer*
 
 ### Behoben: „Interner Serverfehler" und ein leeres Formular

@@ -875,6 +875,28 @@ function geminiRequestReparieren(workflow) {
       }
     }
 
+    // Denkende Modelle bringen die Workflows um ihre Antwort.
+    //
+    // Gemini 3.7 und 3.8 Flash denken von Haus aus und zahlen das aus demselben
+    // Ausgabebudget wie die Antwort. Im Betrieb kam deshalb `content: {}` mit
+    // `finishReason: MAX_TOKENS` zurück — nachgedacht und nichts gesagt. Der
+    // Lauf meldete „erfolgreich" und sortierte keine einzige Mail.
+    //
+    // Also dasselbe wie im Panel: wenig nachdenken, genug Platz für die Antwort.
+    // Die Stufe stellt der Nutzer unter Einstellungen → KI ein; die Regel selbst
+    // steht in services/kiText.js.
+    if (knoten.parameters?.jsonBody) {
+      const stufe = String(settings.hole('gemini_denkstufe') || 'low').toLowerCase();
+      const zusatz = 'maxOutputTokens: 8192'
+        + (['minimal', 'low', 'medium', 'high'].includes(stufe) ? `, thinking_level: '${stufe}'` : '');
+      const alt = String(knoten.parameters.jsonBody);
+      // Erst einen vorhandenen Block herausnehmen, sonst stapeln sie sich.
+      const neu = alt
+        .replace(/, maxOutputTokens: \d+(?:, thinking_level: '[a-z]+')?/g, '')
+        .replace(/(generationConfig: \{[^}]*?temperature: [\d.]+)/, `$1, ${zusatz}`);
+      if (neu !== alt) { knoten.parameters.jsonBody = neu; geaendert = true; }
+    }
+
     // Tempo drosseln. Der Tagesdeckel begrenzt die MENGE der Anfragen, nicht ihr
     // TEMPO — die Bestands-Triage schiebt aber gern 143 Mails auf einmal durch
     // und lief deshalb in "The service is receiving too many requests from you".

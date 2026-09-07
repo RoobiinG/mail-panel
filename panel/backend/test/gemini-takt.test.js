@@ -236,3 +236,46 @@ describe('Was der Buendel-Knoten NICHT tun darf', () => {
       'der Knoten hat zwei Eingaenge — ein blosser Index meint dort nicht dieselbe Mail');
   });
 });
+
+// Auch die Workflow-Knoten rufen Gemini direkt auf — Workflow 01 je Mail,
+// Workflow 02 fuer den Digest. Ein denkendes Modell bringt sie um ihre Antwort,
+// genau wie den Klassifizierer im Panel.
+describe('Denkstufe steht auch im Workflow-Knoten', () => {
+  const mitBody = () => ({
+    nodes: [{
+      name: 'Gemini klassifizieren',
+      type: 'n8n-nodes-base.httpRequest',
+      parameters: {
+        url: 'https://generativelanguage.googleapis.com/v1beta/models/x:generateContent',
+        jsonBody: "={{ JSON.stringify({ contents: [{ parts: [{ text: String($json.promptText || '') }] }],"
+          + ' generationConfig: { responseMimeType: \'application/json\', temperature: 0.1 } }) }}',
+      },
+    }],
+  });
+
+  test('Platz fuer die Antwort und wenig Nachdenken', () => {
+    const wf = mitBody();
+    assert.equal(patcher.geminiRequestReparieren(wf), true);
+    const b = wf.nodes[0].parameters.jsonBody;
+    assert.match(b, /maxOutputTokens: 8192/);
+    assert.match(b, /thinking_level: 'low'/);
+  });
+
+  test('auf "aus" gestellt bleibt das Feld weg', () => {
+    settings.setze('gemini_denkstufe', 'aus');
+    const wf = mitBody();
+    patcher.geminiRequestReparieren(wf);
+    assert.match(wf.nodes[0].parameters.jsonBody, /maxOutputTokens: 8192/);
+    assert.doesNotMatch(wf.nodes[0].parameters.jsonBody, /thinking_level/);
+    db.prepare("DELETE FROM settings WHERE key = 'gemini_denkstufe'").run();
+  });
+
+  test('ein zweiter Durchgang stapelt die Angaben nicht', () => {
+    const wf = mitBody();
+    patcher.geminiRequestReparieren(wf);
+    const einmal = wf.nodes[0].parameters.jsonBody;
+    patcher.geminiRequestReparieren(wf);
+    assert.equal(wf.nodes[0].parameters.jsonBody, einmal,
+      'sonst waechst der Knoten bei jedem Sync um eine Angabe');
+  });
+});
