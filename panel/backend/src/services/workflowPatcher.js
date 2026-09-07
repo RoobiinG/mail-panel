@@ -1131,7 +1131,10 @@ function buendelCode() {
     '        nie_quarantaene: Boolean(__it.json.nie_quarantaene),',
     '      })),',
     '    },',
-    '    json: true, timeout: 900000,',
+    // Knapp unter n8ns eigener Grenze: Es bricht einen Code-Knoten nach 300
+    // Sekunden ab. Das Panel hoert von sich aus frueher auf (Frist 240 s) und
+    // gibt zurueck, was fertig ist — diese 280 s sind nur das Netz darunter.
+    '    json: true, timeout: 280000,',
     '  });',
     '} catch (__e) {',
     "  console.log('Klassifizierung nicht moeglich: ' + (__e.message || __e) + ' — es wird nichts sortiert.');",

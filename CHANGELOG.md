@@ -2,6 +2,23 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.14.2.1] - 2026-09-07 (Build 124) — *„Task execution timed out after 300 seconds"*
+
+### Behoben: Der Bündel-Knoten lief in n8ns Zeitgrenze
+- Der Lauf um 16:10 hat gezeigt, dass die Reparaturen greifen: **750 Mails geholt** statt 100,
+  706 normalisiert, **186 per Regel sortiert**. Dann brach n8n den Bündel-Knoten ab —
+  520 Mails sind 26 Bündel, und n8n beendet einen Code-Knoten nach **300 Sekunden**.
+- Das Bittere daran: Mit dem Abbruch war **alles** weg, auch die längst fertigen Bündel.
+- Das Panel hört jetzt von sich aus nach **240 Sekunden** auf und gibt zurück, was fertig ist.
+  Der Rest bleibt offen — und kommt seit Build 123 im nächsten Lauf **zuerst** wieder dran.
+- Wer längere Läufe will, hebt in n8n `N8N_RUNNERS_TASK_TIMEOUT` an und die Frist hier mit.
+
+### Was der Lauf sonst gezeigt hat
+- 750 geholt, 706 normalisiert: Die 44 Übrigen sind Platzhalter-Items der Abruf-Knoten und
+  Mails ohne lesbaren Absender — erwartetes Verhalten.
+- 186 Mails gingen über *Gleich sortieren?* an der KI vorbei. Das sind die Regeln und die
+  gelernten Stichworte aus Build 108: kostenlos, ohne eine einzige Anfrage.
+
 ## [3.14.2.0] - 2026-09-07 (Build 123) — *Nichts geht mehr still verloren*
 
 ### Behoben: Liegengebliebene Mails warteten einen ganzen Durchlauf

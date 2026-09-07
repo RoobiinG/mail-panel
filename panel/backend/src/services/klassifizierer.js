@@ -72,6 +72,20 @@ const schlafen = (ms) => (ms > 0 ? new Promise((f) => { setTimeout(f, ms); }) : 
 // Zeit selbst; mehr als anderthalb Minuten wären für einen Lauf zu viel.
 const WARTEN_MAX_MS = 90000;
 
+// Wie lange darf eine Klassifizier-Anfrage insgesamt dauern?
+//
+// n8n bricht einen Code-Knoten nach 300 Sekunden ab („Task execution timed out
+// after 300 seconds") — unabhängig davon, welches Zeitlimit der Aufruf selbst
+// mitbringt. Bei 520 Mails sind das 26 Bündel; mit Antwortzeit und Pause
+// dazwischen ist die Grenze lange vorher erreicht, und dann ist **alles**
+// verloren, auch die schon fertigen Bündel.
+//
+// Deshalb hört das Panel von sich aus vorher auf und gibt zurück, was fertig
+// ist. Der Rest bleibt offen und kommt im nächsten Lauf zuerst wieder dran
+// (services/bestand.js). Wer längere Läufe will, hebt in n8n
+// N8N_RUNNERS_TASK_TIMEOUT an und hier die Frist.
+const frist = () => zahl('gemini_lauf_frist_ms', 240000, 30000, 3600000);
+
 // ─── Verdachtsfall oder Alltag? ──────────────────────────────────────────────
 
 // Absender, mit denen dieses Konto schon zu tun hatte. Einmal je Lauf geladen —
@@ -280,6 +294,7 @@ async function klassifizieren(mails) {
     proKonto.get(name).push({ ...m, __i: i });
   });
 
+  const begonnen = Date.now();
   let anfragen = 0;
   let klassifiziert = 0;
   let abgebrochen = false;
@@ -297,6 +312,17 @@ async function klassifizieren(mails) {
     const buendel = buendeln(gruppen, bekannt);
 
     for (const teil of buendel) {
+      // Reicht die Zeit noch für ein weiteres Bündel? Sonst lieber jetzt
+      // zurückgeben, was fertig ist, als von n8n mitten im Satz abgeschnitten
+      // zu werden — dann wäre auch das Fertige verloren.
+      if (Date.now() - begonnen > frist()) {
+        abgebrochen = true;
+        hinweis = `Zeitbudget des Laufs erreicht — ${klassifiziert} von ${liste.length} Mails `
+          + 'klassifiziert. Der Rest kommt im nächsten Lauf zuerst wieder dran.';
+        loggen('info', 'klassifizierer', hinweis);
+        break;
+      }
+
       // Vor jedem Bündel außer dem ersten kurz Luft holen — siehe pause().
       if (anfragen > 0) await schlafen(pause());
 

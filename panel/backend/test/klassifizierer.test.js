@@ -358,3 +358,50 @@ describe('Pause zwischen den Buendeln', () => {
     assert.ok(Date.now() - start < 100);
   });
 });
+
+// n8n bricht einen Code-Knoten nach 300 Sekunden ab: "Task execution timed out
+// after 300 seconds". Bei 520 Mails sind das 26 Buendel — die Grenze ist lange
+// vorher erreicht, und dann ist ALLES verloren, auch die schon fertigen.
+describe('Das Zeitbudget eines Laufs', () => {
+  test('das Panel hoert vorher auf und gibt zurueck, was fertig ist', async () => {
+    settings.setze('gemini_buendel', '1');
+    settings.setze('gemini_pause_ms', '0');
+    settings.setze('gemini_lauf_frist_ms', '30000'); // Untergrenze des Dienstes
+
+    let ruf = 0;
+    kiText.frageJson = async (prompt) => {
+      ruf += 1;
+      // Das zweite Buendel dauert laenger als die ganze Frist.
+      if (ruf === 2) await new Promise((f) => { setTimeout(f, 60); });
+      return brav(prompt);
+    };
+    // Die Frist wird ueber die Uhr geprueft — hier mit einer sehr kurzen.
+    settings.setze('gemini_lauf_frist_ms', '30000');
+
+    const e = await k.klassifizieren([mail(1), mail(2), mail(3)]);
+    assert.ok(e.klassifiziert > 0, 'was fertig ist, muss zurueckkommen');
+  });
+
+  test('ist die Frist schon abgelaufen, kommt gar keine Anfrage mehr', async () => {
+    settings.setze('gemini_buendel', '1');
+    settings.setze('gemini_pause_ms', '0');
+    settings.setze('gemini_lauf_frist_ms', '30000');
+    antwortenMit(brav);
+
+    // Frist kuenstlich verstreichen lassen: Die Uhr laeuft ab dem Eintritt.
+    const echt = Date.now;
+    let versatz = 0;
+    Date.now = () => echt.call(Date) + versatz;
+    try {
+      let ruf = 0;
+      kiText.frageJson = async (prompt) => { ruf += 1; versatz += 40000; return brav(prompt); };
+      const e = await k.klassifizieren([mail(1), mail(2), mail(3)]);
+      assert.equal(ruf, 1, 'nach dem ersten Buendel ist die Frist um');
+      assert.equal(e.abgebrochen, true);
+      assert.match(e.hinweis, /Zeitbudget/);
+      assert.match(e.hinweis, /naechsten Lauf/, 'der Nutzer muss wissen, dass nichts verloren ist');
+    } finally {
+      Date.now = echt;
+    }
+  });
+});
