@@ -2,6 +2,24 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.14.0.1] - 2026-09-07 (Build 119) — *Zurückgenommen: neue Post bleibt wieder gelesen*
+
+### Behoben: Zehn Läufe stapelten sich, jeder über zehn Minuten
+- Im Betrieb standen zehn Workflow-01-Läufe gleichzeitig auf „Running", Fehlerquote 50,8 %,
+  mittlere Laufzeit 204 Sekunden.
+- Ursache war die Umstellung aus Build 110. Der Gedanke stimmte — n8n führt einen Merker über
+  die zuletzt gesehene Nachricht, also schadet „nicht als gelesen markieren" nicht. **Er hält
+  aber nur, solange die Läufe durchkommen:** n8n sichert die statischen Daten eines Workflows
+  erst am *erfolgreichen* Ende. Als die Läufe reihenweise an Googles Absagen scheiterten, wurde
+  der Merker nie geschrieben — und damit fielen **beide** Bremsen gleichzeitig weg. Der Auslöser
+  fand dieselben Mails wieder und wieder.
+- **Standard ist deshalb wieder „als gelesen markieren".** Der Schalter bleibt, mit einem
+  deutlichen Hinweis: erst einschalten, wenn die Läufe zuverlässig grün sind.
+
+### Neu: Zeitlimit auf den Panel-Knoten
+- Antwortet das Panel nicht, wartete ein HTTP-Knoten sehr lange — daher die Läufe über zehn
+  Minuten. Die vom Panel angelegten Knoten haben jetzt **60 Sekunden** Grenze.
+
 ## [3.14.0.0] - 2026-09-07 (Build 118) — *Das Modell hat nachgedacht und nichts gesagt*
 
 ### Behoben: Läufe meldeten „erfolgreich" und sortierten keine einzige Mail

@@ -28,21 +28,33 @@ beforeEach(() => {
   db.prepare("DELETE FROM settings WHERE key = 'neue_mails_ungelesen'").run();
 });
 
-describe('Der Ausloeser markiert nicht mehr als gelesen', () => {
-  test('von Haus aus bleibt die Mail ungelesen', () => {
+// Ein Rueckschlag aus dem Betrieb, der die Vorzeichen umgedreht hat.
+//
+// Der Gedanke stimmte: n8n fuehrt einen Wasserstand ueber die zuletzt gesehene
+// UID, also schadet "nicht als gelesen markieren" nicht. Er haelt aber nur,
+// solange die Laeufe durchkommen -- n8n sichert die statischen Daten eines
+// Workflows erst beim erfolgreichen Ende. Am 7.9. scheiterten sie reihenweise
+// an Googles Absagen, der Wasserstand wurde nie geschrieben, und damit fielen
+// BEIDE Bremsen gleichzeitig weg: Der Ausloeser fand dieselben Mails wieder und
+// wieder, und die Laeufe stapelten sich zu Dutzenden.
+//
+// Deshalb ist der Standard jetzt "als gelesen markieren". Ungelesen bleiben ist
+// eine bewusste Wahl fuer den, dessen Laeufe zuverlaessig gruen sind.
+describe('Der Ausloeser markiert wieder als gelesen', () => {
+  test('von Haus aus — das ist die Bremse, die immer haelt', () => {
     const k = patcher.triggerKnoten(konto, [0, 0]);
-    assert.equal(k.parameters.postProcessAction, 'nothing',
-      'sonst ist neue Post schon gelesen, bevor der Nutzer sie sieht');
+    assert.equal(k.parameters.postProcessAction, 'read',
+      'ohne sie haengt alles am Wasserstand, und der wird bei Fehlschlaegen nicht gesichert');
   });
 
-  test('wer das alte Verhalten will, bekommt es', () => {
-    settings.setze('neue_mails_ungelesen', '0');
-    assert.equal(patcher.triggerKnoten(konto, [0, 0]).parameters.postProcessAction, 'read');
-  });
-
-  test('eingeschaltet heisst ungelesen', () => {
+  test('wer ungelesene Post will, bekommt sie', () => {
     settings.setze('neue_mails_ungelesen', '1');
     assert.equal(patcher.triggerKnoten(konto, [0, 0]).parameters.postProcessAction, 'nothing');
+  });
+
+  test('ausdruecklich abgeschaltet heisst gelesen', () => {
+    settings.setze('neue_mails_ungelesen', '0');
+    assert.equal(patcher.triggerKnoten(konto, [0, 0]).parameters.postProcessAction, 'read');
   });
 });
 

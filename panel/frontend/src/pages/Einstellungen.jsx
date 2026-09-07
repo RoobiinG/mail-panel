@@ -657,23 +657,30 @@ export default function Einstellungen() {
 
             <label className="flex items-center gap-3 cursor-pointer pt-1">
               <Toggle
-                on={settings.neue_mails_ungelesen !== '0'}
-                onToggle={() => set('neue_mails_ungelesen', settings.neue_mails_ungelesen === '0' ? '1' : '0')}
+                on={settings.neue_mails_ungelesen === '1'}
+                onToggle={() => set('neue_mails_ungelesen', settings.neue_mails_ungelesen === '1' ? '0' : '1')}
               />
               <div className="flex flex-col">
                 <span className="text-sm text-panel-text">Neue Mails ungelesen lassen</span>
                 <span className="text-[10px] text-panel-muted/70">
-                  Sonst siehst du neue Post in deinem Mailclient bereits als gelesen — das Panel war
-                  schneller. Ungelesen bleibt sie auch dann, wenn sie in einen Themen-Ordner
-                  wandert: Beim Verschieben nimmt IMAP die Kennzeichnungen mit.
+                  Ohne diesen Schalter siehst du neue Post in deinem Mailclient bereits als
+                  gelesen — das Panel war schneller. Ungelesen bleibt sie dann auch nach dem
+                  Verschieben in einen Themen-Ordner: IMAP nimmt die Kennzeichnungen mit.
                 </span>
               </div>
             </label>
 
+            <p className="text-[10px] text-panel-orange">
+              <b>Erst einschalten, wenn deine Läufe zuverlässig grün sind.</b> Dass eine Mail nicht
+              zweimal verarbeitet wird, hängt dann allein an n8ns Merker für die zuletzt gesehene
+              Nachricht — und den sichert n8n erst am <i>erfolgreichen</i> Ende eines Laufs.
+              Scheitern die Läufe reihenweise, wird er nie geschrieben, und der Auslöser findet
+              dieselben Mails wieder und wieder. Genau so haben sich am 7.9. zehn Läufe gestapelt.
+            </p>
+
             <p className="text-[10px] text-panel-muted/60">
-              Verarbeitet wird jede Mail trotzdem nur einmal — n8n merkt sich je Konto die zuletzt
-              gesehene Nachrichtennummer und überspringt alles darunter. Der Altbestand ist nicht
-              betroffen: Die Bestands-Triage fasst Kennzeichnungen ohnehin nicht an.
+              Der Altbestand ist nicht betroffen: Die Bestands-Triage fasst Kennzeichnungen ohnehin
+              nicht an.
             </p>
 
             <SpeichernBtn onSpeichern={() => speichern('post')} meldung={meldung.post} />

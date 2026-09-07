@@ -249,7 +249,9 @@ function bestandAuswahlKnoten(position, credentialId) {
       contentType: 'json',
       specifyBody: 'json',
       jsonBody: '={{ JSON.stringify({}) }}',
-      options: {},
+      // Zeitlimit wie beim Einsortieren-Knoten: Ein haengendes Panel darf
+      // einen Lauf nicht minutenlang festhalten.
+      options: { timeout: 60000 },
     },
     id: `${PRAEFIX}bestand-auswahl`,
     name: AUSWAHL_KNOTEN,
@@ -739,7 +741,10 @@ function einsortierenKnoten(position, credentialId) {
       contentType: 'json',
       specifyBody: 'json',
       jsonBody: `={{ JSON.stringify({ ${felder} }) }}`,
-      options: {},
+      // Zeitlimit, damit ein haengendes Panel nie einen Lauf minutenlang
+      // festhaelt. Am 7.9. standen zehn Laeufe ueber zehn Minuten "Running" —
+      // ohne Grenze wartet ein HTTP-Knoten sehr lange.
+      options: { timeout: 60000 },
     },
     id: `${PRAEFIX}einsortieren`,
     name: 'Einsortieren',

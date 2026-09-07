@@ -54,7 +54,21 @@ const FELDER = {
   // sieht der Nutzer neue Mails in seinem Mailclient bereits als gelesen, weil
   // das Panel schneller war. Steckt im Workflow, wirkt also erst nach
   // "Workflows -> Synchronisieren". Siehe services/workflowPatcher.js.
-  neue_mails_ungelesen: { env: 'NEUE_MAILS_UNGELESEN', geheim: false, standard: '1' },
+  // Bleibt neu eingegangene Post im Postfach ungelesen?
+  //
+  // Standard ist AUS — nach einem Rueckschlag im Betrieb. Der Gedanke war
+  // richtig (n8n fuehrt einen Wasserstand ueber die zuletzt gesehene UID, also
+  // schadet "nicht als gelesen markieren" nicht), aber er haelt nur, solange die
+  // Laeufe durchkommen: n8n sichert die statischen Daten eines Workflows erst
+  // beim erfolgreichen Ende. Scheiterten die Laeufe reihenweise -- wie am 7.9.
+  // an den Gemini-Absagen --, wurde der Wasserstand nie geschrieben. Damit
+  // fielen BEIDE Bremsen gleichzeitig weg: kein Gelesen-Merkmal und kein
+  // Wasserstand. Der Ausloeser fand dieselben Mails wieder und wieder, und die
+  // Laeufe stapelten sich zu Dutzenden.
+  //
+  // Wer die Mails ungelesen behalten will, kann das einschalten -- aber erst,
+  // wenn die Laeufe zuverlaessig gruen durchgehen. Siehe workflowPatcher.js.
+  neue_mails_ungelesen: { env: 'NEUE_MAILS_UNGELESEN', geheim: false, standard: '0' },
   telegram_chat_id:     { env: 'TELEGRAM_CHAT_ID', geheim: false },
   // Postausgang für Workflow 06 (Newsletter abbestellen per Mail)
   smtp_host:            { env: 'SMTP_HOST', geheim: false },
