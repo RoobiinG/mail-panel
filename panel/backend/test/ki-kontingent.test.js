@@ -212,3 +212,30 @@ describe('Googles eigene Zahl aus der Absage', () => {
       'sonst bliebe die einzige harte Zahl liegen, die Google je herausgibt');
   });
 });
+
+describe('Tageslimit oder nur gerade nicht?', () => {
+  test('"PerDay" ist eine Tagesgrenze', () => {
+    kiLog(400);
+    kontingent.abweisungMerken(undefined,
+      'quotaId: GenerateRequestsPerDayPerProjectPerModel-FreeTier, limit: 500');
+    assert.equal(kontingent.stand().beobachtet.art, 'tag');
+  });
+
+  test('ohne diese Angabe wird nur pausiert', () => {
+    kiLog(12);
+    kontingent.abweisungMerken(undefined, 'The service is receiving too many requests from you');
+    const b = kontingent.stand().beobachtet;
+    assert.equal(b.art, 'unklar');
+    assert.ok(Date.parse(b.pauseBis) > Date.now(), 'eine Pause, kein Feierabend');
+  });
+
+  test('die Pause waechst bei Wiederholung', () => {
+    kiLog(12);
+    kontingent.abweisungMerken(undefined, 'too many requests');
+    const erste = Date.parse(kontingent.stand().beobachtet.pauseBis) - Date.now();
+    kontingent.abweisungMerken(undefined, 'too many requests');
+    const zweite = Date.parse(kontingent.stand().beobachtet.pauseBis) - Date.now();
+    assert.ok(zweite > erste,
+      'ist es doch das Tageslimit, waechst die Pause von selbst gegen "heute Schluss"');
+  });
+});

@@ -376,3 +376,47 @@ describe('Von Anfragen auf Mails umrechnen', () => {
     assert.equal(e.budget.restMails, 0);
   });
 });
+
+// Eine einzige Absage um 14:47 legte den ganzen Nachmittag still.
+//
+// Der Deckel fiel auf den Zaehlerstand dieses Moments und galt bis zum naechsten
+// Google-Tag — bei einem Konto mit 150.000 Anfragen am Tag grotesk falsch. Nur
+// wenn Google ausdruecklich "PerDay" sagt, ist es wirklich das Tageslimit.
+describe('Nicht jede Abweisung ist ein Tageslimit', () => {
+  const heute = () => require('../src/services/kiTag').kiTag();
+  const setz = (art, bis) => {
+    settings.setze('ki_429_tag', heute());
+    settings.setze('ki_429_stand', '12');
+    settings.setze('ki_429_art', art);
+    if (bis) settings.setze('ki_429_bis', bis);
+  };
+
+  test('waehrend der Pause ist zu', () => {
+    budget.ausgabeMerken(12);
+    setz('unklar', new Date(Date.now() + 600000).toISOString());
+    assert.equal(budget.beobachteteGrenze(), 12, 'so viel wie verbraucht = fuer jetzt nichts mehr');
+    assert.equal(budget.entscheiden(kand(50)).erlaubt.length, 0);
+  });
+
+  test('nach der Pause geht es von selbst weiter', () => {
+    settings.setze('gemini_tagesbudget', '50000');
+    budget.ausgabeMerken(12);
+    setz('unklar', new Date(Date.now() - 1000).toISOString());
+    assert.equal(budget.beobachteteGrenze(), 0,
+      'sonst stuende der Rest des Tages still wegen eines Ausrutschers');
+    assert.equal(budget.tagesbudget(), 50000);
+  });
+
+  test('ohne Pausenende gilt keine Sperre', () => {
+    setz('unklar', null);
+    assert.equal(budget.beobachteteGrenze(), 0);
+  });
+
+  test('ein ausdrueckliches Tageslimit stoppt dagegen den Tag', () => {
+    settings.setze('gemini_tagesbudget', '50000');
+    setz('tag');
+    settings.setze('ki_429_limit', '500');
+    assert.equal(budget.beobachteteGrenze(), 500);
+    assert.equal(budget.tagesbudget(), 500);
+  });
+});

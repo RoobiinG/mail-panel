@@ -67,6 +67,19 @@ function beobachteteGrenze() {
     const abgewiesen = settings.hole('ki_429_modell');
     if (abgewiesen && abgewiesen !== require('./kiModell').aktiv()) return 0;
 
+    // Sagt Google nicht ausdrücklich „pro Tag", ist es keine Tagesgrenze.
+    //
+    // Vorher galt jede Abweisung als Tageslimit, und der Deckel fiel auf den
+    // Zählerstand dieses Moments: Eine einzige Absage um 14:47 legte den ganzen
+    // Nachmittag still — bei einem Konto mit 150.000 Anfragen am Tag. Jetzt
+    // wird stattdessen kurz pausiert (services/kiKontingent.js setzt die Zeit),
+    // und danach läuft es von selbst weiter.
+    if (settings.hole('ki_429_art') === 'unklar') {
+      const bis = Date.parse(settings.hole('ki_429_bis') || '');
+      if (!Number.isFinite(bis) || Date.now() >= bis) return 0; // Pause vorbei
+      return heuteVerbraucht(); // so viel wie schon verbraucht = für jetzt zu
+    }
+
     // Googles eigene Zahl schlägt die eigene Zählung: Stirbt ein Lauf bei
     // Gemini, wird keine der vorher klassifizierten Mails protokolliert —
     // verbraucht waren sie trotzdem. Die eigene Zählung liegt also zu niedrig.

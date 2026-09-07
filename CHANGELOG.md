@@ -2,6 +2,19 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.14.1.1] - 2026-09-07 (Build 122) — *Eine Absage ist kein Feierabend*
+
+### Behoben: Ein einziges „too many requests" legte den ganzen Nachmittag still
+- Der Lauf um 15:47 dauerte **1,5 Sekunden** und bewegte 38 KB — die davor 24 bis 36 Sekunden
+  und mehrere Megabyte. Kein Sortierlauf, sondern der Budget-Deckel, der zumacht.
+- Ursache: Jede Abweisung galt als Tageslimit. Der Deckel fiel auf den Zählerstand **dieses
+  Moments** und galt bis zum nächsten Google-Tag. Bei einem Konto der Preisstufe 1 mit 150.000
+  Anfragen am Tag ist das grotesk falsch — eine Absage um 14:47 kostete den Rest des Tages.
+- Sicher ist es nur, wenn Google ausdrücklich **`PerDay`** mitschickt. Sonst wird jetzt gewartet
+  statt aufgegeben: erst eine Viertelstunde, bei Wiederholung 30, 60, 120 Minuten.
+- Damit stimmt beides: Ist es doch das Tageslimit, wächst die Pause von selbst gegen „für heute
+  Schluss". War es ein Ausrutscher, geht es nach einer Viertelstunde weiter.
+
 ## [3.14.1.0] - 2026-09-07 (Build 121) — *Warum nicht alles sortiert wurde*
 
 ### Behoben: Drei von fünf Mails wurden je Lauf still übersprungen

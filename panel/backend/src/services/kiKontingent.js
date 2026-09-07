@@ -92,6 +92,10 @@ function stand() {
         // Meldung nur "too many requests" hergab.
         limit: googleLimit,
         modell: settings.hole('ki_429_modell') || null,
+        // Wie sicher ist das eine Tagesgrenze? „unklar" heißt: nur eine Pause,
+        // keine Sperre bis morgen.
+        art: settings.hole('ki_429_art') || 'tag',
+        pauseBis: settings.hole('ki_429_bis') || null,
       };
     }
   }
@@ -123,6 +127,31 @@ function abweisungMerken(zeitpunkt, meldung) {
       + `Warten und erneut fragen (${Math.round((gelesen.wartenMs || 0) / 1000)} s).`);
     return null;
   }
+  // Ist das wirklich das Tageslimit — oder nur „gerade nicht"?
+  //
+  // Bisher galt jede Abweisung als Tageslimit: Der Deckel fiel auf den
+  // Zählerstand dieses Moments, und damit stand bis zum nächsten Google-Tag
+  // alles still. Bei einem Konto mit 150.000 Anfragen am Tag ist das grotesk
+  // falsch — eine einzige Absage um 14:47 legte den ganzen Nachmittag lahm.
+  //
+  // Sicher ist es nur, wenn Google „PerDay" mitschickt. Sonst wird gewartet
+  // statt aufgegeben: erst eine Viertelstunde, bei Wiederholung länger. Ist es
+  // doch das Tageslimit, wächst die Pause von selbst gegen „für heute Schluss";
+  // war es ein Ausrutscher, geht es nach 15 Minuten weiter.
+  const proTag = /PerDay/i.test(String(meldung || ''));
+  settings.setze('ki_429_art', proTag ? 'tag' : 'unklar');
+  if (!proTag) {
+    const stufe = Math.min(4, (Number(settings.hole('ki_429_stufe')) || 0) + 1);
+    const minuten = [15, 30, 60, 120][stufe - 1] || 120;
+    settings.setze('ki_429_stufe', String(stufe));
+    settings.setze('ki_429_bis', new Date(Date.now() + minuten * 60000).toISOString());
+    loggen('warn', 'ki-kontingent',
+      `Google hat abgewiesen, ohne zu sagen welches Kontingent. Pause von ${minuten} Minuten — `
+      + 'danach wird es wieder versucht. Nur ein ausdrückliches Tageslimit stoppt den ganzen Tag.');
+  } else {
+    settings.setze('ki_429_stufe', '0');
+  }
+
   settings.setze('ki_429_tag', heute());
   settings.setze('ki_429_stand', String(stand429));
   settings.setze('ki_429_zeit', zeitpunkt || new Date().toISOString());
