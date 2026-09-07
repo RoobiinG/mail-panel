@@ -22,6 +22,19 @@ Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
   statt je Mail, also zwanzigmal seltener. Auf 0 gestellt heißt jetzt wirklich „keine Pause";
   vorher wurde die 0 als „nicht gesetzt" gelesen und stillschweigend durch 6000 ersetzt.
 
+### Behoben: Die Postfach-Sicherung startete sich selbst ein zweites Mal
+- Fehlgeschlagen am 7.9. mit `ENOENT: no such file or directory, open
+  '/app/data/sicherung-arbeit/archiv.tar.gz'`.
+- Der Zeitplan sieht stündlich nach, ob der letzte Lauf lange genug her ist — und „letzter Lauf"
+  wird erst am **Ende** geschrieben. Ein Postfach mit 23.000 Mails braucht länger als eine
+  Stunde, also startete der nächste Tick eine **zweite** Sicherung. Beide arbeiteten in
+  denselben Dateien, und das Aufräumen der einen riss der anderen die Datei unter den Füßen weg.
+- Jetzt wird ein zweiter Lauf mit klarer Begründung abgewiesen, solange einer läuft. Zusätzlich
+  trägt jede Arbeitsdatei den Zeitstempel ihres Laufs im Namen — falls doch je zwei Prozesse
+  nebeneinander arbeiten, räumt keiner mehr dem anderen die Dateien weg.
+- Die Sperre steht im Arbeitsspeicher, nicht in der Datenbank: Nach einem Neustart läuft
+  garantiert nichts mehr, und eine hängengebliebene Sperre blockierte die Sicherung für immer.
+
 ## [3.13.2.1] - 2026-09-06 (Build 111) — *„Multiple matches" in „Antwort parsen"*
 
 ### Behoben: Ein leeres Item, das es nie geben durfte

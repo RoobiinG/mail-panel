@@ -310,7 +310,8 @@ async function archivBauen(konten, zielTar, opt) {
         ordner.sort((a, b) => Number(istSammel(a)) - Number(istSammel(b)));
 
         for (const box of ordner) {
-          const temp = path.join(ARBEIT, 'ordner.mbox');
+          // Je Lauf ein eigener Name — siehe die Begründung bei laufendSeit.
+          const temp = opt.mboxDatei || path.join(ARBEIT, 'ordner.mbox');
           const erg = await ordnerNachMbox(client, box.path, temp, gesehen, opt);
           mailsGesamt += erg.mails;
           dublettenGesamt += erg.uebersprungen;
@@ -462,7 +463,32 @@ async function verbindungTesten() {
 // trockenlauf: baut, verschlüsselt und liest gegen — lädt aber nichts hoch und
 // behält die Datei, damit man sie ansehen kann. Gedacht zum Ausprobieren,
 // bevor ein FTP-Zugang eingerichtet ist, und zum Prüfen nach Änderungen.
+// Läuft gerade eine Sicherung?
+//
+// Der Zeitplan sieht stündlich nach, ob der letzte Lauf lange genug her ist —
+// und „letzter Lauf" wird erst am **Ende** geschrieben. Ein Postfach mit 23.000
+// Mails braucht länger als eine Stunde. Also startete der nächste Tick eine
+// zweite Sicherung, während die erste noch lief. Beide arbeiteten in denselben
+// Dateien, und das Aufräumen der einen riss der anderen die Datei unter den
+// Füßen weg: „ENOENT: no such file or directory, open
+// /app/data/sicherung-arbeit/archiv.tar.gz".
+//
+// Im Arbeitsspeicher, nicht in der Datenbank: Nach einem Neustart läuft
+// garantiert nichts mehr, und eine hängengebliebene Sperre in der Datenbank
+// blockierte die Sicherung für immer.
+let laufendSeit = null;
+
+const laeuftGerade = () => (laufendSeit ? { seit: laufendSeit } : null);
+
 async function lauf({ nurKonten = null, trockenlauf = false } = {}) {
+  if (laufendSeit) {
+    const minuten = Math.round((Date.now() - new Date(laufendSeit).getTime()) / 60000);
+    throw new Error(
+      `Es läuft bereits eine Sicherung (seit ${minuten} Minuten). Zwei gleichzeitig würden sich `
+      + 'gegenseitig die Arbeitsdateien löschen.',
+    );
+  }
+
   const e = einstellungen();
   const fehlt = bereit(e).filter((f) => (trockenlauf ? f === 'Archiv-Passwort' : true));
   if (fehlt.length) throw new Error(`Sicherung ist nicht eingerichtet — es fehlt: ${fehlt.join(', ')}.`);
@@ -473,10 +499,17 @@ async function lauf({ nurKonten = null, trockenlauf = false } = {}) {
 
   const stand = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
   const name = `postfaecher-${stand}.mpsich`;
-  const tarDatei = path.join(ARBEIT, 'archiv.tar');
-  const packDatei = path.join(ARBEIT, 'archiv.tar.gz');
+  // Arbeitsdateien mit dem Zeitstempel im Namen. Die Sperre oben sollte einen
+  // zweiten Lauf schon verhindern — aber wenn doch je einer danebengeht (ein
+  // Wartungsbefehl von Hand, zwei Panel-Prozesse), dann soll er der laufenden
+  // Sicherung wenigstens nicht die Dateien wegräumen.
+  const tarDatei = path.join(ARBEIT, `archiv-${stand}.tar`);
+  const packDatei = path.join(ARBEIT, `archiv-${stand}.tar.gz`);
+  const mboxDatei = path.join(ARBEIT, `ordner-${stand}.mbox`);
+  const probeDatei = path.join(ARBEIT, `probe-${stand}.tar.gz`);
   const fertig = path.join(ARBEIT, name);
   const begonnen = Date.now();
+  laufendSeit = new Date().toISOString();
 
   try {
     await fsp.mkdir(ARBEIT, { recursive: true });
@@ -494,7 +527,7 @@ async function lauf({ nurKonten = null, trockenlauf = false } = {}) {
         + 'docker exec -u root mail-panel chown -R node:node /app/data',
       );
     }
-    const bericht = await archivBauen(konten, tarDatei, e);
+    const bericht = await archivBauen(konten, tarDatei, { ...e, mboxDatei });
     // Kam von keinem einzigen Konto etwas an, gibt es nichts zu sichern. Ein
     // leeres Archiv hochzuladen wäre schlimmer als ein Fehlschlag: Es würde
     // einen älteren, brauchbaren Stand aus der Aufbewahrung verdrängen.
@@ -510,11 +543,10 @@ async function lauf({ nurKonten = null, trockenlauf = false } = {}) {
     // Vor dem Hochladen gegenlesen: Lässt sich das Archiv mit demselben
     // Passwort wieder öffnen? Eine Sicherung, die niemand je aufmacht, ist
     // eine Vermutung. Der Aufwand ist ein Bruchteil des Sicherns.
-    const probe = path.join(ARBEIT, 'probe.tar.gz');
-    await entschluesselnNach(fertig, probe, e.passwort);
+    await entschluesselnNach(fertig, probeDatei, e.passwort);
     const urspruenglich = (await fsp.stat(packDatei)).size;
-    const zurueck = (await fsp.stat(probe)).size;
-    await fsp.rm(probe, { force: true });
+    const zurueck = (await fsp.stat(probeDatei)).size;
+    await fsp.rm(probeDatei, { force: true });
     if (urspruenglich !== zurueck) {
       throw new Error('Gegenprobe fehlgeschlagen — das Archiv ließ sich nicht unversehrt zurücklesen.');
     }
@@ -562,11 +594,15 @@ async function lauf({ nurKonten = null, trockenlauf = false } = {}) {
   } finally {
     // Aufräumen in jedem Fall: Die Zwischenstände sind unverschlüsselt.
     // Beim Trockenlauf bleibt allein die fertige, verschlüsselte Datei liegen.
-    const reste = [tarDatei, packDatei, path.join(ARBEIT, 'ordner.mbox'), path.join(ARBEIT, 'probe.tar.gz')];
+    // Ausschließlich die Dateien DIESES Laufs — sonst räumt ein Lauf einem
+    // zweiten die Arbeitsdateien weg. Genau daran ist die Sicherung am 7.9.
+    // gescheitert.
+    const reste = [tarDatei, packDatei, mboxDatei, probeDatei];
     if (!trockenlauf) reste.push(fertig);
     for (const d of reste) {
       await fsp.rm(d, { force: true }).catch(() => {});
     }
+    laufendSeit = null;
   }
 }
 
@@ -602,7 +638,7 @@ function zeitplanStarten(intervallMs = 3600 * 1000) {
 }
 
 module.exports = {
-  einstellungen, bereit, lauf, letzterLauf, verbindungTesten,
+  einstellungen, bereit, lauf, letzterLauf, verbindungTesten, laeuftGerade,
   zeitplanStarten, faellig,
   // für Tests und wiederherstellen.js
   verschluesselnNach, entschluesselnNach, tarKopf, mboxEntschaerfen, dateiName,

@@ -140,12 +140,38 @@ describe('Googles eigene Zahl aus der Absage', () => {
 
   test('Limit und Modell werden herausgelesen', () => {
     assert.deepEqual(kontingent.limitAusMeldung(echteMeldung),
-      { limit: 500, modell: 'gemini-3.5-flash-lite' });
+      { limit: 500, modell: 'gemini-3.5-flash-lite', proMinute: false, wartenMs: 53835 });
   });
 
   test('eine Meldung ohne Zahlen ergibt keine erfundene', () => {
-    assert.deepEqual(kontingent.limitAusMeldung('too many requests'), { limit: 0, modell: null });
-    assert.deepEqual(kontingent.limitAusMeldung(null), { limit: 0, modell: null });
+    const leer = { limit: 0, modell: null, proMinute: false, wartenMs: 0 };
+    assert.deepEqual(kontingent.limitAusMeldung('too many requests'), leer);
+    assert.deepEqual(kontingent.limitAusMeldung(null), leer);
+  });
+
+  // Der Unterschied, an dem alles haengt: Ein Minutenlimit vergeht von selbst,
+  // ein Tageslimit nicht. Google sagt es in der quotaId.
+  test('ein Minutenlimit wird als solches erkannt', () => {
+    const proMinute = 'Quota exceeded for quota metric ... quotaId:'
+      + ' GenerateRequestsPerMinutePerProjectPerModel-FreeTier, limit: 15,'
+      + ' model: gemini-3.5-flash-lite. "retryDelay": "27s"';
+    const g = kontingent.limitAusMeldung(proMinute);
+    assert.equal(g.proMinute, true);
+    assert.equal(g.wartenMs, 27000);
+  });
+
+  test('ein Tageslimit ist keins', () => {
+    const proTag = 'quotaId: GenerateRequestsPerDayPerProjectPerModel-FreeTier, limit: 500';
+    assert.equal(kontingent.limitAusMeldung(proTag).proMinute, false);
+  });
+
+  test('ein Minutenlimit wird NICHT als Tagesgrenze vermerkt', () => {
+    kiLog(120);
+    const proMinute = 'quotaId: GenerateRequestsPerMinutePerProjectPerModel-FreeTier, limit: 15';
+    assert.equal(kontingent.abweisungMerken(undefined, proMinute), null,
+      'sonst steht das Panel wegen eines zu schnellen Stapels bis Mitternacht still');
+    assert.equal(kontingent.stand().beobachtet, null);
+  });
   });
 
   test('die Abweisung merkt sich beides', () => {

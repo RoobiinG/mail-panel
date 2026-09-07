@@ -199,3 +199,45 @@ describe('FTP-Fehler übersetzen', () => {
     assert.equal(err.message, 'Etwas ganz Neues');
   });
 });
+
+// Am 7.9. schlug die Sicherung fehl mit "ENOENT: no such file or directory,
+// open /app/data/sicherung-arbeit/archiv.tar.gz".
+//
+// Ursache: Der Zeitplan sieht stuendlich nach, ob der letzte Lauf lange genug
+// her ist — und "letzter Lauf" wird erst am ENDE geschrieben. Ein Postfach mit
+// 23.000 Mails braucht laenger als eine Stunde, also startete der naechste Tick
+// eine zweite Sicherung. Beide arbeiteten in denselben Dateien, und das
+// Aufraeumen der einen riss der anderen die Datei unter den Fuessen weg.
+describe('Zwei Sicherungen gleichzeitig', () => {
+  const db = require('../src/db');
+  const settings = require('../src/services/settings');
+
+  const eingerichtet = () => {
+    for (const [k, v] of [
+      ['sicherung_passwort', 'geheim'], ['sicherung_ftp_host', 'ftp.example.invalid'],
+      ['sicherung_ftp_user', 'u'], ['sicherung_ftp_passwort', 'p'],
+    ]) settings.setze(k, v);
+  };
+
+  test('die zweite wird abgewiesen, statt der ersten die Dateien zu loeschen', async () => {
+    eingerichtet();
+    db.exec('DELETE FROM accounts;');
+    db.prepare("INSERT INTO accounts (name, host, port, username, password_enc, aktiv)"
+      + " VALUES ('K','unerreichbar.invalid',993,'u','x',1)").run();
+
+    // Zwei Laeufe gleichzeitig anstossen. Der erste scheitert irgendwann am
+    // nicht erreichbaren Postfach — der zweite muss aber SOFORT mit dem
+    // Hinweis auf den laufenden abgewiesen werden.
+    const erster = sich.lauf({ trockenlauf: true }).catch((e) => e);
+    const zweiter = await sich.lauf({ trockenlauf: true }).catch((e) => e);
+
+    assert.match(zweiter.message, /laeuft bereits|läuft bereits/,
+      'ohne Sperre raeumen sich zwei Laeufe gegenseitig die Arbeitsdateien weg');
+    await erster;
+  });
+
+  test('nach dem Lauf ist die Sperre wieder offen', async () => {
+    assert.equal(sich.laeuftGerade(), null,
+      'eine haengende Sperre wuerde die Sicherung fuer immer blockieren');
+  });
+});
