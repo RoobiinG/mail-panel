@@ -8,6 +8,7 @@ const bestand = require('../services/bestand');
 const kiText = require('../services/kiText');
 const themen = require('../services/themen');
 const sortierung = require('../services/sortierung');
+const entscheidungen = require('../services/entscheidungen');
 const belegLeser = require('../services/belegLeser');
 const settings = require('../services/settings');
 const { entschluesseln } = require('../services/crypto');
@@ -237,19 +238,27 @@ router.post('/ignorieren', (req, res) => {
 // daraus eine Rueckmeldung: Die Mail zieht um, und aus der Korrektur entsteht
 // eine Regel, die kuenftig vor der KI greift.
 
-// GET /api/sortierung/entscheidungen?konto_id=1&limit=30
+// GET /api/sortierung/entscheidungen
+//   ?konto_id=1|alle & suche=… & nur=ki|regel|korrigiert|liegen & seite=1 & limit=50
+//
+// Die Antwort ist ein Objekt, kein Array: Ohne Gesamtzahl gibt es kein
+// Blättern, und ohne Blättern wäre man wieder auf die letzten paar Zeilen
+// beschränkt — genau daran scheiterte bisher jede nachträgliche Korrektur.
 router.get('/entscheidungen', (req, res) => {
-  const konto = kontoLaden(req.query.konto_id);
-  if (!konto) return res.status(400).json({ error: 'konto_id fehlt oder unbekannt.' });
-  const anzahl = Math.min(100, Math.max(1, Number(req.query.limit) || 30));
+  // "alle": Wer eine falsch einsortierte Mail sucht, weiß oft nicht mehr, in
+  // welchem Postfach sie ankam. Danach erst das Konto zu raten, wäre eine
+  // Hürde ohne Zweck — die Zeile trägt ihr Konto ohnehin bei sich.
+  const ueberAlle = String(req.query.konto_id || '') === 'alle';
+  const konto = ueberAlle ? null : kontoLaden(req.query.konto_id);
+  if (!ueberAlle && !konto) return res.status(400).json({ error: 'konto_id fehlt oder unbekannt.' });
   try {
-    res.json(db.prepare(`
-      SELECT id, von, betreff, kategorie, thema, konfidenz, zielordner, kurzfassung,
-             uid, korrigiert_zu, created_at
-      FROM quarantine_log
-      WHERE konto = ? AND zielordner IS NOT NULL
-      ORDER BY id DESC LIMIT ?
-    `).all(konto.name, anzahl));
+    res.json(entscheidungen.suchen({
+      konto: konto ? konto.name : null,
+      suche: req.query.suche,
+      nur: req.query.nur,
+      seite: req.query.seite,
+      limit: req.query.limit,
+    }));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

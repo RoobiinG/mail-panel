@@ -1,0 +1,199 @@
+// Die Entscheidungs-Chronik: alles, was sortiert wurde — such- und blätterbar.
+//
+// Der Anlass ist ein echter: „mir sind ein, zwei Fehler aufgefallen". Nur waren
+// die Fehler nicht mehr zu finden. Sichtbar waren die letzten 25 Zeilen, und
+// eine falsch einsortierte Mail von vorgestern steht da längst nicht mehr.
+// Jeder Test hier hält einen Weg offen, auf dem man sie wiederfindet.
+const { test, describe } = require('node:test');
+const assert = require('node:assert/strict');
+require('./umgebung');
+
+const db = require('../src/db');
+const e = require('../src/services/entscheidungen');
+
+const eintragen = (zeile) => db.prepare(`
+  INSERT INTO quarantine_log (konto, von, betreff, kategorie, thema, konfidenz,
+                              zielordner, korrigiert_zu, ki, spam_score)
+  VALUES (@konto, @von, @betreff, @kategorie, @thema, @konfidenz,
+          @zielordner, @korrigiert_zu, @ki, @spam_score)
+`).run({
+  konto: 'Post', von: 'x@example.com', betreff: null, kategorie: null, thema: null,
+  konfidenz: null, zielordner: 'Archiv', korrigiert_zu: null, ki: 1, spam_score: null,
+  ...zeile,
+});
+
+db.prepare('DELETE FROM quarantine_log').run();
+eintragen({ von: 'rechnung@amazon.de', betreff: 'Ihre Bestellung', thema: 'Bestellungen', zielordner: 'Bestellungen' });
+eintragen({ von: 'newsletter@amazon.de', betreff: 'Angebote der Woche', thema: 'Newsletter', zielordner: 'Newsletter' });
+eintragen({ von: 'info@stadtwerke.example', betreff: 'Rechnung 2026-04', zielordner: 'Rechnungen', ki: 0 });
+eintragen({ von: 'chef@firma.example', betreff: 'Urlaub', zielordner: 'Archiv', korrigiert_zu: 'Arbeit' });
+eintragen({ von: 'unklar@nirgendwo.example', betreff: '50% Rabatt', zielordner: null });
+eintragen({ konto: 'Zweitpostfach', von: 'rechnung@amazon.de', betreff: 'Rechnung', zielordner: 'Rechnungen' });
+
+describe('Suche — man sucht nach dem, woran man sich erinnert', () => {
+  test('nach Absender', () => {
+    const t = e.suchen({ suche: 'amazon' });
+    assert.equal(t.gesamt, 3, 'zwei im ersten Postfach, eine im zweiten');
+  });
+
+  test('nach Betreff', () => {
+    const t = e.suchen({ suche: 'Urlaub' });
+    assert.equal(t.gesamt, 1);
+    assert.equal(t.eintraege[0].von, 'chef@firma.example');
+  });
+
+  test('nach Ordner — auch nach dem, in den korrigiert wurde', () => {
+    assert.equal(e.suchen({ suche: 'Bestellungen' }).gesamt, 1);
+    assert.equal(e.suchen({ suche: 'Arbeit' }).gesamt, 1);
+  });
+
+  test('Groß- und Kleinschreibung ist egal', () => {
+    assert.equal(e.suchen({ suche: 'AMAZON' }).gesamt, 3);
+  });
+
+  // Zwei Wörter heißen „beides muss zutreffen", nicht „genau diese Zeichenkette":
+  // Sonst findet „amazon bestellung" nichts, weil Absender und Betreff in
+  // verschiedenen Spalten stehen.
+  test('mehrere Wörter über verschiedene Felder hinweg', () => {
+    const t = e.suchen({ suche: 'amazon bestellung' });
+    assert.equal(t.gesamt, 1);
+    assert.equal(t.eintraege[0].betreff, 'Ihre Bestellung');
+  });
+
+  test('mehrere Wörter schließen aus, was nur eines trifft', () => {
+    assert.equal(e.suchen({ suche: 'amazon urlaub' }).gesamt, 0);
+  });
+
+  // % und _ sind in LIKE Platzhalter. Ungemaskiert hätte „50%" jede Zeile
+  // getroffen, in der irgendwo „50" steht — und die Suche wäre wertlos.
+  test('Prozentzeichen wird wörtlich gesucht, nicht als Platzhalter', () => {
+    assert.equal(e.suchen({ suche: '50%' }).gesamt, 1);
+    assert.equal(e.suchen({ suche: '%' }).gesamt, 1, 'ein nacktes % darf nicht alles finden');
+  });
+
+  test('leere Suche liefert alles', () => {
+    assert.equal(e.suchen({ suche: '   ' }).gesamt, 6);
+  });
+});
+
+describe('Postfächer', () => {
+  test('ein Konto zeigt nur seine eigenen Entscheidungen', () => {
+    assert.equal(e.suchen({ konto: 'Post' }).gesamt, 5);
+    assert.equal(e.suchen({ konto: 'Zweitpostfach' }).gesamt, 1);
+  });
+
+  // Wer eine falsch einsortierte Mail sucht, weiß oft nicht mehr, wo sie ankam.
+  test('ohne Konto wird über alle Postfächer gesucht', () => {
+    assert.equal(e.suchen({ konto: null, suche: 'amazon' }).gesamt, 3);
+  });
+});
+
+describe('Filter', () => {
+  test('nur KI beziehungsweise nur eigene Regeln', () => {
+    assert.equal(e.suchen({ nur: 'ki' }).gesamt, 5);
+    assert.equal(e.suchen({ nur: 'regel' }).gesamt, 1);
+  });
+
+  test('nur bereits korrigierte', () => {
+    const t = e.suchen({ nur: 'korrigiert' });
+    assert.equal(t.gesamt, 1);
+    assert.equal(t.eintraege[0].korrigiert_zu, 'Arbeit');
+  });
+
+  // Der häufigste Grund für „warum wurde die nicht sortiert?" — und bis hierher
+  // war er unsichtbar: Die alte Abfrage verlangte einen Zielordner und ließ
+  // genau die Zeilen weg, die man sucht.
+  test('liegengebliebene Mails sind auffindbar', () => {
+    const t = e.suchen({ nur: 'liegen' });
+    assert.equal(t.gesamt, 1);
+    assert.equal(t.eintraege[0].zielordner, null);
+  });
+
+  test('ohne Filter sind sie trotzdem dabei', () => {
+    assert.ok(e.suchen({}).eintraege.some((z) => z.zielordner === null));
+  });
+});
+
+describe('Blättern', () => {
+  test('Gesamtzahl und Seitenzahl passen zusammen', () => {
+    const t = e.suchen({ limit: 2 });
+    assert.equal(t.gesamt, 6);
+    assert.equal(t.seiten, 3);
+    assert.equal(t.eintraege.length, 2);
+  });
+
+  test('Seite 2 setzt fort, statt zu wiederholen', () => {
+    const s1 = e.suchen({ limit: 2, seite: 1 }).eintraege.map((z) => z.id);
+    const s2 = e.suchen({ limit: 2, seite: 2 }).eintraege.map((z) => z.id);
+    assert.equal(s1.length, 2);
+    assert.equal(s2.length, 2);
+    assert.equal(s1.filter((id) => s2.includes(id)).length, 0, 'keine Zeile darf doppelt erscheinen');
+  });
+
+  test('das Neueste steht oben', () => {
+    const ids = e.suchen({}).eintraege.map((z) => z.id);
+    assert.deepEqual(ids, [...ids].sort((a, b) => b - a));
+  });
+
+  // Wer auf Seite 3 einen Suchbegriff eintippt, hätte sonst eine leere Liste vor
+  // sich und hielte die Suche für kaputt.
+  test('eine Seite hinter dem Ende zeigt die letzte, nicht nichts', () => {
+    const t = e.suchen({ limit: 2, seite: 99 });
+    assert.equal(t.seite, 3);
+    assert.ok(t.eintraege.length > 0);
+  });
+
+  test('unsinnige Werte kippen die Abfrage nicht', () => {
+    assert.equal(e.suchen({ seite: -5, limit: 0 }).seite, 1);
+    assert.ok(e.suchen({ limit: 99999 }).limit <= 200, 'die Seitengröße bleibt gedeckelt');
+  });
+});
+
+// Kein HTTP-Server: Der Handler wird direkt aus dem Router geholt. Das prüft die
+// Stelle, an der Route und Dienst zusammenkommen — dort hat schon einmal ein
+// Tippfehler eine ganze Seite mit „Interner Serverfehler" lahmgelegt.
+describe('Die Route liefert das auch aus', () => {
+  const router = require('../src/routes/sortierung');
+  const handler = (() => {
+    const schicht = router.stack.find((s) => s.route?.path === '/entscheidungen' && s.route.methods.get);
+    assert.ok(schicht, 'Route GET /entscheidungen fehlt');
+    return schicht.route.stack[schicht.route.stack.length - 1].handle;
+  })();
+
+  const attrappe = () => {
+    const antwort = { code: 200, koerper: null };
+    return {
+      res: {
+        status(c) { antwort.code = c; return this; },
+        json(k) { antwort.koerper = k; return this; },
+      },
+      antwort,
+    };
+  };
+
+  test('konto_id=alle sucht über alle Postfächer', () => {
+    const { res, antwort } = attrappe();
+    handler({ query: { konto_id: 'alle', suche: 'amazon' } }, res);
+    assert.equal(antwort.code, 200, `Fehler: ${antwort.koerper && antwort.koerper.error}`);
+    assert.equal(antwort.koerper.gesamt, 3);
+    for (const feld of ['eintraege', 'gesamt', 'seite', 'seiten', 'limit']) {
+      assert.ok(feld in antwort.koerper, `Feld "${feld}" fehlt — ohne das kann die Seite nicht blättern`);
+    }
+  });
+
+  test('ein bekanntes Konto grenzt ein', () => {
+    db.prepare(`INSERT INTO accounts (name, host, port, username, password_enc)
+                VALUES ('Post', 'imap.example', 993, 'p', 'x')`).run();
+    const id = db.prepare("SELECT id FROM accounts WHERE name = 'Post'").get().id;
+    const { res, antwort } = attrappe();
+    handler({ query: { konto_id: id } }, res);
+    assert.equal(antwort.code, 200);
+    assert.equal(antwort.koerper.gesamt, 5);
+  });
+
+  test('ein unbekanntes Konto ist ein Fehler, kein leeres Ergebnis', () => {
+    const { res, antwort } = attrappe();
+    handler({ query: { konto_id: 999999 } }, res);
+    assert.equal(antwort.code, 400);
+  });
+});

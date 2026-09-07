@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Plus, Trash2, CheckCircle2, XCircle, AlertCircle, Inbox, Tag, ArrowRight,
   FolderTree, Sparkles, Lock, Unlock, RefreshCw, Check, Wand2,
-  ChevronRight, ChevronDown, Layers, AtSign, History, Undo2
+  ChevronRight, ChevronLeft, ChevronDown, Layers, AtSign, History, Undo2, Search
 } from 'lucide-react';
 import { useMelden } from '../components/ui/Meldungen';
 import BelegeKarte from '../components/BelegeKarte';
@@ -21,6 +21,33 @@ const REGEL_TYPEN = {
   domain: 'Domain (z.B. amazon.de)',
   betreff: 'Betreff enthält',
 };
+
+// Die Filter der Entscheidungs-Chronik. Sie beantworten verschiedene Fragen:
+// „KI“ und „Regel“ trennen, wer entschieden hat — das repariert man verschieden.
+// „Liegengeblieben“ zeigt die Mails, die gar nicht verschoben wurden; das ist
+// die häufigste Antwort auf „warum ist die nicht sortiert worden?“.
+const CHRONIK_FILTER = [
+  { wert: 'alle', text: 'Alle', hilfe: 'Jede Entscheidung' },
+  { wert: 'ki', text: 'KI', hilfe: 'Von Gemini eingeordnet' },
+  { wert: 'regel', text: 'Regel', hilfe: 'Von einer eigenen Regel einsortiert, ohne KI' },
+  { wert: 'korrigiert', text: 'Korrigiert', hilfe: 'Schon einmal von Hand geradegezogen' },
+  { wert: 'liegen', text: 'Liegengeblieben', hilfe: 'Nicht verschoben — Regel „in Ruhe lassen“ oder Zielordner fehlte' },
+];
+
+// SQLite schreibt CURRENT_TIMESTAMP als „2026-09-07 14:00:00“ — das ist UTC,
+// steht aber ohne Zeitzone im Text. new Date() liest so etwas als Ortszeit und
+// zeigt die Uhrzeit dann um den Zeitzonen-Abstand verschoben an. Das angehängte
+// Z macht daraus, was es ist.
+const zeitpunkt = (s) => {
+  if (!s) return '';
+  const roh = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s) ? `${s.replace(' ', 'T')}Z` : s;
+  const d = new Date(roh);
+  return Number.isNaN(d.getTime())
+    ? String(s)
+    : d.toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' });
+};
+
+const CHRONIK_LEER = { eintraege: [], gesamt: 0, seite: 1, seiten: 1, limit: 50 };
 
 // Eine Registerkarte der Sortierung-Seite. Aktiv = hervorgehoben; die Zahl zeigt,
 // wo gerade etwas wartet, damit man den Bereich nicht erst aufklappen muss.
@@ -99,8 +126,17 @@ export default function Sortierung() {
   // Einzelregeln, die sich zu einer Domain-Regel zusammenfassen lassen
   const [zusammenfassbar, setZusammenfassbar] = useState([]);
 
-  // Was die KI zuletzt entschieden hat — und die Korrektur dazu
-  const [entscheidungen, setEntscheidungen] = useState([]);
+  // Die Entscheidungs-Chronik: was wurde einsortiert, von wem — und wo lässt
+  // sich das korrigieren. Der Server liefert immer nur eine Seite; gesamt und
+  // seiten kommen mit, sonst könnte man nicht blättern.
+  const [entscheidungen, setEntscheidungen] = useState(CHRONIK_LEER);
+  const [suche, setSuche] = useState('');            // was im Feld steht
+  const [suchbegriff, setSuchbegriff] = useState(''); // was davon schon abgeschickt ist
+  const [nur, setNur] = useState('alle');
+  const [seite, setSeite] = useState(1);
+  const [alleKonten, setAlleKonten] = useState(false);
+  const [chronikLaedt, setChronikLaedt] = useState(false);
+  const [chronikTakt, setChronikTakt] = useState(0);  // hochzählen = neu laden
   const [korrekturOffen, setKorrekturOffen] = useState(null);   // log_id
   const [korrekturOrdner, setKorrekturOrdner] = useState('');
   const [korrekturRegel, setKorrekturRegel] = useState('domain');
@@ -162,13 +198,45 @@ export default function Sortierung() {
     } catch { /* leer */ }
   };
 
-  const entscheidungenLaden = async (kontoId) => {
-    if (!kontoId) return;
-    try {
-      const { data } = await api.get(`/sortierung/entscheidungen?konto_id=${kontoId}&limit=25`);
-      setEntscheidungen(data || []);
-    } catch { /* leer */ }
-  };
+  // Getippt wird schneller, als der Server antworten kann. Ohne diese Bremse
+  // liefe je Tastendruck eine Abfrage über den ganzen Bestand — und die
+  // Antworten kämen in beliebiger Reihenfolge zurück.
+  useEffect(() => {
+    const uhr = setTimeout(() => { setSuchbegriff(suche); setSeite(1); }, 350);
+    return () => clearTimeout(uhr);
+  }, [suche]);
+
+  useEffect(() => {
+    if (!alleKonten && !aktivesKonto) return;
+    let verworfen = false;
+    (async () => {
+      setChronikLaedt(true);
+      try {
+        const p = new URLSearchParams({
+          konto_id: alleKonten ? 'alle' : String(aktivesKonto),
+          seite: String(seite),
+          limit: '50',
+        });
+        if (suchbegriff.trim()) p.set('suche', suchbegriff.trim());
+        if (nur !== 'alle') p.set('nur', nur);
+        const { data } = await api.get(`/sortierung/entscheidungen?${p.toString()}`);
+        if (verworfen) return;
+        setEntscheidungen(data && Array.isArray(data.eintraege) ? data : CHRONIK_LEER);
+        // Der Server deckelt die Seitenzahl auf das, was es tatsächlich gibt.
+        // Wer auf Seite 7 einen Suchbegriff eintippt, stünde sonst vor einer
+        // leeren Liste und hielte die Suche für kaputt.
+        if (data && data.seite && data.seite !== seite) setSeite(data.seite);
+      } catch {
+        if (!verworfen) setEntscheidungen(CHRONIK_LEER);
+      } finally {
+        if (!verworfen) setChronikLaedt(false);
+      }
+    })();
+    // Eine überholte Antwort darf eine neuere nicht überschreiben.
+    return () => { verworfen = true; };
+  }, [aktivesKonto, alleKonten, suchbegriff, nur, seite, chronikTakt]);
+
+  const chronikSpalten = alleKonten ? 8 : 7;
 
   const korrigieren = async (eintrag) => {
     const ziel = korrekturOrdner.trim();
@@ -187,7 +255,7 @@ export default function Sortierung() {
       melden(teile.join('\n'));
       setKorrekturOffen(null);
       setKorrekturOrdner('');
-      entscheidungenLaden(aktivesKonto);
+      setChronikTakt(t => t + 1);
       regelnLaden(aktivesKonto);
       inboxLaden();
     } catch (err) {
@@ -217,7 +285,8 @@ export default function Sortierung() {
     setAbsender({ absender: [], aktualisiert: null }); setKategorien(null);
     regelnLaden(aktivesKonto);
     katalogLaden(aktivesKonto);
-    entscheidungenLaden(aktivesKonto);
+    // Die Chronik lädt ihr eigener Effekt — sie hängt außer am Konto auch an
+    // Suchbegriff, Filter und Seite.
     aliasLaden(aktivesKonto);
     vorschlaegeLaden(aktivesKonto);
     inboxLaden(aktivesKonto);
@@ -809,6 +878,9 @@ export default function Sortierung() {
         <TabKnopf aktiv={tab === 'themen'} onClick={() => setTab('themen')} icon={FolderTree} zahl={katalog.length}>
           Themen-Ordner
         </TabKnopf>
+        <TabKnopf aktiv={tab === 'entscheidungen'} onClick={() => setTab('entscheidungen')} icon={History}>
+          Entscheidungen
+        </TabKnopf>
         <TabKnopf aktiv={tab === 'belege'} onClick={() => setTab('belege')} icon={Layers}>
           Belege
         </TabKnopf>
@@ -1145,102 +1217,213 @@ export default function Sortierung() {
           </div>
         </div>
       )}
-
-      {/* ══ Letzte Entscheidungen — hier wird die Sortierung besser ══ */}
-      {entscheidungen.length > 0 && (
-        <div className="card !p-0 overflow-hidden">
-          <div className="p-4 border-b border-panel-border bg-panel-card/50 flex items-center gap-2">
-            <History size={18} className="text-panel-accent" />
-            <h2 className="font-medium">Letzte Entscheidungen</h2>
-            <span className="text-[11px] text-panel-muted hidden sm:inline">
-              War etwas falsch? Ein Klick verschiebt die Mail und merkt sich die Korrektur.
-            </span>
-          </div>
-          <div className="overflow-auto max-h-[380px]">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-panel-border text-left text-panel-muted text-xs bg-panel-bg/30">
-                  <th className="py-2 px-4">Absender</th>
-                  <th className="py-2 px-4">Betreff</th>
-                  <th className="py-2 px-4">Thema</th>
-                  <th className="py-2 px-4">Gelandet in</th>
-                  <th className="py-2 px-4"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {entscheidungen.map(e => (
-                  <React.Fragment key={e.id}>
-                    <tr className="border-b border-panel-border/50 hover:bg-panel-bg/30 transition-colors">
-                      <td className="py-2 px-4 truncate max-w-[200px]" title={e.von}>{e.von}</td>
-                      <td className="py-2 px-4 truncate max-w-[240px] text-panel-muted" title={e.betreff}>
-                        {e.betreff || '(kein Betreff)'}
-                      </td>
-                      <td className="py-2 px-4 text-xs whitespace-nowrap">
-                        {e.thema
-                          ? <>{e.thema}{e.konfidenz != null && <span className="text-panel-muted"> ({Math.round(e.konfidenz * 100)} %)</span>}</>
-                          : <span className="text-panel-muted">{e.kategorie || '—'}</span>}
-                      </td>
-                      <td className="py-2 px-4 font-mono text-panel-accent whitespace-nowrap">
-                        {e.korrigiert_zu
-                          ? <><span className="line-through text-panel-muted">{e.zielordner}</span> → {e.korrigiert_zu}</>
-                          : e.zielordner}
-                      </td>
-                      <td className="py-2 px-4 text-right whitespace-nowrap">
-                        {!e.korrigiert_zu && (
-                          <button
-                            onClick={() => {
-                              setKorrekturOffen(korrekturOffen === e.id ? null : e.id);
-                              setKorrekturOrdner('');
-                              setKorrekturRegel('domain');
-                            }}
-                            className="btn-ghost !py-1 !px-2 text-xs flex items-center gap-1 ml-auto"
-                            title="Diese Mail gehört woanders hin"
-                          >
-                            <Undo2 size={14} /> War falsch
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                    {korrekturOffen === e.id && (
-                      <tr className="bg-panel-bg/50">
-                        <td colSpan={5} className="px-4 py-3">
-                          <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
-                            <input
-                              type="text"
-                              autoFocus
-                              placeholder={`Richtiger Ordner statt „${e.zielordner}"`}
-                              value={korrekturOrdner}
-                              onChange={ev => setKorrekturOrdner(ev.target.value)}
-                              list="ordner-vorschlaege"
-                              className="flex-1 text-sm"
-                            />
-                            <select
-                              value={korrekturRegel}
-                              onChange={ev => setKorrekturRegel(ev.target.value)}
-                              className="text-sm bg-panel-bg"
-                            >
-                              <option value="domain">Merken: alles von @{domainVon(e.von)}</option>
-                              <option value="absender">Merken: nur {adresse(e.von)}</option>
-                              <option value="keine">Nur diese Mail, nichts merken</option>
-                            </select>
-                            <button onClick={() => korrigieren(e)} className="btn !py-1.5 !px-3 text-sm whitespace-nowrap">
-                              Verschieben &amp; merken
-                            </button>
-                            <button onClick={() => setKorrekturOffen(null)} className="btn-ghost !py-1.5 !px-2 text-sm">
-                              Abbrechen
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                ))}
-              </tbody>
-            </table>
-          </div>
         </div>
       )}
+
+      {/* ══ Entscheidungen — die vollständige Chronik, durchsuchbar ══
+          Hier standen einmal die letzten 25 Zeilen. Wer einen Fehler bemerkte,
+          fand ihn darin nicht mehr — und eine Fehleinordnung, die man nicht
+          korrigiert, trifft die KI beim nächsten Mal genauso. */}
+      {tab === 'entscheidungen' && (
+      <div className="card !p-0 overflow-hidden">
+        <div className="p-4 border-b border-panel-border bg-panel-card/50 space-y-3">
+          <div className="flex items-center gap-2 flex-wrap">
+            <History size={18} className="text-panel-accent" />
+            <h2 className="font-medium">Entscheidungen</h2>
+            <span className="text-[11px] text-panel-muted hidden lg:inline">
+              War etwas falsch? Ein Klick verschiebt die Mail und merkt sich die Korrektur.
+            </span>
+            <span className="ml-auto text-xs text-panel-muted whitespace-nowrap">
+              {chronikLaedt
+                ? 'sucht …'
+                : `${entscheidungen.gesamt.toLocaleString('de-DE')} ${entscheidungen.gesamt === 1 ? 'Eintrag' : 'Einträge'}`}
+            </span>
+          </div>
+
+          <div className="flex flex-wrap gap-2 items-center">
+            <div className="relative flex-1 min-w-[220px]">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-panel-muted pointer-events-none" />
+              <input
+                type="search"
+                value={suche}
+                onChange={ev => setSuche(ev.target.value)}
+                placeholder="Absender, Betreff, Thema oder Ordner …"
+                title="Mehrere Wörter heißen: alles muss zutreffen — „amazon rechnung“ findet die Amazon-Mail mit Rechnung im Betreff"
+                className="w-full text-sm !pl-8"
+              />
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {CHRONIK_FILTER.map(f => (
+                <button
+                  key={f.wert}
+                  onClick={() => { setNur(f.wert); setSeite(1); }}
+                  title={f.hilfe}
+                  className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                    nur === f.wert
+                      ? 'bg-panel-accent text-white border-panel-accent'
+                      : 'border-panel-border text-panel-muted hover:text-panel-text'
+                  }`}
+                >
+                  {f.text}
+                </button>
+              ))}
+            </div>
+            {/* Wer eine falsch einsortierte Mail sucht, weiß oft nicht mehr, in
+                welchem Postfach sie ankam. Erst raten zu müssen, wäre eine Hürde
+                ohne Zweck. */}
+            <label className="flex items-center gap-1.5 text-xs text-panel-muted cursor-pointer whitespace-nowrap">
+              <input
+                type="checkbox"
+                checked={alleKonten}
+                onChange={ev => { setAlleKonten(ev.target.checked); setSeite(1); }}
+              />
+              alle Postfächer
+            </label>
+          </div>
         </div>
+
+        <div className="overflow-auto max-h-[520px]">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-panel-border text-left text-panel-muted text-xs bg-panel-bg/30">
+                <th className="py-2 px-4 whitespace-nowrap">Wann</th>
+                {alleKonten && <th className="py-2 px-4">Postfach</th>}
+                <th className="py-2 px-4">Absender</th>
+                <th className="py-2 px-4">Betreff</th>
+                <th className="py-2 px-4">Thema</th>
+                <th className="py-2 px-4">Gelandet in</th>
+                <th className="py-2 px-4">Wer</th>
+                <th className="py-2 px-4"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {entscheidungen.eintraege.length === 0 && (
+                <tr>
+                  <td colSpan={chronikSpalten} className="py-8 px-4 text-center text-panel-muted text-sm">
+                    {chronikLaedt ? 'Sucht …'
+                      : suchbegriff || nur !== 'alle'
+                        ? 'Dazu ist nichts eingetragen. Anderer Suchbegriff oder Filter „Alle“?'
+                        : 'Noch keine Entscheidung getroffen.'}
+                  </td>
+                </tr>
+              )}
+              {entscheidungen.eintraege.map(e => (
+                <React.Fragment key={e.id}>
+                  <tr className="border-b border-panel-border/50 hover:bg-panel-bg/30 transition-colors">
+                    <td className="py-2 px-4 text-xs text-panel-muted whitespace-nowrap">{zeitpunkt(e.created_at)}</td>
+                    {alleKonten && <td className="py-2 px-4 text-xs whitespace-nowrap">{e.konto}</td>}
+                    <td className="py-2 px-4 truncate max-w-[200px]" title={e.von}>{e.von}</td>
+                    <td className="py-2 px-4 truncate max-w-[240px] text-panel-muted" title={e.betreff}>
+                      {e.betreff || '(kein Betreff)'}
+                      {e.virus_name && (
+                        <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-red-500/15 text-red-400 whitespace-nowrap">
+                          Virus: {e.virus_name}
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-2 px-4 text-xs whitespace-nowrap">
+                      {e.thema
+                        ? <>{e.thema}{e.konfidenz != null && <span className="text-panel-muted"> ({Math.round(e.konfidenz * 100)} %)</span>}</>
+                        : <span className="text-panel-muted">{e.kategorie || '—'}</span>}
+                    </td>
+                    <td className="py-2 px-4 font-mono text-panel-accent whitespace-nowrap">
+                      {e.korrigiert_zu
+                        ? <><span className="line-through text-panel-muted">{e.zielordner}</span> → {e.korrigiert_zu}</>
+                        : e.zielordner
+                          ? e.zielordner
+                          // Kein Zielordner heißt: angesehen und liegen gelassen —
+                          // eine eigene Regel wollte das so, oder der Ordner fehlte.
+                          : <span className="font-sans text-panel-muted">im Posteingang geblieben</span>}
+                    </td>
+                    <td className="py-2 px-4 text-xs whitespace-nowrap">
+                      {e.ki
+                        ? <span className="inline-flex items-center gap-1 text-panel-muted"><Sparkles size={12} /> KI</span>
+                        : <span className="inline-flex items-center gap-1 text-panel-muted"><Tag size={12} /> Regel</span>}
+                    </td>
+                    <td className="py-2 px-4 text-right whitespace-nowrap">
+                      {!e.korrigiert_zu && e.zielordner && (
+                        <button
+                          onClick={() => {
+                            setKorrekturOffen(korrekturOffen === e.id ? null : e.id);
+                            setKorrekturOrdner('');
+                            setKorrekturRegel('domain');
+                          }}
+                          className="btn-ghost !py-1 !px-2 text-xs flex items-center gap-1 ml-auto"
+                          title="Diese Mail gehört woanders hin"
+                        >
+                          <Undo2 size={14} /> War falsch
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                  {korrekturOffen === e.id && (
+                    <tr className="bg-panel-bg/50">
+                      <td colSpan={chronikSpalten} className="px-4 py-3">
+                        <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+                          <input
+                            type="text"
+                            autoFocus
+                            placeholder={`Richtiger Ordner statt „${e.zielordner}“`}
+                            value={korrekturOrdner}
+                            onChange={ev => setKorrekturOrdner(ev.target.value)}
+                            list="ordner-vorschlaege"
+                            className="flex-1 text-sm"
+                          />
+                          <select
+                            value={korrekturRegel}
+                            onChange={ev => setKorrekturRegel(ev.target.value)}
+                            className="text-sm bg-panel-bg"
+                          >
+                            <option value="domain">Merken: alles von @{domainVon(e.von)}</option>
+                            <option value="absender">Merken: nur {adresse(e.von)}</option>
+                            <option value="keine">Nur diese Mail, nichts merken</option>
+                          </select>
+                          <button onClick={() => korrigieren(e)} className="btn !py-1.5 !px-3 text-sm whitespace-nowrap">
+                            Verschieben &amp; merken
+                          </button>
+                          <button onClick={() => setKorrekturOffen(null)} className="btn-ghost !py-1.5 !px-2 text-sm">
+                            Abbrechen
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {entscheidungen.seiten > 1 && (
+          <div className="p-3 border-t border-panel-border flex flex-wrap items-center justify-between gap-2 text-xs text-panel-muted">
+            <span>
+              {(((entscheidungen.seite - 1) * entscheidungen.limit) + 1).toLocaleString('de-DE')}
+              –{Math.min(entscheidungen.seite * entscheidungen.limit, entscheidungen.gesamt).toLocaleString('de-DE')}
+              {' von '}
+              {entscheidungen.gesamt.toLocaleString('de-DE')}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setSeite(s => Math.max(1, s - 1))}
+                disabled={entscheidungen.seite <= 1 || chronikLaedt}
+                className="btn-ghost !py-1 !px-2 disabled:opacity-40"
+                title="Neuere Entscheidungen"
+              >
+                <ChevronLeft size={14} />
+              </button>
+              <span className="whitespace-nowrap">Seite {entscheidungen.seite} von {entscheidungen.seiten}</span>
+              <button
+                onClick={() => setSeite(s => s + 1)}
+                disabled={entscheidungen.seite >= entscheidungen.seiten || chronikLaedt}
+                className="btn-ghost !py-1 !px-2 disabled:opacity-40"
+                title="Ältere Entscheidungen"
+              >
+                <ChevronRight size={14} />
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
       )}
 
       {/* ══ Themen-Katalog: woraus die KI wählen darf ══ */}

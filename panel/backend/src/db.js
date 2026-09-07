@@ -319,6 +319,11 @@ const migrations = [
   // Nutzertext, damit der nie ueberschrieben wird — und beim naechsten Mal
   // trifft schon der Stichwort-Vergleich, ganz ohne KI.
   'ALTER TABLE konto_ordner ADD COLUMN gelernt TEXT',
+  // Die Entscheidungs-Chronik wird seitenweise durchblättert und durchsucht;
+  // ohne Index las SQLite dafür bei jedem Klick die ganze Tabelle. Bei
+  // fünfstelligen Zeilenzahlen ist das der Unterschied zwischen sofort und
+  // spürbar.
+  'CREATE INDEX IF NOT EXISTS idx_qlog_konto ON quarantine_log(konto, id)',
   // Einmalige Bereinigung: Bis Build 95 wurde beim Freigeben eines Vorschlags
   // dessen interne Notiz als Beschreibung in den Katalog geschrieben ("Zuletzt
   // vorgeschlagen für: noreply@steampowered.com"). Im Prompt war das nutzlos —

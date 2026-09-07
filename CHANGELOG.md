@@ -2,6 +2,49 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.2.0.0] - 2026-09-07 (Build 132) — *Entscheidungs-Chronik*
+
+### Feature: Alle Entscheidungen, durchsuchbar
+Bisher standen unter *Sortierung → Vorschläge* die **letzten 25** Einordnungen. Wer einen Fehler
+bemerkte, fand ihn dort nicht mehr — bei ein paar hundert Mails am Tag ist er längst
+herausgerutscht. Und eine Fehleinordnung, die man nicht korrigiert, trifft die KI beim nächsten
+Mal genauso.
+
+- **Eigener Reiter „Entscheidungen"** auf der Sortierung-Seite (vorher eine Karte am Fuß der
+  Vorschläge). Er zeigt den **kompletten Bestand**, 50 Zeilen je Seite, mit Blätterung und
+  Gesamtzahl.
+- **Volltextsuche** über Absender, Betreff, Thema, Kategorie und Zielordner — auch über den
+  Ordner, in den bereits korrigiert wurde. Mehrere Wörter heißen „alles muss zutreffen", jedes
+  darf in einem anderen Feld stehen: „amazon rechnung" findet die Amazon-Mail mit *Rechnung* im
+  Betreff. Eingaben werden für LIKE maskiert, `%` und `_` werden also wörtlich gesucht.
+- **Filter**: Alle · KI · Regel · Korrigiert · Liegengeblieben.
+- **Über alle Postfächer suchen** (Kästchen „alle Postfächer"). Wer eine falsch einsortierte Mail
+  sucht, weiß oft nicht mehr, in welchem Konto sie ankam.
+- **Neue Spalten**: Zeitpunkt, Postfach (bei kontoübergreifender Suche) und „Wer" — KI oder eigene
+  Regel. Virenfunde werden als Marke am Betreff angezeigt.
+- Die Korrektur („War falsch" → verschieben und merken) arbeitet unverändert weiter, jetzt eben
+  auch für Einträge von vor Wochen.
+
+### Bugfix
+- **Liegengebliebene Mails waren unsichtbar.** Die alte Abfrage verlangte einen Zielordner
+  (`WHERE zielordner IS NOT NULL`) und ließ damit ausgerechnet die Zeilen weg, die man sucht:
+  Mails, die eine Regel „in Ruhe lassen" wollte oder deren Zielordner im Postfach fehlte. Sie
+  stehen jetzt mit dem Vermerk *im Posteingang geblieben* in der Liste und haben einen eigenen
+  Filter.
+- **Uhrzeiten waren um den Zeitzonen-Abstand verschoben.** SQLite legt `created_at` als UTC ohne
+  Zeitzonen-Kennung ab; `new Date()` las das als Ortszeit. Die neue Spalte rechnet richtig um.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **DB-Migrationen:** Ein Index kommt hinzu (`idx_qlog_konto` auf `quarantine_log(konto, id)`),
+  damit Blättern und Suchen bei fünfstelligen Zeilenzahlen nicht die ganze Tabelle lesen. Läuft
+  automatisch beim Start, keine Datenänderung.
+- **API:** `GET /api/sortierung/entscheidungen` liefert jetzt ein **Objekt**
+  (`{ eintraege, gesamt, seite, seiten, limit }`) statt eines Arrays und nimmt `suche`, `nur`,
+  `seite`, `limit` sowie `konto_id=alle` entgegen. Wer die Route selbst anspricht, muss das
+  nachziehen; im Panel ist es umgestellt.
+- **n8n-Workflow-Kompatibilität:** Keine. Kein Synchronisieren nötig.
+- **Neustart-/Session-Verhalten:** Keine Änderung.
+
 ## [4.1.1.0] - 2026-09-07 (Build 131) — *Workflow Provider Split*
 
 ### Feature & Verbesserungen
