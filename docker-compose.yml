@@ -178,6 +178,23 @@ services:
     networks:
       - internal
 
+  # ─── Ollama: Lokale KI (100% kostenlos und unlimitiert) ─────────────────────
+  # Lässt große Sprachmodelle lokal laufen. Achtung: Braucht ausreichend
+  # RAM auf dem Server (Empfehlung: >= 8GB für ein kleines 8B Modell).
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    # Ollama braucht intern Port 11434. Wird nur für das Mail-Panel benötigt,
+    # daher nicht zwingend nach außen freigegeben, außer man will auch von
+    # außen darauf zugreifen.
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    networks:
+      - internal
+
 networks:
   internal:
   # Ein bereits vorhandenes Netz, an das sich das Panel zusätzlich hängt, um dort
@@ -193,3 +210,4 @@ volumes:
   n8n_db_data:
   panel_data:
   clamav_db:
+  ollama_data:

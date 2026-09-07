@@ -891,73 +891,111 @@ function panelZeitlimitSetzen(workflow) {
 
 function geminiRequestReparieren(workflow) {
   let geaendert = false;
+  
+  const kiAnbieter = settings.hole('ki_anbieter') || 'gemini';
+  const ollamaUrl = (settings.hole('ollama_url') || 'http://ollama:11434').replace(/\/$/, '') + '/api/generate';
+  const ollamaModell = settings.hole('ollama_modell') || 'llama3.1';
+  
   for (const knoten of workflow.nodes) {
     if (knoten.type !== 'n8n-nodes-base.httpRequest') continue;
-    if (!String(knoten.parameters?.url || '').includes('generativelanguage.googleapis.com')) continue;
+    
+    const url = String(knoten.parameters?.url || '');
+    const isKi = url.includes('generativelanguage.googleapis.com') || url.includes('/api/generate') || url.includes('ollama');
+    if (!isKi && !url.includes('api/generate') && knoten.name !== 'Gemini klassifizieren') continue;
 
-    // Bugfix: JSON.stringify
-    if (knoten.parameters?.jsonBody) {
-      const alt = '{ text: $json.promptText }';
-      const neu = "{ text: String($json.promptText || '') }";
-      if (knoten.parameters.jsonBody.includes(alt)) {
-        knoten.parameters.jsonBody = knoten.parameters.jsonBody.replace(alt, neu);
-        geaendert = true;
-      }
+    let bodyStr = knoten.parameters.jsonBody || '';
+    let promptAusdruck = "String($json.promptText || '')"; // Fallback
+    
+    // Alten Prompt-Ausdruck aus dem existierenden JSON herauslösen
+    const geminiMatch = bodyStr.match(/text:\s*(String\([^}]+\)|\$\([^}]+\)\.item\.json\.promptText[^}]*|\$json\.promptText[^}]*)/);
+    const ollamaMatch = bodyStr.match(/prompt:\s*(String\([^}]+\)|\$\([^}]+\)\.item\.json\.promptText[^,}]*|\$json\.promptText[^,}]*)/);
+    
+    if (geminiMatch) {
+      promptAusdruck = geminiMatch[1].trim();
+      if (promptAusdruck.endsWith('}')) promptAusdruck = promptAusdruck.slice(0, -1).trim();
+      if (promptAusdruck.endsWith(']')) promptAusdruck = promptAusdruck.slice(0, -1).trim();
+    } else if (ollamaMatch) {
+      promptAusdruck = ollamaMatch[1].trim();
+    }
+    
+    // Bugfix für alte String() Konstrukte die vergessen wurden
+    if (promptAusdruck === '$json.promptText') {
+      promptAusdruck = "String($json.promptText || '')";
     }
 
-    // Das Modell kommt aus den Einstellungen — eine Stelle für alles. Damit
-    // wandert auch ein Wechsel auf das Ersatzmodell hierher, wenn Googles
-    // Tageskontingent für das erste aufgebraucht ist (services/kiModell.js).
-    // Nebenbei erledigt das den alten Fall mit: gemini-2.5-flash-lite ist
-    // abgekündigt, und wer noch darauf stand, wird hier umgeschrieben.
-    if (knoten.parameters?.url) {
+    if (kiAnbieter === 'ollama') {
+      if (knoten.parameters.url !== ollamaUrl) {
+        knoten.parameters.url = ollamaUrl;
+        geaendert = true;
+      }
+      
+      if (knoten.parameters.authentication !== 'none') {
+        knoten.parameters.authentication = 'none';
+        geaendert = true;
+      }
+      
+      const bodyNeu = `={{ JSON.stringify({ model: '${ollamaModell}', prompt: ${promptAusdruck}, stream: false, format: 'json', options: { temperature: 0.1 } }) }}`;
+      if (knoten.parameters.jsonBody !== bodyNeu) {
+        knoten.parameters.jsonBody = bodyNeu;
+        geaendert = true;
+      }
+      
+      // Ollama braucht keine kuenstliche Pause
+      if (knoten.parameters.options?.batching) {
+        delete knoten.parameters.options.batching;
+        geaendert = true;
+      }
+      
+      for (const [feld, wert] of [['retryOnFail', true], ['maxTries', 3], ['waitBetweenTries', 2000]]) {
+        if (knoten[feld] !== wert) { knoten[feld] = wert; geaendert = true; }
+      }
+      
+    } else {
+      // Gemini
+      const geminiBaseUrl = 'https://generativelanguage.googleapis.com/v1beta/models/';
       const modell = require('./kiModell').aktiv();
-      const neuUrl = knoten.parameters.url.replace(
-        /models\/[^:/]+:generateContent/, `models/${modell}:generateContent`,
-      );
-      if (neuUrl !== knoten.parameters.url) {
+      const neuUrl = `${geminiBaseUrl}${modell}:generateContent`;
+      
+      if (knoten.parameters.url !== neuUrl) {
         knoten.parameters.url = neuUrl;
         geaendert = true;
       }
-    }
+      
+      if (knoten.parameters.authentication !== 'genericCredentialType') {
+        knoten.parameters.authentication = 'genericCredentialType';
+        knoten.parameters.genericAuthType = 'httpHeaderAuth';
+        geaendert = true;
+      }
 
-    // Denkende Modelle bringen die Workflows um ihre Antwort.
-    //
-    // Gemini 3.7 und 3.8 Flash denken von Haus aus und zahlen das aus demselben
-    // Ausgabebudget wie die Antwort. Im Betrieb kam deshalb `content: {}` mit
-    // `finishReason: MAX_TOKENS` zurück — nachgedacht und nichts gesagt. Der
-    // Lauf meldete „erfolgreich" und sortierte keine einzige Mail.
-    //
-    // Also dasselbe wie im Panel: wenig nachdenken, genug Platz für die Antwort.
-    // Die Stufe stellt der Nutzer unter Einstellungen → KI ein; die Regel selbst
-    // steht in services/kiText.js.
-    if (knoten.parameters?.jsonBody) {
+      let alt = String(knoten.parameters.jsonBody || '');
+      
+      // Wenn vorher Ollama drin war oder JSON komplett neu aufgebaut werden muss:
+      if (alt.includes('prompt:') || alt.includes('model:')) {
+        alt = `={{ JSON.stringify({ contents: [{ parts: [{ text: ${promptAusdruck} }] }], generationConfig: { responseMimeType: 'application/json', temperature: 0.1 } }) }}`;
+      }
+    
       const stufe = String(settings.hole('gemini_denkstufe') || 'low').toLowerCase();
       const zusatz = 'maxOutputTokens: 8192'
         + (['minimal', 'low', 'medium', 'high'].includes(stufe) ? `, thinking_level: '${stufe}'` : '');
-      const alt = String(knoten.parameters.jsonBody);
-      // Erst einen vorhandenen Block herausnehmen, sonst stapeln sie sich.
       const neu = alt
         .replace(/, maxOutputTokens: \d+(?:, thinking_level: '[a-z]+')?/g, '')
         .replace(/(generationConfig: \{[^}]*?temperature: [\d.]+)/, `$1, ${zusatz}`);
-      if (neu !== alt) { knoten.parameters.jsonBody = neu; geaendert = true; }
-    }
+        
+      if (neu !== knoten.parameters.jsonBody) { 
+        knoten.parameters.jsonBody = neu; 
+        geaendert = true; 
+      }
 
-    // Tempo drosseln. Der Tagesdeckel begrenzt die MENGE der Anfragen, nicht ihr
-    // TEMPO — die Bestands-Triage schiebt aber gern 143 Mails auf einmal durch
-    // und lief deshalb in "The service is receiving too many requests from you".
-    // Also: ein Element pro Durchgang, dazwischen eine Pause.
-    const takt = { batch: { batchSize: 1, batchInterval: geminiPause() } };
-    knoten.parameters.options = knoten.parameters.options || {};
-    if (JSON.stringify(knoten.parameters.options.batching) !== JSON.stringify(takt)) {
-      knoten.parameters.options.batching = takt;
-      geaendert = true;
-    }
+      const takt = { batch: { batchSize: 1, batchInterval: geminiPause() } };
+      knoten.parameters.options = knoten.parameters.options || {};
+      if (JSON.stringify(knoten.parameters.options.batching) !== JSON.stringify(takt)) {
+        knoten.parameters.options.batching = takt;
+        geaendert = true;
+      }
 
-    // Und wenn Google doch einmal abweist: kurz warten und es noch ein paar Mal
-    // versuchen, statt den ganzen Lauf mit hundert Mails abzubrechen.
-    for (const [feld, wert] of [['retryOnFail', true], ['maxTries', 5], ['waitBetweenTries', 5000]]) {
-      if (knoten[feld] !== wert) { knoten[feld] = wert; geaendert = true; }
+      for (const [feld, wert] of [['retryOnFail', true], ['maxTries', 5], ['waitBetweenTries', 5000]]) {
+        if (knoten[feld] !== wert) { knoten[feld] = wert; geaendert = true; }
+      }
     }
   }
   return geaendert;

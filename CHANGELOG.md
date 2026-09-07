@@ -1,6 +1,19 @@
 # Changelog — Mail-Panel
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
+## [4.0.0.0] - 2026-09-07 (Build 127) — *Ollama Integration*
+
+### Feature: Lokale KI über Ollama
+- Integration von Ollama als vollständige Alternative zu Google Gemini für alle Klassifizierungs-Workflows.
+- Neuer `ollama` Service in der `docker-compose.yml`.
+- UI-Schalter in den Einstellungen hinzugefügt, um zwischen Gemini und lokalen Modellen (z.B. llama3.1) zu wechseln.
+- Workflow-Patcher und Backend-Klassifizierer erweitert, um URLs, Header und JSON-Strukturen dynamisch auf Ollama umzustellen, wenn dies gewünscht ist. Künstliche Wartezeiten und Rate-Limits werden bei lokalen Modellen übersprungen.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- DB-Migrationen: Einstellungen um die Felder `ki_anbieter`, `ollama_url` und `ollama_modell` erweitert (werden von SQLite dynamisch abgefangen).
+- n8n-Workflow-Kompatibilität: Vorhandene Workflows werden automatisch vom Patcher angepasst. Kein manueller Import notwendig.
+- Neustart-/Session-Verhalten: Einmaliger Neustart der Container (`docker compose up -d`) notwendig, um den neuen `ollama`-Container zu starten.
+
 ## [3.14.3.1] - 2026-09-07 (Build 126) — *Gemini Limits und fehlender Text bei Anhängen behoben*
 
 ### Behoben: Rate-Limit bei Gemini durch falsches Modell

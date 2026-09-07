@@ -13,6 +13,9 @@ const FELDER = {
   safebrowsing_api_key: { env: 'SAFEBROWSING_API_KEY', geheim: true },
   // KI und Benachrichtigung: Das Panel legt daraus die Credentials in n8n an
   // (siehe workflowPatcher.kiUndBenachrichtigungenSynchronisieren).
+  ki_anbieter:          { env: 'KI_ANBIETER', geheim: false, standard: 'gemini' },
+  ollama_url:           { env: 'OLLAMA_URL', geheim: false, standard: 'http://ollama:11434' },
+  ollama_modell:        { env: 'OLLAMA_MODELL', geheim: false, standard: 'llama3.1' },
   gemini_api_key:       { env: 'GEMINI_API_KEY', geheim: true },
   // Wie viele KI-Einordnungen pro Tag hoechstens? 0/leer = kein Deckel.
   // Schuetzt das Gemini-Tageslimit, wenn ein grosser Altbestand sortiert wird.
