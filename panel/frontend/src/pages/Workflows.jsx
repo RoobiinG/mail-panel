@@ -53,12 +53,9 @@ const MODUS = {
 // was zu tun ist. Die vier Meldungen hier sind die, die im Betrieb wirklich
 // vorkommen; alles andere bleibt unkommentiert stehen.
 const ERKLAERUNGEN = [
-  [/prepayment credits are depleted/i,
-    'Dein aufgeladenes Guthaben (Prepayment) in der Google Cloud ist aufgebraucht. '
-    + 'Bitte lade in AI Studio neues Guthaben auf, damit die Workflows weiterlaufen können.'],
   [/too many requests|rate limit|resource.?exhausted|\b429\b/i,
     'Google hat abgewiesen. Zwei Möglichkeiten: das Minutenlimit — dann hilft eine längere '
-    + 'Pause unter Einstellungen → KI — oder das Tageskontingent, dann geht es '
+    + 'Pause unter Einstellungen → KI — oder das Tageskontingent des Gratis-Tarifs, dann geht es '
     + 'morgen weiter. Setze das KI-Tagesbudget so, dass das Panel vorher stoppt: Ein Lauf, der '
     + 'sauber endet, ist besser als einer, der mittendrin abbricht.'],
   [/credential with id .* does not exist|credentials not found|missing credential/i,
