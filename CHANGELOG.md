@@ -2,6 +2,25 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [3.13.5.0] - 2026-09-07 (Build 116) — *Was Google wirklich antwortet*
+
+### Neu: Die ungekürzte Antwort, statt des ersten Satzes
+- „The service is receiving too many requests from you" sagt **nicht**, welches Limit gemeint
+  ist. Das steht im Antwortrumpf: `quotaId` (Tag oder Minute), `limit`, `model`. Das Panel hat
+  ihn bisher weggeworfen — und damit blieb einen Tag lang nur Raten, während Googles eigenes
+  Dashboard weit unter jeder Grenze stand.
+- In der Laufansicht steht jetzt bei jedem gescheiterten Knoten **„Vollständige Antwort
+  anzeigen"** samt HTTP-Code.
+
+### Neu: „Eine Anfrage stellen" unter *Einstellungen → KI*
+- Ein Knopf, der genau **eine** echte Anfrage mit dem aktiven Modell schickt und zeigt, was
+  zurückkommt — bei einer Abweisung mit Kontingent-Kennung, Grenzwert und Modell. Der kürzeste
+  Weg von „es scheitert" zu „deshalb", ohne auf den nächsten Workflow-Lauf zu warten.
+
+### Behoben: Der Gemini-Verbindungstest hängte den Schlüssel an die URL
+- `?key=…` landet in Protokollen, Fehlerberichten und Verläufen. Er geht jetzt als Kopfzeile,
+  wie überall sonst im Panel.
+
 ## [3.13.4.0] - 2026-09-07 (Build 115) — *Die Sicherung sagt endlich, was sie tut*
 
 ### Behoben: „Lauf fehlgeschlagen", während er in Wahrheit weiterlief

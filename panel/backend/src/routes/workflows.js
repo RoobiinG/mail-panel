@@ -164,11 +164,34 @@ router.get('/lauf/:id', async (req, res) => {
     if (typeof daten === 'string') { try { daten = JSON.parse(daten); } catch { daten = null; } }
     const runData = daten?.resultData?.runData || {};
 
+    // Der erste Satz einer Fehlermeldung reicht selten.
+    //
+    // „The service is receiving too many requests from you" sagt nichts darüber,
+    // WELCHES Limit gemeint ist — Google schreibt das in den Antwortrumpf:
+    // quotaId, limit, model. Ohne den steht man vor der Frage, ob das Tages-
+    // oder das Minutenlimit gemeint war, ob überhaupt ein Kontingent gemeint war
+    // oder ob der Schlüssel zu einem anderen Projekt gehört. Also sammeln wir
+    // alle Stellen ein, an denen n8n den Rumpf ablegt.
+    const volltext = (e) => {
+      if (!e) return null;
+      const teile = [
+        e.message,
+        e.description,
+        // Bei HTTP-Knoten hängt die Antwort von Google hier.
+        typeof e.context?.data === 'string' ? e.context.data : JSON.stringify(e.context?.data ?? null),
+        typeof e.cause?.error === 'string' ? e.cause.error : JSON.stringify(e.cause?.error ?? null),
+      ].filter((t) => t && t !== 'null');
+      return [...new Set(teile)].join('\n').slice(0, 4000) || null;
+    };
+
     const knoten = Object.entries(runData).map(([name, laeufe]) => {
       const l = laeufe[0] || {};
       return {
         name,
         fehler: l.error ? String(l.error.message || l.error).slice(0, 500) : null,
+        // Die ungekürzte Fassung — die Oberfläche zeigt sie auf Wunsch.
+        fehlerVoll: volltext(l.error),
+        httpCode: l.error?.httpCode ?? l.error?.context?.httpCode ?? null,
         items: l.error ? 0 : (l.data?.main?.[0]?.length ?? 0),
       };
     });

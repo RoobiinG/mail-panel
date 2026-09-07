@@ -140,6 +140,51 @@ async function verfuegbare() {
   }
 }
 
+// ─── Was sagt Google wirklich? ───────────────────────────────────────────────
+//
+// Eine einzige, winzige Anfrage — und die Antwort ungekürzt zurück. Gebaut nach
+// einem Tag Ratespiel: Die Workflows scheiterten an „The service is receiving
+// too many requests from you", während das Google-Dashboard weit unter jedem
+// Limit stand. Der erste Satz einer Fehlermeldung sagt eben nicht, WELCHES
+// Kontingent gemeint ist; das steht im Antwortrumpf (quotaId, limit, model).
+//
+// Kostet eine Anfrage. Die wird auch vermerkt, damit die Zählung stimmt.
+async function pruefen() {
+  const key = settings.hole('gemini_api_key');
+  if (!key) return { ok: false, status: 0, fehler: 'Kein Gemini-Schlüssel hinterlegt.' };
+
+  const modell = aktiv();
+  const start = Date.now();
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${modell}:generateContent`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: 'Antworte nur mit: ok' }] }],
+          generationConfig: { maxOutputTokens: 8 },
+        }),
+        signal: AbortSignal.timeout(20000),
+      },
+    );
+    const rumpf = (await res.text()).slice(0, 4000);
+    try { require('./budget').ausgabeMerken(1); } catch { /* egal */ }
+
+    return {
+      ok: res.ok,
+      status: res.status,
+      modell,
+      dauerMs: Date.now() - start,
+      // Ungekürzt, damit man quotaId, limit und model wirklich sieht.
+      antwort: rumpf,
+      gelesen: require('./kiKontingent').limitAusMeldung(rumpf),
+    };
+  } catch (err) {
+    return { ok: false, status: 0, modell, fehler: err.message, dauerMs: Date.now() - start };
+  }
+}
+
 /** Für die Anzeige im Panel. */
 function stand() {
   return {
@@ -153,5 +198,5 @@ function stand() {
 
 module.exports = {
   STANDARD, aktiv, primaer, ersatz, aufErsatz, beiAbweisung, taeglichPruefen, stand,
-  verfuegbare, listeVergessen,
+  verfuegbare, listeVergessen, pruefen,
 };

@@ -314,6 +314,25 @@ export default function Einstellungen() {
   // leere Auswahlliste schlimmer als gar keine.
   const [modelle, setModelle] = useState(null);
   const [modellFehler, setModellFehler] = useState('');
+  const [kiTest, setKiTest] = useState('');
+
+  const kiTesten = async () => {
+    setKiTest('laeuft');
+    try {
+      const { data } = await api.post('/einstellungen/ki-test');
+      const kopf = data.ok
+        ? `HTTP ${data.status} — in Ordnung (${data.modell}, ${data.dauerMs} ms)`
+        : `HTTP ${data.status || '—'} — abgewiesen (${data.modell || '?'}, ${data.dauerMs ?? '?'} ms)`;
+      const gelesen = data.gelesen && (data.gelesen.limit || data.gelesen.proMinute)
+        ? `\nGelesen: ${data.gelesen.proMinute ? 'Minutenlimit' : 'Tageslimit'}`
+          + (data.gelesen.limit ? `, Grenze ${data.gelesen.limit}` : '')
+          + (data.gelesen.modell ? `, Modell ${data.gelesen.modell}` : '')
+        : '';
+      setKiTest(`${kopf}${gelesen}\n\n${data.antwort || data.fehler || ''}`);
+    } catch (err) {
+      setKiTest(`Fehlgeschlagen: ${err.response?.data?.error || err.message}`);
+    }
+  };
 
   useEffect(() => {
     loadPasskeys();
@@ -584,6 +603,29 @@ export default function Einstellungen() {
               <input type="number" min="1000" max="60000" step="500" value={settings.gemini_pause_ms}
                 onChange={e => set('gemini_pause_ms', e.target.value)} className={inputCls} />
             </div>
+            {/* Der kürzeste Weg von „es scheitert" zu „deshalb".
+                „The service is receiving too many requests from you" sagt nicht,
+                WELCHES Limit gemeint ist — das steht im Antwortrumpf. Eine
+                einzige echte Anfrage holt ihn. */}
+            <div className="space-y-1 pt-2 border-t border-panel-border">
+              <label className="block text-xs text-panel-muted">Antwort von Google ansehen</label>
+              <p className="text-[10px] text-panel-muted/60">
+                Stellt <span className="text-panel-text">eine</span> echte Anfrage mit dem aktiven
+                Modell und zeigt, was Google zurückgibt — bei einer Abweisung samt Kontingent-Kennung,
+                Grenzwert und Modell. Genau das, was in der Fehlermeldung eines Workflows fehlt.
+              </p>
+              <button onClick={kiTesten} disabled={kiTest === 'laeuft'}
+                className="btn !py-1 !px-3 text-xs flex items-center gap-1">
+                <TestTube2 size={13} />
+                {kiTest === 'laeuft' ? 'Frage Google …' : 'Eine Anfrage stellen'}
+              </button>
+              {kiTest && kiTest !== 'laeuft' && (
+                <pre className="mt-2 text-[10px] whitespace-pre-wrap break-all bg-panel-surface border border-panel-border rounded-md p-2 max-h-64 overflow-auto">
+                  {kiTest}
+                </pre>
+              )}
+            </div>
+
             <SpeichernBtn onSpeichern={() => speichern('ki')} meldung={meldung.ki} />
           </Card>
 

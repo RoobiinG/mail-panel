@@ -120,3 +120,48 @@ describe('Der Lauf im Detail', () => {
     assert.equal(json.dauerMs, null);
   });
 });
+
+// "The service is receiving too many requests from you" sagt nicht, WELCHES
+// Limit gemeint ist. Das steht im Antwortrumpf: quotaId, limit, model. Einen
+// Tag lang wurde deshalb geraten, ob Tages- oder Minutenlimit — waehrend
+// Googles Dashboard weit unter jeder Grenze stand.
+describe('Die ungekuerzte Antwort von Google', () => {
+  test('Rumpf aus dem HTTP-Knoten kommt mit', async () => {
+    antwortDetail = {
+      id: '3', status: 'error', startedAt: '2026-09-07T12:00:00.000Z',
+      stoppedAt: '2026-09-07T12:00:21.000Z',
+      data: {
+        resultData: {
+          runData: {
+            'Gemini klassifizieren': [{
+              error: {
+                message: 'The service is receiving too many requests from you',
+                httpCode: '429',
+                context: {
+                  data: '{"error":{"code":429,"details":[{"quotaId":'
+                    + '"GenerateRequestsPerDayPerProjectPerModel-FreeTier","quotaValue":"500"}]}}',
+                },
+              },
+            }],
+          },
+        },
+      },
+    };
+    const { json } = await anfrage('/api/workflows/lauf/3');
+    const k = json.knoten[0];
+    assert.equal(k.httpCode, '429');
+    assert.match(k.fehlerVoll, /quotaId/, 'ohne den Rumpf bleibt nur Raten');
+    assert.match(k.fehlerVoll, /PerDay/);
+    assert.match(k.fehlerVoll, /too many requests/, 'die Kurzfassung gehoert auch dazu');
+  });
+
+  test('ohne Rumpf bleibt es bei dem, was da ist', async () => {
+    antwortDetail = {
+      id: '4', status: 'error', startedAt: null, stoppedAt: null,
+      data: { resultData: { runData: { X: [{ error: { message: 'Kaputt' } }] } } },
+    };
+    const { json } = await anfrage('/api/workflows/lauf/4');
+    assert.equal(json.knoten[0].fehlerVoll, 'Kaputt');
+    assert.equal(json.knoten[0].httpCode, null);
+  });
+});

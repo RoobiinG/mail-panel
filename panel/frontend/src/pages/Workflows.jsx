@@ -207,14 +207,30 @@ function Einzelheiten({ id }) {
               ) : (
                 <ul className="space-y-1">
                   {(lauf.knoten || []).map((k) => (
-                    <li key={k.name} className="flex gap-2">
-                      <span className={k.fehler ? 'text-panel-red' : 'text-emerald-500'}>
-                        {k.fehler ? '✕' : '✓'}
-                      </span>
-                      <span className="text-panel-text">{k.name}</span>
-                      <span className="text-panel-muted">
-                        {k.fehler ? k.fehler : `${k.items} Element(e)`}
-                      </span>
+                    <li key={k.name}>
+                      <div className="flex gap-2">
+                        <span className={k.fehler ? 'text-panel-red' : 'text-emerald-500'}>
+                          {k.fehler ? '✕' : '✓'}
+                        </span>
+                        <span className="text-panel-text">{k.name}</span>
+                        <span className="text-panel-muted">
+                          {k.fehler ? k.fehler : `${k.items} Element(e)`}
+                          {k.httpCode ? ` (HTTP ${k.httpCode})` : ''}
+                        </span>
+                      </div>
+                      {/* Der erste Satz sagt selten, woran es lag. „too many
+                          requests" nennt nicht, WELCHES Limit gemeint war — das
+                          steht im Antwortrumpf, und den gibt es hier auf Klick. */}
+                      {k.fehlerVoll && k.fehlerVoll !== k.fehler && (
+                        <details className="ml-6 mt-1">
+                          <summary className="text-[11px] text-panel-muted cursor-pointer hover:text-panel-text">
+                            Vollständige Antwort anzeigen
+                          </summary>
+                          <pre className="mt-1 text-[10px] whitespace-pre-wrap break-all bg-panel-bg/60 border border-panel-border rounded p-2 max-h-64 overflow-auto">
+                            {k.fehlerVoll}
+                          </pre>
+                        </details>
+                      )}
                     </li>
                   ))}
                 </ul>

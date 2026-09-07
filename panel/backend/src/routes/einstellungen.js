@@ -42,6 +42,14 @@ router.get('/ki-modelle', async (req, res) => {
   res.json(await kiModell.verfuegbare());
 });
 
+// POST /api/einstellungen/ki-test — eine einzige echte Anfrage an Gemini.
+//
+// Der kuerzeste Weg von "es scheitert" zu "deshalb": Die Antwort kommt
+// ungekuerzt zurueck, samt quotaId, limit und model. Kostet eine Anfrage.
+router.post('/ki-test', async (req, res) => {
+  res.json(await kiModell.pruefen());
+});
+
 router.put('/', (req, res) => {
   const update = db.prepare(`
     INSERT INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
@@ -142,9 +150,12 @@ router.post('/test/:dienst', async (req, res) => {
       // Minimaler API-Call: listet Modelle auf (keine Tokens verbraucht)
       const apiKey = settings.hole('gemini_api_key');
       if (!apiKey) throw new Error('Kein Gemini-API-Key gesetzt.');
+      // Der Schlüssel geht als Kopfzeile, nicht als URL-Parameter: Eine URL
+      // steht in Protokollen und Fehlerberichten — ein Geheimnis hat dort
+      // nichts verloren.
       const r = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models?pageSize=1&key=${encodeURIComponent(apiKey)}`,
-        { signal: AbortSignal.timeout(10000) }
+        'https://generativelanguage.googleapis.com/v1beta/models?pageSize=1',
+        { headers: { 'x-goog-api-key': apiKey }, signal: AbortSignal.timeout(10000) }
       );
       const body = await r.json();
       if (!r.ok) throw new Error(body.error?.message || `Gemini antwortete mit HTTP ${r.status}`);
