@@ -44,12 +44,12 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ contents: [{ parts: [{ text: String($json.promptText || '') }] }], generationConfig: { responseMimeType: 'application/json', temperature: 0.1 } }) }}",
+        "jsonBody": "={{ JSON.stringify({ contents: [{ parts: [{ text: String($('Prüfung auswerten').item.json.promptText || '') }] }], generationConfig: { responseMimeType: 'application/json', temperature: 0.1 } }) }}",
         "options": {
           "batching": {
             "batch": {

@@ -1,6 +1,21 @@
 # Changelog — Mail-Panel
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
+## [3.14.3.1] - 2026-09-07 (Build 126) — *Gemini Limits und fehlender Text bei Anhängen behoben*
+
+### Behoben: Rate-Limit bei Gemini durch falsches Modell
+- Das verwendete Gemini-Modell in den Workflows `01`, `02` und `04` stand fälschlicherweise auf `gemini-3.5-flash-lite`, einem kostenpflichtigen Modell, wodurch Rate-Limits und Fehlermeldungen wegen aufgebrauchten Guthabens ("prepayment credits depleted") auftraten und der Workflow sich aufhängte.
+- Das Modell wurde wieder auf das kostenlose `gemini-2.5-flash-lite` zurückgesetzt, welches innerhalb der Free-Tier-Limits reibungslos läuft.
+
+### Behoben: E-Mails mit Anhängen verloren ihren Inhalt vor der Klassifizierung
+- Der HTTP-Knoten `Anhänge scannen` ersetzte in n8n das komplette Item, sodass das vorher generierte Feld `promptText` verschwand. 
+- Für Gemini wurde der Text deshalb als leer übertragen, wenn eine Mail einen (sauberen) Anhang besaß, wodurch diese Mails nicht korrekt geprüft werden konnten.
+- Der Gemini-Knoten holt sich nun den Prompt-Text sicher über `$('Prüfung auswerten').item.json.promptText`, womit der Textverlust behoben ist.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- DB-Migrationen: Keine.
+- n8n-Workflow-Kompatibilität: Die Workflows `01-inbox-triage`, `02-daily-digest` und `04-bestand-triage` wurden angepasst. Sie müssen im n8n-Backend neu importiert oder gepatcht werden, damit die Änderungen greifen.
+- Neustart-/Session-Verhalten: Keine Änderungen.
 
 ## [3.14.3.0] - 2026-09-07 (Build 125) — *Ein gescheiterter Virenscan sah aus wie ein sauberer*
 
