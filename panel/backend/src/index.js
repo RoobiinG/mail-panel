@@ -136,6 +136,11 @@ app.use('/api/logs', auth, rechtErforderlich('logs'), logsRoutes);
 // Interne Endpunkte fuer n8n — eigener Shared-Secret-Schutz statt JWT
 app.use('/api/internal', internalAuth, require('./routes/internal'));
 
+app.use('/api/statistik', auth, require('./routes/statistik'));
+
+// Paste (verschlüsselte Logs) - enthält öffentliche Abrufe und geschütztes Erstellen
+app.use('/api/paste', require('./routes/paste'));
+
 // ─── Frontend (Vite-Build) ───────────────────────────────────────────────────
 const distPfad = path.resolve(__dirname, '../../frontend/dist');
 app.use(express.static(distPfad));

@@ -277,6 +277,7 @@ const DIENSTE_TESTS = [
   { id: 'n8n',       label: 'n8n-API' },
   { id: 'mailcow',   label: 'Mailcow-API' },
   { id: 'gemini',    label: 'Gemini-API (KI-Klassifizierung)' },
+  { id: 'ollama',    label: 'Ollama-API (Lokale KI)' },
   { id: 'google',    label: 'Google-Kalender (OAuth2)' },
   { id: 'clamav',    label: 'ClamAV (clamd)' },
   { id: 'unbound',   label: 'unbound (DNSBL-Resolver)' },

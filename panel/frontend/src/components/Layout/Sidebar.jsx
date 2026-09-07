@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Mail, ShieldAlert, ListChecks, Newspaper, Filter,
   Workflow, FolderInput, Settings, Users, FileWarning,
-  ChevronLeft, ChevronRight, Inbox, HardDriveDownload,
+  ChevronLeft, ChevronRight, Inbox, HardDriveDownload, BarChart3,
 } from 'lucide-react';
 import { angemeldeterBenutzer } from '../../lib/auth';
 
@@ -11,6 +11,7 @@ import { angemeldeterBenutzer } from '../../lib/auth';
 export const navItems = [
   { section: 'Übersicht' },
   { to: '/', icon: LayoutDashboard, label: 'Dashboard', id: 'dashboard', exakt: true },
+  { to: '/statistik', icon: BarChart3, label: 'Statistik', id: 'dashboard' },
 
   { section: 'Postfächer' },
   { to: '/konten',      icon: Mail,        label: 'Konten',     id: 'konten' },

@@ -1,6 +1,23 @@
 # Changelog — Mail-Panel
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
+## [4.1.0.0] - 2026-09-07 (Build 129) — *Statistiken & Zero-Knowledge Logs*
+
+### Feature: Statistik-Dashboard
+- Neue Statistik-Übersichtsseite (`/statistik`) mit Balken- und Kuchendiagrammen.
+- Visuelle Aufbereitung von KI-Klassifizierungen, Unbekannten Sendern und Bestands-Erledigungen pro Postfach.
+
+### Feature: Erweiterte Logs
+- "Link erstellen" Funktion für Panel-Logs: Die ausgewählten Logs werden lokal im Browser via AES-GCM verschlüsselt und über einen sicheren Link (`#key=...`) geteilt. Zero-Knowledge-Prinzip, analog zum Überwachungs-Panel.
+
+### Feature: Ollama-Verbindungstest
+- In den Einstellungen unter "Dienste" lässt sich nun die Verbindung zum konfigurierten lokalen Ollama-Server testen.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- DB-Migrationen: Neue Tabelle `pastes` hinzugefügt für verschlüsselte Logs (wird automatisch angelegt).
+- n8n-Workflow-Kompatibilität: Keine.
+- Neustart-/Session-Verhalten: Keine.
+
 ## [4.0.0.1] - 2026-09-07 (Build 128) — *Vite Build Fehler behoben*
 
 ### Behoben: Syntax-Fehler in den Einstellungen

@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Trash2, RefreshCw, ChevronDown, ChevronUp,
   AlertCircle, Info, TriangleAlert,
-  Copy, Check, Square, CheckSquare,
+  Copy, Check, Square, CheckSquare, Link,
 } from 'lucide-react';
 import api from '../api';
 import { useMelden } from '../components/ui/Meldungen';
@@ -259,8 +259,16 @@ export default function Logs() {
 
   const [kopiert, setKopiert] = useState(false);
   const auswahlKopieren = () => {
+    const text = getTextToCopy();
+    navigator.clipboard.writeText(text).then(() => {
+      setKopiert(true);
+      setTimeout(() => setKopiert(false), 2000);
+    });
+  };
+
+  const getTextToCopy = () => {
     const ausgewLogs = logs.filter(l => ausgewaehlt.has(l.id));
-    const text = ausgewLogs.map(log => {
+    return ausgewLogs.map(log => {
       const msg = log.message || log.nachricht || '';
       const src = log.source  || log.quelle   || '—';
       const url = log.url     || log.request_url || null;
@@ -272,10 +280,54 @@ export default function Logs() {
         ...(log.stack ? ['', log.stack] : []),
       ].join('\n');
     }).join('\n\n─────────────────────────\n\n');
-    navigator.clipboard.writeText(text).then(() => {
-      setKopiert(true);
-      setTimeout(() => setKopiert(false), 2000);
-    });
+  };
+
+  const [linkErstellt, setLinkErstellt] = useState(false);
+  const auswahlLinkErstellen = async () => {
+    try {
+      const text = getTextToCopy();
+      
+      // AES-GCM Verschlüsselung lokal im Browser
+      const key = await window.crypto.subtle.generateKey(
+        { name: 'AES-GCM', length: 256 },
+        true,
+        ['encrypt', 'decrypt']
+      );
+      
+      const iv = window.crypto.getRandomValues(new Uint8Array(12));
+      const encodedText = new TextEncoder().encode(text);
+      
+      const encrypted = await window.crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv },
+        key,
+        encodedText
+      );
+      
+      // IV und Ciphertext (inkl. Auth Tag) zusammenfügen
+      const payloadBytes = new Uint8Array(iv.length + encrypted.byteLength);
+      payloadBytes.set(iv, 0);
+      payloadBytes.set(new Uint8Array(encrypted), iv.length);
+      
+      const payloadBase64 = btoa(String.fromCharCode(...payloadBytes));
+      
+      // Schlüssel exportieren (Hex)
+      const rawKey = await window.crypto.subtle.exportKey('raw', key);
+      const hexKey = Array.from(new Uint8Array(rawKey))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+        
+      // Ans Backend senden
+      const res = await api.post('/api/paste', { payload: payloadBase64 });
+      
+      // Link generieren und kopieren
+      const link = `${window.location.origin}/paste/${res.data.id}#key=${hexKey}`;
+      await navigator.clipboard.writeText(link);
+      
+      setLinkErstellt(true);
+      setTimeout(() => setLinkErstellt(false), 3000);
+    } catch (err) {
+      alert('Fehler beim Erstellen des Links: ' + err.message);
+    }
   };
 
   // ── Alle löschen ─────────────────────────────────────────────────────────────
@@ -371,6 +423,15 @@ export default function Logs() {
               {kopiert
                 ? <><Check size={11} className="text-panel-accent" /><span>Kopiert!</span></>
                 : <><Copy  size={11} /><span>Kopieren</span></>
+              }
+            </button>
+            <button
+              onClick={auswahlLinkErstellen}
+              className="flex items-center gap-1 text-[11px] px-2 py-1 rounded border border-panel-accent/30 hover:bg-panel-accent/20 transition-colors"
+            >
+              {linkErstellt
+                ? <><Check size={11} className="text-panel-accent" /><span>Link kopiert!</span></>
+                : <><Link  size={11} /><span>Link erstellen</span></>
               }
             </button>
             <button

@@ -161,6 +161,14 @@ router.post('/test/:dienst', async (req, res) => {
       if (!r.ok) throw new Error(body.error?.message || `Gemini antwortete mit HTTP ${r.status}`);
       ergebnis = { ok: true, hinweis: `Verbunden — ${(body.models?.length ?? 0)} Modell(e) gefunden` };
     }
+    else if (dienst === 'ollama') {
+      const url = settings.hole('ollama_url');
+      if (!url) throw new Error('Keine Ollama Host-URL gesetzt.');
+      const r = await fetch(url.replace(/\/$/, '') + '/api/tags', { signal: AbortSignal.timeout(5000) });
+      const body = await r.json();
+      if (!r.ok) throw new Error(`Ollama antwortete mit HTTP ${r.status}`);
+      ergebnis = { ok: true, hinweis: `Verbunden — ${(body.models?.length ?? 0)} Modell(e) geladen` };
+    }
     else if (dienst === 'google') {
       // Frischen Access-Token holen: beweist, dass Refresh-Token gültig ist
       const token = await google.zugriffsToken();

@@ -103,6 +103,13 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_plogs_created ON panel_logs(created_at);
   CREATE INDEX IF NOT EXISTS idx_plogs_level ON panel_logs(level);
 
+  -- Verschlüsselte geteilte Logs (Zero-Knowledge)
+  CREATE TABLE IF NOT EXISTS pastes (
+    id TEXT PRIMARY KEY,
+    payload TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
   -- Rollen: Admin fest, weitere frei erstellbar
   CREATE TABLE IF NOT EXISTS rollen (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

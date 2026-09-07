@@ -17,6 +17,9 @@ import Logs from './pages/Logs';
 import Benutzer from './pages/Benutzer';
 import Sortierung from './pages/Sortierung';
 
+import Statistik from './pages/Statistik';
+import Paste from './pages/Paste';
+
 // Schuetzt alle Panel-Seiten. Geprueft wird nicht nur, OB ein Token da ist,
 // sondern auch, ob es noch gilt — sonst landet man nach Ablauf auf einem
 // Dashboard, das nichts mehr laden kann, statt auf der Anmeldemaske.
@@ -33,6 +36,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/paste/:id" element={<Paste />} />
       <Route
         path="/"
         element={
@@ -42,6 +46,7 @@ export default function App() {
         }
       >
         <Route index element={<Dashboard />} />
+        <Route path="statistik" element={<Statistik />} />
         <Route path="konten" element={<Konten />} />
         <Route path="quarantaene" element={<Quarantaene />} />
         <Route path="listen" element={<Listen />} />
