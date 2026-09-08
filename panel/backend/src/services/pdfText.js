@@ -65,30 +65,47 @@ function glaetten(text) {
  *   Fehler, sondern eine Eigenschaft des Dokuments — der Aufrufer entscheidet
  *   dann per Heuristik.
  */
-async function textAus(base64) {
+async function textAus(base64, opt = {}) {
   const leer = { ok: false, text: '', seiten: 0, grund: '' };
   const roh = String(base64 || '').replace(/^data:[^,]*,/, '');
   if (!roh) return { ...leer, grund: 'kein PDF mitgeliefert' };
   if (roh.length > MAX_BASE64) return { ...leer, grund: 'PDF zu groß' };
 
+  const puffer = Buffer.from(roh, 'base64');
   const lesen = ladeParser();
   if (!lesen) return { ...leer, grund: 'Textextraktion nicht verfügbar' };
 
+  // Erst die Textebene: kostet Millisekunden und ist bei einem digitalen PDF
+  // exakt, wo die Texterkennung nur schätzt.
+  let seiten = 0;
   try {
-    const daten = await lesen(Buffer.from(roh, 'base64'), { max: MAX_SEITEN });
+    const daten = await lesen(puffer, { max: MAX_SEITEN });
+    seiten = Number(daten?.numpages) || 0;
     const text = glaetten(daten?.text).slice(0, MAX_ZEICHEN);
-    if (!text) {
-      // Der häufigste Fall dahinter: ein eingescanntes PDF. Dafür bräuchte es
-      // OCR (tesseract), und das ist eine eigene Entscheidung — 50 MB im Abbild
-      // und auf dieser CPU nichts, was nebenbei läuft.
-      return { ...leer, seiten: Number(daten?.numpages) || 0, grund: 'keine Textebene (Scan?)' };
-    }
-    return { ok: true, text, seiten: Number(daten?.numpages) || 0, grund: '' };
+    if (text) return { ok: true, text, seiten, quelle: 'textebene', grund: '' };
   } catch (err) {
     // Ein kaputtes oder verschlüsseltes PDF ist Alltag bei Maileingang und kein
-    // Grund für einen Fehlerlauf.
-    return { ...leer, grund: `nicht lesbar: ${String(err.message || err).slice(0, 120)}` };
+    // Grund für einen Fehlerlauf. Ein Scan-Versuch lohnt danach trotzdem: Auch
+    // ein PDF, dessen Textebene pdf.js nicht mag, lässt sich oft rendern.
+    if (!opt.ocr) {
+      return { ...leer, grund: `nicht lesbar: ${String(err.message || err).slice(0, 120)}` };
+    }
   }
+
+  // Keine Textebene — der häufigste Fall dahinter ist ein Scan.
+  if (!opt.ocr) return { ...leer, seiten, grund: 'keine Textebene (Scan?)' };
+
+  const erkannt = await require('./ocr').textAus(puffer);
+  if (erkannt.ok) {
+    return {
+      ok: true,
+      text: glaetten(erkannt.text).slice(0, MAX_ZEICHEN),
+      seiten: seiten || erkannt.seiten,
+      quelle: 'texterkennung',
+      grund: '',
+    };
+  }
+  return { ...leer, seiten: seiten || erkannt.seiten, grund: `keine Textebene; ${erkannt.grund}` };
 }
 
 // Nur für die Tests: den Parser austauschen.

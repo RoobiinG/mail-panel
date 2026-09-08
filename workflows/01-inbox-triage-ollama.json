@@ -3,7 +3,7 @@
     "nodes":  [
                   {
                       "parameters":  {
-                                         "content":  "## Inbox-Triage\n\nKlassifiziert neu eintreffende Mails und sortiert sie ein. **Es wird nie gelöscht, nur verschoben.**\n\n**Alles wird im Mail-Panel eingerichtet, nicht hier:**\n1. Konten unter *Konten* anlegen — auch Gmail, GMX oder Web.de laufen als ganz normales\n   IMAP-Konto (bei Anbietern mit Zwei-Faktor-Anmeldung mit einem App-Passwort).\n2. Den Gemini-Schlüssel unter *Einstellungen → KI \u0026 Benachrichtigungen* eintragen.\n3. Auf der Seite *Workflows* auf **Synchronisieren** — danach stehen hier Trigger, Weiche\n   und Verschiebe-Knoten für jedes Konto.\n\nDie Zielordner legt das Panel auf Wunsch selbst an; wer eine eigene Ordnerstruktur hat,\nwählt beim Konto unter *Erweiterte Optionen* die vorhandenen Ordner aus.\n\n**Trockentest:** Erst ein bis zwei Tage nur klassifizieren lassen — dazu die Verbindung\nhinter **Verschieben?** trennen und die Läufe im Panel ansehen.",
+                                         "content":  "## Inbox-Triage\n\nKlassifiziert neu eintreffende Mails und sortiert sie ein. **Es wird nie gelöscht, nur verschoben.**\n\n**Alles wird im Mail-Panel eingerichtet, nicht hier:**\n1. Konten unter *Konten* anlegen — auch Gmail, GMX oder Web.de laufen als ganz normales\n   IMAP-Konto (bei Anbietern mit Zwei-Faktor-Anmeldung mit einem App-Passwort).\n2. Unter *Einstellungen, Reiter KI,* die lokale KI waehlen und ein Modell laden.\n3. Auf der Seite *Workflows* auf **Synchronisieren** — danach stehen hier Trigger, Weiche\n   und Verschiebe-Knoten für jedes Konto.\n\nDie Zielordner legt das Panel auf Wunsch selbst an; wer eine eigene Ordnerstruktur hat,\nwählt beim Konto unter *Erweiterte Optionen* die vorhandenen Ordner aus.\n\n**Trockentest:** Erst ein bis zwei Tage nur klassifizieren lassen — dazu die Verbindung\nhinter **Verschieben?** trennen und die Läufe im Panel ansehen.",
                                          "height":  360,
                                          "width":  440
                                      },
@@ -73,7 +73,7 @@
                   {
                       "parameters":  {
                                          "mode":  "runOnceForEachItem",
-                                         "jsCode":  "// Gemini-Antwort auswerten und den Zielordner bestimmen.\n// Die Panel-Prüfung (Listen, DNSBL) fließt dabei mit ein.\nconst mail = $(\u0027Prüfung auswerten\u0027).item.json;\n\nlet raw = \u0027\u0027;\ntry { raw = $json.response; } catch (e) { /* leer lassen */ }\nraw = String(raw).replace(/```json|```/g, \u0027\u0027).trim();\n\nlet k = { kategorie: \u0027sonstiges\u0027, spam_score: 0, kurzfassung: \u0027\u0027 };\ntry { k = { ...k, ...JSON.parse(raw) }; } catch (e) { /* Fallback: sonstiges */ }\n\n\n// DNSBL-Treffer erhöhen die Bewertung der KI\nconst schwelle = Number(mail.spam_schwellwert) || 0.8;\nconst score = Math.min(1, (Number(k.spam_score) || 0) + (Number(mail.score_aufschlag) || 0));\n\nlet zielordner = null;\nif (score \u003e schwelle \u0026\u0026 !mail.nie_quarantaene) zielordner = mail.folder_spam || \u0027Quarantaene\u0027;\nelse if (k.kategorie === \u0027rechnung\u0027) zielordner = mail.folder_invoices || \u0027Rechnungen\u0027;\nelse if (k.kategorie === \u0027bestellung\u0027) zielordner = mail.folder_orders || \u0027Bestellungen\u0027;\nelse if (k.kategorie === \u0027newsletter\u0027) zielordner = mail.folder_newsletter || \u0027Newsletter\u0027;\n\nreturn {\n  json: {\n    ...mail,\n    kategorie: k.kategorie,\n    spam_score: score,\n    kurzfassung: k.kurzfassung,\n    zielordner,\n  },\n};\n"
+                                         "jsCode":  "// Antwort der KI auswerten und den Zielordner bestimmen.\n// Die Panel-Prüfung (Listen, DNSBL) fließt dabei mit ein.\nconst mail = $(\u0027Prüfung auswerten\u0027).item.json;\n\nlet raw = \u0027\u0027;\ntry { raw = $json.response; } catch (e) { /* leer lassen */ }\nraw = String(raw).replace(/```json|```/g, \u0027\u0027).trim();\n\nlet k = { kategorie: \u0027sonstiges\u0027, spam_score: 0, kurzfassung: \u0027\u0027 };\ntry { k = { ...k, ...JSON.parse(raw) }; } catch (e) { /* Fallback: sonstiges */ }\n\n\n// DNSBL-Treffer erhöhen die Bewertung der KI\nconst schwelle = Number(mail.spam_schwellwert) || 0.8;\nconst score = Math.min(1, (Number(k.spam_score) || 0) + (Number(mail.score_aufschlag) || 0));\n\nlet zielordner = null;\nif (score \u003e schwelle \u0026\u0026 !mail.nie_quarantaene) zielordner = mail.folder_spam || \u0027Quarantaene\u0027;\nelse if (k.kategorie === \u0027rechnung\u0027) zielordner = mail.folder_invoices || \u0027Rechnungen\u0027;\nelse if (k.kategorie === \u0027bestellung\u0027) zielordner = mail.folder_orders || \u0027Bestellungen\u0027;\nelse if (k.kategorie === \u0027newsletter\u0027) zielordner = mail.folder_newsletter || \u0027Newsletter\u0027;\n\nreturn {\n  json: {\n    ...mail,\n    kategorie: k.kategorie,\n    spam_score: score,\n    kurzfassung: k.kurzfassung,\n    zielordner,\n  },\n};\n"
                                      },
                       "id":  "code-parse",
                       "name":  "Antwort parsen",
@@ -534,7 +534,7 @@
                                                          ],
                                                          [
                                                              {
-                                                                 "node":  "Gemini klassifizieren",
+                                                                 "node":  "Ollama klassifizieren",
                                                                  "type":  "main",
                                                                  "index":  0
                                                              }
@@ -552,7 +552,7 @@
                                                              ],
                                                              [
                                                                  {
-                                                                     "node":  "Gemini klassifizieren",
+                                                                     "node":  "Ollama klassifizieren",
                                                                      "type":  "main",
                                                                      "index":  0
                                                                  }

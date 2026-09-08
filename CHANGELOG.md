@@ -2,6 +2,53 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.4.6.0] - 2026-09-08 (Build 153) — *Der KI-Knoten ohne Eingang*
+
+### Bugfix (kritisch): Eine frische Ollama-Installation hätte nie sortiert
+In `01-inbox-triage-ollama.json` und `04-bestand-triage-ollama.json` heißt der KI-Knoten
+`Ollama klassifizieren`. Beide **eingehenden** Kanten zeigten aber weiter auf
+`Gemini klassifizieren` — einen Knoten, den es in diesen Dateien nicht gibt:
+
+```
+"Hat Anhang?"     → { "node": "Gemini klassifizieren" }
+"Virus gefunden?" → { "node": "Gemini klassifizieren" }
+```
+
+Der KI-Knoten hatte damit **gar keinen Eingang**. Kein Patcher-Schritt repariert das, und n8n meldet
+es nicht: Eine Kante ins Leere ist dort einfach eine Kante, die nichts tut. Wer Ollama frisch
+aufgesetzt hätte, bekäme einen Workflow 01, dessen KI nie eine Mail zu sehen bekommt.
+
+Aufgefallen ist es nur, weil eine bestehende Installation aus der Gemini-Zeit stammt und der Knoten
+dort noch so heißt — deshalb lief dort alles.
+
+Der eigentliche Fix ist der Test: **`vorlagen-struktur.test.js`** prüft für *jede* Vorlage, dass
+jede Verbindung auf einen Knoten zeigt, den es gibt, und dass Knotennamen eindeutig sind.
+Verbindungen laufen in n8n über den Namen, nicht über die id — ein umbenannter Knoten ohne
+nachgezogene Kanten ist damit immer ein stiller Abriss.
+
+Dazu: Die Notizzettel in den Ollama-Vorlagen sprachen von „Den Gemini-Schlüssel eintragen" und von
+einer Drosselung, die es bei lokaler KI nicht gibt. Das schickt den Leser in die falsche Richtung.
+
+### Neu: Eingescannte Belege (`services/ocr.js`)
+Build 152 liest die Textebene digitaler PDFs. Ein **Scan** hat keine — dort steht ein Bild. Das war
+die letzte Fähigkeit, für die es noch Gemini brauchte.
+
+`poppler-utils` rendert die Seite, `tesseract-ocr` liest sie. Höchstens 2 Seiten, 200 dpi,
+Graustufen, jeder Aufruf mit Zeitlimit und eigenem Wegwerf-Ordner. Rund 100 MB im Abbild.
+
+Der Preis, ehrlich benannt: Hier laufen zwei Fremdprogramme auf einer Datei, die ein Fremder
+geschickt hat — bei der Textextraktion habe ich mich bewusst **gegen** einen C++-Parser entschieden.
+Der Unterschied ist verteidigbar, aber er gehört genannt: Es läuft nur bei PDFs *ohne* Textebene,
+erst nachdem ClamAV den Anhang gesehen hat, mit `execFile` statt Shell (keine Einschleusung über
+Dateinamen) und mit harten Grenzen.
+
+Abschaltbar über `beleg_ocr_aktiv` (Einstellungen → KI). Fehlen die Programme, sagt das Panel es
+einmal im Log und entscheidet Scans wie bisher per Heuristik.
+
+**Mit Gemini läuft keine Texterkennung** — Gemini bekommt das PDF selbst und liest einen Scan von
+sich aus. Sie dort trotzdem zu starten wären dreißig Sekunden CPU für nichts.
+
+
 ## [4.4.5.0] - 2026-09-08 (Build 152) — *Belege ohne Google*
 
 Der Beleg-Leser schickte das PDF als `inline_data` an Gemini. Das kann nur Gemini — Ollamas

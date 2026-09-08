@@ -164,6 +164,7 @@ function konfiguration() {
     'auto_sync', 'neue_mails_ungelesen', 'spam_schwellwert', 'clamav_aktiv',
     'safebrowsing_aktiv', 'bestand_intervall', 'beleg_lese_tagesbudget',
     'themen_sortierung_aktiv', 'themen_max', 'themen_konfidenz', 'n8n_url',
+    'beleg_ocr_aktiv',
   ];
   const geheim = [
     'gemini_api_key', 'n8n_api_key', 'mailcow_api_key', 'safebrowsing_api_key',

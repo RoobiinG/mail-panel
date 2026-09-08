@@ -3,7 +3,7 @@
     "nodes":  [
                   {
                       "parameters":  {
-                                         "content":  "## Bestands-Triage — für Mails, die SCHON im Postfach liegen\n\nWorkflow 01 reagiert nur auf neu eintreffende Mails. Dieser Workflow arbeitet den vorhandenen\nBestand auf: gleiche Klassifizierung, gleiche Ordner-Logik.\n\n**Benutzung:**\n1. Im Mail-Panel die Konten anlegen und auf der Seite *Workflows* **Synchronisieren** drücken —\n   die Abruf- und Verschiebe-Knoten entstehen dabei von selbst.\n2. Hier manuell starten (Knopf „Execute Workflow\"). Pro Lauf werden je Konto höchstens\n   100 Mails verarbeitet.\n3. So oft wiederholen, bis der Bestand durch ist.\n\n**Anhänge werden mitgeprüft.** Der Abruf-Knoten liefert nur die Namen der Anhänge; die\nDateien holt sich das Panel über die Nachrichten-Nummer selbst und gibt sie an ClamAV weiter.\n\n**Wichtig:**\n- Die Gemini-Aufrufe sind auf eine Anfrage alle vier Sekunden gedrosselt (Free-Tier-Limit).\n  300 Mails brauchen etwa 20 Minuten — das ist normal.\n- Erst mit wenigen Mails testen: in den Abruf-Knoten das Limit auf zum Beispiel 10 stellen.",
+                                         "content":  "## Bestands-Triage — für Mails, die SCHON im Postfach liegen\n\nWorkflow 01 reagiert nur auf neu eintreffende Mails. Dieser Workflow arbeitet den vorhandenen\nBestand auf: gleiche Klassifizierung, gleiche Ordner-Logik.\n\n**Benutzung:**\n1. Im Mail-Panel die Konten anlegen und auf der Seite *Workflows* **Synchronisieren** drücken —\n   die Abruf- und Verschiebe-Knoten entstehen dabei von selbst.\n2. Hier manuell starten (Knopf „Execute Workflow\"). Pro Lauf werden je Konto höchstens\n   100 Mails verarbeitet.\n3. So oft wiederholen, bis der Bestand durch ist.\n\n**Anhänge werden mitgeprüft.** Der Abruf-Knoten liefert nur die Namen der Anhänge; die\nDateien holt sich das Panel über die Nachrichten-Nummer selbst und gibt sie an ClamAV weiter.\n\n**Wichtig:**\n- Die KI-Aufrufe laufen nacheinander, nicht nebeneinander — die lokale KI rechnet auf dieser Maschine.\n  300 Mails brauchen etwa 20 Minuten — das ist normal.\n- Erst mit wenigen Mails testen: in den Abruf-Knoten das Limit auf zum Beispiel 10 stellen.",
                                          "height":  420,
                                          "width":  460
                                      },
@@ -70,7 +70,7 @@
                   {
                       "parameters":  {
                                          "mode":  "runOnceForEachItem",
-                                         "jsCode":  "// Gemini-Antwort auswerten und den Zielordner bestimmen.\n// Die Panel-Prüfung (Listen, DNSBL) fließt dabei mit ein.\nconst mail = $(\u0027Prüfung auswerten\u0027).item.json;\n\nlet raw = \u0027\u0027;\ntry { raw = $json.response; } catch (e) { /* leer lassen */ }\nraw = String(raw).replace(/```json|```/g, \u0027\u0027).trim();\n\nlet k = { kategorie: \u0027sonstiges\u0027, spam_score: 0, kurzfassung: \u0027\u0027 };\ntry { k = { ...k, ...JSON.parse(raw) }; } catch (e) { /* Fallback: sonstiges */ }\n\n\n// DNSBL-Treffer erhöhen die Bewertung der KI\nconst schwelle = Number(mail.spam_schwellwert) || 0.8;\nconst score = Math.min(1, (Number(k.spam_score) || 0) + (Number(mail.score_aufschlag) || 0));\n\nlet zielordner = null;\nif (score \u003e schwelle \u0026\u0026 !mail.nie_quarantaene) zielordner = mail.folder_spam || \u0027Quarantaene\u0027;\nelse if (k.kategorie === \u0027rechnung\u0027) zielordner = mail.folder_invoices || \u0027Rechnungen\u0027;\nelse if (k.kategorie === \u0027bestellung\u0027) zielordner = mail.folder_orders || \u0027Bestellungen\u0027;\nelse if (k.kategorie === \u0027newsletter\u0027) zielordner = mail.folder_newsletter || \u0027Newsletter\u0027;\n\nreturn {\n  json: {\n    ...mail,\n    kategorie: k.kategorie,\n    spam_score: score,\n    kurzfassung: k.kurzfassung,\n    zielordner,\n  },\n};\n"
+                                         "jsCode":  "// Antwort der KI auswerten und den Zielordner bestimmen.\n// Die Panel-Prüfung (Listen, DNSBL) fließt dabei mit ein.\nconst mail = $(\u0027Prüfung auswerten\u0027).item.json;\n\nlet raw = \u0027\u0027;\ntry { raw = $json.response; } catch (e) { /* leer lassen */ }\nraw = String(raw).replace(/```json|```/g, \u0027\u0027).trim();\n\nlet k = { kategorie: \u0027sonstiges\u0027, spam_score: 0, kurzfassung: \u0027\u0027 };\ntry { k = { ...k, ...JSON.parse(raw) }; } catch (e) { /* Fallback: sonstiges */ }\n\n\n// DNSBL-Treffer erhöhen die Bewertung der KI\nconst schwelle = Number(mail.spam_schwellwert) || 0.8;\nconst score = Math.min(1, (Number(k.spam_score) || 0) + (Number(mail.score_aufschlag) || 0));\n\nlet zielordner = null;\nif (score \u003e schwelle \u0026\u0026 !mail.nie_quarantaene) zielordner = mail.folder_spam || \u0027Quarantaene\u0027;\nelse if (k.kategorie === \u0027rechnung\u0027) zielordner = mail.folder_invoices || \u0027Rechnungen\u0027;\nelse if (k.kategorie === \u0027bestellung\u0027) zielordner = mail.folder_orders || \u0027Bestellungen\u0027;\nelse if (k.kategorie === \u0027newsletter\u0027) zielordner = mail.folder_newsletter || \u0027Newsletter\u0027;\n\nreturn {\n  json: {\n    ...mail,\n    kategorie: k.kategorie,\n    spam_score: score,\n    kurzfassung: k.kurzfassung,\n    zielordner,\n  },\n};\n"
                                      },
                       "id":  "code-parse-bestand",
                       "name":  "Antwort parsen",
@@ -538,7 +538,7 @@
                                                          ],
                                                          [
                                                              {
-                                                                 "node":  "Gemini klassifizieren",
+                                                                 "node":  "Ollama klassifizieren",
                                                                  "type":  "main",
                                                                  "index":  0
                                                              }
@@ -556,7 +556,7 @@
                                                              ],
                                                              [
                                                                  {
-                                                                     "node":  "Gemini klassifizieren",
+                                                                     "node":  "Ollama klassifizieren",
                                                                      "type":  "main",
                                                                      "index":  0
                                                                  }

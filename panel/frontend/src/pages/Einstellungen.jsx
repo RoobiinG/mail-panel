@@ -677,6 +677,22 @@ export default function Einstellungen() {
                       disabled={settings.ki_lauf_frist_ms_per_env}
                       onChange={e => set('ki_lauf_frist_ms', e.target.value)} className={inputCls} />
                   </div>
+                  <div className="space-y-1">
+                    <label className="flex items-center gap-2 text-xs text-panel-muted">
+                      <input type="checkbox"
+                        checked={(settings.beleg_ocr_aktiv ?? '1') !== '0'}
+                        disabled={settings.beleg_ocr_aktiv_per_env}
+                        onChange={e => set('beleg_ocr_aktiv', e.target.checked ? '1' : '0')} />
+                      Eingescannte Belege per Texterkennung lesen
+                    </label>
+                    <p className="text-[10px] text-panel-muted/60">
+                      Fast jede Rechnung ist ein digitales PDF — dort steht der Text schon drin und
+                      wird ohne Umweg gelesen. Ein <em>Scan</em> ist ein Bild: Ohne Texterkennung
+                      ist da nichts zu holen. Das ist die letzte Fähigkeit, für die es sonst noch
+                      Gemini bräuchte. Kostet pro Scan einige Sekunden und greift nur, wenn gar
+                      keine Textebene da ist.
+                    </p>
+                  </div>
                   <div className="space-y-1 pt-3 border-t border-panel-border/30">
                     <label className="block text-xs text-panel-muted">Geschwindigkeit messen</label>
                     <p className="text-[10px] text-panel-muted/60">

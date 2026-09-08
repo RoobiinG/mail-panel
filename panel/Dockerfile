@@ -21,7 +21,16 @@ COPY panel/backend/package.json ./
 # su-exec bleibt dauerhaft: Damit gibt das Startskript die Rechte ab.
 # openssl bleibt dauerhaft: Damit erzeugt das Panel beim ersten Start sein
 # eigenes TLS-Zertifikat, wenn keines hinterlegt ist (siehe services/tls.js).
-RUN apk add --no-cache su-exec openssl \
+# poppler-utils und tesseract-ocr bleiben ebenfalls: Damit liest das Panel
+# EINGESCANNTE Belege (services/ocr.js). Ein digitales PDF braucht sie nicht —
+# dort holt services/pdfText.js die Textebene in reinem JavaScript heraus. Ein
+# Scan hat aber keine, und ohne Texterkennung war das die letzte Faehigkeit,
+# fuer die es noch Gemini brauchte.
+#
+# Rund 100 MB im Abbild. Wer sie nicht will, laesst die drei Pakete weg: Das
+# Panel merkt beim ersten Versuch, dass sie fehlen, sagt es einmal im Log und
+# entscheidet Scans wie bisher per Heuristik.
+RUN apk add --no-cache su-exec openssl poppler-utils tesseract-ocr tesseract-ocr-data-deu \
  && apk add --no-cache --virtual .bauwerkzeug python3 make g++ \
  && npm install --omit=dev --no-audit --no-fund \
  && apk del .bauwerkzeug

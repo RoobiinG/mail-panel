@@ -46,6 +46,10 @@ const FELDER = {
   // Eigener Topf, damit das Beleg-Lesen (services/belegLeser.js) nicht das
   // Einordnungs-Budget leersaugt. Ist er voll, wird nur noch per Heuristik abgelegt.
   beleg_lese_tagesbudget: { env: 'BELEG_LESE_TAGESBUDGET', geheim: false, standard: '200' },
+  // Eingescannte Belege per Texterkennung lesen (services/ocr.js)? Greift nur
+  // bei lokaler KI und nur, wenn das PDF gar keine Textebene hat — Gemini liest
+  // einen Scan selbst. Kostet auf einer CPU einige Sekunden je Beleg.
+  beleg_ocr_aktiv:      { env: 'BELEG_OCR_AKTIV', geheim: false, standard: '1' },
   telegram_token:       { env: 'TELEGRAM_TOKEN', geheim: true },
   // Pause zwischen zwei KI-Anfragen in Millisekunden. Der Gratis-Tarif von
   // Google begrenzt nicht nur den Tag, sondern auch die Minute: Ohne Pause

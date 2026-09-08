@@ -42,6 +42,12 @@ function tagesbudget() {
   return Number.isFinite(n) && n > 0 ? n : 0; // 0 = kein Deckel
 }
 
+// Eingescannte Belege per Texterkennung lesen? Kostet auf einer CPU pro Scan
+// einige Sekunden und greift nur, wenn gar keine Textebene da ist.
+function ocrAktiv() {
+  return String(settings.hole('beleg_ocr_aktiv') ?? '1') !== '0';
+}
+
 // Nur echte KI-Lesungen von heute zaehlen gegen das Budget.
 function heuteGelesen() {
   try {
@@ -381,7 +387,12 @@ async function auslesen(eingang = {}) {
   // 3. Textebene herausholen. Kostet keine KI-Anfrage und macht schon die
   //    Heuristik deutlich besser: Rechnungsnummer, Datum und Dokumentart
   //    stehen auf dem Beleg, nicht im Dateinamen.
-  const auszug = await pdfText.textAus(eingang.pdf_base64);
+  //
+  //    Texterkennung nur bei lokaler KI: Gemini bekommt das PDF selbst und
+  //    liest einen Scan von sich aus. Sie dort trotzdem laufen zu lassen waeren
+  //    dreissig Sekunden CPU fuer nichts.
+  const lokal = (settings.hole('ki_anbieter') || 'gemini') === 'ollama';
+  const auszug = await pdfText.textAus(eingang.pdf_base64, { ocr: lokal && ocrAktiv() });
   const text = auszug.ok ? auszug.text : '';
 
   // 4. Deckel voll ⇒ ohne KI entscheiden, jetzt aber mit dem Belegtext.
@@ -393,11 +404,10 @@ async function auslesen(eingang = {}) {
   }
 
   // 5. Von der KI lesen lassen — Gemini das PDF, Ollama den Text.
-  const lokal = (settings.hole('ki_anbieter') || 'gemini') === 'ollama';
   if (lokal && !text) {
-    // Ein Scan ohne Textebene: Dafuer braeuchte es OCR. Das ist ein STABILER
-    // Zustand, kein voruebergehender Fehler — also wird die Entscheidung
-    // gemerkt, sonst liest jeder Lauf dasselbe Dokument neu.
+    // Weder Textebene noch Texterkennung haben etwas geliefert. Das ist ein
+    // STABILER Zustand, kein voruebergehender Fehler — also wird die
+    // Entscheidung gemerkt, sonst liest jeder Lauf dasselbe Dokument neu.
     loggen('info', 'backend:belegLeser',
       `Kein Text im PDF (${auszug.grund || 'unbekannt'}) — mit lokaler KI entscheidet die Heuristik.`);
     const h = heuristik(e, '');
@@ -418,7 +428,7 @@ async function auslesen(eingang = {}) {
 }
 
 module.exports = {
-  auslesen, entscheiden, heuristik, tagesbudget, heuteGelesen, aufraeumen,
+  auslesen, entscheiden, heuristik, tagesbudget, heuteGelesen, aufraeumen, ocrAktiv,
   ausText, datumNormalisieren,
   sauberFirma, firmaAus, sauberAktenzeichen, sauberDatum,
 };

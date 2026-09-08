@@ -297,3 +297,124 @@ describe('Mit lokaler KI entstehen wieder Zeilen in beleg_ablage', () => {
     assert.equal(r.datum, '2026-02-01');
   });
 });
+
+// ─── Texterkennung: der Weg fuer eingescannte Belege ────────────────────────
+//
+// Ein Scan hat keine Textebene — dort steht ein Bild. Das war die letzte
+// Faehigkeit, fuer die es noch Gemini brauchte. pdftoppm und tesseract sind auf
+// dem CI-Laeufer nicht installiert, deshalb wird hier der Baustein
+// ausgetauscht: Geprueft gehoert die Verdrahtung, nicht tesseract.
+describe('Eingescannte Belege', () => {
+  const ocr = require('../src/services/ocr');
+  const echt = ocr.textAus;
+
+  const ocrGibt = (text) => { ocr.textAus = async () => ({ ok: true, text, seiten: 1, grund: '' }); };
+  const ocrScheitert = (grund) => {
+    ocr.textAus = async () => ({ ok: false, text: '', seiten: 0, grund });
+  };
+  const ocrZurueck = () => { ocr.textAus = echt; };
+
+  test('ohne Textebene springt die Texterkennung ein', async () => {
+    parserGibt('');
+    ocrGibt('Rechnungsnummer: RE-2026-0099');
+    try {
+      const r = await pdfText.textAus(einPdf(), { ocr: true });
+      assert.equal(r.ok, true, r.grund);
+      assert.match(r.text, /RE-2026-0099/);
+      assert.equal(r.quelle, 'texterkennung');
+    } finally { ocrZurueck(); }
+  });
+
+  // Die Textebene ist exakt, die Texterkennung schaetzt. Wo es beides gibt,
+  // gewinnt die Textebene — und die Texterkennung wird gar nicht erst gestartet.
+  test('mit Textebene wird die Texterkennung nicht bemüht', async () => {
+    parserGibt('Rechnungsnummer: RE-1');
+    ocr.textAus = async () => { throw new Error('haette nicht laufen duerfen'); };
+    try {
+      const r = await pdfText.textAus(einPdf(), { ocr: true });
+      assert.equal(r.ok, true);
+      assert.equal(r.quelle, 'textebene');
+    } finally { ocrZurueck(); }
+  });
+
+  test('ohne die Option bleibt sie ganz aus', async () => {
+    parserGibt('');
+    ocr.textAus = async () => { throw new Error('haette nicht laufen duerfen'); };
+    try {
+      const r = await pdfText.textAus(einPdf());
+      assert.equal(r.ok, false);
+      assert.match(r.grund, /Textebene|Scan/);
+    } finally { ocrZurueck(); }
+  });
+
+  // Auch ein PDF, dessen Textebene pdf.js nicht mag, laesst sich oft rendern.
+  test('auch nach einem Parser-Fehler wird es noch versucht', async () => {
+    parserWirft('bad XRef entry');
+    ocrGibt('Rechnung 5');
+    try {
+      const r = await pdfText.textAus(einPdf(), { ocr: true });
+      assert.equal(r.ok, true, r.grund);
+      assert.match(r.text, /Rechnung 5/);
+    } finally { ocrZurueck(); }
+  });
+
+  test('fehlt tesseract, wird der Grund genannt statt geworfen', async () => {
+    parserGibt('');
+    ocrScheitert('Texterkennung nicht verfügbar');
+    try {
+      const r = await pdfText.textAus(einPdf(), { ocr: true });
+      assert.equal(r.ok, false);
+      assert.match(r.grund, /nicht verfügbar/);
+    } finally { ocrZurueck(); }
+  });
+
+  test('ohne die Programme meldet sich der Baustein selbst', async () => {
+    ocr._verfuegbarSetzen(false);
+    const r = await ocr.textAus(Buffer.from('%PDF-1.4'));
+    assert.equal(r.ok, false);
+    assert.match(r.grund, /nicht verfügbar/);
+    ocr._verfuegbarSetzen(null);
+  });
+
+  test('ohne PDF wird gar nichts gestartet', async () => {
+    ocr._verfuegbarSetzen(true);
+    const r = await ocr.textAus(Buffer.alloc(0));
+    assert.equal(r.ok, false);
+    assert.match(r.grund, /kein PDF/);
+    ocr._verfuegbarSetzen(null);
+  });
+
+  // Gemini bekommt das PDF selbst und liest einen Scan von sich aus. Dort
+  // trotzdem zu rendern waeren dreissig Sekunden CPU fuer nichts.
+  test('mit Gemini als Anbieter läuft keine Texterkennung', async () => {
+    settings.setze('ki_anbieter', 'gemini');
+    settings.setze('gemini_api_key', '');
+    parserGibt('');
+    ocr.textAus = async () => { throw new Error('haette nicht laufen duerfen'); };
+    try {
+      const r = await leser.auslesen({
+        konto: 'K9', von: 'shop@beispiel.de', betreff: 'Rechnung',
+        dateiname: 'scan.pdf', pdf_base64: einPdf(),
+      });
+      assert.equal(r.quelle, 'heuristik');
+    } finally { ocrZurueck(); }
+  });
+
+  test('der Schalter schaltet sie ab', async () => {
+    settings.setze('ki_anbieter', 'ollama');
+    settings.setze('beleg_ocr_aktiv', '0');
+    assert.equal(leser.ocrAktiv(), false);
+    parserGibt('');
+    ocr.textAus = async () => { throw new Error('haette nicht laufen duerfen'); };
+    try {
+      const r = await leser.auslesen({
+        konto: 'K10', von: 'shop@beispiel.de', betreff: 'Rechnung',
+        dateiname: 'scan.pdf', pdf_base64: einPdf(),
+      });
+      assert.equal(r.quelle, 'heuristik');
+    } finally {
+      ocrZurueck();
+      settings.setze('beleg_ocr_aktiv', '1');
+    }
+  });
+});
