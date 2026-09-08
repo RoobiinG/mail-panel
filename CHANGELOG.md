@@ -2,6 +2,11 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.2.4.4] - 2026-09-08 (Build 141) — *Test-Fix*
+
+### Behoben
+- **Workflows (Tests):** Ein Fehler, durch den der CI-Test für die Detailansicht (`GET /api/workflows/:id/laeufe`) fehlschlug, wurde behoben. Der in v4.2.4.3 entfernte, halluzinierte Aufruf von `activeExecutionsAuflisten()` wurde nun auch in der Detailansicht restlos entfernt, sodass die Tests wieder durchlaufen.
+
 ## [4.2.4.3] - 2026-09-08 (Build 140) — *Statusanzeige für Workflow 04 repariert*
 
 ### Behoben

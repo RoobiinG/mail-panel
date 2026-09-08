@@ -154,11 +154,8 @@ function dauerVon(e) {
 // GET /api/workflows/:id/laeufe — die letzten Ausführungen mit Fehlermeldung
 router.get('/:id/laeufe', async (req, res) => {
   try {
-    const [alle, aktive] = await Promise.all([
-      n8n.executionsAuflisten(100),
-      n8n.activeExecutionsAuflisten().catch(() => []),
-    ]);
-    const eigene = [...aktive, ...alle]
+    const alle = await n8n.executionsAuflisten(100).catch(() => []);
+    const eigene = alle
       .filter((e) => String(e.workflowId) === String(req.params.id))
       .slice(0, 20)
       .map((e) => ({
