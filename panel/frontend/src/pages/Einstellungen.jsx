@@ -603,6 +603,21 @@ export default function Einstellungen() {
                       gesperrt={settings.ollama_modell_per_env}
                       onWahl={v => set('ollama_modell', v)} />
                   </div>
+                  <div className="space-y-1">
+                    <label className="block text-xs text-panel-muted">Kontextfenster (Token)</label>
+                    <p className="text-[10px] text-panel-muted/60">
+                      Wie viel Text das Modell auf einmal lesen kann — Frage und Antwort zusammen.
+                      Ohne diese Angabe nimmt Ollama seinen eigenen Wert (2048 oder 4096) und
+                      schneidet längere Anfragen stillschweigend ab, und zwar am Anfang, wo die
+                      Anweisung steht. Das Modell antwortet dann irgendetwas. Mehr Fenster kostet
+                      Arbeitsspeicher; 8192 reicht für ein Bündel aus fünf Mails.
+                    </p>
+                    <input type="number" min="2048" max="32768" step="1024"
+                      value={settings.ollama_kontext ?? ''}
+                      placeholder="8192"
+                      disabled={settings.ollama_kontext_per_env}
+                      onChange={e => set('ollama_kontext', e.target.value)} className={inputCls} />
+                  </div>
                   <div className="space-y-1 pt-3 border-t border-panel-border/30">
                     <label className="block text-xs text-panel-muted">Neues Modell installieren</label>
                     <p className="text-[10px] text-panel-muted/60">

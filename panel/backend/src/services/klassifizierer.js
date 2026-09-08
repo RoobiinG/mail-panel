@@ -345,8 +345,13 @@ function fragen(teil, konto, bekannt, zeitlimit = ANFRAGE_MAX_MS) {
 }
 
 // Woran man erkennt, dass die KI nicht antwortet, statt falsch zu antworten.
+//
+// „beschäftigt" gehört dazu: Das meldet die Warteschlange vor der lokalen KI
+// (services/ollamaSchlange.js), wenn ein anderer Lauf sie belegt. Auch dann
+// wird das nächste Bündel nicht schneller — im Gegenteil, es stellt sich nur
+// hinten an und verbrennt den Rest der Frist.
 const istZeitueberschreitung = (antwort) =>
-  !antwort.ok && /timeout|aborted|abgebrochen|ETIMEDOUT/i.test(String(antwort.fehler || ''));
+  !antwort.ok && /timeout|aborted|abgebrochen|ETIMEDOUT|beschäftigt/i.test(String(antwort.fehler || ''));
 
 /**
  * @param {Array<object>} mails Mails eines Laufs, in der Reihenfolge des Workflows.

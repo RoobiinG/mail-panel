@@ -2,6 +2,68 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.4.3.0] - 2026-09-08 (Build 150) — *Sie rechneten gegeneinander*
+
+Build 149 hat den leeren Prompt behoben. Der Bericht danach (16:12) zeigt: Die KI wird gefragt,
+antwortet aber immer noch nicht brauchbar — und daneben steht etwas, das in allen vorherigen
+Berichten schon da war und übersehen wurde.
+
+```
+16:08:33 WARN  Ein Buendel blieb unbeantwortet: Ollama war nicht erreichbar: fetch failed
+16:08:33 WARN  Ein Buendel blieb unbeantwortet: Ollama war nicht erreichbar: fetch failed
+…                                                            (neunmal, dieselbe Sekunde)
+16:12:25 INFO  Zeitbudget des Laufs erreicht — 0 von 454 Mails    (zweimal, dieselbe Sekunde)
+```
+
+Neun Bündel scheitern nicht gleichzeitig, wenn sie nacheinander laufen. In n8n standen dazu fünf
+Inbox-Triage-Läufe, gestartet zwischen 16:02:42 und 16:02:55, jeder rot nach rund 345 Sekunden.
+
+### Bugfix (kritisch): Ollama bekam den Prompt nur zur Hälfte
+`num_ctx` fehlte — in beiden Pfaden, im Workflow-Rumpf und im Panel.
+
+Gemini nimmt entgegen, was kommt, und meldet hinterher `MAX_TOKENS`, wenn die **Antwort** nicht
+mehr passte. Ollama arbeitet umgekehrt: ein festes Fenster für Frage und Antwort zusammen, je nach
+Fassung 2048 oder 4096 Token. Was nicht hineinpasst, fällt heraus — **vorne**, wo die Anweisung
+steht. Ohne Fehler, ohne Hinweis, ohne Spur in der Antwort.
+
+Ein Bündel aus fünf Mails mit Themenliste ist leicht doppelt so lang. Das Modell las also nie die
+Frage, nur den Schwanz einer Mailliste, und antwortete entsprechend: `konfidenz: 0` bei jeder
+einzelnen der letzten zehn Entscheidungen, 166× „Kein Thema erkannt" in sieben Tagen.
+
+Neu: `ollama_kontext` (Standard 8192, einstellbar 2048–32768, Einstellungen → KI). Der Wert geht
+in den Workflow-Rumpf **und** in den Panel-Aufruf. Der Prompt wird vorher auf das gekürzt, was
+hineinpasst — und wenn gekürzt werden muss, steht das im Log, statt still zu geschehen.
+
+### Bugfix (kritisch): Mehrere Läufe rechneten gleichzeitig auf derselben CPU
+Die Schleife in `/api/internal/klassifizieren` geht Bündel für Bündel durch. Nichts hinderte aber
+sechs *Aufrufe* daran, nebeneinander zu laufen — drei IMAP-Trigger, ein Bestandslauf, dazu die
+Wiederholungen der gescheiterten. Für Gemini war das nie ein Problem: Google rechnet auf seinen
+Maschinen. Ollama rechnet auf dieser hier, mit drei Kernen.
+
+Sechs gleichzeitige Anfragen sind nicht sechsmal schneller fertig, sondern jede einzelne sechsmal
+langsamer — und dann laufen alle zusammen ins Zeitlimit. Der Lauf endet rot, n8n merkt sich
+`lastMessageUid` nur bei Erfolg, und dieselben Mails kommen beim nächsten Durchgang wieder. Im
+Bericht zu sehen als zehnmal dieselbe Mail in den letzten zehn Entscheidungen.
+
+Zwei Bremsen dagegen:
+
+* **`services/ollamaSchlange.js`** — im Panel läuft nur noch eine Ollama-Anfrage zur Zeit. Wer
+  ansteht, wartet höchstens die Hälfte seines Zeitlimits und gibt dann auf, statt eine Antwort
+  abzuholen, die nach dem Ende des Laufs käme. Der Klassifizierer erkennt diese Absage und hört
+  auf, statt das nächste Bündel anzustellen.
+* **`N8N_CONCURRENCY_PRODUCTION_LIMIT=2`** (`N8N_PARALLEL` in der `.env`) — n8n stellt darüber
+  hinausgehende Läufe selbst in die Schlange, statt sie zu starten. Mit Gemini darf der Wert höher
+  stehen; `-1` hebt die Grenze auf wie bisher.
+
+### Diagnose: zwei Zahlen, die man bisher selbst ausrechnen musste
+* **`laeufe.hoechsteGleichzeitig`** — wie viele n8n-Läufe sich zur selben Zeit überlappten. Genau
+  die Zahl, die das Problem oben benennt; bisher musste man Startzeit plus Dauer im Kopf addieren.
+* **`ki.lokal`** — Kontextfenster, wie viele Zeichen ein Prompt haben darf, und der Stand der
+  Warteschlange (in Arbeit, wie viele stehen an, längste gemessene Wartezeit).
+
+`laeufe` ist dadurch kein Array mehr, sondern `{ hoechsteGleichzeitig, liste }`.
+
+
 ## [4.4.2.0] - 2026-09-08 (Build 149) — *Der Prompt war leer*
 
 Build 148 hat die Läufe von 15 auf 8 Minuten gebracht und die Meldungen ehrlich gemacht. Der

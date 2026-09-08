@@ -72,6 +72,13 @@ router.put('/', (req, res) => {
   }
 
   for (const [key, value] of Object.entries(req.body || {})) {
+    // Ein zu kleines Kontextfenster schneidet den Prompt ab, ohne es zu sagen;
+    // ein zu großes belegt Arbeitsspeicher, den die Maschine nicht hat. Leer
+    // ist erlaubt und heißt „Standard".
+    if (key === 'ollama_kontext' && String(value).trim()
+      && (!Number.isInteger(Number(value)) || Number(value) < 2048 || Number(value) > 32768)) {
+      return res.status(400).json({ error: 'ollama_kontext: ganze Zahl zwischen 2048 und 32768' });
+    }
     // Zugangsdaten laufen über den Settings-Service (verschlüsselt)
     if (settings.FELDER[key]) {
       // Maskierte Anzeige nicht zurückspeichern
@@ -119,7 +126,7 @@ router.put('/', (req, res) => {
   // Bildschirm gibt — beim KI-Anbieter hieß das: Panel sagt Ollama, n8n ruft
   // weiter Google. Deshalb stößt das Speichern den Abgleich jetzt selbst an.
   const inDenWorkflows = [
-    'ki_anbieter', 'ollama_url', 'ollama_modell',
+    'ki_anbieter', 'ollama_url', 'ollama_modell', 'ollama_kontext',
     'gemini_modell', 'gemini_modell_ersatz', 'gemini_pause_ms', 'gemini_denkstufe',
     'neue_mails_ungelesen', 'bestand_intervall', 'spam_schwellwert',
   ];

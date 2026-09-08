@@ -16,6 +16,11 @@ const FELDER = {
   ki_anbieter:          { env: 'KI_ANBIETER', geheim: false, standard: 'gemini' },
   ollama_url:           { env: 'OLLAMA_URL', geheim: false, standard: 'http://ollama:11434' },
   ollama_modell:        { env: 'OLLAMA_MODELL', geheim: false, standard: 'llama3.1' },
+  // Kontextfenster in Token. Ohne Angabe nimmt Ollama seinen eigenen Standard
+  // (je nach Fassung 2048 oder 4096) und schneidet laengere Prompts
+  // stillschweigend ab — und zwar vorne, wo die Anweisung steht. Ein groesseres
+  // Fenster kostet Arbeitsspeicher, ein zu kleines kostet die ganze Antwort.
+  ollama_kontext:       { env: 'OLLAMA_KONTEXT', geheim: false, standard: '8192' },
   gemini_api_key:       { env: 'GEMINI_API_KEY', geheim: true },
   // Wie viele KI-Einordnungen pro Tag hoechstens? 0/leer = kein Deckel.
   // Schuetzt das Gemini-Tageslimit, wenn ein grosser Altbestand sortiert wird.

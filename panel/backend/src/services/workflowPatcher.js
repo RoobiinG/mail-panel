@@ -10,6 +10,7 @@ const path = require('path');
 const crypto = require('crypto');
 const settings = require('./settings');
 const code = require('./workflowCode');
+const kiText = require('./kiText');
 const { loggen } = require('./panelLog');
 
 const PRAEFIX = 'panel-';
@@ -970,7 +971,16 @@ function geminiRequestReparieren(workflow) {
       //: bis zum Zeitlimit. Die erwartete Antwort ist ein JSON-Objekt mit fuenf
       // Feldern; 600 Token sind dafuer reichlich, und auf einer CPU ist jedes
       // Token, das nicht erzeugt wird, gesparte Minute.
-      const bodyNeu = `={{ JSON.stringify({ model: '${ollamaModell}', prompt: ${promptAusdruck}, stream: false, format: 'json', options: { temperature: 0.1, num_predict: 600 } }) }}`;
+      //
+      // num_ctx ist das Gegenstueck und der wichtigere Wert. Ohne die Angabe
+      // nimmt Ollama sein eigenes Fenster (je nach Fassung 2048 oder 4096
+      // Token) fuer Frage UND Antwort zusammen — und was nicht hineinpasst,
+      // faellt vorne heraus. Ohne Fehler, ohne Hinweis, ohne Spur in der
+      // Antwort. Ein Prompt mit Mailtext und Themenliste ist schnell laenger
+      // als das; das Modell sah dann nur den Schwanz der Mailliste, nie die
+      // Anweisung davor, und antwortete entsprechend: „Kein Thema erkannt",
+      // Konfidenz 0, bei praktisch jeder Mail.
+      const bodyNeu = `={{ JSON.stringify({ model: '${ollamaModell}', prompt: ${promptAusdruck}, stream: false, format: 'json', options: { temperature: 0.1, num_ctx: ${kiText.kontextFenster()}, num_predict: 600 } }) }}`;
       if (knoten.parameters.jsonBody !== bodyNeu) {
         knoten.parameters.jsonBody = bodyNeu;
         geaendert = true;

@@ -89,6 +89,17 @@ services:
       - N8N_RUNNERS_ENABLED=true
       - N8N_COMMUNITY_PACKAGES_ALLOW_TOOL_USAGE=true
       - N8N_SECURE_COOKIE=false
+      # Wie viele Läufe gleichzeitig? Ohne Deckel startet n8n jeden
+      # IMAP-Trigger sofort — bei drei Konten und einem Neustart waren das im
+      # Betrieb fünf Inbox-Triage-Läufe innerhalb von dreizehn Sekunden, alle
+      # rot nach knapp sechs Minuten. Sie warteten nicht aufeinander, sondern
+      # rechneten gegeneinander: dieselbe CPU, dasselbe Ollama.
+      #
+      # Zwei gleichzeitig genügen (einer wartet auf die KI, einer arbeitet am
+      # IMAP-Postfach); alles darüber stellt n8n selbst in die Schlange, statt
+      # es zu starten. Wer Gemini benutzt, darf hier höher gehen — dort rechnet
+      # Google, nicht dieser Server. -1 = wie früher, ohne Grenze.
+      - N8N_CONCURRENCY_PRODUCTION_LIMIT=${N8N_PARALLEL:-2}
     volumes:
       - n8n_data:/home/node/.n8n
     ports:

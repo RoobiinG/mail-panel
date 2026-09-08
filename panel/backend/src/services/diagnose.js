@@ -160,6 +160,7 @@ function konfiguration() {
     'ki_anbieter', 'gemini_modell', 'gemini_modell_ersatz', 'gemini_denkstufe',
     'gemini_tagesbudget', 'gemini_pause_ms', 'gemini_buendel', 'gemini_text_kurz',
     'gemini_text_lang', 'gemini_lauf_frist_ms', 'ollama_url', 'ollama_modell',
+    'ollama_kontext',
     'auto_sync', 'neue_mails_ungelesen', 'spam_schwellwert', 'clamav_aktiv',
     'safebrowsing_aktiv', 'bestand_intervall', 'beleg_lese_tagesbudget',
     'themen_sortierung_aktiv', 'themen_max', 'themen_konfidenz', 'n8n_url',
@@ -195,6 +196,20 @@ function kiStand() {
     geminiModelle: anbieter === 'ollama'
       ? '(nicht in Benutzung — Anbieter ist Ollama)'
       : (() => { try { return modell.stand(); } catch { return null; } })(),
+    // Nur bei Ollama aussagekräftig: Wie viel Prompt passt überhaupt hinein,
+    // und stauen sich die Anfragen? Neun gleichzeitig gescheiterte Bündel in
+    // derselben Sekunde waren im Bericht vom 8. September der einzige Hinweis
+    // darauf, dass mehrere Läufe parallel auf dieselbe CPU eingeredet haben —
+    // und der war nur zu erkennen, wenn man die Zeitstempel zählt.
+    lokal: anbieter === 'ollama' ? (() => {
+      const kiText = require('./kiText');
+      const kontext = kiText.kontextFenster();
+      return {
+        kontextFenster: kontext,
+        promptPlatzZeichen: kiText.promptPlatz(kontext, 1500),
+        schlange: require('./ollamaSchlange').stand(),
+      };
+    })() : '(nicht in Benutzung — Anbieter ist Gemini)',
     tagesbudget: budget.tagesbudget(),
     heuteAnfragen: budget.heuteVerbraucht(),
     heuteMails: budget.protokolliertHeute(),
@@ -285,7 +300,7 @@ async function laeufe(anzahl = 15) {
   const namen = {};
   try { for (const w of await n8n.workflowsAuflisten()) namen[String(w.id)] = w.name; } catch { /* egal */ }
   const ex = await n8n.executionsAuflisten(anzahl);
-  return (Array.isArray(ex) ? ex : []).map((e) => {
+  const liste = (Array.isArray(ex) ? ex : []).map((e) => {
     const zeile = {
       start: e.startedAt,
       status: e.status || (e.finished ? 'success' : 'unbekannt'),
@@ -298,6 +313,41 @@ async function laeufe(anzahl = 15) {
     if (daten?.error?.message) zeile.fehler = adressenTilgen(daten.error.message).slice(0, 300);
     return zeile;
   });
+  return { hoechsteGleichzeitig: gleichzeitigkeit(liste), liste };
+}
+
+// Wie viele Läufe überlappten sich zur selben Zeit höchstens?
+//
+// Im Bericht vom 8. September standen fünf Inbox-Triage-Läufe untereinander,
+// gestartet zwischen 16:02:42 und 16:02:55, jeder knapp sechs Minuten lang und
+// jeder rot. Dass sie sich überlappten, musste man aus Startzeit plus Dauer
+// selbst ausrechnen — dabei ist genau das die Ursache: Sie rechneten nicht
+// nacheinander, sondern gegeneinander, auf drei Kernen und einem Ollama.
+// Diese eine Zahl sagt es sofort.
+function gleichzeitigkeit(liste) {
+  const punkte = [];
+  for (const l of liste) {
+    const von = Date.parse(l.start);
+    if (!Number.isFinite(von)) continue;
+    // Keine Dauer heißt: läuft noch. Ein solcher Lauf überlappt alles, was nach
+    // ihm beginnt — und genau darum geht es hier.
+    // (Number(null) wäre 0 und damit „endet sofort" — daher die eigene Prüfung.)
+    const dauer = (l.dauerSekunden === null || l.dauerSekunden === undefined)
+      ? NaN : Number(l.dauerSekunden);
+    const bis = Number.isFinite(dauer) ? von + dauer * 1000 : Number.MAX_SAFE_INTEGER;
+    punkte.push({ t: von, d: 1 });
+    punkte.push({ t: bis, d: -1 });
+  }
+  // Endpunkte vor Startpunkten bei gleichem Zeitstempel: Ein Lauf, der genau
+  // dann endet, wenn der nächste beginnt, lief nicht gleichzeitig.
+  punkte.sort((a, b) => (a.t - b.t) || (a.d - b.d));
+  let offen = 0;
+  let hoechste = 0;
+  for (const p of punkte) {
+    offen += p.d;
+    if (offen > hoechste) hoechste = offen;
+  }
+  return hoechste;
 }
 
 // Zahlen, keine Inhalte: Wie viel wurde einsortiert, von wem entschieden, was
@@ -511,4 +561,4 @@ function alsText(b) {
   return z.join('\n');
 }
 
-module.exports = { erstellen, alsText, adressenTilgen };
+module.exports = { erstellen, alsText, adressenTilgen, gleichzeitigkeit };
