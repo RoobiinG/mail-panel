@@ -265,11 +265,19 @@ router.post('/ollama/tempo', async (req, res) => {
 
   const kiText = require('../services/kiText');
   const messung = require('../services/ollamaMessung');
+  const schlange = require('../services/ollamaSchlange');
   const klass = require('../services/klassifizierer');
   const begonnen = Date.now();
 
   try {
-    const r = await fetch(`${url}/api/generate`, {
+    // Durch dieselbe Warteschlange wie jede andere Anfrage.
+    //
+    // Ohne das misst der Test sich selbst gegen einen laufenden Sortierlauf:
+    // Beide rechnen auf derselben CPU, beide werden langsamer, und die Zahl,
+    // die herauskommt, sagt nichts ueber das Modell — nur etwas ueber den
+    // Zufall des Zeitpunkts. Eine Messung, die man nicht wiederholen kann,
+    // ist keine.
+    const r = await schlange.nacheinander(() => fetch(`${url}/api/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -282,7 +290,9 @@ router.post('/ollama/tempo', async (req, res) => {
       // Grosszuegig, aber nicht unbegrenzt: Wer hier laenger als fuenf Minuten
       // braucht, hat die Frage ohnehin beantwortet.
       signal: AbortSignal.timeout(300000),
-    });
+      // Zwei Minuten auf einen freien Platz warten. Laeuft gerade ein
+      // Sortierlauf, soll der Knopf das sagen statt daneben zu rechnen.
+    }), 120000);
     if (!r.ok) throw new Error(`Ollama antwortete mit HTTP ${r.status}`);
     const daten = await r.json();
     const k = messung.kennzahlen(daten, modell);

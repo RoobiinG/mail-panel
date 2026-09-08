@@ -41,7 +41,17 @@ function laufen(befehl, args, zeitlimit) {
   return new Promise((fertig) => {
     execFile(
       befehl, args,
-      { timeout: zeitlimit, maxBuffer: AUSGABE_MAX, encoding: 'utf8', windowsHide: true },
+      {
+        timeout: zeitlimit,
+        maxBuffer: AUSGABE_MAX,
+        encoding: 'utf8',
+        windowsHide: true,
+        // tesseract nimmt sich sonst per OpenMP alle Kerne, die es findet. Auf
+        // einer Maschine mit dreien heisst das: Waehrend eine Seite erkannt
+        // wird, steht die KI. Ein Beleg darf ein paar Sekunden laenger dauern;
+        // ein Sortierlauf, der deswegen in sein Zeitlimit rennt, ist teurer.
+        env: { ...process.env, OMP_THREAD_LIMIT: '1' },
+      },
       (fehler, stdout) => fertig({
         ok: !fehler,
         text: stdout || '',
@@ -50,6 +60,22 @@ function laufen(befehl, args, zeitlimit) {
       }),
     );
   });
+}
+
+// Eine Texterkennung zur Zeit.
+//
+// Ohne das kann jeder Anhang eines Laufs seinen eigenen Renderer und seinen
+// eigenen tesseract starten. Bei einer Mail mit fuenf PDF-Anhaengen waeren das
+// fuenf Prozesse gleichzeitig — dieselbe Falle, die bei den KI-Anfragen schon
+// einmal zugeschnappt ist (services/ollamaSchlange.js): Nebenlaeufigkeit macht
+// auf wenigen Kernen nichts schneller, nur alles langsamer.
+let kette = Promise.resolve();
+function nacheinander(aufgabe) {
+  const naechste = kette.then(aufgabe, aufgabe);
+  // Ein Fehler darf die Kette nicht vergiften — sonst laeuft nach dem ersten
+  // kaputten PDF keine Erkennung mehr.
+  kette = naechste.then(() => {}, () => {});
+  return naechste;
 }
 
 /** Sind pdftoppm und tesseract im Abbild? Einmal fragen, Antwort merken. */
@@ -76,7 +102,10 @@ async function textAus(pdf) {
   const leer = { ok: false, text: '', seiten: 0, grund: '' };
   if (!Buffer.isBuffer(pdf) || pdf.length === 0) return { ...leer, grund: 'kein PDF' };
   if (!(await bereit())) return { ...leer, grund: 'Texterkennung nicht verfügbar' };
+  return nacheinander(() => einLauf(pdf, leer));
+}
 
+async function einLauf(pdf, leer) {
   let ordner = '';
   const begonnen = Date.now();
   try {

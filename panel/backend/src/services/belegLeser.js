@@ -128,16 +128,26 @@ function sauberDatum(wert) {
 }
 
 // ─── Antwort der KI in eine Entscheidung uebersetzen ────────────────────────
-function entscheiden(roh, von) {
+//
+// `text` ist der Belegtext, sofern er vorliegt. Er ist nicht nur fuer die
+// Heuristik gut: Laesst die KI ein Feld leer — und ein kleines Modell tut das
+// oft —, stand die Antwort trotzdem im Dokument. Ohne diesen Rueckfall waere
+// der KI-Weg beim Datum SCHLECHTER als der ohne KI, weil sauberDatum() dann
+// stumm auf „heute" fiele. Erfunden wird weiterhin nichts: Es zaehlt nur, was
+// benannt im Beleg steht (siehe ausText).
+function entscheiden(roh, von, text = '') {
   const dokumenttyp = String(roh?.dokumenttyp || '').toLowerCase().trim();
   // speichern gilt nur, wenn die KI es sagt UND der Typ ein echter Beleg ist.
   const speichern = roh?.speichern === true && BELEG_TYPEN.includes(dokumenttyp);
+  const imBeleg = ausText(text);
   return {
     speichern,
     dokumenttyp: dokumenttyp || 'kein_beleg',
     firma: roh?.firma ? sauberFirma(roh.firma) : firmaAus(von),
-    datum: sauberDatum(roh?.datum),
-    aktenzeichen: speichern ? sauberAktenzeichen(roh?.aktenzeichen) : null,
+    datum: roh?.datum ? sauberDatum(roh.datum) : (imBeleg.datum || heute()),
+    aktenzeichen: speichern
+      ? (sauberAktenzeichen(roh?.aktenzeichen) || imBeleg.aktenzeichen)
+      : null,
   };
 }
 
@@ -422,7 +432,7 @@ async function auslesen(eingang = {}) {
     // Entscheidung nicht 26 Stunden lang festgenagelt ist.
     return { ...heuristik(e, text), quelle: 'heuristik' };
   }
-  const ergebnis = entscheiden(roh, e.von);
+  const ergebnis = entscheiden(roh, e.von, text);
   merken(e, ergebnis, 'ki');
   return { ...ergebnis, quelle: 'ki' };
 }

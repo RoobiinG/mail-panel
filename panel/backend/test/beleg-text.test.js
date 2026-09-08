@@ -418,3 +418,57 @@ describe('Eingescannte Belege', () => {
     }
   });
 });
+
+// Gefunden beim Nachlesen des eigenen Codes, nicht im Betrieb.
+describe('Die KI-Antwort wirft nicht weg, was im Beleg steht', () => {
+  // Der Prompt erlaubt der KI ausdruecklich, ein Feld leer zu lassen
+  // („Unbekannt ⇒ \"\""), und ein kleines Modell tut das oft. sauberDatum()
+  // fiel dann stumm auf HEUTE zurueck — und damit war der KI-Weg beim Datum
+  // schlechter als der ganz ohne KI, der es im Belegtext gefunden haette.
+  const belegtext = 'Rechnungsnummer: RE-2026-0500\nRechnungsdatum: 05.03.2026';
+
+  test('leeres Datum der KI ⇒ das Datum vom Beleg', () => {
+    const r = leser.entscheiden(
+      { dokumenttyp: 'rechnung', speichern: true, datum: '', aktenzeichen: '' },
+      'a@b.de', belegtext,
+    );
+    assert.equal(r.datum, '2026-03-05', 'nicht heute');
+    assert.equal(r.aktenzeichen, 'RE-2026-0500');
+  });
+
+  test('die KI hat trotzdem Vorrang, wenn sie etwas sagt', () => {
+    const r = leser.entscheiden(
+      { dokumenttyp: 'rechnung', speichern: true, datum: '2026-01-01', aktenzeichen: 'AZ-9' },
+      'a@b.de', belegtext,
+    );
+    assert.equal(r.datum, '2026-01-01');
+    assert.equal(r.aktenzeichen, 'AZ-9');
+  });
+
+  test('ohne Belegtext bleibt es beim alten Verhalten', () => {
+    const r = leser.entscheiden({ dokumenttyp: 'rechnung', speichern: true }, 'a@b.de');
+    assert.equal(r.datum, heute());
+    assert.equal(r.aktenzeichen, null);
+  });
+
+  // Kein Beleg heisst: kein Aktenzeichen, auch wenn eines im Text stuende.
+  test('bei „nicht speichern" bleibt das Aktenzeichen leer', () => {
+    const r = leser.entscheiden(
+      { dokumenttyp: 'werbung', speichern: false }, 'a@b.de', belegtext,
+    );
+    assert.equal(r.speichern, false);
+    assert.equal(r.aktenzeichen, null);
+  });
+
+  test('und im ganzen Durchlauf kommt das Datum vom Beleg an', async () => {
+    settings.setze('ki_anbieter', 'ollama');
+    settings.setze('ollama_url', 'http://127.0.0.1:1'); // KI nicht erreichbar
+    parserGibt(belegtext);
+    const r = await leser.auslesen({
+      konto: 'K11', von: 'shop@beispiel.de', betreff: 'Unterlagen',
+      dateiname: 'anhang.pdf', pdf_base64: einPdf(),
+    });
+    assert.equal(r.datum, '2026-03-05');
+    assert.equal(r.aktenzeichen, 'RE-2026-0500');
+  });
+});
