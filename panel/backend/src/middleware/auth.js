@@ -14,7 +14,11 @@ const db  = require('../db');
 // nur noch Fehler. Genau deshalb steht das hier jetzt getrennt.
 function auth(req, res, next) {
   const authHeader = req.headers['authorization'];
-  const token = (authHeader && authHeader.split(' ')[1]) || req.query.token;
+  // Bewusst NUR die Kopfzeile: Ein Token im Query-String landet im
+  // Zugriffsprotokoll jedes Proxys, im Browser-Verlauf und in Fehlerberichten.
+  // Die einzige Stelle, die das brauchte (der Ollama-Download per EventSource),
+  // liest den Strom inzwischen mit fetch und schickt die Kopfzeile mit.
+  const token = authHeader && authHeader.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Nicht angemeldet.', code: 'kein_token' });
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);

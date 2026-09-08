@@ -192,6 +192,16 @@ Regeln:
 }
 
 async function fragGemini(pdfBase64) {
+  // Diese Stelle schickt ein PDF als inline_data mit — das kann nur Gemini.
+  // Ollamas /api/generate nimmt Text und (bei Vision-Modellen) Bilder, aber
+  // keine PDFs. Statt still an Google vorbeizutelefonieren, obwohl „lokale KI"
+  // eingestellt ist, wird hier auf die Heuristik zurueckgefallen — und das
+  // einmal gesagt, damit niemand raetselt, warum die Belege schlechter werden.
+  if ((settings.hole('ki_anbieter') || 'gemini') === 'ollama') {
+    loggen('info', 'backend:belegLeser',
+      'Beleg-Lesen per KI braucht Gemini (PDF-Anhang) — mit Ollama entscheidet die Heuristik.');
+    return null;
+  }
   const key = settings.hole('gemini_api_key');
   if (!key) return null; // ohne Schluessel kann nicht gelesen werden ⇒ Heuristik
   try {

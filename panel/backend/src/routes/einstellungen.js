@@ -112,6 +112,21 @@ router.put('/', (req, res) => {
     update.run(key, String(value));
     geaendert.push(key);
   }
+
+  // Diese Werte stehen nicht nur im Panel, sondern werden in die n8n-Workflows
+  // hineingeschrieben. Wer sie ändert und danach nicht „Workflows →
+  // Synchronisieren" drückt, betreibt eine Einstellung, die es nur auf dem
+  // Bildschirm gibt — beim KI-Anbieter hieß das: Panel sagt Ollama, n8n ruft
+  // weiter Google. Deshalb stößt das Speichern den Abgleich jetzt selbst an.
+  const inDenWorkflows = [
+    'ki_anbieter', 'ollama_url', 'ollama_modell',
+    'gemini_modell', 'gemini_modell_ersatz', 'gemini_pause_ms', 'gemini_denkstufe',
+    'neue_mails_ungelesen', 'bestand_intervall', 'spam_schwellwert',
+  ];
+  if (geaendert.some((k) => inDenWorkflows.includes(k))) {
+    require('../services/autoSync').anstossen(`Einstellung geändert: ${geaendert.join(', ')}`);
+  }
+
   res.json({ ok: true, geaendert });
 });
 
@@ -185,11 +200,24 @@ router.post('/test/:dienst', async (req, res) => {
   }
 });
 
+// Die Adresse des Ollama-Servers kommt AUSSCHLIESSLICH aus den Einstellungen.
+//
+// Vorher durfte der Aufrufer sie mitschicken (req.body.url / req.query.url). Das
+// machte aus dem Panel ein Fernrohr ins interne Netz: Wer angemeldet ist, hätte
+// beliebige Adressen abrufen lassen können — den n8n-Container, den
+// Metadaten-Dienst des Hosters, was sonst im Docker-Netz erreichbar ist — und
+// bekam die Antwort im Klartext zurückgestreamt. Serverseitige Anfragen gehören
+// dorthin, wo der Betreiber sie eingetragen hat, und sonst nirgendwo.
+function ollamaAdresse() {
+  const url = String(settings.hole('ollama_url') || '').trim();
+  return url ? url.replace(/\/$/, '') : null;
+}
+
 router.post('/ollama/modelle', async (req, res) => {
-  const url = req.body.url || require('../db').prepare('SELECT value FROM settings WHERE key = ?').get('ollama_url')?.value;
-  if (!url) return res.status(400).json({ error: 'Keine Ollama URL angegeben' });
+  const url = ollamaAdresse();
+  if (!url) return res.status(400).json({ error: 'Keine Ollama-Adresse in den Einstellungen hinterlegt.' });
   try {
-    const r = await fetch(url.replace(/\/$/, '') + '/api/tags', { signal: AbortSignal.timeout(5000) });
+    const r = await fetch(`${url}/api/tags`, { signal: AbortSignal.timeout(5000) });
     const body = await r.json();
     if (!r.ok) throw new Error(`Ollama antwortete mit HTTP ${r.status}`);
     res.json(body.models?.map(m => m.name) || []);
@@ -198,43 +226,68 @@ router.post('/ollama/modelle', async (req, res) => {
   }
 });
 
-router.get('/ollama/pull', async (req, res) => {
-  const model = req.query.model;
-  const url = req.query.url || require('../db').prepare('SELECT value FROM settings WHERE key = ?').get('ollama_url')?.value;
-
-  if (!model || !url) return res.status(400).end();
+// Ein Modell herunterladen. Läuft als Ereignisstrom, weil es Minuten dauert und
+// der Fortschritt sichtbar sein soll.
+//
+// POST statt GET: Der Browser konnte an eine EventSource keine Kopfzeilen
+// hängen, also stand das Anmelde-Token vorher im Link — und damit im
+// Zugriffsprotokoll jedes Proxys, im Verlauf des Browsers und in jedem
+// Fehlerbericht. Die Oberfläche liest den Strom jetzt selbst und schickt das
+// Token dort hin, wo es hingehört: in die Authorization-Kopfzeile.
+router.post('/ollama/pull', async (req, res) => {
+  const model = String(req.body?.model || '').trim();
+  const url = ollamaAdresse();
+  if (!model || !url) return res.status(400).json({ error: 'Modellname oder Ollama-Adresse fehlt.' });
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
 
+  // Ein Ereignis darf keine Zeilenumbrüche enthalten — sonst endet es mittendrin
+  // und der Empfänger liest Bruchstücke. Die Fehlermeldung wurde vorher roh in
+  // ein JSON-Literal geklebt; ein Anführungszeichen darin reichte, um sie
+  // unlesbar zu machen.
+  const senden = (objekt) => res.write(`data: ${JSON.stringify(objekt).replace(/\n/g, ' ')}\n\n`);
+
+  // Ohne Zeitlimit hing die Anfrage an einem stummen Server unbegrenzt — samt
+  // offener Verbindung. Ein Modell-Download darf lange dauern, aber nicht ewig.
+  const abbruch = new AbortController();
+  const uhr = setTimeout(() => abbruch.abort(), 30 * 60 * 1000);
+
   try {
-    const r = await fetch(url.replace(/\/$/, '') + '/api/pull', {
+    const r = await fetch(`${url}/api/pull`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model, stream: true }),
+      signal: abbruch.signal,
     });
 
     if (!r.ok) {
-      res.write(`data: {"error": "Ollama Error HTTP ${r.status}"}\n\n`);
+      senden({ error: `Ollama antwortete mit HTTP ${r.status}` });
       return res.end();
     }
 
-    // Read the stream chunk by chunk
-    for await (const chunk of r.body) {
-      // split by newline just in case there are multiple JSON objects in one chunk
-      const lines = chunk.toString().split('\n').filter(Boolean);
-      for (const line of lines) {
-        res.write(`data: ${line}\n\n`);
+    // Ollama schickt eine JSON-Zeile je Fortschrittsschritt. Ein Netzwerkpaket
+    // endet nicht zwingend auf einem Zeilenumbruch — der Rest wandert deshalb in
+    // die nächste Runde, statt als halbe Zeile beim Empfänger zu landen.
+    let rest = '';
+    for await (const stueck of r.body) {
+      const zeilen = (rest + stueck.toString()).split('\n');
+      rest = zeilen.pop() || '';
+      for (const zeile of zeilen) {
+        if (zeile.trim()) res.write(`data: ${zeile.trim()}\n\n`);
       }
     }
-    
-    res.write('data: {"status": "success"}\n\n');
+    if (rest.trim()) res.write(`data: ${rest.trim()}\n\n`);
+
+    senden({ status: 'success' });
     res.end();
   } catch (err) {
-    res.write(`data: {"error": "${err.message}"}\n\n`);
+    senden({ error: err.name === 'AbortError' ? 'Zeitlimit überschritten.' : String(err.message) });
     res.end();
+  } finally {
+    clearTimeout(uhr);
   }
 });
 

@@ -342,7 +342,7 @@ export default function Einstellungen() {
       try { setDnsblText(JSON.parse(res.data.dnsbl_listen || '[]').join('\n')); } catch { setDnsblText(''); }
       
       // Lade Ollama Modelle, wenn URL vorhanden
-      api.post('/einstellungen/ollama/modelle', { url: res.data.ollama_url })
+      api.post('/einstellungen/ollama/modelle', {})
         .then(r => { setOllamaModelle(r.data.map(m => ({ name: m }))); setOllamaModellFehler(''); })
         .catch(err => { setOllamaModelle([]); setOllamaModellFehler(err.response?.data?.error || 'Fehler beim Laden'); });
     });
@@ -357,7 +357,7 @@ export default function Einstellungen() {
   // Wenn der Benutzer die Ollama URL ändert, neu laden
   useEffect(() => {
     if (settings && settings.ollama_url) {
-      api.post('/einstellungen/ollama/modelle', { url: settings.ollama_url })
+      api.post('/einstellungen/ollama/modelle', {})
         .then(r => { setOllamaModelle(r.data.map(m => ({ name: m }))); setOllamaModellFehler(''); })
         .catch(err => { setOllamaModelle([]); setOllamaModellFehler(err.response?.data?.error || 'Fehler beim Laden'); });
     }
@@ -367,45 +367,72 @@ export default function Einstellungen() {
   const [installProgress, setInstallProgress] = useState(null);
   const [installError, setInstallError] = useState(null);
 
-  const installModel = () => {
+  // Der Fortschritt kommt als Ereignisstrom — gelesen mit fetch, nicht mit
+  // EventSource.
+  //
+  // EventSource kann keine Kopfzeilen mitschicken, deshalb stand das
+  // Anmelde-Token vorher im Link. Ein Token in einer URL landet im
+  // Zugriffsprotokoll jedes Proxys, im Verlauf des Browsers und in jedem
+  // Fehlerbericht — dort hat es nichts verloren. Über fetch geht es in die
+  // Authorization-Kopfzeile wie bei jeder anderen Anfrage auch.
+  const installModel = async () => {
     if (!installModelName || !settings?.ollama_url) return;
     setInstallProgress({ status: 'Verbinde...', completed: 0, total: 100 });
     setInstallError(null);
-    
-    import('../lib/session').then(({ token }) => {
-      const t = token() || '';
-      const es = new EventSource(`/api/einstellungen/ollama/pull?model=${encodeURIComponent(installModelName)}&url=${encodeURIComponent(settings.ollama_url)}&token=${encodeURIComponent(t)}`);
-      
-      es.onmessage = (e) => {
-        try {
-          const data = JSON.parse(e.data);
-          if (data.error) {
-            setInstallError(data.error);
+
+    const modellListeLaden = () => api.post('/einstellungen/ollama/modelle', {})
+      .then(r => { setOllamaModelle(r.data.map(m => ({ name: m }))); setOllamaModellFehler(''); })
+      .catch(err => { setOllamaModelle([]); setOllamaModellFehler(err.response?.data?.error || 'Fehler beim Laden'); });
+
+    try {
+      const { token } = await import('../lib/session');
+      const antwort = await fetch('/api/einstellungen/ollama/pull', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token() || ''}` },
+        body: JSON.stringify({ model: installModelName }),
+      });
+      if (!antwort.ok || !antwort.body) throw new Error(`Server antwortete mit ${antwort.status}`);
+
+      const leser = antwort.body.getReader();
+      const dekoder = new TextDecoder();
+      let rest = '';
+      let fertig = false;
+
+      // Ein Netzwerkpaket endet nicht zwingend an einer Ereignisgrenze — was
+      // übrig bleibt, wandert in die nächste Runde.
+      while (!fertig) {
+        const { value, done } = await leser.read();
+        if (done) break;
+        const bloecke = (rest + dekoder.decode(value, { stream: true })).split('\n\n');
+        rest = bloecke.pop() || '';
+        for (const block of bloecke) {
+          const zeile = block.split('\n').find(z => z.startsWith('data: '));
+          if (!zeile) continue;
+          let daten;
+          try { daten = JSON.parse(zeile.slice(6)); } catch { continue; }
+
+          if (daten.error) {
+            setInstallError(daten.error);
             setInstallProgress(null);
-            es.close();
-          } else if (data.status === 'success') {
+            fertig = true;
+            break;
+          }
+          if (daten.status === 'success') {
             setInstallProgress({ status: 'Erfolgreich installiert!', completed: 100, total: 100 });
             setInstallModelName('');
-            es.close();
-            // Aktualisiere Modellliste
-            api.post('/einstellungen/ollama/modelle', { url: settings.ollama_url })
-              .then(r => { setOllamaModelle(r.data.map(m => ({ name: m }))); setOllamaModellFehler(''); })
-              .catch(err => { setOllamaModelle([]); setOllamaModellFehler(err.response?.data?.error || 'Fehler beim Laden'); });
-            
+            modellListeLaden();
             setTimeout(() => setInstallProgress(null), 5000);
-          } else {
-            setInstallProgress(data);
+            fertig = true;
+            break;
           }
-        } catch(err) {
-          // Parse-Fehler ignorieren, da evtl. kaputter Chunk
+          setInstallProgress(daten);
         }
-      };
-      es.onerror = () => {
-        setInstallError("Verbindung zum Server abgebrochen.");
-        setInstallProgress(null);
-        es.close();
-      };
-    });
+      }
+      try { await leser.cancel(); } catch { /* schon zu */ }
+    } catch (err) {
+      setInstallError(err.message || 'Verbindung zum Server abgebrochen.');
+      setInstallProgress(null);
+    }
   };
 
   const set = (key, val) => setSettings(s => ({ ...s, [key]: val }));

@@ -10,6 +10,7 @@ const path = require('path');
 const crypto = require('crypto');
 const settings = require('./settings');
 const code = require('./workflowCode');
+const { loggen } = require('./panelLog');
 
 const PRAEFIX = 'panel-';
 // Ankerpunkte in den Workflow-Vorlagen, an die das Panel andockt
@@ -901,7 +902,7 @@ function geminiRequestReparieren(workflow) {
     
     const url = String(knoten.parameters?.url || '');
     const isKi = url.includes('generativelanguage.googleapis.com') || url.includes('/api/generate') || url.includes('ollama');
-    if (!isKi && !url.includes('api/generate') && knoten.name !== 'Gemini klassifizieren') continue;
+    if (!isKi && !url.includes('api/generate') && !istKiKnoten(knoten.name)) continue;
 
     let bodyStr = knoten.parameters.jsonBody || '';
     let promptAusdruck = "String($json.promptText || '')"; // Fallback
@@ -1001,6 +1002,36 @@ function geminiRequestReparieren(workflow) {
   return geaendert;
 }
 
+// Gemini und Ollama antworten verschieden: Google packt den Text nach
+// candidates[0].content.parts[0].text, Ollama legt ihn schlicht nach response.
+//
+// Die mitgelieferten Vorlagen lesen laengst beides — aber basisSetup() legt
+// Workflows nur an, wenn sie fehlen, und ruehrt vorhandene nie wieder an. Wer
+// frueher importiert und spaeter auf Ollama umgestellt hat, hatte deshalb einen
+// Knoten in n8n stehen, der nur nach candidates schaut. Das Panel bog die
+// Anfrage brav auf den lokalen Server um, die Antwort kam an — und wurde
+// weggeworfen. Im Telegram stand dann "KI-Antwort war leer".
+function kiAntwortLesenAngleichen(workflow) {
+  let geaendert = false;
+  for (const knoten of workflow.nodes || []) {
+    if (knoten.type !== 'n8n-nodes-base.code') continue;
+    const js = String(knoten.parameters?.jsCode || '');
+    if (!js.includes('candidates[0].content.parts[0].text')) continue;
+    // Schon zweigleisig? Dann nichts tun.
+    if (/\$json\.response\s*\|\|/.test(js)) continue;
+
+    const neu = js.replace(
+      /\$json\.candidates\[0\]\.content\.parts\[0\]\.text/g,
+      '($json.response || $json.candidates[0].content.parts[0].text)',
+    );
+    if (neu !== js) {
+      knoten.parameters.jsCode = neu;
+      geaendert = true;
+    }
+  }
+  return geaendert;
+}
+
 // ─── Workflow 01: Trigger + Konto-Kennzeichnung je Konto ─────────────────────
 
 async function triageSynchronisieren(konten, credentialId, aktionenWorkflowId) {
@@ -1011,6 +1042,7 @@ async function triageSynchronisieren(konten, credentialId, aktionenWorkflowId) {
   if (credentialId) panelKnotenVerdrahten(workflow, credentialId);
   patchAntwortParsen(workflow);
   geminiRequestReparieren(workflow);
+  kiAntwortLesenAngleichen(workflow);
   anhangKetteReparieren(workflow, NORMALISIERER['01']);
   absenderFallbackEinbauen(workflow, NORMALISIERER['01']);
   themenKetteEinbauen(workflow, NORMALISIERER['01'], credentialId);
@@ -1138,7 +1170,12 @@ function budgetInSammeln(sammler) {
 // Workflow 01 behält seinen HTTP-Knoten: Dort kommt je Auslösung eine einzelne
 // Mail an, da gibt es nichts zu bündeln.
 const BUENDEL_MARKE = '// PANEL:BUENDEL v1';
-const GEMINI_KNOTEN = 'Gemini klassifizieren';
+// Der KI-Knoten heisst je nach Vorlage anders — "Gemini klassifizieren" oder
+// "Ollama klassifizieren". Auf einen Namen zu prüfen hiess: Mit Ollama fand der
+// Patcher den Knoten nie, die Bestands-Triage bekam ihre Buendelung nicht und
+// fragte weiter Mail fuer Mail einzeln.
+const KI_KNOTEN = ['Gemini klassifizieren', 'Ollama klassifizieren', 'KI klassifizieren'];
+const istKiKnoten = (name) => KI_KNOTEN.includes(String(name || ''));
 
 function buendelCode() {
   const geheim = process.env.PANEL_SECRET || '';
@@ -1206,7 +1243,7 @@ function buendelCode() {
 }
 
 function geminiBuendelEinbauen(workflow) {
-  const i = workflow.nodes.findIndex((k) => k.name === GEMINI_KNOTEN);
+  const i = workflow.nodes.findIndex((k) => istKiKnoten(k.name));
   if (i < 0) return false;
   const alt = workflow.nodes[i];
   const code = buendelCode();
@@ -1239,6 +1276,7 @@ async function bestandSynchronisieren(konten, credentialId, aktionenWorkflowId) 
   if (credentialId) panelKnotenVerdrahten(workflow, credentialId);
   patchAntwortParsen(workflow);
   geminiRequestReparieren(workflow);
+  kiAntwortLesenAngleichen(workflow);
   anhangKetteReparieren(workflow, NORMALISIERER['04']);
   absenderFallbackEinbauen(workflow, NORMALISIERER['04']);
   themenKetteEinbauen(workflow, NORMALISIERER['04'], credentialId);
@@ -1525,6 +1563,7 @@ async function kiUndBenachrichtigungenSynchronisieren() {
       // Auch hier, nicht nur in 01 und 04: Sonst bleibt der Digest-Workflow auf
       // dem abgekündigten Gemini-Modell stehen, weil ihn sonst niemand anfasst.
       if (geminiRequestReparieren(workflow)) geaendert = true;
+      if (kiAntwortLesenAngleichen(workflow)) geaendert = true;
       // Auch die Vorlagen-Knoten, die das Panel fragen — siehe panelZeitlimitSetzen.
       if (panelZeitlimitSetzen(workflow)) geaendert = true;
 
@@ -1533,9 +1572,13 @@ async function kiUndBenachrichtigungenSynchronisieren() {
         // ist aber ein Code-Knoten und ruft Google gar nicht mehr selbst auf.
         // Ohne diese Prüfung bekäme er bei jedem Rundgang Zugangsdaten
         // angeheftet, die er nicht braucht — und würde jedes Mal neu gespeichert.
+        const zusammenfasser = ['Gemini zusammenfassen', 'Ollama zusammenfassen', 'KI zusammenfassen'];
         if (knoten.type === 'n8n-nodes-base.httpRequest'
-          && ['Gemini klassifizieren', 'Gemini zusammenfassen'].includes(knoten.name)) {
-          if (geminiCredId) {
+          && (istKiKnoten(knoten.name) || zusammenfasser.includes(knoten.name))) {
+          // Mit Ollama darf hier kein Google-Zugang mehr hängen: Der Knoten
+          // zeigt dann auf den lokalen Server, und ein Header mit einem
+          // Google-Schlüssel hätte dort nichts zu suchen.
+          if (geminiCredId && (settings.hole('ki_anbieter') || 'gemini') !== 'ollama') {
             knoten.credentials = { httpHeaderAuth: { id: String(geminiCredId), name: 'Gemini API' } };
             geaendert = true;
           } else if (knoten.credentials?.httpHeaderAuth) {
@@ -1737,12 +1780,27 @@ async function basisSetup() {
     console.log(`[basisSetup] ${dateien.length} Vorlagen gefunden (KI: ${anbieter}):`, dateien);
     
     for (const datei of dateien) {
-      const inhalt = fs.readFileSync(path.join(workflowDir, datei), 'utf-8');
-      const wf = JSON.parse(inhalt);
-      
+      // Jede Vorlage fuer sich einlesen. Vorher lag das im aeusseren try: Eine
+      // einzige unlesbare Datei riss den ganzen Import mit, und weil 01
+      // alphabetisch zuerst kommt, wurde danach GAR NICHTS mehr importiert.
+      // Genau das ist passiert -- die Ollama-Vorlagen trugen ein BOM, JSON.parse
+      // warf, und wer Ollama gewaehlt hatte, stand ohne einen einzigen Workflow da.
+      let wf;
+      try {
+        // BOM abschneiden: Ein unsichtbares U+FEFF vor der oeffnenden Klammer
+        // laesst JSON.parse scheitern, obwohl die Datei in Ordnung ist.
+        const inhalt = fs.readFileSync(path.join(workflowDir, datei), 'utf-8').replace(/^﻿/, '');
+        wf = JSON.parse(inhalt);
+      } catch (leseFehler) {
+        console.error(`[basisSetup] Vorlage "${datei}" ist unlesbar: ${leseFehler.message}`);
+        loggen('warn', 'backend:workflows',
+          `Workflow-Vorlage "${datei}" konnte nicht gelesen werden: ${leseFehler.message}`);
+        continue;
+      }
+
       // Anhand des Namens (oder Präfix) suchen
       const existiert = alle.some((w) => String(w.name).trim() === String(wf.name).trim());
-      
+
       if (!existiert) {
         console.log(`[basisSetup] Workflow "${wf.name}" fehlt in n8n. Importiere...`);
         try {
@@ -1772,4 +1830,5 @@ module.exports = {
   fingerabdruck, zugangsdatenVergessen, absenderFallbackEinbauen, ABSENDER_MARKE,
   geminiModellNachziehen,
   geminiBuendelEinbauen, BUENDEL_MARKE, panelZeitlimitSetzen,
+  kiAntwortLesenAngleichen, istKiKnoten,
 };

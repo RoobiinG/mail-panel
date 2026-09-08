@@ -72,6 +72,11 @@ const FELDER = {
   // Wer die Mails ungelesen behalten will, kann das einschalten -- aber erst,
   // wenn die Laeufe zuverlaessig gruen durchgehen. Siehe workflowPatcher.js.
   neue_mails_ungelesen: { env: 'NEUE_MAILS_UNGELESEN', geheim: false, standard: '0' },
+  // Workflows von selbst abgleichen: beim Containerstart und nach jeder
+  // Aenderung, die in den Workflows landet. Bis dahin war das ein Knopf, den man
+  // druecken musste — und wer ihn vergass, hatte eine Einstellung, die nur im
+  // Panel stand. Auf '0' bleibt es beim Knopf. Siehe services/autoSync.js.
+  auto_sync:            { env: 'AUTO_SYNC', geheim: false, standard: '1' },
   telegram_chat_id:     { env: 'TELEGRAM_CHAT_ID', geheim: false },
   // Postausgang für Workflow 06 (Newsletter abbestellen per Mail)
   smtp_host:            { env: 'SMTP_HOST', geheim: false },

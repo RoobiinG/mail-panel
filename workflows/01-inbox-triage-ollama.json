@@ -1,9 +1,9 @@
-﻿{
+{
     "name":  "01 - Inbox-Triage (Spam + Sortierung)",
     "nodes":  [
                   {
                       "parameters":  {
-                                         "content":  "## Inbox-Triage\n\nKlassifiziert neu eintreffende Mails und sortiert sie ein. **Es wird nie gelÃ¶scht, nur verschoben.**\n\n**Alles wird im Mail-Panel eingerichtet, nicht hier:**\n1. Konten unter *Konten* anlegen â€” auch Gmail, GMX oder Web.de laufen als ganz normales\n   IMAP-Konto (bei Anbietern mit Zwei-Faktor-Anmeldung mit einem App-Passwort).\n2. Den Gemini-SchlÃ¼ssel unter *Einstellungen â†’ KI \u0026 Benachrichtigungen* eintragen.\n3. Auf der Seite *Workflows* auf **Synchronisieren** â€” danach stehen hier Trigger, Weiche\n   und Verschiebe-Knoten fÃ¼r jedes Konto.\n\nDie Zielordner legt das Panel auf Wunsch selbst an; wer eine eigene Ordnerstruktur hat,\nwÃ¤hlt beim Konto unter *Erweiterte Optionen* die vorhandenen Ordner aus.\n\n**Trockentest:** Erst ein bis zwei Tage nur klassifizieren lassen â€” dazu die Verbindung\nhinter **Verschieben?** trennen und die LÃ¤ufe im Panel ansehen.",
+                                         "content":  "## Inbox-Triage\n\nKlassifiziert neu eintreffende Mails und sortiert sie ein. **Es wird nie gelöscht, nur verschoben.**\n\n**Alles wird im Mail-Panel eingerichtet, nicht hier:**\n1. Konten unter *Konten* anlegen — auch Gmail, GMX oder Web.de laufen als ganz normales\n   IMAP-Konto (bei Anbietern mit Zwei-Faktor-Anmeldung mit einem App-Passwort).\n2. Den Gemini-Schlüssel unter *Einstellungen → KI \u0026 Benachrichtigungen* eintragen.\n3. Auf der Seite *Workflows* auf **Synchronisieren** — danach stehen hier Trigger, Weiche\n   und Verschiebe-Knoten für jedes Konto.\n\nDie Zielordner legt das Panel auf Wunsch selbst an; wer eine eigene Ordnerstruktur hat,\nwählt beim Konto unter *Erweiterte Optionen* die vorhandenen Ordner aus.\n\n**Trockentest:** Erst ein bis zwei Tage nur klassifizieren lassen — dazu die Verbindung\nhinter **Verschieben?** trennen und die Läufe im Panel ansehen.",
                                          "height":  360,
                                          "width":  440
                                      },
@@ -18,7 +18,7 @@
                   },
                   {
                       "parameters":  {
-                                         "content":  "### Vom Mail-Panel verwaltet\n\nAlle Knoten, deren ID mit `panel-` beginnt (Konto-Trigger links, Weiche und Verschiebe-Knoten\nrechts), werden bei jedem Synchronisieren **neu erzeugt**. Ã„nderungen daran gehen dabei\nverloren â€” alles andere im Workflow bleibt unangetastet und darf frei angepasst werden.\n\n**Seit v2.7.0.0:** Der Knoten **Einsortieren** holt nach der Klassifizierung beim Panel den\nendgÃ¼ltigen Zielordner â€” dort wird der Ordnername geprÃ¼ft, ein fehlender Ordner angelegt und\ndas Ergebnis protokolliert. Die Code-Knoten *PrÃ¼fung auswerten*, *Antwort parsen* und die\nbeiden QuarantÃ¤ne-Knoten schreibt der Patcher neu, solange sie die Marke PANEL:THEMEN v1\nnicht tragen â€” steht sie drin, bleiben sie unangetastet.",
+                                         "content":  "### Vom Mail-Panel verwaltet\n\nAlle Knoten, deren ID mit `panel-` beginnt (Konto-Trigger links, Weiche und Verschiebe-Knoten\nrechts), werden bei jedem Synchronisieren **neu erzeugt**. Änderungen daran gehen dabei\nverloren — alles andere im Workflow bleibt unangetastet und darf frei angepasst werden.\n\n**Seit v2.7.0.0:** Der Knoten **Einsortieren** holt nach der Klassifizierung beim Panel den\nendgültigen Zielordner — dort wird der Ordnername geprüft, ein fehlender Ordner angelegt und\ndas Ergebnis protokolliert. Die Code-Knoten *Prüfung auswerten*, *Antwort parsen* und die\nbeiden Quarantäne-Knoten schreibt der Patcher neu, solange sie die Marke PANEL:THEMEN v1\nnicht tragen — steht sie drin, bleiben sie unangetastet.",
                                          "height":  320,
                                          "width":  360,
                                          "color":  3
@@ -35,7 +35,7 @@
                   {
                       "parameters":  {
                                          "mode":  "runOnceForEachItem",
-                                         "jsCode":  "// Quelle fÃ¼r den Normalisieren-Knoten in Workflow 01 (wird als jsCode eingebettet).\n// Vereinheitlicht die drei Datenformate und holt heraus, was die PrÃ¼fdienste brauchen.\n\n// Einfaches Format -\u003e from / subject / snippet\n// IMAP-Trigger  -\u003e from.value[].address / subject / text | textPlain, headers/headerLines\n// IMAP-Node     -\u003e envelope.from[].address / envelope.subject / textContent, headers\nconst j = $json;\nconst e = j.envelope || {};\nconst h = j.headers || {};\n\nconst von = (e.from \u0026\u0026 e.from[0] \u0026\u0026 e.from[0].address)\n  || (j.from \u0026\u0026 j.from.value \u0026\u0026 j.from.value[0] \u0026\u0026 j.from.value[0].address)\n  || (j.from \u0026\u0026 j.from.text)\n  || j.From\n  || (typeof j.from === \u0027string\u0027 ? j.from : \u0027\u0027)\n  || \u0027\u0027;\n\nconst betreff = e.subject || j.subject || j.Subject || \u0027(kein Betreff)\u0027;\n\nlet volltext = j.textContent || j.textPlain || j.text || j.snippet || j.textHtml || \u0027\u0027;\nif (typeof volltext !== \u0027string\u0027) volltext = JSON.stringify(volltext);\n\n// â”€â”€ Absender-IP aus den Received-Kopfzeilen â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€\n// Die oberste Received-Zeile hat der eigene Mailserver geschrieben und enthÃ¤lt\n// die IP, von der die Mail tatsÃ¤chlich kam â€” nur die ist vertrauenswÃ¼rdig.\nfunction absenderIp() {\n  let received = h.received || h.Received;\n  if (!received \u0026\u0026 Array.isArray(j.headerLines)) {\n    received = j.headerLines\n      .filter((z) =\u003e String(z.key || \u0027\u0027).toLowerCase() === \u0027received\u0027)\n      .map((z) =\u003e z.line);\n  }\n  if (!received) return null;\n  const zeilen = Array.isArray(received) ? received : [received];\n  // Adressen aus privaten und reservierten Netzen sagen nichts Ã¼ber den Absender\n  const intern = /^(10\\.|127\\.|169\\.254\\.|192\\.168\\.|172\\.(1[6-9]|2\\d|3[01])\\.|0\\.)/;\n  for (const zeile of zeilen) {\n    const gefunden = String(zeile).match(/\\b\\d{1,3}(?:\\.\\d{1,3}){3}\\b/g) || [];\n    const treffer = gefunden.find((ip) =\u003e !intern.test(ip));\n    if (treffer) return treffer;\n  }\n  return null;\n}\n\n// â”€â”€ Links im Text (fÃ¼r die spÃ¤tere Safe-Browsing-PrÃ¼fung) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€\nconst links = [...new Set((volltext.match(/https?:\\/\\/[^\\s\u003c\u003e\"\u0027)\\]]+/gi) || []))].slice(0, 20);\n\n// â”€â”€ Abmelde-Link (fÃ¼r die Newsletter-Verwaltung) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€\nconst listUnsubscribe = h[\u0027list-unsubscribe\u0027]\n  || (h.list \u0026\u0026 h.list.unsubscribe \u0026\u0026 (h.list.unsubscribe.url || h.list.unsubscribe.id))\n  || null;\n\nconst text = volltext.replace(/\u003c[^\u003e]+\u003e/g, \u0027 \u0027).replace(/\\s+/g, \u0027 \u0027).trim().slice(0, 1500);\n\nconst promptText = `Du bist ein E-Mail-Klassifizierer. Analysiere die folgende E-Mail und antworte NUR mit einem JSON-Objekt in exakt diesem Format:\n{\"kategorie\": \"spam|rechnung|bestellung|newsletter|persoenlich|sonstiges\", \"spam_score\": 0.0, \"kurzfassung\": \"Ein Satz Zusammenfassung auf Deutsch\"}\n\nRegeln:\n- spam_score: 0.0 (sicher kein Spam) bis 1.0 (sicher Spam). Phishing, Betrugsversuche, unserioese Werbung = hoher Score.\n- kategorie \"rechnung\": Rechnungen, Zahlungsaufforderungen, Kontoauszuege, Vertraege.\n- kategorie \"bestellung\": Bestell-/Versandbestaetigungen, Lieferstatus.\n- kategorie \"newsletter\": Newsletter und Marketing serioeser Absender.\n- kategorie \"persoenlich\": Mails von echten Menschen (privat oder geschaeftlich).\n- Alles andere: \"sonstiges\".\n\nE-Mail:\nVon: ${von}\nBetreff: ${betreff}\nText: ${text}`;\n\nreturn {\n  json: {\n    konto: j.konto,\n    // Der IMAP-Trigger legt die UID unter attributes ab, der Abruf-Knoten\n    // direkt daneben â€” ohne sie kann spÃ¤ter nichts verschoben werden.\n    uid: j.uid ?? j.attributes?.uid ?? null,\n    // FÃ¼r den Virenscan: Der Trigger lÃ¤dt die AnhÃ¤nge als BinÃ¤rdaten mit.\n    hat_anhang: Object.keys($input.item.binary ?? {}).length \u003e 0,\n    id: j.id ?? null,\n    von,\n    betreff,\n    ip: absenderIp(),\n    links,\n    listUnsubscribe: typeof listUnsubscribe === \u0027string\u0027 ? listUnsubscribe : null,\n    promptText,\n  },\n  // Anhaenge weiterreichen â€” sonst fehlen sie dem Virenscan\n  binary: $input.item.binary,\n};\n"
+                                         "jsCode":  "// Quelle für den Normalisieren-Knoten in Workflow 01 (wird als jsCode eingebettet).\n// Vereinheitlicht die drei Datenformate und holt heraus, was die Prüfdienste brauchen.\n\n// Einfaches Format -\u003e from / subject / snippet\n// IMAP-Trigger  -\u003e from.value[].address / subject / text | textPlain, headers/headerLines\n// IMAP-Node     -\u003e envelope.from[].address / envelope.subject / textContent, headers\nconst j = $json;\nconst e = j.envelope || {};\nconst h = j.headers || {};\n\nconst von = (e.from \u0026\u0026 e.from[0] \u0026\u0026 e.from[0].address)\n  || (j.from \u0026\u0026 j.from.value \u0026\u0026 j.from.value[0] \u0026\u0026 j.from.value[0].address)\n  || (j.from \u0026\u0026 j.from.text)\n  || j.From\n  || (typeof j.from === \u0027string\u0027 ? j.from : \u0027\u0027)\n  || \u0027\u0027;\n\nconst betreff = e.subject || j.subject || j.Subject || \u0027(kein Betreff)\u0027;\n\nlet volltext = j.textContent || j.textPlain || j.text || j.snippet || j.textHtml || \u0027\u0027;\nif (typeof volltext !== \u0027string\u0027) volltext = JSON.stringify(volltext);\n\n// ── Absender-IP aus den Received-Kopfzeilen ────────────────────────────────\n// Die oberste Received-Zeile hat der eigene Mailserver geschrieben und enthält\n// die IP, von der die Mail tatsächlich kam — nur die ist vertrauenswürdig.\nfunction absenderIp() {\n  let received = h.received || h.Received;\n  if (!received \u0026\u0026 Array.isArray(j.headerLines)) {\n    received = j.headerLines\n      .filter((z) =\u003e String(z.key || \u0027\u0027).toLowerCase() === \u0027received\u0027)\n      .map((z) =\u003e z.line);\n  }\n  if (!received) return null;\n  const zeilen = Array.isArray(received) ? received : [received];\n  // Adressen aus privaten und reservierten Netzen sagen nichts über den Absender\n  const intern = /^(10\\.|127\\.|169\\.254\\.|192\\.168\\.|172\\.(1[6-9]|2\\d|3[01])\\.|0\\.)/;\n  for (const zeile of zeilen) {\n    const gefunden = String(zeile).match(/\\b\\d{1,3}(?:\\.\\d{1,3}){3}\\b/g) || [];\n    const treffer = gefunden.find((ip) =\u003e !intern.test(ip));\n    if (treffer) return treffer;\n  }\n  return null;\n}\n\n// ── Links im Text (für die spätere Safe-Browsing-Prüfung) ──────────────────\nconst links = [...new Set((volltext.match(/https?:\\/\\/[^\\s\u003c\u003e\"\u0027)\\]]+/gi) || []))].slice(0, 20);\n\n// ── Abmelde-Link (für die Newsletter-Verwaltung) ───────────────────────────\nconst listUnsubscribe = h[\u0027list-unsubscribe\u0027]\n  || (h.list \u0026\u0026 h.list.unsubscribe \u0026\u0026 (h.list.unsubscribe.url || h.list.unsubscribe.id))\n  || null;\n\nconst text = volltext.replace(/\u003c[^\u003e]+\u003e/g, \u0027 \u0027).replace(/\\s+/g, \u0027 \u0027).trim().slice(0, 1500);\n\nconst promptText = `Du bist ein E-Mail-Klassifizierer. Analysiere die folgende E-Mail und antworte NUR mit einem JSON-Objekt in exakt diesem Format:\n{\"kategorie\": \"spam|rechnung|bestellung|newsletter|persoenlich|sonstiges\", \"spam_score\": 0.0, \"kurzfassung\": \"Ein Satz Zusammenfassung auf Deutsch\"}\n\nRegeln:\n- spam_score: 0.0 (sicher kein Spam) bis 1.0 (sicher Spam). Phishing, Betrugsversuche, unserioese Werbung = hoher Score.\n- kategorie \"rechnung\": Rechnungen, Zahlungsaufforderungen, Kontoauszuege, Vertraege.\n- kategorie \"bestellung\": Bestell-/Versandbestaetigungen, Lieferstatus.\n- kategorie \"newsletter\": Newsletter und Marketing serioeser Absender.\n- kategorie \"persoenlich\": Mails von echten Menschen (privat oder geschaeftlich).\n- Alles andere: \"sonstiges\".\n\nE-Mail:\nVon: ${von}\nBetreff: ${betreff}\nText: ${text}`;\n\nreturn {\n  json: {\n    konto: j.konto,\n    // Der IMAP-Trigger legt die UID unter attributes ab, der Abruf-Knoten\n    // direkt daneben — ohne sie kann später nichts verschoben werden.\n    uid: j.uid ?? j.attributes?.uid ?? null,\n    // Für den Virenscan: Der Trigger lädt die Anhänge als Binärdaten mit.\n    hat_anhang: Object.keys($input.item.binary ?? {}).length \u003e 0,\n    id: j.id ?? null,\n    von,\n    betreff,\n    ip: absenderIp(),\n    links,\n    listUnsubscribe: typeof listUnsubscribe === \u0027string\u0027 ? listUnsubscribe : null,\n    promptText,\n  },\n  // Anhaenge weiterreichen — sonst fehlen sie dem Virenscan\n  binary: $input.item.binary,\n};\n"
                                      },
                       "id":  "code-normalize",
                       "name":  "Normalisieren",
@@ -73,7 +73,7 @@
                   {
                       "parameters":  {
                                          "mode":  "runOnceForEachItem",
-                                         "jsCode":  "// Gemini-Antwort auswerten und den Zielordner bestimmen.\n// Die Panel-PrÃ¼fung (Listen, DNSBL) flieÃŸt dabei mit ein.\nconst mail = $(\u0027PrÃ¼fung auswerten\u0027).item.json;\n\nlet raw = \u0027\u0027;\ntry { raw = $json.response; } catch (e) { /* leer lassen */ }\nraw = String(raw).replace(/```json|```/g, \u0027\u0027).trim();\n\nlet k = { kategorie: \u0027sonstiges\u0027, spam_score: 0, kurzfassung: \u0027\u0027 };\ntry { k = { ...k, ...JSON.parse(raw) }; } catch (e) { /* Fallback: sonstiges */ }\n\n\n// DNSBL-Treffer erhÃ¶hen die Bewertung der KI\nconst schwelle = Number(mail.spam_schwellwert) || 0.8;\nconst score = Math.min(1, (Number(k.spam_score) || 0) + (Number(mail.score_aufschlag) || 0));\n\nlet zielordner = null;\nif (score \u003e schwelle \u0026\u0026 !mail.nie_quarantaene) zielordner = mail.folder_spam || \u0027Quarantaene\u0027;\nelse if (k.kategorie === \u0027rechnung\u0027) zielordner = mail.folder_invoices || \u0027Rechnungen\u0027;\nelse if (k.kategorie === \u0027bestellung\u0027) zielordner = mail.folder_orders || \u0027Bestellungen\u0027;\nelse if (k.kategorie === \u0027newsletter\u0027) zielordner = mail.folder_newsletter || \u0027Newsletter\u0027;\n\nreturn {\n  json: {\n    ...mail,\n    kategorie: k.kategorie,\n    spam_score: score,\n    kurzfassung: k.kurzfassung,\n    zielordner,\n  },\n};\n"
+                                         "jsCode":  "// Gemini-Antwort auswerten und den Zielordner bestimmen.\n// Die Panel-Prüfung (Listen, DNSBL) fließt dabei mit ein.\nconst mail = $(\u0027Prüfung auswerten\u0027).item.json;\n\nlet raw = \u0027\u0027;\ntry { raw = $json.response; } catch (e) { /* leer lassen */ }\nraw = String(raw).replace(/```json|```/g, \u0027\u0027).trim();\n\nlet k = { kategorie: \u0027sonstiges\u0027, spam_score: 0, kurzfassung: \u0027\u0027 };\ntry { k = { ...k, ...JSON.parse(raw) }; } catch (e) { /* Fallback: sonstiges */ }\n\n\n// DNSBL-Treffer erhöhen die Bewertung der KI\nconst schwelle = Number(mail.spam_schwellwert) || 0.8;\nconst score = Math.min(1, (Number(k.spam_score) || 0) + (Number(mail.score_aufschlag) || 0));\n\nlet zielordner = null;\nif (score \u003e schwelle \u0026\u0026 !mail.nie_quarantaene) zielordner = mail.folder_spam || \u0027Quarantaene\u0027;\nelse if (k.kategorie === \u0027rechnung\u0027) zielordner = mail.folder_invoices || \u0027Rechnungen\u0027;\nelse if (k.kategorie === \u0027bestellung\u0027) zielordner = mail.folder_orders || \u0027Bestellungen\u0027;\nelse if (k.kategorie === \u0027newsletter\u0027) zielordner = mail.folder_newsletter || \u0027Newsletter\u0027;\n\nreturn {\n  json: {\n    ...mail,\n    kategorie: k.kategorie,\n    spam_score: score,\n    kurzfassung: k.kurzfassung,\n    zielordner,\n  },\n};\n"
                                      },
                       "id":  "code-parse",
                       "name":  "Antwort parsen",
@@ -147,7 +147,7 @@
                                                      }
                                      },
                       "id":  "check-http",
-                      "name":  "Panel-PrÃ¼fung",
+                      "name":  "Panel-Prüfung",
                       "type":  "n8n-nodes-base.httpRequest",
                       "typeVersion":  4.2,
                       "position":  [
@@ -160,10 +160,10 @@
                   {
                       "parameters":  {
                                          "mode":  "runOnceForEachItem",
-                                         "jsCode":  "// Ergebnis der Panel-PrÃ¼fung mit der Mail zusammenfÃ¼hren.\n// Whitelist beendet die PrÃ¼fung sofort, Blacklist geht ohne KI in die QuarantÃ¤ne.\nconst mail = $(\u0027Normalisieren\u0027).item.json;\nconst p = $json || {};\n\nconst entscheidung = p.entscheidung || \u0027weiter\u0027;\nconst gruende = Array.isArray(p.gruende) ? p.gruende : [];\n\nreturn {\n  json: {\n    ...mail,\n    entscheidung,\n    score_aufschlag: Number(p.score_aufschlag) || 0,\n    spam_schwellwert: Number(p.spam_schwellwert) || 0.8,\n    gruende,\n    dnsbl_treffer: p.dnsbl_treffer || [],\n    // Blacklist braucht keine KI-Abfrage mehr\n    direkt_quarantaene: entscheidung === \u0027quarantaene\u0027,\n    // Whitelist Ã¼bersteuert spÃ¤ter auch die KI-Bewertung\n    nie_quarantaene: entscheidung === \u0027freigeben\u0027,\n  },\n  // Anhaenge weiterreichen â€” der HTTP-Knoten davor wirft sie weg\n};\n"
+                                         "jsCode":  "// Ergebnis der Panel-Prüfung mit der Mail zusammenführen.\n// Whitelist beendet die Prüfung sofort, Blacklist geht ohne KI in die Quarantäne.\nconst mail = $(\u0027Normalisieren\u0027).item.json;\nconst p = $json || {};\n\nconst entscheidung = p.entscheidung || \u0027weiter\u0027;\nconst gruende = Array.isArray(p.gruende) ? p.gruende : [];\n\nreturn {\n  json: {\n    ...mail,\n    entscheidung,\n    score_aufschlag: Number(p.score_aufschlag) || 0,\n    spam_schwellwert: Number(p.spam_schwellwert) || 0.8,\n    gruende,\n    dnsbl_treffer: p.dnsbl_treffer || [],\n    // Blacklist braucht keine KI-Abfrage mehr\n    direkt_quarantaene: entscheidung === \u0027quarantaene\u0027,\n    // Whitelist übersteuert später auch die KI-Bewertung\n    nie_quarantaene: entscheidung === \u0027freigeben\u0027,\n  },\n  // Anhaenge weiterreichen — der HTTP-Knoten davor wirft sie weg\n};\n"
                                      },
                       "id":  "check-auswerten",
-                      "name":  "PrÃ¼fung auswerten",
+                      "name":  "Prüfung auswerten",
                       "type":  "n8n-nodes-base.code",
                       "typeVersion":  2,
                       "position":  [
@@ -210,10 +210,10 @@
                   {
                       "parameters":  {
                                          "mode":  "runOnceForEachItem",
-                                         "jsCode":  "// Blacklist-Treffer: ohne KI direkt in die QuarantÃ¤ne\nconst m = $json;\nreturn { json: { ...m, kategorie: \u0027spam\u0027, spam_score: 1, kurzfassung: m.gruende.join(\u0027; \u0027) || \u0027Absender steht auf der Blacklist\u0027, zielordner: \u0027Quarantaene\u0027 } };"
+                                         "jsCode":  "// Blacklist-Treffer: ohne KI direkt in die Quarantäne\nconst m = $json;\nreturn { json: { ...m, kategorie: \u0027spam\u0027, spam_score: 1, kurzfassung: m.gruende.join(\u0027; \u0027) || \u0027Absender steht auf der Blacklist\u0027, zielordner: \u0027Quarantaene\u0027 } };"
                                      },
                       "id":  "check-blacklist",
-                      "name":  "Blacklist: QuarantÃ¤ne",
+                      "name":  "Blacklist: Quarantäne",
                       "type":  "n8n-nodes-base.code",
                       "typeVersion":  2,
                       "position":  [
@@ -253,7 +253,7 @@
                   },
                   {
                       "id":  "scan-attachment",
-                      "name":  "AnhÃ¤nge scannen",
+                      "name":  "Anhänge scannen",
                       "type":  "n8n-nodes-base.httpRequest",
                       "typeVersion":  4.2,
                       "position":  [
@@ -316,7 +316,7 @@
                       "parameters":  {
                                          "operation":  "sendMessage",
                                          "chatId":  "BITTE_EINTRAGEN",
-                                         "text":  "={{ \u0027âš ï¸ *VIRUS GEFUNDEN* âš ï¸\\n\\nVon: \u0027 + $(\u0027Normalisieren\u0027).item.json.von + \u0027\\nBetreff: \u0027 + $(\u0027Normalisieren\u0027).item.json.betreff + \u0027\\nVirus: \u0027 + $json.virus }}",
+                                         "text":  "={{ \u0027⚠️ *VIRUS GEFUNDEN* ⚠️\\n\\nVon: \u0027 + $(\u0027Normalisieren\u0027).item.json.von + \u0027\\nBetreff: \u0027 + $(\u0027Normalisieren\u0027).item.json.betreff + \u0027\\nVirus: \u0027 + $json.virus }}",
                                          "additionalFields":  {
 
                                                               }
@@ -324,7 +324,7 @@
                   },
                   {
                       "id":  "virus-quarantaene",
-                      "name":  "Virus: QuarantÃ¤ne",
+                      "name":  "Virus: Quarantäne",
                       "type":  "n8n-nodes-base.code",
                       "typeVersion":  2,
                       "position":  [
@@ -333,7 +333,7 @@
                                    ],
                       "parameters":  {
                                          "mode":  "runOnceForEachItem",
-                                         "jsCode":  "const m = $(\u0027Normalisieren\u0027).item.json;\nreturn { json: { ...m, kategorie: \u0027spam\u0027, spam_score: 1, virus_name: $(\u0027AnhÃ¤nge scannen\u0027).item.json.virus || \u0027Unbekannt\u0027, kurzfassung: \u0027Malware-Anhang entfernt\u0027, zielordner: \u0027Quarantaene\u0027 } };"
+                                         "jsCode":  "const m = $(\u0027Normalisieren\u0027).item.json;\nreturn { json: { ...m, kategorie: \u0027spam\u0027, spam_score: 1, virus_name: $(\u0027Anhänge scannen\u0027).item.json.virus || \u0027Unbekannt\u0027, kurzfassung: \u0027Malware-Anhang entfernt\u0027, zielordner: \u0027Quarantaene\u0027 } };"
                                      }
                   },
                   {
@@ -350,7 +350,7 @@
                                                      }
                                      },
                       "id":  "sort-http",
-                      "name":  "Sortierung prÃ¼fen",
+                      "name":  "Sortierung prüfen",
                       "type":  "n8n-nodes-base.httpRequest",
                       "typeVersion":  4.2,
                       "position":  [
@@ -398,10 +398,10 @@
                   {
                       "parameters":  {
                                          "mode":  "runOnceForEachItem",
-                                         "jsCode":  "// Die Sortier-Regel hat gegriffen â€” Zielordner Ã¼bernehmen, ohne KI-Abfrage\nconst m = $json;\nreturn {\n  json: {\n    ...m,\n    zielordner: m.sort_ordner,\n    kategorie: \u0027sortierung\u0027,\n    spam_score: 0,\n    kurzfassung: \u0027Automatisch nach eigener Regel einsortiert\u0027,\n  },\n};"
+                                         "jsCode":  "// Die Sortier-Regel hat gegriffen — Zielordner übernehmen, ohne KI-Abfrage\nconst m = $json;\nreturn {\n  json: {\n    ...m,\n    zielordner: m.sort_ordner,\n    kategorie: \u0027sortierung\u0027,\n    spam_score: 0,\n    kurzfassung: \u0027Automatisch nach eigener Regel einsortiert\u0027,\n  },\n};"
                                      },
                       "id":  "sort-code",
-                      "name":  "Zielordner Ã¼bernehmen",
+                      "name":  "Zielordner übernehmen",
                       "type":  "n8n-nodes-base.code",
                       "typeVersion":  2,
                       "position":  [
@@ -412,7 +412,7 @@
                   {
                       "parameters":  {
                                          "mode":  "runOnceForEachItem",
-                                         "jsCode":  "// Antwort des Panels mit der Mail zusammenfÃ¼hren.\n// Der HTTP-Knoten davor ersetzt das Item durch seine Antwort â€” ohne diesen\n// Schritt hÃ¤tten alle folgenden Knoten keine Maildaten mehr.\nconst mail = $(\u0027Normalisieren\u0027).item.json;\nconst s = $json || {};\nreturn {\n  json: {\n    ...mail,\n    sort_aktion: s.aktion || \u0027inbox\u0027,\n    sort_ordner: s.ordner || null,\n  },\n};\n"
+                                         "jsCode":  "// Antwort des Panels mit der Mail zusammenführen.\n// Der HTTP-Knoten davor ersetzt das Item durch seine Antwort — ohne diesen\n// Schritt hätten alle folgenden Knoten keine Maildaten mehr.\nconst mail = $(\u0027Normalisieren\u0027).item.json;\nconst s = $json || {};\nreturn {\n  json: {\n    ...mail,\n    sort_aktion: s.aktion || \u0027inbox\u0027,\n    sort_ordner: s.ordner || null,\n  },\n};\n"
                                      },
                       "id":  "sort-auswerten",
                       "name":  "Sortierung auswerten",
@@ -429,7 +429,7 @@
                                               "main":  [
                                                            [
                                                                {
-                                                                   "node":  "Sortierung prÃ¼fen",
+                                                                   "node":  "Sortierung prüfen",
                                                                    "type":  "main",
                                                                    "index":  0
                                                                }
@@ -472,18 +472,18 @@
                                                           ]
                                                       ]
                                          },
-                        "Panel-PrÃ¼fung":  {
+                        "Panel-Prüfung":  {
                                                "main":  [
                                                             [
                                                                 {
-                                                                    "node":  "PrÃ¼fung auswerten",
+                                                                    "node":  "Prüfung auswerten",
                                                                     "type":  "main",
                                                                     "index":  0
                                                                 }
                                                             ]
                                                         ]
                                            },
-                        "PrÃ¼fung auswerten":  {
+                        "Prüfung auswerten":  {
                                                    "main":  [
                                                                 [
                                                                     {
@@ -498,7 +498,7 @@
                                            "main":  [
                                                         [
                                                             {
-                                                                "node":  "Blacklist: QuarantÃ¤ne",
+                                                                "node":  "Blacklist: Quarantäne",
                                                                 "type":  "main",
                                                                 "index":  0
                                                             }
@@ -512,7 +512,7 @@
                                                         ]
                                                     ]
                                        },
-                        "Blacklist: QuarantÃ¤ne":  {
+                        "Blacklist: Quarantäne":  {
                                                        "main":  [
                                                                     [
                                                                         {
@@ -527,7 +527,7 @@
                                             "main":  [
                                                          [
                                                              {
-                                                                 "node":  "AnhÃ¤nge scannen",
+                                                                 "node":  "Anhänge scannen",
                                                                  "type":  "main",
                                                                  "index":  0
                                                              }
@@ -563,14 +563,14 @@
                                                          "main":  [
                                                                       [
                                                                           {
-                                                                              "node":  "Virus: QuarantÃ¤ne",
+                                                                              "node":  "Virus: Quarantäne",
                                                                               "type":  "main",
                                                                               "index":  0
                                                                           }
                                                                       ]
                                                                   ]
                                                      },
-                        "Virus: QuarantÃ¤ne":  {
+                        "Virus: Quarantäne":  {
                                                    "main":  [
                                                                 [
                                                                     {
@@ -581,7 +581,7 @@
                                                                 ]
                                                             ]
                                                },
-                        "Sortierung prÃ¼fen":  {
+                        "Sortierung prüfen":  {
                                                    "main":  [
                                                                 [
                                                                     {
@@ -596,21 +596,21 @@
                                                   "main":  [
                                                                [
                                                                    {
-                                                                       "node":  "Zielordner Ã¼bernehmen",
+                                                                       "node":  "Zielordner übernehmen",
                                                                        "type":  "main",
                                                                        "index":  0
                                                                    }
                                                                ],
                                                                [
                                                                    {
-                                                                       "node":  "Panel-PrÃ¼fung",
+                                                                       "node":  "Panel-Prüfung",
                                                                        "type":  "main",
                                                                        "index":  0
                                                                    }
                                                                ]
                                                            ]
                                               },
-                        "Zielordner Ã¼bernehmen":  {
+                        "Zielordner übernehmen":  {
                                                        "main":  [
                                                                     [
                                                                         {
@@ -632,7 +632,7 @@
                                                                   ]
                                                               ]
                                                  },
-                        "AnhÃ¤nge scannen":  {
+                        "Anhänge scannen":  {
                                                  "main":  [
                                                               [
                                                                   {

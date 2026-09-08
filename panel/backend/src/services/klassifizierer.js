@@ -62,6 +62,12 @@ const LINKS_MAX = 5;
 // Nicht über zahl(): Das behandelt 0 als „nicht gesetzt" und gäbe den Standard
 // zurück — die Pause ließe sich dann nie abschalten. Hier ist 0 eine Ansage.
 function pause() {
+  // Eine lokal laufende KI kennt kein Minutenlimit — sie steht auf demselben
+  // Rechner. Sechs Sekunden zwischen zwei Buendeln waeren dort reine Wartezeit:
+  // Bei 26 Buendeln gingen zweieinhalb Minuten der Frist fuers Nichtstun drauf.
+  try {
+    if ((settings.hole('ki_anbieter') || 'gemini') === 'ollama') return 0;
+  } catch { /* dann eben die uebliche Pause */ }
   const n = Number(settings.hole('gemini_pause_ms'));
   if (!Number.isFinite(n) || n < 0) return 6000;
   return Math.min(60000, Math.round(n));

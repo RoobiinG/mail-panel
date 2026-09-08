@@ -55,7 +55,21 @@ function regelPruefer() {
 // Modul liest umgekehrt dieses hier. Am liebsten die, die Google selbst in der
 // Absage nennt („limit: 500, model: …"); sonst der eigene Stand im Moment der
 // Abweisung.
+// Eine lokal laufende KI hat kein Tageskontingent. Jede Grenze, die dieses Modul
+// zieht, meint Googles Gratisstufe — auf Ollama angewandt ist sie eine Bremse
+// ohne Anlass.
+//
+// Das war nicht theoretisch: Wer auf Ollama umstellte, schleppte den Zaehler und
+// womoeglich eine offene 429-Sperre aus der Gemini-Zeit mit. kiPlatzFrei() in
+// routes/internal.js sagte daraufhin bei JEDER neuen Mail "kein Kontingent" und
+// liess sie liegen — die lokale KI, die nichts kostet und nie abweist, kam nie
+// zum Zug.
+function ohneKontingent() {
+  try { return (settings.hole('ki_anbieter') || 'gemini') === 'ollama'; } catch { return false; }
+}
+
 function beobachteteGrenze() {
+  if (ohneKontingent()) return 0;
   try {
     const heute = kiTag();
     if (settings.hole('ki_429_tag') !== heute) return 0;
@@ -92,6 +106,8 @@ function beobachteteGrenze() {
 }
 
 function tagesbudget() {
+  // Kein Deckel fuer die lokale KI — siehe ohneKontingent().
+  if (ohneKontingent()) return 0;
   const n = Number(settings.hole('gemini_tagesbudget'));
   const eingestellt = Number.isFinite(n) && n > 0 ? n : 0; // 0 = kein Deckel
   const beobachtet = beobachteteGrenze();

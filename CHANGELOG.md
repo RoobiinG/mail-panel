@@ -2,6 +2,105 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.3.0.0] - 2026-09-08 (Build 142) — *Die lokale KI wird endlich benutzt*
+
+Anlass: „Ollama ist eingestellt, die Workflows sind synchronisiert — und trotzdem wird nichts
+sortiert." Der Verdacht war richtig. Es waren sechs voneinander unabhängige Fehler, von denen
+jeder für sich gereicht hätte.
+
+### Bugfix (kritisch): Mit Ollama wurde überhaupt kein Workflow importiert
+Zwei der drei Ollama-Vorlagen (`01-inbox-triage-ollama.json`, `04-bestand-triage-ollama.json`)
+begannen mit einem UTF-8-BOM. `JSON.parse` warf darauf — und das Einlesen lag im **äußeren**
+try-Block der Import-Schleife. Damit riss die erste unlesbare Datei den ganzen Import mit, und weil
+`01` alphabetisch zuerst kommt, wurde **danach nichts mehr importiert**. Wer Ollama gewählt hatte,
+stand ohne einen einzigen Workflow da.
+
+- BOM aus den Vorlagen entfernt.
+- `basisSetup()` liest jede Vorlage jetzt in ihrem eigenen try-Block, entfernt ein BOM zur
+  Sicherheit selbst und meldet die kaputte Datei im Log, statt still aufzugeben.
+
+### Bugfix (kritisch): Alle drei Ollama-Vorlagen waren doppelt UTF-8-kodiert
+Aus `Prüfung auswerten` war `PrÃ¼fung auswerten` geworden, aus `Blacklist: Quarantäne`
+`Blacklist: QuarantÃ¤ne` — 30 bzw. 29 bzw. 5 Stellen je Datei. Der Panel-Patcher sucht seine Knoten
+**am Namen**; er fand keinen einzigen davon. Und der eingesetzte Code verweist auf
+`$('Prüfung auswerten')` — ein Knoten, den es unter dem Namen nicht mehr gab. Kodierung
+zurückgerechnet; ein Test wacht künftig über alle Vorlagen (BOM, Doppelkodierung, gültiges JSON).
+
+### Bugfix (kritisch): Die lokale KI stand unter Googles Tageslimit
+`kiPlatzFrei()` fragt vor jeder neuen Mail das Budget. Mit Ollama zählte dort weiter Googles
+Gratisstufe: der Zähler aus der Gemini-Zeit, das eingestellte Tagesbudget (Standard 400) und eine
+womöglich noch offene 429-Sperre. Ergebnis: Bei **jeder** eintreffenden Mail „kein Kontingent, die
+Mail bleibt liegen" — für eine KI, die im eigenen Keller läuft und nie abweist.
+`budget.tagesbudget()` und `budget.beobachteteGrenze()` geben mit Ollama jetzt 0 zurück (= kein
+Deckel). Dazu entfällt die Pause zwischen zwei Bündeln (6 s je Bündel, bei 26 Bündeln zweieinhalb
+Minuten für nichts).
+
+### Bugfix (hoch): Der Bündel-Knoten wurde bei Ollama nie eingebaut
+Der Patcher suchte fest nach `Gemini klassifizieren`; in der Ollama-Vorlage heißt der Knoten
+`Ollama klassifizieren`. Die Bestands-Triage bekam damit ihre Bündelung nicht und fragte weiter
+Mail für Mail einzeln. Der Knoten wird jetzt anbieterunabhängig gefunden. Ebenso wird mit Ollama
+kein Google-Zugang mehr an den KI-Knoten geheftet.
+
+### Bugfix (hoch): „Digest konnte nicht erstellt werden — Antwort war leer"
+Gemini legt den Text nach `candidates[0].content.parts[0].text`, Ollama schlicht nach `response`.
+Build 138 hat die **Vorlagen** darauf umgestellt — aber `basisSetup()` legt Workflows nur an, wenn
+sie fehlen, und rührt vorhandene nie wieder an. Was in n8n schon stand, blieb also auf dem alten
+Stand: ein Knoten, der nur nach `candidates` schaut. Das Panel bog die Anfrage brav auf den lokalen
+Server um, die Antwort kam an — und wurde weggeworfen. Genau so gemeldet am 8. September um 07:34
+per Telegram. Der Sync zieht solche Knoten jetzt nach, ohne dass man etwas löschen muss.
+
+### Bugfix (hoch): Beleg-Lesen und Aktions-Entwurf riefen immer Google
+Beide hatten einen eigenen `fetch` an Gemini vorbei an der Anbieter-Weiche.
+- **Aktions-Entwurf** läuft jetzt über `kiText` und damit über die lokale KI. Vorher meldete er
+  „Kein Gemini-Schlüssel hinterlegt", obwohl gar kein Google im Spiel sein sollte.
+- **Beleg-Lesen** schickt ein PDF als `inline_data` mit; das kann nur Gemini. Mit Ollama fällt es
+  jetzt sichtbar auf die Heuristik zurück und schreibt das ins Log, statt still an Google
+  vorbeizutelefonieren.
+
+### Sicherheit: SSRF in den Ollama-Routen geschlossen
+`POST /api/einstellungen/ollama/modelle` und `GET …/ollama/pull` nahmen die Zieladresse **aus der
+Anfrage** und riefen sie serverseitig ab. Ein angemeldeter Benutzer konnte damit beliebige interne
+Adressen abfragen — n8n, den Metadaten-Dienst des Hosters, alles im Docker-Netz — und bekam die
+Antwort zurückgestreamt. Die Adresse kommt jetzt ausschließlich aus den Einstellungen.
+
+### Sicherheit: Anmelde-Token nicht mehr im Link
+Der Modell-Download lief über `EventSource`, das keine Kopfzeilen mitschicken kann — also stand das
+JWT im Query-String und damit im Zugriffsprotokoll jedes Proxys, im Browser-Verlauf und in jedem
+Fehlerbericht. Die Oberfläche liest den Ereignisstrom jetzt selbst per `fetch` mit
+Authorization-Kopfzeile; die Route ist auf POST umgestellt. `req.query.token` wurde aus der
+Auth-Middleware entfernt — damit gibt es diesen Weg gar nicht mehr.
+
+### Sicherheit: `/api/statistik` war nur „angemeldet"
+Die Route zeigt Absender und Betreffe aus dem Quarantäne-Log und der Sortier-Inbox, verlangte aber
+kein Recht. Sie hängt jetzt hinter `sortierung` wie alles andere mit Mail-Inhalten.
+
+### Feature: Workflows gleichen sich von selbst ab
+Neuer Dienst `services/autoSync.js`:
+- **Beim Containerstart** — mit drei Anläufen (20 s / 60 s / 180 s), weil n8n meist noch hochfährt,
+  wenn das Panel schon steht.
+- **Nach jeder Änderung**, die in den Workflows landet: KI-Anbieter, Ollama-Adresse und -Modell,
+  Gemini-Modell und Ersatzmodell, Takt, Denkstufe, Umgang mit neuer Post, Bestands-Intervall,
+  Spam-Schwelle. Entprellt (4 s), damit zehn gespeicherte Felder nicht zehn Läufe auslösen.
+- Nie zwei Läufe gleichzeitig; ohne hinterlegten n8n-Zugang passiert nichts.
+- Abschaltbar über die Einstellung `auto_sync` bzw. `AUTO_SYNC=0`.
+
+### Kleinere Korrekturen
+- `/ollama/pull` hatte **kein Zeitlimit** — ein stummer Server hielt die Verbindung unbegrenzt.
+  Jetzt 30 Minuten Obergrenze.
+- Die Fehlermeldung dort wurde roh in ein JSON-Literal geklebt; ein Anführungszeichen oder
+  Zeilenumbruch darin zerlegte den Ereignisstrom. Wird jetzt sauber serialisiert.
+- Der Fortschrittsstrom wird zeilenweise zusammengesetzt, statt halbe Zeilen weiterzureichen.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **DB-Migrationen:** keine. Neue Einstellung `auto_sync` (Standard `1`).
+- **n8n-Workflow-Kompatibilität:** **Die Ollama-Vorlagen haben sich geändert.** Wer Ollama nutzt,
+  sollte die Workflows 01, 02 und 04 in n8n löschen und vom Panel neu importieren lassen — die
+  alten tragen kaputte Knotennamen, die kein Sync reparieren kann. Bei Gemini genügt der normale
+  Abgleich, der jetzt ohnehin von selbst läuft.
+- **API:** `GET /api/einstellungen/ollama/pull` → **`POST`**, ohne `url`- und `token`-Parameter.
+  `POST …/ollama/modelle` ignoriert ein mitgeschicktes `url`.
+- **Neustart-/Session-Verhalten:** Das Panel gleicht die Workflows nach dem Start selbsttätig ab.
+
 ## [4.2.4.4] - 2026-09-08 (Build 141) — *Test-Fix*
 
 ### Behoben

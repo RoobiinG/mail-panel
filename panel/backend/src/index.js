@@ -136,7 +136,10 @@ app.use('/api/logs', auth, rechtErforderlich('logs'), logsRoutes);
 // Interne Endpunkte fuer n8n — eigener Shared-Secret-Schutz statt JWT
 app.use('/api/internal', internalAuth, require('./routes/internal'));
 
-app.use('/api/statistik', auth, require('./routes/statistik'));
+// Die Statistik zeigt Zahlen aus dem Quarantaene-Log und der Sortier-Inbox --
+// also Absender und Betreffe der Postfaecher. Sie gehoert deshalb hinter
+// dasselbe Recht wie die Sortierung und nicht hinter blosses "angemeldet".
+app.use('/api/statistik', auth, rechtErforderlich('sortierung'), require('./routes/statistik'));
 
 // Paste (verschlüsselte Logs) - enthält öffentliche Abrufe und geschütztes Erstellen
 app.use('/api/paste', require('./routes/paste'));
@@ -177,4 +180,8 @@ tls.starten(app, PORT, (art) => {
   // niemand, wenn n8n einen abgeschaltet hat — es kracht nicht, es passiert
   // nur nichts mehr.
   require('./services/aufsicht').zeitplanStarten();
+  // Workflows selbsttätig auf Stand bringen. Bis hierher musste man nach jeder
+  // Änderung „Workflows → Synchronisieren" drücken — und wer es vergaß, betrieb
+  // eine Konfiguration, die nur im Panel stand. Siehe services/autoSync.js.
+  require('./services/autoSync').beimStart();
 });

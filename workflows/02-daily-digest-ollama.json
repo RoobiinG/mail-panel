@@ -1,9 +1,9 @@
 {
-    "name":  "02 - TÃ¤glicher Digest (Telegram)",
+    "name":  "02 - Täglicher Digest (Telegram)",
     "nodes":  [
                   {
                       "parameters":  {
-                                         "content":  "## TÃ¤glicher Digest\n\n**Vor dem Aktivieren:**\n1. Credentials zuordnen: Gemini (Header Auth), Telegram\n2. Im Node **Panel-API** sicherstellen, dass X-Panel-Secret stimmt\n3. Im Node **Telegram senden** deine Chat-ID eintragen\n\nLÃ¤uft tÃ¤glich um 7:30 Uhr (Zeitzone aus GENERIC_TIMEZONE).",
+                                         "content":  "## Täglicher Digest\n\n**Vor dem Aktivieren:**\n1. Credentials zuordnen: Gemini (Header Auth), Telegram\n2. Im Node **Panel-API** sicherstellen, dass X-Panel-Secret stimmt\n3. Im Node **Telegram senden** deine Chat-ID eintragen\n\nLäuft täglich um 7:30 Uhr (Zeitzone aus GENERIC_TIMEZONE).",
                                          "height":  260,
                                          "width":  380
                                      },
@@ -28,7 +28,7 @@
                                                   }
                                      },
                       "id":  "schedule-digest",
-                      "name":  "TÃ¤glich 7:30",
+                      "name":  "Täglich 7:30",
                       "type":  "n8n-nodes-base.scheduleTrigger",
                       "typeVersion":  1.2,
                       "position":  [
@@ -120,7 +120,7 @@
                                                                                                           "row":  {
                                                                                                                       "buttons":  [
                                                                                                                                       {
-                                                                                                                                          "text":  "ðŸ“¬ Panel Ã¶ffnen",
+                                                                                                                                          "text":  "📬 Panel öffnen",
                                                                                                                                           "additionalFields":  "@{url=https://dein-panel-url/}"
                                                                                                                                       },
                                                                                                                                       {
@@ -145,7 +145,7 @@
                   }
               ],
     "connections":  {
-                        "TÃ¤glich 7:30":  {
+                        "Täglich 7:30":  {
                                               "main":  [
                                                            [
                                                                {

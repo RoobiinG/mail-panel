@@ -4,13 +4,11 @@
 // kein Workflow-JSON. Was sie liefert, läuft anschließend durch dieselbe Prüfung
 // wie ein von Hand ausgefülltes Formular und wird dem Nutzer zur Bestätigung
 // gezeigt. Versteht sie etwas falsch, sieht man es also, bevor etwas passiert.
-const settings = require('./settings');
 const schema   = require('./aktionenSchema');
-const { loggen } = require('./panelLog');
 
-// Welches Modell gilt, entscheidet services/kiModell.js — eine Stelle fuer
-// Workflows und Panel, damit ein Wechsel auf das Ersatzmodell ueberall greift.
-const kiModell = require('./kiModell');
+// Über kiText statt mit eigenem fetch: Dort steht die Weiche zwischen Gemini und
+// der lokalen KI, und dort wird auch das Modell gewählt (services/kiModell.js).
+const kiText = require('./kiText');
 
 function promptBauen(beschreibung) {
   const s = schema.beschreibung();
@@ -60,44 +58,21 @@ ${beschreibung}`;
  * @returns {Promise<{ok: boolean, aktion?: object, rueckfrage?: string, fehler?: string[]}>}
  */
 async function entwurfBauen(beschreibung) {
-  const key = settings.hole('gemini_api_key');
-  if (!key) {
-    return { ok: false, fehler: ['Kein Gemini-Schlüssel hinterlegt (Einstellungen → Gemini API-Key).'] };
-  }
   if (!beschreibung || String(beschreibung).trim().length < 5) {
     return { ok: false, fehler: ['Bitte beschreibe in einem Satz, was passieren soll.'] };
   }
 
-  let rohtext = '';
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${kiModell.aktiv()}:generateContent`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: promptBauen(String(beschreibung).slice(0, 1000)) }] }],
-          generationConfig: { responseMimeType: 'application/json', temperature: 0.1 },
-        }),
-        signal: AbortSignal.timeout(30000),
-      },
-    );
-    if (!res.ok) {
-      const text = (await res.text()).slice(0, 200);
-      loggen('warn', 'backend:aktionenKi', `Gemini antwortete mit ${res.status}: ${text}`);
-      return { ok: false, fehler: [`Gemini antwortete mit ${res.status}. Stimmt der Schlüssel?`] };
-    }
-    const daten = await res.json();
-    rohtext = daten?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  } catch (err) {
-    loggen('warn', 'backend:aktionenKi', `Gemini nicht erreichbar: ${err.message}`);
-    return { ok: false, fehler: [`Gemini war nicht erreichbar: ${err.message}`] };
-  }
+  // Der frühere eigene fetch ging IMMER zu Google — mit „Ollama" als Anbieter
+  // stand hier „Kein Gemini-Schlüssel hinterlegt", obwohl gar kein Google im
+  // Spiel sein sollte. kiText kennt die Weiche.
+  const antwort = await kiText.frageJson(
+    promptBauen(String(beschreibung).slice(0, 1000)),
+    { quelle: 'backend:aktionenKi', zeitlimit: 30000 },
+  );
+  if (!antwort.ok) return { ok: false, fehler: [antwort.fehler] };
 
-  let entwurf;
-  try {
-    entwurf = JSON.parse(String(rohtext).replace(/```json|```/g, '').trim());
-  } catch {
+  const entwurf = antwort.daten;
+  if (!entwurf || typeof entwurf !== 'object') {
     return { ok: false, fehler: ['Die Antwort der KI war nicht lesbar. Versuch es noch einmal oder trage die Regel von Hand ein.'] };
   }
 
