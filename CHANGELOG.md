@@ -2,6 +2,19 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.4.0.1] - 2026-09-08 (Build 145) — *Diagnose: das richtige Modell*
+
+Beim ersten echten Bericht auf dem Testserver aufgefallen: Bei Anbieter `ollama` stand unter „KI"
+trotzdem `gemini-3.5-flash-lite`, weil `kiModell.stand()` nur Googles Modelle samt Ersatzmodell
+kennt. Wer den Bericht liest, sucht daraufhin an genau der Stelle, an der das Problem nicht liegt.
+
+Neu heißt das Feld `modellInBenutzung` und zeigt das Modell, das tatsächlich arbeitet — bei Ollama
+also `ollama_modell`. Die Gemini-Modellwahl steht weiter darunter, mit dem Vermerk, dass sie gerade
+nicht in Benutzung ist.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- Keine Migrationen, keine API-Änderung außer den umbenannten Feldern im Diagnose-Bericht.
+
 ## [4.4.0.0] - 2026-09-08 (Build 144) — *Diagnose-Seite*
 
 Wer beim Fehlersuchen helfen soll, braucht Einblick. Wer aber Docker ausführen darf, ist faktisch

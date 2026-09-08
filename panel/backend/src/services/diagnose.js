@@ -182,9 +182,19 @@ function kiStand() {
   const budget = require('./budget');
   const kontingent = require('./kiKontingent');
   const modell = require('./kiModell');
+  const anbieter = settings.hole('ki_anbieter') || 'gemini';
   return {
-    anbieter: settings.hole('ki_anbieter') || 'gemini',
-    aktivesModell: (() => { try { return modell.stand(); } catch { return null; } })(),
+    anbieter,
+    // Welches Modell wirklich arbeitet. kiModell.stand() kennt nur Googles
+    // Modelle samt Ersatzmodell — bei „ollama" stand dort trotzdem ein
+    // Gemini-Name, und das führt beim Lesen des Berichts genau in die
+    // Richtung, aus der das Problem nicht kommt.
+    modellInBenutzung: anbieter === 'ollama'
+      ? (settings.hole('ollama_modell') || '(nicht gesetzt)')
+      : (() => { try { return modell.stand().aktiv; } catch { return null; } })(),
+    geminiModelle: anbieter === 'ollama'
+      ? '(nicht in Benutzung — Anbieter ist Ollama)'
+      : (() => { try { return modell.stand(); } catch { return null; } })(),
     tagesbudget: budget.tagesbudget(),
     heuteAnfragen: budget.heuteVerbraucht(),
     heuteMails: budget.protokolliertHeute(),
