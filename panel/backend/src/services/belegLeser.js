@@ -1,5 +1,11 @@
-// Der Beleg-Leser — liest ein PDF per Gemini aus UND entscheidet, ob es
-// ueberhaupt ein Beleg ist, der gespeichert werden soll.
+// Der Beleg-Leser — liest ein PDF per KI aus UND entscheidet, ob es ueberhaupt
+// ein Beleg ist, der gespeichert werden soll.
+//
+// Zwei Wege, je nach Anbieter: Gemini bekommt das PDF selbst (es liest Layout
+// und Tabellen mit), die lokale KI bekommt die Textebene, die
+// services/pdfText.js herausholt. Fuer eine Rechnung genuegt der Text —
+// Nummer, Datum und Firma stehen darin. Ein multimodales Modell waere der
+// naheliegende, aber falsche Weg: llama3.2-vision ist 11B.
 //
 // Warum es diese Stelle gibt: Workflow 07 legt Anhaenge von Rechnungs- und
 // Bestellmails in Nextcloud ab. Aber nicht jeder Anhang einer solchen Mail ist
@@ -23,6 +29,7 @@ const { loggen } = require('./panelLog');
 // Workflows und Panel. Damit folgt auch das Beleg-Lesen einem Wechsel auf das
 // Ersatzmodell, wenn Googles Tageskontingent aufgebraucht ist.
 const kiModell = require('./kiModell');
+const pdfText = require('./pdfText');
 
 const BELEG_TYPEN = ['rechnung', 'bestellung', 'mahnung', 'kontoauszug', 'vertrag', 'lieferschein'];
 // Woran die Heuristik (ohne KI) einen Beleg erkennt: eindeutige Woerter im
@@ -128,15 +135,93 @@ function entscheiden(roh, von) {
   };
 }
 
+// ─── Was im Belegtext steht ─────────────────────────────────────────────────
+//
+// Sobald die Textebene des PDF vorliegt (services/pdfText.js), muss die
+// Heuristik nicht mehr aus Dateiname und Betreff raten: Rechnungsnummer, Datum
+// und Dokumentart stehen auf dem Beleg. Das kostet weder eine KI-Anfrage noch
+// Wartezeit und greift auch dann, wenn der Tagesdeckel voll oder die lokale KI
+// ueberlastet ist.
+
+// Die Reihenfolge ist Absicht. Eine Mahnung nennt fast immer auch eine
+// Rechnung, und viele Rechnungen tragen die AGB auf der Rueckseite — wer
+// zuerst nach AGB sucht, sortiert die halbe Buchhaltung als Werbung aus.
+const TYP_WORTE = [
+  ['mahnung', /\b(mahnung|zahlungserinnerung|zahlungsverzug)\b/i],
+  ['kontoauszug', /\b(kontoauszug|umsatzanzeige|umsatzübersicht)\b/i],
+  ['lieferschein', /\b(lieferschein|packzettel|delivery note)\b/i],
+  ['rechnung', /\b(rechnung|rechnungsnummer|invoice|gutschrift)\b/i],
+  ['bestellung', /\b(bestellbestätigung|bestellnummer|auftragsbestätigung|order confirmation)\b/i],
+  ['vertrag', /\b(vertrag|vertragsurkunde|vertragsnummer)\b/i],
+  ['agb', /\b(allgemeine geschäftsbedingungen|agb)\b/i],
+  ['werbung', /\b(widerrufsbelehrung|datenschutzerklärung|newsletter|prospekt)\b/i],
+];
+
+const DATUM_ROH = '(\\d{1,2}[.\\/]\\s?\\d{1,2}[.\\/]\\s?\\d{2,4}|\\d{4}-\\d{2}-\\d{2})';
+// Zuerst das ausdruecklich benannte Belegdatum, dann ein allgemeines „Datum:".
+// „Das erste Datum im Text" waere zu oft das Faelligkeits- oder Lieferdatum,
+// und ein falsches Datum ist schlimmer als gar keines: Im Ordnernamen sieht
+// man ihm spaeter nicht an, dass es geraten war.
+const DATUM_MUSTER = [
+  new RegExp(`(?:rechnungs|belegs?|auftrags|bestell)datum\\s*[:\\s]\\s*${DATUM_ROH}`, 'i'),
+  new RegExp(`\\bdatum\\s*[:\\s]\\s*${DATUM_ROH}`, 'i'),
+];
+
+const NUMMER_MUSTER = [
+  /\b(?:rechnungs|beleg)[\s-]*(?:nummer|nr\.?)\s*[:\s]\s*([A-Za-z0-9][A-Za-z0-9._/-]{2,30})/i,
+  /\binvoice\s*(?:no\.?|number)\s*[:\s]\s*([A-Za-z0-9][A-Za-z0-9._/-]{2,30})/i,
+  /\b(?:bestell|auftrags|vorgangs)[\s-]*(?:nummer|nr\.?)\s*[:\s]\s*([A-Za-z0-9][A-Za-z0-9._/-]{2,30})/i,
+  /\bkunden[\s-]*(?:nummer|nr\.?)\s*[:\s]\s*([A-Za-z0-9][A-Za-z0-9._/-]{2,30})/i,
+];
+
+/** „12.03.2026" und „2026-03-12" zu yyyy-mm-dd; alles andere: null. */
+function datumNormalisieren(roh) {
+  const s = String(roh || '').replace(/\s/g, '');
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const t = s.match(/^(\d{1,2})[.\/](\d{1,2})[.\/](\d{2,4})$/);
+  if (!t) return null;
+  const [, tag, monat, jahrRoh] = t;
+  if (Number(monat) < 1 || Number(monat) > 12 || Number(tag) < 1 || Number(tag) > 31) return null;
+  // Zweistellige Jahre: 26 → 2026. Belege aus dem letzten Jahrhundert kommen
+  // hier nicht per Mail an.
+  const jahr = jahrRoh.length === 2 ? `20${jahrRoh}` : jahrRoh.padStart(4, '0');
+  return `${jahr}-${monat.padStart(2, '0')}-${tag.padStart(2, '0')}`;
+}
+
+function ausText(text) {
+  const t = String(text || '');
+  if (!t) return { dokumenttyp: null, datum: null, aktenzeichen: null };
+  const typ = TYP_WORTE.find(([, muster]) => muster.test(t));
+  let datum = null;
+  for (const muster of DATUM_MUSTER) {
+    const treffer = t.match(muster);
+    if (treffer) { datum = datumNormalisieren(treffer[1]); if (datum) break; }
+  }
+  let nummer = null;
+  for (const muster of NUMMER_MUSTER) {
+    const treffer = t.match(muster);
+    if (treffer) { nummer = sauberAktenzeichen(treffer[1]); if (nummer) break; }
+  }
+  return { dokumenttyp: typ ? typ[0] : null, datum, aktenzeichen: nummer };
+}
+
 // ─── Heuristik, wenn ohne KI entschieden werden muss ────────────────────────
-function heuristik({ von, betreff, dateiname }) {
-  const speichern = BELEG_WORTE.test(`${dateiname || ''} ${betreff || ''}`);
+function heuristik({ von, betreff, dateiname }, text = '') {
+  const ausDemNamen = BELEG_WORTE.test(`${dateiname || ''} ${betreff || ''}`);
+  const gelesen = ausText(text);
+  // Der Belegtext schlaegt den Dateinamen: „anhang.pdf" mit einer
+  // Rechnungsnummer darin ist eine Rechnung, „rechnung.pdf" mit nichts als
+  // einer Widerrufsbelehrung darin ist keine.
+  const istBeleg = gelesen.dokumenttyp
+    ? BELEG_TYPEN.includes(gelesen.dokumenttyp)
+    : ausDemNamen;
   return {
-    speichern,
-    dokumenttyp: speichern ? 'unbekannt' : 'kein_beleg',
+    speichern: istBeleg,
+    dokumenttyp: gelesen.dokumenttyp || (istBeleg ? 'unbekannt' : 'kein_beleg'),
     firma: firmaAus(von),
-    datum: heute(),
-    aktenzeichen: null,
+    // Ohne Fund bleibt es wie bisher bei heute.
+    datum: gelesen.datum || heute(),
+    aktenzeichen: istBeleg ? gelesen.aktenzeichen : null,
   };
 }
 
@@ -191,17 +276,39 @@ Regeln:
 - Erfinde nichts. Was du nicht sicher liest, lass leer.`;
 }
 
-async function fragGemini(pdfBase64) {
-  // Diese Stelle schickt ein PDF als inline_data mit — das kann nur Gemini.
-  // Ollamas /api/generate nimmt Text und (bei Vision-Modellen) Bilder, aber
-  // keine PDFs. Statt still an Google vorbeizutelefonieren, obwohl „lokale KI"
-  // eingestellt ist, wird hier auf die Heuristik zurueckgefallen — und das
-  // einmal gesagt, damit niemand raetselt, warum die Belege schlechter werden.
-  if ((settings.hole('ki_anbieter') || 'gemini') === 'ollama') {
-    loggen('info', 'backend:belegLeser',
-      'Beleg-Lesen per KI braucht Gemini (PDF-Anhang) — mit Ollama entscheidet die Heuristik.');
+// Die lokale KI liest den TEXT des Belegs, nicht das PDF.
+//
+// Ollamas /api/generate nimmt Text und — bei Vision-Modellen — Bilder, aber
+// keine PDFs. Der naheliegende Ausweg waere ein multimodales Modell; llama3.2
+// -vision ist allerdings 11B, und auf drei Kernen ist das keine Option.
+//
+// Der Umweg ist der kuerzere: Fast jede Rechnung ist ein digitales PDF mit
+// Textebene (services/pdfText.js holt sie heraus). Ist der Text einmal da, ist
+// es eine ganz gewoehnliche Textfrage — und die beantwortet auch ein kleines
+// Modell. Gemini bekommt weiterhin das PDF selbst, weil es Layout und Tabellen
+// mitliest; das ist bei einer Rechnung ein Vorteil, aber keine Bedingung.
+async function fragOllama(text) {
+  if (!text) return null;
+  const kiText = require('./kiText');
+  const antwort = await kiText.frageJson(
+    `${prompt()}\n\nHier der Text des PDF:\n---\n${text}\n---`,
+    {
+      quelle: 'backend:belegLeser',
+      zeitlimit: 120000,
+      // Fuenf Felder, mehr wird nicht gebraucht — und jedes Token, das nicht
+      // erzeugt wird, ist auf einer CPU gesparte Zeit.
+      maxAntwort: 400,
+      maxZeichen: 12000,
+    },
+  );
+  if (!antwort.ok) {
+    loggen('warn', 'backend:belegLeser', `Beleg-Lesen per lokaler KI fehlgeschlagen: ${antwort.fehler}`);
     return null;
   }
+  return antwort.daten;
+}
+
+async function fragGemini(pdfBase64) {
   const key = settings.hole('gemini_api_key');
   if (!key) return null; // ohne Schluessel kann nicht gelesen werden ⇒ Heuristik
   try {
@@ -264,21 +371,46 @@ async function auslesen(eingang = {}) {
   const alt = frueher(e);
   if (alt) return { ...alt, quelle: 'dedupe' };
 
-  // 2. Deckel voll oder kein PDF ⇒ ohne KI per Heuristik entscheiden.
-  const grenze = tagesbudget();
-  if ((grenze > 0 && heuteGelesen() >= grenze) || !eingang.pdf_base64) {
+  // 2. Kein PDF ⇒ es gibt nichts zu lesen.
+  if (!eingang.pdf_base64) {
     const h = heuristik(e);
     merken(e, h, 'heuristik');
     return { ...h, quelle: 'heuristik' };
   }
 
-  // 3. Von der KI lesen lassen.
-  const roh = await fragGemini(eingang.pdf_base64);
+  // 3. Textebene herausholen. Kostet keine KI-Anfrage und macht schon die
+  //    Heuristik deutlich besser: Rechnungsnummer, Datum und Dokumentart
+  //    stehen auf dem Beleg, nicht im Dateinamen.
+  const auszug = await pdfText.textAus(eingang.pdf_base64);
+  const text = auszug.ok ? auszug.text : '';
+
+  // 4. Deckel voll ⇒ ohne KI entscheiden, jetzt aber mit dem Belegtext.
+  const grenze = tagesbudget();
+  if (grenze > 0 && heuteGelesen() >= grenze) {
+    const h = heuristik(e, text);
+    merken(e, h, 'heuristik');
+    return { ...h, quelle: 'heuristik' };
+  }
+
+  // 5. Von der KI lesen lassen — Gemini das PDF, Ollama den Text.
+  const lokal = (settings.hole('ki_anbieter') || 'gemini') === 'ollama';
+  if (lokal && !text) {
+    // Ein Scan ohne Textebene: Dafuer braeuchte es OCR. Das ist ein STABILER
+    // Zustand, kein voruebergehender Fehler — also wird die Entscheidung
+    // gemerkt, sonst liest jeder Lauf dasselbe Dokument neu.
+    loggen('info', 'backend:belegLeser',
+      `Kein Text im PDF (${auszug.grund || 'unbekannt'}) — mit lokaler KI entscheidet die Heuristik.`);
+    const h = heuristik(e, '');
+    merken(e, h, 'heuristik');
+    return { ...h, quelle: 'heuristik' };
+  }
+
+  const roh = lokal ? await fragOllama(text) : await fragGemini(eingang.pdf_base64);
   if (!roh) {
     // Fehler/kein Schluessel: Heuristik, aber NICHT merken — damit ein
     // voruebergehender Fehler beim naechsten Lauf erneut versucht wird und die
     // Entscheidung nicht 26 Stunden lang festgenagelt ist.
-    return { ...heuristik(e), quelle: 'heuristik' };
+    return { ...heuristik(e, text), quelle: 'heuristik' };
   }
   const ergebnis = entscheiden(roh, e.von);
   merken(e, ergebnis, 'ki');
@@ -287,5 +419,6 @@ async function auslesen(eingang = {}) {
 
 module.exports = {
   auslesen, entscheiden, heuristik, tagesbudget, heuteGelesen, aufraeumen,
+  ausText, datumNormalisieren,
   sauberFirma, firmaAus, sauberAktenzeichen, sauberDatum,
 };

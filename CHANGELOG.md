@@ -2,6 +2,57 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.4.5.0] - 2026-09-08 (Build 152) — *Belege ohne Google*
+
+Der Beleg-Leser schickte das PDF als `inline_data` an Gemini. Das kann nur Gemini — Ollamas
+`/api/generate` nimmt Text und, bei Vision-Modellen, Bilder, aber keine PDFs.
+
+Der naheliegende Ausweg wäre ein multimodales Modell. `llama3.2-vision` ist allerdings **11B**, und
+diese Maschine kämpft schon mit einem 3B-Textmodell auf drei Kernen. Der Umweg ist der kürzere:
+**Fast jede Rechnung ist ein digitales PDF mit Textebene.** Ist der Text einmal heraus, ist es eine
+gewöhnliche Textfrage — und die beantwortet auch ein kleines Modell.
+
+### Neu: Textextraktion (`services/pdfText.js`)
+Reines JavaScript (`pdf-parse` bringt seine eigene pdf.js-Kopie mit), **keine Änderung am
+Dockerfile**, kein `apk add`, kein Compiler. Das ist Absicht: Hier werden Anhänge von Fremden
+geparst, und ein C++-Programm auf diesem Pfad wäre ein größeres Risiko als ein Parser, der im
+JS-Speichermodell bleibt. Grenzen gegen Missbrauch: höchstens 8 Seiten, 12.000 Zeichen, 20 MB.
+
+Gemini bekommt weiterhin das PDF selbst — es liest Layout und Tabellen mit. Das ist ein Vorteil,
+aber keine Bedingung.
+
+### Die Heuristik wird besser — ganz ohne KI
+Sie schaute bisher nur auf **Dateiname und Betreff**. Jetzt liest sie den Beleg: Dokumentart,
+Rechnungsnummer und Rechnungsdatum stehen darin. Das kostet keine Anfrage und greift auch dann,
+wenn der Tagesdeckel voll oder die lokale KI überlastet ist.
+
+Zwei Feinheiten, die im ersten Anlauf falsch gewesen wären:
+* **Mahnung vor Rechnung.** Eine Mahnung nennt fast immer auch eine Rechnung.
+* **AGB zuletzt.** Viele Rechnungen tragen die AGB auf der Rückseite — wer zuerst danach sucht,
+  sortiert die halbe Buchhaltung als Werbung aus.
+
+Beim Datum wird nur ein **benanntes** Datum übernommen (`Rechnungsdatum:`, `Datum:`). „Das erste
+Datum im Text" wäre zu oft das Fälligkeits- oder Lieferdatum, und einem falschen Datum sieht man im
+Ordnernamen später nicht an, dass es geraten war. Ohne Fund bleibt es wie bisher bei heute.
+
+### Bugfix (hoch): Mit Ollama entstand keine einzige Zeile in `beleg_ablage`
+Der Ollama-Zweig lieferte `null`, und der Aufrufer wertete das als *vorübergehenden* Fehler — dieser
+Zweig ruft absichtlich kein `merken()`, damit ein Netzfehler die Entscheidung nicht 26 Stunden
+festnagelt. „Der Anbieter ist Ollama" ist aber kein vorübergehender Fehler.
+
+Folge, seit der Umstellung: keine Zeile in `beleg_ablage`, Dedupe griff nie (jeder Lauf entschied
+dieselbe Mail neu), `beleg_lese_tagesbudget` war wirkungslos, die Belege-Zahlen im Dashboard standen
+dauerhaft auf 0, `datum` war immer *heute* und `aktenzeichen` immer leer.
+
+Jetzt wird unterschieden: Ein Scan ohne Textebene ist ein **stabiler** Zustand und wird gemerkt; ein
+Netzfehler bleibt vorübergehend und wird beim nächsten Lauf erneut versucht.
+
+### Zu Scans
+Ein eingescanntes PDF hat keine Textebene. Dafür bräuchte es OCR (`tesseract-ocr` plus deutsche
+Sprachdaten, ~50 MB im Abbild) — eine eigene Entscheidung, und auf dieser CPU nichts, was nebenbei
+läuft. Bis dahin entscheidet für Scans die Heuristik, und das steht jetzt auch so im Log.
+
+
 ## [4.4.4.0] - 2026-09-08 (Build 151) — *Messen statt raten*
 
 Seit vier Builds steht in jeder Klassifizier-Meldung dieselbe Zahl: `0 von N`. Build 148 hat die
