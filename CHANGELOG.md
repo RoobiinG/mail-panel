@@ -2,6 +2,36 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.3.0.1] - 2026-09-08 (Build 143) — *Ollama-Dienst abgesichert*
+
+Beim Einrichten von Ollama auf dem Testserver kamen drei Schwächen des mitgelieferten
+Compose-Dienstes zum Vorschein. Alle drei sind praktisch aufgetreten, nicht theoretisch.
+
+### Sicherheit: Ollama-Port war fürs ganze Netz offen
+`ports: "11434:11434"` bindet an alle Schnittstellen. **Ollama kennt keine Anmeldung** — auf einem
+Server mit öffentlicher IP und ohne Firewall stand damit eine offene LLM-Schnittstelle im Netz:
+fremde Anfragen auf eigene Rechenzeit, und über `/api/pull` beliebige Modelle auf die eigene
+Platte. Gebunden wird jetzt an `127.0.0.1`; wer den Zugriff von außen wirklich will, trägt
+`OLLAMA_BIND=0.0.0.0` ein.
+
+### Bugfix: Der Dienst startete für alle
+Ohne `profiles` lief Ollama bei **jeder** Installation mit, auch bei denen mit Gemini — ein
+mehrere Gigabyte großes Image und ein wartender Modellserver, den niemand bestellt hat. Jetzt
+hinter dem Profil `ollama`, wie ClamAV und unbound: `COMPOSE_PROFILES=clamav,unbound,ollama`.
+
+### Bugfix: Keine Speichergrenze
+Ein Modell nimmt sich, was da ist. Auf dem Testserver (3,9 GB, ein Kern) hat genau das den Stack
+schon einmal mit `Exit 137` umgelegt. Neu: `mem_limit` (Standard 4 GB, über `OLLAMA_RAM`
+einstellbar), dazu `OLLAMA_MAX_LOADED_MODELS=1`, `OLLAMA_NUM_PARALLEL=1` und
+`OLLAMA_KEEP_ALIVE=5m` — nach fünf Minuten Ruhe gibt Ollama den Speicher wieder her.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **DB-Migrationen:** keine.
+- **Compose:** Wer Ollama nutzt, muss `ollama` in `COMPOSE_PROFILES` eintragen — sonst startet der
+  Container nach dem Update nicht mehr. Wer Ollama nicht nutzt, wird ihn los.
+- **n8n-Workflow-Kompatibilität:** keine.
+- **Neustart-/Session-Verhalten:** keine Änderung.
+
 ## [4.3.0.0] - 2026-09-08 (Build 142) — *Die lokale KI wird endlich benutzt*
 
 Anlass: „Ollama ist eingestellt, die Workflows sind synchronisiert — und trotzdem wird nichts

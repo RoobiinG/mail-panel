@@ -178,20 +178,44 @@ services:
     networks:
       - internal
 
-  # ─── Ollama: Lokale KI (100% kostenlos und unlimitiert) ─────────────────────
-  # Lässt große Sprachmodelle lokal laufen. Achtung: Braucht ausreichend
-  # RAM auf dem Server (Empfehlung: >= 8GB für ein kleines 8B Modell).
+  # ─── Ollama: Lokale KI (keine Schlüssel, keine Kontingente) ─────────────────
+  # Lässt Sprachmodelle auf der eigenen Maschine laufen — dafür rechnet sie auch
+  # selbst. Faustregel: ein 8B-Modell will ~8 GB RAM, ein 1,5B-Modell ~2 GB, und
+  # ohne mehrere Kerne dauert eine Einordnung eher Sekunden als Millisekunden.
+  #
+  # Hinter einem Profil, wie ClamAV und unbound: Wer Gemini nutzt, soll sich
+  # weder ein mehrere Gigabyte großes Image noch einen wartenden Modellserver
+  # einfangen. Einschalten über COMPOSE_PROFILES=…,ollama in der .env; danach in
+  # den Einstellungen „Lokale KI (Ollama)" wählen.
+  #
+  # Der Name "ollama" ist nicht beliebig: Panel und Workflow-Vorlagen setzen
+  # http://ollama:11434 als Standard voraus.
   ollama:
     image: ollama/ollama:latest
     container_name: ollama
     restart: unless-stopped
+    profiles: ["ollama"]
+    environment:
+      # Ein Modell, eine Anfrage zur Zeit. Auf kleinen Servern bringt
+      # Nebenläufigkeit nichts und kostet nur Speicher.
+      - OLLAMA_MAX_LOADED_MODELS=1
+      - OLLAMA_NUM_PARALLEL=1
+      # Nach fünf Minuten Ruhe das Modell aus dem Speicher werfen. Sonst belegt
+      # es dauerhaft Gigabytes, auch wenn tagelang keine Mail ankommt.
+      - OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE:-5m}
     volumes:
       - ollama_data:/root/.ollama
-    # Ollama braucht intern Port 11434. Wird nur für das Mail-Panel benötigt,
-    # daher nicht zwingend nach außen freigegeben, außer man will auch von
-    # außen darauf zugreifen.
+    # Das Panel spricht Ollama über das interne Docker-Netz an — dafür muss der
+    # Port gar nicht nach außen. Er bleibt erreichbar, aber nur vom Server selbst:
+    # Ollama kennt keine Anmeldung, und eine offene LLM-Schnittstelle im Netz ist
+    # eine Einladung, fremde Modelle auf die eigene Platte zu laden. Wer sie
+    # wirklich von außen braucht, trägt bewusst OLLAMA_BIND=0.0.0.0 ein.
     ports:
-      - "${OLLAMA_PORT:-11434}:11434"
+      - "${OLLAMA_BIND:-127.0.0.1}:${OLLAMA_PORT:-11434}:11434"
+    # Harte Obergrenze. Ein Modell, das mehr will, als die Maschine hat, reißt
+    # sonst die Nachbarcontainer mit — genau so stirbt ein kleiner Server
+    # (Exit 137, „OOMKilled").
+    mem_limit: ${OLLAMA_RAM:-4g}
     networks:
       - internal
 
