@@ -2,6 +2,16 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.4.1.2] - 2026-09-08 (Build 148) — *Zeitlimit nur, wo keines steht*
+
+Build 147 setzte das Zeitlimit am KI-Knoten **immer** — und überschrieb damit ein von Hand in n8n
+eingetragenes. Ein bestehender Test hat das gefangen („vorhandene Optionen des Knotens bleiben
+stehen"), die CI blieb rot, ein Image wurde nicht gebaut. Für Build 147 gibt es deshalb kein
+Abbild; wer aktualisiert, springt von 146 auf 148.
+
+Es geht um das **fehlende** Zeitlimit, nicht darum, ein bestimmtes durchzusetzen: Gesetzt wird
+jetzt nur noch dort, wo keines steht — dieselbe Spielregel wie bei den Code-Knoten mit ihrer Marke.
+
 ## [4.4.1.1] - 2026-09-08 (Build 147) — *Kein KI-Aufruf ohne Zeitlimit*
 
 Der zweite Diagnose-Bericht zeigt: Der 413-Fehler aus Build 146 ist weg. Übrig bleibt, warum die
@@ -15,7 +25,8 @@ woandershin und fiel durchs Raster — also nahm n8n seinen Standard von 300 Sek
 > 01 - Inbox-Triage · **15 Min. 7 Sek.** · *The connection was aborted, perhaps the server is offline*
 
 Neu: 120 s für Gemini (wer dort zwei Minuten braucht, hat ein anderes Problem), 240 s für Ollama —
-die eigene Maschine darf länger rechnen, aber nicht endlos. Bei Ollama zusätzlich nur noch **zwei**
+die eigene Maschine darf länger rechnen, aber nicht endlos. Gesetzt wird nur, wo **keines** steht:
+Wer in n8n bewusst ein eigenes Limit eingetragen hat, behält es. Bei Ollama zusätzlich nur noch **zwei**
 Anläufe statt drei: Ein Modell, das ins Zeitlimit gelaufen ist, rechnet beim zweiten Versuch meist
 noch am ersten Auftrag.
 

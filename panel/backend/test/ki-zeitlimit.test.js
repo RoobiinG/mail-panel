@@ -76,6 +76,17 @@ describe('Der KI-Knoten bekommt ein Zeitlimit', () => {
     assert.equal(nochmal, false, 'ein zweiter Lauf darf nichts mehr aendern');
     assert.equal(wf.nodes[0].parameters.options.timeout, patcher.KI_ZEITLIMIT_OLLAMA);
   });
+
+  // Es geht um das FEHLENDE Zeitlimit, nicht darum, ein bestimmtes
+  // durchzusetzen. Wer in n8n bewusst etwas anderes eingetragen hat, behaelt es
+  // — dieselbe Spielregel wie bei den Code-Knoten mit ihrer Marke.
+  test('ein von Hand gesetztes Zeitlimit wird nicht überschrieben', () => {
+    settings.setze('ki_anbieter', 'ollama');
+    const wf = kiWorkflow('http://ollama:11434/api/generate');
+    wf.nodes[0].parameters.options = { timeout: 30000 };
+    patcher.geminiRequestReparieren(wf);
+    assert.equal(wf.nodes[0].parameters.options.timeout, 30000);
+  });
 });
 
 describe('Eine Anfrage darf den Lauf nicht überdauern', () => {

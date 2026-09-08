@@ -964,8 +964,12 @@ function geminiRequestReparieren(workflow) {
       // offline". Eine lokale KI, die nach zwei Minuten nichts geliefert hat,
       // liefert auch nach fuenfzehn nichts Brauchbares; dann soll der Lauf
       // scheitern und die naechste Mail drankommen.
+      // Nur setzen, wenn keines dasteht. Wer in n8n bewusst ein anderes Limit
+      // eingetragen hat, behaelt es — dieselbe Spielregel wie bei den
+      // Code-Knoten mit ihrer Marke. Es geht hier um das FEHLENDE Limit, nicht
+      // darum, ein bestimmtes durchzusetzen.
       knoten.parameters.options = knoten.parameters.options || {};
-      if (knoten.parameters.options.timeout !== KI_ZEITLIMIT_OLLAMA) {
+      if (!knoten.parameters.options.timeout) {
         knoten.parameters.options.timeout = KI_ZEITLIMIT_OLLAMA;
         geaendert = true;
       }
@@ -1022,8 +1026,9 @@ function geminiRequestReparieren(workflow) {
 
       const takt = { batch: { batchSize: 1, batchInterval: geminiPause() } };
       knoten.parameters.options = knoten.parameters.options || {};
-      // Auch hier: kein KI-Aufruf ohne Zeitlimit. Siehe KI_ZEITLIMIT_GEMINI.
-      if (knoten.parameters.options.timeout !== KI_ZEITLIMIT_GEMINI) {
+      // Auch hier: kein KI-Aufruf ohne Zeitlimit — aber ein von Hand gesetztes
+      // bleibt stehen. Siehe KI_ZEITLIMIT_GEMINI.
+      if (!knoten.parameters.options.timeout) {
         knoten.parameters.options.timeout = KI_ZEITLIMIT_GEMINI;
         geaendert = true;
       }
