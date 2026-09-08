@@ -30,70 +30,88 @@ beforeEach(() => {
   settings.setze('beleg_lese_tagesbudget', '0');
 });
 
-// ─── Ein echtes, wenn auch winziges PDF ─────────────────────────────────────
-// Von Hand gebaut, samt gueltiger xref-Tabelle. Ein Test, der die Extraktion
-// nur mit Muell fuettert, prueft die Fehlerbehandlung — nicht das Auslesen.
-function pdfBauen(text) {
-  const inhalt = `BT /F1 12 Tf 72 720 Td (${text}) Tj ET`;
-  const objekte = [
-    '<</Type/Catalog/Pages 2 0 R>>',
-    '<</Type/Pages/Kids[3 0 R]/Count 1>>',
-    '<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Contents 4 0 R'
-      + '/Resources<</Font<</F1 5 0 R>>>>>>',
-    `<</Length ${inhalt.length}>>\nstream\n${inhalt}\nendstream`,
-    '<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>',
-  ];
-  let pdf = '%PDF-1.4\n';
-  objekte.forEach((o, i) => {
-    pdf += `${i + 1} 0 obj\n${o}\nendobj\n`;
-  });
-
-  // Die Stellen NACH dem Bauen suchen, nicht beim Bauen mitzaehlen.
-  //
-  // Beim Mitzaehlen war eine Stelle daneben, und pdf.js meldete dann „bad XRef
-  // entry": Es springt an die Stelle und erwartet dort „N 0 obj". Ist der
-  // Versatz auch nur um ein Zeichen falsch, ist das ganze Dokument unlesbar.
-  // indexOf kann sich nicht verzaehlen.
-  const stellen = objekte.map((_, i) => pdf.indexOf(`\n${i + 1} 0 obj\n`) + 1);
-  const xref = pdf.length;
-  // Jeder Eintrag ist genau 20 Byte: 10 Ziffern, Leerzeichen, 5 Ziffern,
-  // Leerzeichen, n/f, CRLF. Das ist die Form, die auch alte Parser lesen.
-  pdf += `xref\n0 ${objekte.length + 1}\n0000000000 65535 f\r\n`;
-  for (const s of stellen) pdf += `${String(s).padStart(10, '0')} 00000 n\r\n`;
-  pdf += `trailer\n<</Size ${objekte.length + 1}/Root 1 0 R>>\nstartxref\n${xref}\n%%EOF`;
-  // Alles ASCII, deshalb ist die Zeichen- gleich der Bytelaenge — sonst
-  // stimmten die Stellen in der xref-Tabelle nicht.
-  return Buffer.from(pdf, 'latin1').toString('base64');
-}
+// Der Parser wird ausgetauscht statt ein PDF von Hand gebaut.
+//
+// Der erste Anlauf hat genau das versucht — samt xref-Tabelle — und pdf.js
+// meldete „bad XRef entry". Das war die richtige Antwort auf die falsche
+// Frage: Ob pdf.js ein PDF lesen kann, ist pdf.js' Sache. Hier gehoert
+// geprueft, was DIESES Modul tut — kuerzen, glaetten, Scans erkennen, kaputte
+// Dateien abfangen — und was der Belegleser daraus macht.
+const einPdf = () => Buffer.from('%PDF-1.4 …').toString('base64');
+const parserGibt = (text, seiten = 1) => {
+  pdfText._parserSetzen(async () => ({ text, numpages: seiten }));
+};
+const parserWirft = (meldung) => {
+  pdfText._parserSetzen(async () => { throw new Error(meldung); });
+};
 
 describe('Text aus dem PDF holen', () => {
   test('der Text kommt heraus', async () => {
-    const r = await pdfText.textAus(pdfBauen('Rechnungsnummer: RE-2026-0042'));
-    assert.equal(r.ok, true, `Extraktion fehlgeschlagen: ${r.grund}`);
+    parserGibt('Rechnungsnummer: RE-2026-0042');
+    const r = await pdfText.textAus(einPdf());
+    assert.equal(r.ok, true, r.grund);
     assert.match(r.text, /RE-2026-0042/);
+    assert.equal(r.seiten, 1);
   });
 
   test('ein data:-Vorspann stört nicht', async () => {
-    const r = await pdfText.textAus(`data:application/pdf;base64,${pdfBauen('Rechnung 7')}`);
+    parserGibt('Rechnung 7');
+    const r = await pdfText.textAus(`data:application/pdf;base64,${einPdf()}`);
     assert.equal(r.ok, true, r.grund);
     assert.match(r.text, /Rechnung 7/);
   });
 
+  // Der haeufigste Fall dahinter ist ein eingescanntes PDF. Das ist kein
+  // Fehler, sondern eine Eigenschaft des Dokuments — der Aufrufer muss es
+  // unterscheiden koennen, weil ein Scan ein STABILER Zustand ist.
+  test('ohne Textebene wird das als Scan gemeldet', async () => {
+    parserGibt('   \n\n  ', 3);
+    const r = await pdfText.textAus(einPdf());
+    assert.equal(r.ok, false);
+    assert.match(r.grund, /Textebene|Scan/);
+    assert.equal(r.seiten, 3);
+  });
+
   // Anhaenge von Fremden sind oft kaputt, verschluesselt oder gar keine PDFs.
   // Das ist Alltag am Maileingang und darf keinen Fehlerlauf ausloesen.
-  test('Müll wird abgewiesen, nicht geworfen', async () => {
-    for (const eingabe of ['', null, undefined, 'xxxx', 'bm90IGEgcGRm']) {
+  test('ein kaputtes PDF wird abgewiesen, nicht geworfen', async () => {
+    parserWirft('bad XRef entry');
+    const r = await pdfText.textAus(einPdf());
+    assert.equal(r.ok, false);
+    assert.match(r.grund, /nicht lesbar/);
+    assert.equal(r.text, '');
+  });
+
+  test('ohne Eingabe wird gar nicht erst geparst', async () => {
+    parserWirft('haette nicht gerufen werden duerfen');
+    for (const eingabe of ['', null, undefined]) {
       const r = await pdfText.textAus(eingabe);
       assert.equal(r.ok, false);
-      assert.equal(typeof r.grund, 'string');
-      assert.equal(r.text, '');
+      assert.match(r.grund, /kein PDF/);
     }
   });
 
   test('ein übergroßes PDF wird gar nicht erst geparst', async () => {
+    parserWirft('haette nicht gerufen werden duerfen');
     const r = await pdfText.textAus('A'.repeat(21 * 1024 * 1024));
     assert.equal(r.ok, false);
     assert.match(r.grund, /zu groß/);
+  });
+
+  // Ein Katalog mit 300 Seiten ist entweder ein Versehen oder ein Versuch, den
+  // Server zu beschaeftigen. Beides gehoert gedeckelt.
+  test('sehr langer Text wird gekürzt', async () => {
+    parserGibt('x'.repeat(pdfText.MAX_ZEICHEN * 2));
+    const r = await pdfText.textAus(einPdf());
+    assert.equal(r.ok, true);
+    assert.equal(r.text.length, pdfText.MAX_ZEICHEN);
+  });
+
+  test('die Seitenzahl wird begrenzt weitergereicht', async () => {
+    let optionen = null;
+    pdfText._parserSetzen(async (_, opt) => { optionen = opt; return { text: 'x', numpages: 1 }; });
+    await pdfText.textAus(einPdf());
+    assert.equal(optionen.max, pdfText.MAX_SEITEN);
   });
 
   test('Glätten macht aus Spaltensatz lesbaren Text', () => {
@@ -219,10 +237,11 @@ describe('Mit lokaler KI entstehen wieder Zeilen in beleg_ablage', () => {
   // ohne Wirkung, Belege-Zahlen im Dashboard immer 0.
   test('ein Scan ohne Textebene wird als Entscheidung festgehalten', async () => {
     settings.setze('ki_anbieter', 'ollama');
+    parserGibt('');
     const vorher = zeilen();
     const r = await leser.auslesen({
       konto: 'K', von: 'shop@beispiel.de', betreff: 'Ihre Rechnung',
-      dateiname: 'scan.pdf', pdf_base64: 'bm90IGEgcGRm',
+      dateiname: 'scan.pdf', pdf_base64: einPdf(),
     });
     assert.equal(r.quelle, 'heuristik');
     assert.equal(zeilen(), vorher + 1,
@@ -231,9 +250,10 @@ describe('Mit lokaler KI entstehen wieder Zeilen in beleg_ablage', () => {
 
   test('und die Dedupe greift beim nächsten Lauf', async () => {
     settings.setze('ki_anbieter', 'ollama');
+    parserGibt('');
     const eingang = {
       konto: 'K', von: 'shop@beispiel.de', betreff: 'Ihre Rechnung',
-      dateiname: 'scan.pdf', pdf_base64: 'bm90IGEgcGRm',
+      dateiname: 'scan.pdf', pdf_base64: einPdf(),
     };
     await leser.auslesen(eingang);
     const vorher = zeilen();
@@ -247,13 +267,33 @@ describe('Mit lokaler KI entstehen wieder Zeilen in beleg_ablage', () => {
   test('ein vorübergehender KI-Fehler wird weiterhin nicht gemerkt', async () => {
     settings.setze('ki_anbieter', 'ollama');
     settings.setze('ollama_url', 'http://127.0.0.1:1');
+    parserGibt('Rechnungsnummer: RE-1\nRechnungsdatum: 12.03.2026');
     const vorher = zeilen();
     const r = await leser.auslesen({
       konto: 'K3', von: 'shop@beispiel.de', betreff: 'Rechnung',
-      dateiname: 'r.pdf', pdf_base64: pdfBauen('Rechnungsnummer: RE-1'),
+      dateiname: 'r.pdf', pdf_base64: einPdf(),
     });
     assert.equal(r.quelle, 'heuristik');
     assert.equal(zeilen(), vorher, 'beim naechsten Lauf soll es erneut versucht werden');
     assert.equal(r.aktenzeichen, 'RE-1', 'der Text war trotzdem da und wurde genutzt');
+    assert.equal(r.datum, '2026-03-12', 'und das Datum kam vom Beleg, nicht aus dem Kalender');
+  });
+
+  // Der Tagesdeckel schaltet die KI ab, nicht die Textebene. Genau dafuer ist
+  // die verbesserte Heuristik da.
+  test('bei vollem Deckel entscheidet die Heuristik — mit Belegtext', async () => {
+    settings.setze('ki_anbieter', 'ollama');
+    settings.setze('beleg_lese_tagesbudget', '1');
+    db.prepare(`INSERT INTO beleg_ablage (konto, von, betreff, dateiname, dokumenttyp, gespeichert, quelle)
+      VALUES ('X','a@b.de','B','d.pdf','rechnung',1,'ki')`).run();
+    parserGibt('Rechnungsnummer: RE-77\nRechnungsdatum: 01.02.2026');
+    const r = await leser.auslesen({
+      konto: 'K4', von: 'shop@beispiel.de', betreff: 'Unterlagen',
+      dateiname: 'anhang.pdf', pdf_base64: einPdf(),
+    });
+    assert.equal(r.quelle, 'heuristik');
+    assert.equal(r.speichern, true);
+    assert.equal(r.aktenzeichen, 'RE-77');
+    assert.equal(r.datum, '2026-02-01');
   });
 });

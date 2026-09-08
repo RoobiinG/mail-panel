@@ -91,4 +91,15 @@ async function textAus(base64) {
   }
 }
 
-module.exports = { textAus, glaetten, MAX_SEITEN, MAX_ZEICHEN };
+// Nur für die Tests: den Parser austauschen.
+//
+// Ein von Hand gebautes PDF an dieser Stelle zu prüfen, hiesse pdf.js zu
+// testen statt dieses Modul — und eine falsch berechnete xref-Tabelle im
+// Testaufbau sagt nichts über den Belegleser. Getestet gehört, was hier
+// passiert: kürzen, glätten, Scans erkennen, kaputte Dateien abfangen.
+function _parserSetzen(fn) {
+  parser = fn;
+  parserGeprueft = true;
+}
+
+module.exports = { textAus, glaetten, _parserSetzen, MAX_SEITEN, MAX_ZEICHEN };
