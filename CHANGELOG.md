@@ -2,6 +2,43 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.4.1.1] - 2026-09-08 (Build 147) — *Kein KI-Aufruf ohne Zeitlimit*
+
+Der zweite Diagnose-Bericht zeigt: Der 413-Fehler aus Build 146 ist weg. Übrig bleibt, warum die
+Läufe trotzdem nichts schaffen — und beides sah im Panel nach „läuft" aus, während nichts geschah.
+
+### Bugfix: Der KI-Knoten hatte gar kein Zeitlimit
+`panelZeitlimitSetzen()` versorgt nur Knoten, die auf `panel:3002` zeigen. Der KI-Knoten zeigt
+woandershin und fiel durchs Raster — also nahm n8n seinen Standard von 300 Sekunden, und mit
+`maxTries: 3` wurde daraus eine Viertelstunde Stillstand:
+
+> 01 - Inbox-Triage · **15 Min. 7 Sek.** · *The connection was aborted, perhaps the server is offline*
+
+Neu: 120 s für Gemini (wer dort zwei Minuten braucht, hat ein anderes Problem), 240 s für Ollama —
+die eigene Maschine darf länger rechnen, aber nicht endlos. Bei Ollama zusätzlich nur noch **zwei**
+Anläufe statt drei: Ein Modell, das ins Zeitlimit gelaufen ist, rechnet beim zweiten Versuch meist
+noch am ersten Auftrag.
+
+### Bugfix: Die Anfrage durfte länger dauern als der ganze Lauf
+Das Anfrage-Zeitlimit stand fest auf 180 s, die Frist des Laufs auf 240 s — und die Frist wird nur
+**vor** einem Bündel geprüft. Die erste Anfrage lief also bis Sekunde 180, danach war 180 noch
+kleiner als 240, und die zweite lief bis Sekunde 360. Da hatte n8n den Knoten längst abgeschnitten
+(280 s). Im Log: zwei Zeitüberschreitungen im Abstand von exakt drei Minuten, darunter
+„0 von 456 Mails klassifiziert".
+
+- Das Zeitlimit einer Anfrage kommt jetzt aus der **Restzeit des Laufs** (mindestens 20 s,
+  höchstens 180 s). Bleibt weniger als das Mindestmaß, wird gar nicht mehr gefragt.
+- **Nach einer Zeitüberschreitung endet der Lauf sofort.** Die nächste Anfrage wird nicht
+  schneller; weiterzufragen verbrennt nur die Frist, und am Ende steht trotzdem „0 von 456".
+  Die Meldung sagt jetzt auch, was das meist heißt: Das Modell ist für diese Maschine zu groß,
+  oder es laufen zu viele Anfragen gleichzeitig.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **DB-Migrationen:** keine.
+- **n8n-Workflow-Kompatibilität:** Der KI-Knoten bekommt beim nächsten Abgleich sein Zeitlimit —
+  der Auto-Sync erledigt das beim Start selbst.
+- **Neustart-/Session-Verhalten:** keine Änderung.
+
 ## [4.4.1.0] - 2026-09-08 (Build 146) — *Was der erste Diagnose-Bericht zutage brachte*
 
 Der erste echte Bericht aus dem Produktivbetrieb hat in fünf Minuten drei Fehler gezeigt, die

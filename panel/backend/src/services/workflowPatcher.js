@@ -873,6 +873,20 @@ function geminiPause() {
 const PANEL_ZEITLIMIT = 60000;
 const PANEL_ZEITLIMIT_LANG = 120000;
 
+// Und der KI-Knoten braucht ebenfalls eines.
+//
+// Er zeigt nicht auf das Panel, fiel also durch das Raster oben — und ohne
+// eigenes Zeitlimit nimmt n8n seinen Standard von 300 Sekunden. Mit drei
+// Anlaeufen wurde daraus eine Viertelstunde, in der ein Lauf einfach stand:
+// „01 - Inbox-Triage, 15 Min. 7 Sek., The connection was aborted, perhaps the
+// server is offline."
+//
+// Google antwortet in Sekunden; braucht es dort zwei Minuten, stimmt etwas
+// anderes nicht. Eine lokale KI darf laenger rechnen, aber auch nicht endlos:
+// Was nach vier Minuten nicht da ist, kommt auch nach fuenfzehn nicht besser.
+const KI_ZEITLIMIT_GEMINI = 120000;
+const KI_ZEITLIMIT_OLLAMA = 240000;
+
 function panelZeitlimitSetzen(workflow) {
   let geaendert = false;
   for (const knoten of workflow.nodes || []) {
@@ -941,13 +955,32 @@ function geminiRequestReparieren(workflow) {
         geaendert = true;
       }
       
+      // Der KI-Knoten braucht ein eigenes Zeitlimit.
+      //
+      // Ohne eines nimmt n8n seinen Standard von 300 Sekunden — und mit
+      // maxTries: 3 wird daraus im schlimmsten Fall eine Viertelstunde, in der
+      // ein Lauf einfach steht. Genau so gesehen: "01 - Inbox-Triage,
+      // 15 Min. 7 Sek., The connection was aborted, perhaps the server is
+      // offline". Eine lokale KI, die nach zwei Minuten nichts geliefert hat,
+      // liefert auch nach fuenfzehn nichts Brauchbares; dann soll der Lauf
+      // scheitern und die naechste Mail drankommen.
+      knoten.parameters.options = knoten.parameters.options || {};
+      if (knoten.parameters.options.timeout !== KI_ZEITLIMIT_OLLAMA) {
+        knoten.parameters.options.timeout = KI_ZEITLIMIT_OLLAMA;
+        geaendert = true;
+      }
+
       // Ollama braucht keine kuenstliche Pause
       if (knoten.parameters.options?.batching) {
         delete knoten.parameters.options.batching;
         geaendert = true;
       }
       
-      for (const [feld, wert] of [['retryOnFail', true], ['maxTries', 3], ['waitBetweenTries', 2000]]) {
+      // Weniger Anlaeufe als bei Google: Eine lokale KI, die einmal ins
+      // Zeitlimit gelaufen ist, ist beim zweiten Mal nicht schneller — sie
+      // rechnet oft noch am ersten Auftrag. Drei Versuche verdreifachen nur die
+      // Wartezeit, und am Ende steht dieselbe Fehlermeldung.
+      for (const [feld, wert] of [['retryOnFail', true], ['maxTries', 2], ['waitBetweenTries', 5000]]) {
         if (knoten[feld] !== wert) { knoten[feld] = wert; geaendert = true; }
       }
       
@@ -989,6 +1022,11 @@ function geminiRequestReparieren(workflow) {
 
       const takt = { batch: { batchSize: 1, batchInterval: geminiPause() } };
       knoten.parameters.options = knoten.parameters.options || {};
+      // Auch hier: kein KI-Aufruf ohne Zeitlimit. Siehe KI_ZEITLIMIT_GEMINI.
+      if (knoten.parameters.options.timeout !== KI_ZEITLIMIT_GEMINI) {
+        knoten.parameters.options.timeout = KI_ZEITLIMIT_GEMINI;
+        geaendert = true;
+      }
       if (JSON.stringify(knoten.parameters.options.batching) !== JSON.stringify(takt)) {
         knoten.parameters.options.batching = takt;
         geaendert = true;
@@ -1835,5 +1873,6 @@ module.exports = {
   fingerabdruck, zugangsdatenVergessen, absenderFallbackEinbauen, ABSENDER_MARKE,
   geminiModellNachziehen,
   geminiBuendelEinbauen, BUENDEL_MARKE, panelZeitlimitSetzen,
+  KI_ZEITLIMIT_GEMINI, KI_ZEITLIMIT_OLLAMA,
   kiAntwortLesenAngleichen, istKiKnoten,
 };

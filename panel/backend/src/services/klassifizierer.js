@@ -319,13 +319,34 @@ function antwortZuordnen(daten, gruppen) {
 // Ein Bündel fragen. Reichlich Luft beim Zeichenlimit: 20 Mails à 600 Zeichen
 // plus Themen-Block. Die Standardkappung von 12.000 würde die hinteren Mails
 // abschneiden — ihre Nummern fehlten dann in der Antwort, und sie blieben liegen.
-function fragen(teil, konto, bekannt) {
+// Wie lange eine einzelne Anfrage dauern darf — abgeleitet aus der Zeit, die dem
+// Lauf noch bleibt, nicht fest.
+//
+// Vorher standen hier 180 Sekunden neben einer Frist von 240. Die Frist wird nur
+// VOR einem Bündel geprüft: Das erste lief also bis Sekunde 180, danach war 180
+// noch kleiner als 240 — und das zweite lief bis Sekunde 360. Da hatte n8n den
+// Knoten längst abgebrochen (280 s). Im Log sah man zwei Zeitüberschreitungen im
+// Abstand von genau drei Minuten und darunter „0 von 456 Mails klassifiziert".
+//
+// Eine Anfrage, die über das Ende des Laufs hinausreicht, ist verlorene Zeit.
+const ANFRAGE_MAX_MS = 180000;
+const ANFRAGE_MIN_MS = 20000;
+
+function anfrageZeitlimit(verbleibend) {
+  return Math.max(ANFRAGE_MIN_MS, Math.min(ANFRAGE_MAX_MS, verbleibend));
+}
+
+function fragen(teil, konto, bekannt, zeitlimit = ANFRAGE_MAX_MS) {
   return kiText.frageJson(promptBauen(teil, konto, bekannt), {
     quelle: 'backend:klassifizierer',
-    zeitlimit: 180000,
+    zeitlimit,
     maxZeichen: 200000,
   });
 }
+
+// Woran man erkennt, dass die KI nicht antwortet, statt falsch zu antworten.
+const istZeitueberschreitung = (antwort) =>
+  !antwort.ok && /timeout|aborted|abgebrochen|ETIMEDOUT/i.test(String(antwort.fehler || ''));
 
 /**
  * @param {Array<object>} mails Mails eines Laufs, in der Reihenfolge des Workflows.
@@ -367,7 +388,10 @@ async function klassifizieren(mails) {
       // Reicht die Zeit noch für ein weiteres Bündel? Sonst lieber jetzt
       // zurückgeben, was fertig ist, als von n8n mitten im Satz abgeschnitten
       // zu werden — dann wäre auch das Fertige verloren.
-      if (Date.now() - begonnen > frist()) {
+      const verbleibend = frist() - (Date.now() - begonnen);
+      // Unter dem Mindestmaß lohnt keine Anfrage mehr — sie käme nach dem Ende
+      // des Laufs zurück und wäre für nichts gestellt.
+      if (verbleibend < ANFRAGE_MIN_MS) {
         abgebrochen = true;
         hinweis = `Zeitbudget des Laufs erreicht — ${klassifiziert} von ${liste.length} Mails `
           + 'klassifiziert. Der Rest kommt im nächsten Lauf zuerst wieder dran.';
@@ -378,8 +402,22 @@ async function klassifizieren(mails) {
       // Vor jedem Bündel außer dem ersten kurz Luft holen — siehe pause().
       if (anfragen > 0) await schlafen(pause());
 
-      let antwort = await fragen(teil, konto, bekannt);
+      let antwort = await fragen(teil, konto, bekannt, anfrageZeitlimit(verbleibend));
       anfragen += 1;
+
+      // Antwortet die KI gar nicht, wird die nächste Anfrage nicht schneller.
+      // Weiterzufragen kostet nur die Frist des Laufs — und am Ende steht
+      // trotzdem „0 von 456". Lieber sofort aufhören und es deutlich sagen.
+      if (istZeitueberschreitung(antwort)) {
+        abgebrochen = true;
+        hinweis = `Die KI hat auf ein Bündel nicht innerhalb von `
+          + `${Math.round(anfrageZeitlimit(verbleibend) / 1000)} s geantwortet — `
+          + `${klassifiziert} von ${liste.length} Mails klassifiziert. `
+          + 'Bei einer lokalen KI heißt das meist: Das Modell ist für diese Maschine zu groß '
+          + 'oder es laufen zu viele Anfragen gleichzeitig.';
+        loggen('warn', 'klassifizierer', hinweis);
+        break;
+      }
 
       // Ein Minutenlimit ist kein Tageslimit: Es vergeht von selbst. Also
       // einmal so lange warten, wie Google sagt, und noch einmal fragen —
