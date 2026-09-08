@@ -10,6 +10,15 @@ on:
       - 'docker-compose.yml'
       - '.env.example'
       - '.github/workflows/docker-build.yml'
+      # version.json wird ins Abbild kopiert (siehe panel/Dockerfile) und ist die
+      # Quelle fuer die Versionsangabe im Diagnose-Bericht. Ohne diesen Eintrag
+      # blieb ein reiner Versionssprung ohne Image — das Panel meldete dann
+      # weiter den alten Build, ausgerechnet in dem Bericht, der beim
+      # Fehlersuchen helfen soll.
+      - 'version.json'
+      # Die Workflow-Vorlagen liegen ebenfalls im Abbild (/app/workflows). Eine
+      # korrigierte Vorlage, die nie mitgebaut wird, erreicht niemanden.
+      - 'workflows/**'
   workflow_dispatch:
 
 # Immer nur ein Image-Build gleichzeitig pro Branch. Zwei parallele Läufe schieben sonst
