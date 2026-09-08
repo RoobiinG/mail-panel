@@ -2,6 +2,26 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.2.4.0] - 2026-09-08 (Build 137) — *Dashboard-Speed & Statistik-Filter*
+
+### Features / Änderungen
+- **Dashboard-Geschwindigkeit:** Das Laden der Module wurde entkoppelt (asynchron). Dadurch blockiert eine eventuell langsamere Postfach-Abfrage (IMAP) nicht mehr die sofortige Anzeige der restlichen Statistiken. Das Dashboard lädt nun spürbar schneller.
+- **Statistik-Filter:** In den Diagrammen (Tagesverlauf und Verteilung) kann nun per Dropdown gezielt nach einzelnen Postfächern gefiltert werden.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- Keine Datenbank-Migrationen oder Workflow-Änderungen erforderlich. Das Dashboard-Backend (`GET /api/dashboard/stats`) akzeptiert nun optional den Parameter `?konto=`.
+
+## [4.2.3.0] - 2026-09-08 (Build 136) — *Workflow & Mail-Preview*
+
+### Features
+- **Workflows**: Laufende Workflows können jetzt direkt aus dem Panel abgebrochen werden (löscht die Ausführung in n8n). Die Dauer des Laufs wird ebenfalls angezeigt.
+- **Sortierung**: E-Mails, die in der Inbox (Vorschläge & Posteingang) auf Sortierung warten, können nun über den Button "Ansehen" eingesehen werden.
+- **Unsubscribe-Links**: In der Mail-Vorschau wird der "List-Unsubscribe" Header als klickbarer Abmelde-Link angezeigt.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- Keine Datenbank-Migrationen erforderlich.
+- n8n Workflows benötigen keinen Re-Import. Das Beenden von Workflows basiert auf der offiziellen `DELETE /executions/{id}` API.
+
 ## [4.2.2.1] - 2026-09-08 (Build 135) — *Bugfixes*
 
 ### Fixes

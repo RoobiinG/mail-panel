@@ -78,7 +78,8 @@ export default function Dashboard() {
   const [startet, setStartet] = useState(false);
   const [startMeldung, setStartMeldung] = useState('');
   const [budgetLaeuft, setBudgetLaeuft] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [statsKonto, setStatsKonto] = useState('');
+  const [loadingStats, setLoadingStats] = useState(true);
 
   // Bestands-Triage von Hand anstoßen. n8n startet den Lauf und antwortet sofort —
   // die Arbeit selbst dauert je nach Bestand Minuten bis Stunden, deshalb wird hier
@@ -111,38 +112,47 @@ export default function Dashboard() {
   };
 
   const laden = async () => {
+    // N8n-Status, Aufsicht und Übersicht asynchron laden, ohne den Rest zu blockieren
+    api.get('/dashboard/n8n-status')
+      .then(res => setN8n(res.data))
+      .catch(console.error);
+
+    api.get('/aufsicht')
+      .then(res => setAufsicht(res.data))
+      .catch(() => setAufsicht(null));
+
+    api.get('/dashboard/uebersicht')
+      .then(res => setUebersicht(res.data))
+      .catch(() => setUebersicht(null));
+  };
+
+  const loadStats = async () => {
+    setLoadingStats(true);
     try {
-      const [stRes, n8nRes, aufRes, ueRes] = await Promise.all([
-        api.get('/dashboard/stats'),
-        api.get('/dashboard/n8n-status'),
-        // Die Aufsicht darf das Dashboard nicht mitreißen, wenn sie klemmt.
-        api.get('/aufsicht').catch(() => ({ data: null })),
-        // Die Übersicht fragt Postfächer ab und kann kurz dauern — sie darf den
-        // Rest nicht aufhalten und nicht scheitern lassen.
-        api.get('/dashboard/uebersicht').catch(() => ({ data: null })),
-      ]);
-      setStats(stRes.data);
-      setN8n(n8nRes.data);
-      setAufsicht(aufRes.data);
-      setUebersicht(ueRes.data);
+      const { data } = await api.get(`/dashboard/stats${statsKonto ? `?konto=${encodeURIComponent(statsKonto)}` : ''}`);
+      setStats(data);
     } catch (err) {
       console.error(err);
     } finally {
-      setLoading(false);
+      setLoadingStats(false);
     }
   };
 
-  useEffect(() => { laden(); }, []);
+  useEffect(() => { 
+    laden(); 
+  }, []);
 
-  if (loading) return <div className="p-6 text-panel-muted">Lade Dashboard...</div>;
-  if (!stats || !stats.summen) return <div className="p-6 text-panel-red">Fehler beim Laden der Dashboard-Statistiken. Bitte überprüfe die Verbindung zur Datenbank oder die Logs.</div>;
+  useEffect(() => {
+    loadStats();
+  }, [statsKonto]);
 
-  const pieData = [
+  // Wir blockieren nicht mehr das gesamte Dashboard, wenn nur die Statistiken laden
+  const pieData = stats?.summen ? [
     { name: 'Spam', value: stats.summen.spam },
     { name: 'Phishing', value: stats.summen.phishing },
     { name: 'Viren', value: stats.summen.viren },
     { name: 'Clean', value: stats.summen.whitelist }
-  ].filter(d => d.value > 0);
+  ].filter(d => d.value > 0) : [];
 
   // Was die Aufsicht zuletzt gefunden hat. Ein Ausfall soll ins Auge fallen —
   // sechs Tage stille Sortierpause waren genug.
@@ -439,14 +449,16 @@ export default function Dashboard() {
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: 'Gescannte E-Mails', val: stats.summen.total, color: 'text-blue-400' },
-          { label: 'Spam geblockt', val: stats.summen.spam, color: 'text-amber-500' },
-          { label: 'Phishing erkannt', val: stats.summen.phishing, color: 'text-red-500' },
-          { label: 'Viren isoliert', val: stats.summen.viren, color: 'text-violet-500' },
+          { label: 'Gescannte E-Mails', val: stats?.summen?.total ?? 0, color: 'text-blue-400' },
+          { label: 'Spam geblockt', val: stats?.summen?.spam ?? 0, color: 'text-amber-500' },
+          { label: 'Phishing erkannt', val: stats?.summen?.phishing ?? 0, color: 'text-red-500' },
+          { label: 'Viren isoliert', val: stats?.summen?.viren ?? 0, color: 'text-violet-500' },
         ].map((kpi, i) => (
           <div key={i} className="card relative overflow-hidden group">
             <div className="text-sm font-medium text-panel-muted mb-1">{kpi.label}</div>
-            <div className={`text-3xl font-black ${kpi.color}`}>{kpi.val}</div>
+            <div className={`text-3xl font-black ${kpi.color}`}>
+              {loadingStats ? <span className="animate-pulse">...</span> : kpi.val}
+            </div>
             <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity text-8xl">#</div>
           </div>
         ))}
@@ -455,22 +467,42 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Bar Chart */}
         <div className="lg:col-span-2 card">
-          <h2 className="text-lg font-semibold mb-6">Tagesverlauf (30 Tage)</h2>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-3">
+            <h2 className="text-lg font-semibold">Tagesverlauf (30 Tage)</h2>
+            {stats?.konten && stats.konten.length > 0 && (
+              <select
+                value={statsKonto}
+                onChange={(e) => setStatsKonto(e.target.value)}
+                className="input-field !py-1.5 !text-sm max-w-[240px]"
+              >
+                <option value="">Alle Postfächer</option>
+                {stats.konten.map(k => (
+                  <option key={k} value={k}>{k}</option>
+                ))}
+              </select>
+            )}
+          </div>
           <div className="h-72 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={stats.history} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
-                <XAxis dataKey="tag" tick={{fill: '#6b7280', fontSize: 12}} tickFormatter={(v) => v.split('-').slice(1).join('.')} axisLine={false} tickLine={false} />
-                <YAxis tick={{fill: '#6b7280', fontSize: 12}} axisLine={false} tickLine={false} />
-                <Tooltip 
-                  contentStyle={{ backgroundColor: '#1a1b1e', borderColor: '#374151', borderRadius: '8px', color: '#f3f4f6' }}
-                  itemStyle={{ fontSize: '13px' }}
-                />
-                <Bar dataKey="Clean" stackId="a" fill={COLORS.Clean} radius={[0, 0, 4, 4]} />
-                <Bar dataKey="Spam" stackId="a" fill={COLORS.Spam} />
-                <Bar dataKey="Phishing" stackId="a" fill={COLORS.Phishing} />
-                <Bar dataKey="Viren" stackId="a" fill={COLORS.Viren} radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            {loadingStats ? (
+              <div className="w-full h-full flex items-center justify-center text-panel-muted">Lade Verlauf...</div>
+            ) : !stats?.history ? (
+              <div className="w-full h-full flex items-center justify-center text-panel-red">Fehler beim Laden</div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={stats.history} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                  <XAxis dataKey="tag" tick={{fill: '#6b7280', fontSize: 12}} tickFormatter={(v) => v.split('-').slice(1).join('.')} axisLine={false} tickLine={false} />
+                  <YAxis tick={{fill: '#6b7280', fontSize: 12}} axisLine={false} tickLine={false} />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: '#1a1b1e', borderColor: '#374151', borderRadius: '8px', color: '#f3f4f6' }}
+                    itemStyle={{ fontSize: '13px' }}
+                  />
+                  <Bar dataKey="Clean" stackId="a" fill={COLORS.Clean} radius={[0, 0, 4, 4]} />
+                  <Bar dataKey="Spam" stackId="a" fill={COLORS.Spam} />
+                  <Bar dataKey="Phishing" stackId="a" fill={COLORS.Phishing} />
+                  <Bar dataKey="Viren" stackId="a" fill={COLORS.Viren} radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
 

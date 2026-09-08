@@ -6,12 +6,30 @@ const router = express.Router();
 
 router.get('/stats', (req, res) => {
   try {
-    // Hole alle Logs der letzten 30 Tage
-    const logs = db.prepare(`
-      SELECT kategorie, virus_name, zielordner, date(created_at) as tag 
-      FROM quarantine_log 
-      WHERE created_at >= date('now', '-30 days')
+    const konto = req.query.konto;
+    
+    let logs;
+    if (konto) {
+      logs = db.prepare(`
+        SELECT kategorie, virus_name, zielordner, date(created_at) as tag 
+        FROM quarantine_log 
+        WHERE created_at >= date('now', '-30 days') AND konto = ?
+      `).all(konto);
+    } else {
+      logs = db.prepare(`
+        SELECT kategorie, virus_name, zielordner, date(created_at) as tag 
+        FROM quarantine_log 
+        WHERE created_at >= date('now', '-30 days')
+      `).all();
+    }
+    
+    // Hole Liste der verfügbaren Konten für den Filter
+    const kontenRows = db.prepare(`
+      SELECT DISTINCT konto FROM quarantine_log 
+      WHERE created_at >= date('now', '-30 days') 
+      ORDER BY konto
     `).all();
+    const verfuegbareKonten = kontenRows.map(r => r.konto);
 
     const stats = {
       total: logs.length,
@@ -52,7 +70,8 @@ router.get('/stats', (req, res) => {
 
     res.json({
       summen: stats,
-      history: Object.values(historyMap)
+      history: Object.values(historyMap),
+      konten: verfuegbareKonten
     });
   } catch (err) {
     console.error('DASHBOARD STATS ERROR:', err);
