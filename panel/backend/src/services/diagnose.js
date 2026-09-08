@@ -160,7 +160,7 @@ function konfiguration() {
     'ki_anbieter', 'gemini_modell', 'gemini_modell_ersatz', 'gemini_denkstufe',
     'gemini_tagesbudget', 'gemini_pause_ms', 'gemini_buendel', 'gemini_text_kurz',
     'gemini_text_lang', 'gemini_lauf_frist_ms', 'ollama_url', 'ollama_modell',
-    'ollama_kontext',
+    'ollama_kontext', 'ollama_buendel', 'ki_lauf_frist_ms',
     'auto_sync', 'neue_mails_ungelesen', 'spam_schwellwert', 'clamav_aktiv',
     'safebrowsing_aktiv', 'bestand_intervall', 'beleg_lese_tagesbudget',
     'themen_sortierung_aktiv', 'themen_max', 'themen_konfidenz', 'n8n_url',
@@ -207,7 +207,17 @@ function kiStand() {
       return {
         kontextFenster: kontext,
         promptPlatzZeichen: kiText.promptPlatz(kontext, 1500),
+        buendelGroesse: (() => {
+          try { return require('./klassifizierer').buendelGroesse(); } catch { return null; }
+        })(),
+        laufFristMs: (() => {
+          try { return require('./klassifizierer').frist(); } catch { return null; }
+        })(),
         schlange: require('./ollamaSchlange').stand(),
+        // Die Zahl, um die es geht: wie lange eine Anfrage wirklich dauert und
+        // wo die Zeit hingeht. Steckt sie im Prompt, hilft ein kleineres
+        // Bündel; steckt sie in der Antwort, ist das Modell zu groß.
+        messung: require('./ollamaMessung').stand(),
       };
     })() : '(nicht in Benutzung — Anbieter ist Gemini)',
     tagesbudget: budget.tagesbudget(),
@@ -313,7 +323,24 @@ async function laeufe(anzahl = 15) {
     if (daten?.error?.message) zeile.fehler = adressenTilgen(daten.error.message).slice(0, 300);
     return zeile;
   });
-  return { hoechsteGleichzeitig: gleichzeitigkeit(liste), liste };
+  const hoechste = gleichzeitigkeit(liste);
+  // Bei lokaler KI rechnen gleichzeitige Läufe auf derselben CPU gegeneinander.
+  // Steht hier etwas über 1, ist N8N_CONCURRENCY_PRODUCTION_LIMIT nicht
+  // wirksam — und das heißt fast immer: Die docker-compose.yml wurde beim
+  // Update nicht mitgezogen. Der Hinweis gehört in den Bericht, weil genau das
+  // beim letzten Mal untergegangen ist.
+  const lokal = (() => {
+    try { return (settings.hole('ki_anbieter') || 'gemini') === 'ollama'; } catch { return false; }
+  })();
+  return {
+    hoechsteGleichzeitig: hoechste,
+    ...(lokal && hoechste > 1 ? {
+      hinweis: `${hoechste} Läufe überlappten sich. Bei lokaler KI rechnen die auf derselben `
+        + 'CPU gegeneinander — N8N_CONCURRENCY_PRODUCTION_LIMIT greift offenbar nicht. '
+        + 'Wurde die docker-compose.yml beim Update mitgezogen (git pull)?',
+    } : {}),
+    liste,
+  };
 }
 
 // Wie viele Läufe überlappten sich zur selben Zeit höchstens?

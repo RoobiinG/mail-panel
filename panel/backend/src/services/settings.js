@@ -21,6 +21,23 @@ const FELDER = {
   // stillschweigend ab — und zwar vorne, wo die Anweisung steht. Ein groesseres
   // Fenster kostet Arbeitsspeicher, ein zu kleines kostet die ganze Antwort.
   ollama_kontext:       { env: 'OLLAMA_KONTEXT', geheim: false, standard: '8192' },
+  // Wie viele Mails hoechstens in ein Buendel? Deckelt gemini_buendel nach
+  // unten, sobald die lokale KI arbeitet. Bei CPU-Inferenz ist das die
+  // wirksamste Schraube ueberhaupt: Die Zeit zum Einlesen des Prompts waechst
+  // mit seiner Laenge, und zwei Mails, die zurueckkommen, sind mehr wert als
+  // fuenf, die ins Zeitlimit laufen — dort ist das Ergebnis null.
+  ollama_buendel:       { env: 'OLLAMA_BUENDEL', geheim: false, standard: '2' },
+  // Wie lange darf ein Klassifizier-Lauf insgesamt dauern?
+  //
+  // Bewusst OHNE Standardwert: hole() gaebe ihn sonst zurueck, und der
+  // Rueckfall auf den alten Schluessel gemini_lauf_frist_ms kaeme nie zum Zug.
+  // Leer heisst 240000 — das entscheidet klassifizierer.frist().
+  //
+  // Achtung, die Frist haengt an einer Kette: Ueber ~240 s braucht es auch ein
+  // groesseres Zeitlimit im Buendel-Knoten (setzt workflowPatcher selbst) und
+  // N8N_RUNNERS_TASK_TIMEOUT in der docker-compose.yml. Ohne das schneidet n8n
+  // den Code-Knoten weiter bei 300 s ab.
+  ki_lauf_frist_ms:     { env: 'KI_LAUF_FRIST_MS', geheim: false },
   gemini_api_key:       { env: 'GEMINI_API_KEY', geheim: true },
   // Wie viele KI-Einordnungen pro Tag hoechstens? 0/leer = kein Deckel.
   // Schuetzt das Gemini-Tageslimit, wenn ein grosser Altbestand sortiert wird.

@@ -51,12 +51,18 @@ function zahl(schluessel, standard, min, max) {
 // timeout" gefolgt von „0 von 364 Mails klassifiziert". Kleinere Bündel kommen
 // zurück, bevor die Frist des Laufs abläuft — und ein kürzerer Prompt ist für
 // ein kleines Modell ohnehin die bessere Frage.
-const OLLAMA_BUENDEL_MAX = 5;
+// Fünf war geraten und zu viel. Die Zeit zum Einlesen des Prompts wächst mit
+// seiner Länge, und auf einer CPU ist das der weitaus größere Posten: Ein
+// Bündel aus fünf Mails hat rund 10.000 Token Prompt, eines aus zwei rund
+// 4.000. Zwei Mails, die nach 90 s zurückkommen, sind mehr wert als fünf, die
+// nach 240 s abgeschnitten werden — dort ist das Ergebnis null, und genau das
+// stand tagelang im Log. Deshalb jetzt einstellbar statt fest verdrahtet.
+const OLLAMA_BUENDEL_STANDARD = 2;
 const buendelGroesse = () => {
   const gewuenscht = zahl('gemini_buendel', 20, 1, 60);
   try {
     if ((settings.hole('ki_anbieter') || 'gemini') === 'ollama') {
-      return Math.min(gewuenscht, OLLAMA_BUENDEL_MAX);
+      return Math.min(gewuenscht, zahl('ollama_buendel', OLLAMA_BUENDEL_STANDARD, 1, 10));
     }
   } catch { /* dann eben der eingestellte Wert */ }
   return gewuenscht;
@@ -106,9 +112,27 @@ const WARTEN_MAX_MS = 90000;
 //
 // Deshalb hört das Panel von sich aus vorher auf und gibt zurück, was fertig
 // ist. Der Rest bleibt offen und kommt im nächsten Lauf zuerst wieder dran
-// (services/bestand.js). Wer längere Läufe will, hebt in n8n
-// N8N_RUNNERS_TASK_TIMEOUT an und hier die Frist.
-const frist = () => zahl('gemini_lauf_frist_ms', 240000, 30000, 3600000);
+// (services/bestand.js).
+//
+// Der Schlüssel hieß bis Build 150 `gemini_lauf_frist_ms` — und ließ sich
+// **gar nicht setzen**: Er stand weder in settings.FELDER noch in den
+// EINFACHE_KEYS der Route, PUT /api/einstellungen warf ihn stillschweigend
+// weg. Er wirkte nur, wenn jemand die Zeile von Hand in die Datenbank schrieb.
+// Für die lokale KI ist das der wichtigste Hebel überhaupt.
+//
+// Jetzt `ki_lauf_frist_ms` (die Frist gilt für beide Anbieter, der alte Name
+// war irreführend), mit Rückfall auf den alten Schlüssel — ein von Hand
+// gesetzter Wert soll nicht stumm verfallen.
+//
+// Wer über ~240 s hinausgeht, braucht zusätzlich N8N_RUNNERS_TASK_TIMEOUT in
+// der docker-compose.yml; das Zeitlimit im Bündel-Knoten zieht der Patcher von
+// selbst nach.
+const FRIST_STANDARD = 240000;
+const frist = () => {
+  const neu = zahl('ki_lauf_frist_ms', 0, 30000, 3600000);
+  if (neu > 0) return neu;
+  return zahl('gemini_lauf_frist_ms', FRIST_STANDARD, 30000, 3600000);
+};
 
 // ─── Verdachtsfall oder Alltag? ──────────────────────────────────────────────
 
@@ -479,8 +503,12 @@ async function klassifizieren(mails) {
 
 module.exports = {
   klassifizieren,
-  // fuer die Tests und die Einstellungsseite
+  // fuer die Tests, die Einstellungsseite und den Buendel-Knoten in
+  // workflowPatcher.js, dessen Zeitlimit sich nach der Frist richtet
+  frist,
+  FRIST_STANDARD,
   buendelGroesse,
+  OLLAMA_BUENDEL_STANDARD,
   textKurz,
   textLang,
   gruppieren,

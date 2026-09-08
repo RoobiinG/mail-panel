@@ -367,6 +367,33 @@ export default function Einstellungen() {
   const [installProgress, setInstallProgress] = useState(null);
   const [installError, setInstallError] = useState(null);
 
+  // Wie schnell ist das Modell auf DIESER Maschine?
+  //
+  // Der Verbindungstest sagt nur „erreichbar". Das beantwortet die einzige
+  // Frage nicht, auf die es bei lokaler KI ankommt — und die Antwort aus dem
+  // laufenden Betrieb zu holen kostet einen halben Tag, weil jede Anfrage in
+  // ihr Zeitlimit läuft und ein Zeitlimit nur „mehr als X" sagt.
+  const [tempo, setTempo] = useState(null);
+  const [tempoLaeuft, setTempoLaeuft] = useState(false);
+  const [tempoFehler, setTempoFehler] = useState('');
+
+  const tempoMessen = async (modell) => {
+    setTempoLaeuft(true);
+    setTempo(null);
+    setTempoFehler('');
+    try {
+      const r = await api.post('/einstellungen/ollama/tempo', { model: modell || undefined });
+      setTempo(r.data);
+    } catch (err) {
+      const d = err.response?.data || {};
+      setTempoFehler(d.sekunden
+        ? `${d.error || 'Fehlgeschlagen'} — nach ${d.sekunden} s abgebrochen`
+        : (d.error || 'Fehlgeschlagen'));
+    } finally {
+      setTempoLaeuft(false);
+    }
+  };
+
   // Der Fortschritt kommt als Ereignisstrom — gelesen mit fetch, nicht mit
   // EventSource.
   //
@@ -617,6 +644,70 @@ export default function Einstellungen() {
                       placeholder="8192"
                       disabled={settings.ollama_kontext_per_env}
                       onChange={e => set('ollama_kontext', e.target.value)} className={inputCls} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="block text-xs text-panel-muted">Mails je Anfrage</label>
+                    <p className="text-[10px] text-panel-muted/60">
+                      Die wirksamste Schraube auf einer CPU. Die Zeit zum Einlesen des Prompts
+                      wächst mit seiner Länge: fünf Mails sind rund 10.000 Token, zwei rund 4.000.
+                      Und zwei Mails, die nach 90 Sekunden zurückkommen, sind mehr wert als fünf,
+                      die ins Zeitlimit laufen — dann ist das Ergebnis null.
+                    </p>
+                    <input type="number" min="1" max="10" step="1"
+                      value={settings.ollama_buendel ?? ''}
+                      placeholder="2"
+                      disabled={settings.ollama_buendel_per_env}
+                      onChange={e => set('ollama_buendel', e.target.value)} className={inputCls} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="block text-xs text-panel-muted">Frist je Lauf (Millisekunden)</label>
+                    <p className="text-[10px] text-panel-muted/60">
+                      Wie lange ein Klassifizier-Lauf insgesamt dauern darf. Danach gibt das Panel
+                      zurück, was fertig ist; der Rest kommt beim nächsten Lauf zuerst dran.
+                      Leer bedeutet 240000 (4 Minuten).
+                      {' '}
+                      <strong className="text-panel-text">Über 300000 wirkt nur</strong>, wenn in
+                      der <code className="text-panel-text">.env</code> auch
+                      {' '}<code className="text-panel-text">N8N_TASK_TIMEOUT</code> hochgesetzt ist —
+                      sonst schneidet n8n den Knoten vorher ab.
+                    </p>
+                    <input type="number" min="30000" max="3600000" step="30000"
+                      value={settings.ki_lauf_frist_ms ?? ''}
+                      placeholder="240000"
+                      disabled={settings.ki_lauf_frist_ms_per_env}
+                      onChange={e => set('ki_lauf_frist_ms', e.target.value)} className={inputCls} />
+                  </div>
+                  <div className="space-y-1 pt-3 border-t border-panel-border/30">
+                    <label className="block text-xs text-panel-muted">Geschwindigkeit messen</label>
+                    <p className="text-[10px] text-panel-muted/60">
+                      Schickt eine kurze, echte Anfrage an das eingestellte Modell und zeigt, wie
+                      lange sie gedauert hat — aufgeteilt in Lesen und Schreiben. Steckt die Zeit
+                      im Lesen, hilft ein kleineres Bündel; steckt sie im Schreiben, ist das Modell
+                      zu groß. So lässt sich ein frisch geladenes Modell bewerten, ohne die
+                      Sortierung darauf umzustellen.
+                    </p>
+                    <button onClick={() => tempoMessen(settings.ollama_modell)}
+                      disabled={tempoLaeuft || !settings.ollama_url}
+                      className="btn py-[7px] px-3 text-xs">
+                      {tempoLaeuft ? 'Läuft … (kann Minuten dauern)' : 'Tempo messen'}
+                    </button>
+                    {tempoFehler && <p className="text-xs text-panel-red mt-1">{tempoFehler}</p>}
+                    {tempo && (
+                      <div className="mt-2 p-2 bg-panel-darker rounded border border-panel-border space-y-1">
+                        <p className="text-[11px] text-panel-text">{tempo.satz}</p>
+                        {tempo.hochrechnung ? (
+                          <p className="text-[11px] text-panel-muted">
+                            Hochgerechnet: ein Bündel aus {tempo.buendel} Mail(s) dauert damit etwa
+                            {' '}<strong className="text-panel-text">{tempo.hochrechnung} s</strong>.
+                          </p>
+                        ) : (
+                          <p className="text-[11px] text-panel-muted">
+                            Für eine Hochrechnung fehlen Ollama die Kennzahlen — ältere Fassungen
+                            liefern sie nicht bei jeder Antwort.
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <div className="space-y-1 pt-3 border-t border-panel-border/30">
                     <label className="block text-xs text-panel-muted">Neues Modell installieren</label>

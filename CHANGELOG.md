@@ -2,6 +2,73 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.4.4.0] - 2026-09-08 (Build 151) — *Messen statt raten*
+
+Seit vier Builds steht in jeder Klassifizier-Meldung dieselbe Zahl: `0 von N`. Build 148 hat die
+Zeitlimits geradegezogen, 149 den leeren Prompt behoben, 150 `num_ctx` gesetzt und die Anfragen
+serialisiert — alles nachweislich aktiv. Und trotzdem kam kein einziges Bündel je zurück.
+
+Der Grund für das Raten ist einfach: **Ein Zeitlimit sagt nur „mehr als X", nie „wie viel mehr."**
+Ob ein Bündel 200 Sekunden gebraucht hätte oder 2000, sah im Log identisch aus. Dieser Build baut
+deshalb zuerst das Messgerät und danach die Stellschrauben.
+
+### Neu: Die lokale KI wird gemessen
+Ollama liefert bei jeder Antwort mit, wo die Zeit hingegangen ist — `prompt_eval_count` /
+`prompt_eval_duration` fürs Einlesen, `eval_count` / `eval_duration` fürs Schreiben. Das Panel hat
+diese Felder bisher weggeworfen. Jetzt steht je Anfrage eine Zeile im Log:
+
+> Ollama llama3.2:1b: 4200 Token Prompt in 84 s gelesen (50/s), 190 Token Antwort in 38 s
+> geschrieben (5/s) — zusammen 124 s.
+
+Das ist die eigentliche Diagnose: Steckt die Zeit im **Einlesen**, hilft ein kleineres Bündel;
+steckt sie im **Schreiben**, ist das Modell zu groß. Das eine mit dem anderen zu verwechseln hat
+hier schon Tage gekostet. `services/ollamaMessung.js` hält die letzten 20 Anfragen im Speicher,
+der Diagnosebericht zeigt sie unter `ki.lokal.messung`. Auch abgebrochene Anfragen werden
+vermerkt — sonst misst die Statistik ausgerechnet die Fälle nicht, um die es geht.
+
+### Neu: Geschwindigkeitstest vor der Umstellung
+Der Verbindungstest sagte bisher nur „erreichbar, 3 Modelle". `POST /einstellungen/ollama/tempo`
+schickt eine kurze, echte Anfrage und rechnet hoch: *„Ein Bündel aus 2 Mails dauert damit etwa
+95 s."* Damit lässt sich ein frisch geladenes Modell bewerten, **ohne die Sortierung darauf
+umzustellen** und einen halben Tag auf das Ergebnis zu warten. Knopf dafür in den Einstellungen.
+
+### Bugfix (hoch): Die Lauf-Frist ließ sich gar nicht setzen
+`frist()` las `gemini_lauf_frist_ms`. Dieser Schlüssel stand weder in `settings.FELDER` noch in den
+`EINFACHE_KEYS` der Route — `PUT /api/einstellungen` verwarf ihn wortlos. Die Einstellung existierte
+im Code, war von außen aber nur durch einen Schreibzugriff direkt in die Datenbank erreichbar. Für
+eine lokale KI ist das der wichtigste Hebel überhaupt.
+
+Neu `ki_lauf_frist_ms` (die Frist gilt für beide Anbieter, der alte Name war irreführend), mit
+Rückfall auf den alten Schlüssel — ein von Hand gesetzter Wert soll nicht stumm verfallen.
+
+### Bugfix (hoch): Selbst gesetzt wäre sie wirkungslos geblieben
+Die Frist hängt an einer Kette aus drei Gliedern, von denen bisher keines verstellbar war:
+
+1. Der Bündel-Knoten in Workflow 04 trug ein fest verdrahtetes `timeout: 280000`. Wer die Frist
+   hochsetzte, lief in dieses Zeitlimit statt in seine eigene. Es wächst jetzt mit (Frist + 40 s).
+2. n8n bricht einen Code-Knoten nach 300 s ab. `N8N_RUNNERS_TASK_TIMEOUT` stand in der
+   `docker-compose.yml` gar nicht — jetzt drin, über `N8N_TASK_TIMEOUT` in der `.env` steuerbar.
+
+### Bündelgröße einstellbar — die wirksamste Schraube
+`OLLAMA_BUENDEL_MAX = 5` war eine geratene Konstante. Sie wird zur Einstellung `ollama_buendel`,
+**Standard jetzt 2**. Die Zeit zum Einlesen des Prompts wächst mit seiner Länge: fünf Mails sind
+rund 10.000 Token, zwei rund 4.000. Zwei Mails, die nach 90 s zurückkommen, sind mehr wert als
+fünf, die nach 240 s abgeschnitten werden — dort ist das Ergebnis null.
+
+### Diagnose
+`laeufe.hoechsteGleichzeitig` bekommt einen Klartext-Hinweis, wenn sich bei lokaler KI mehrere
+Läufe überlappen: Dann greift `N8N_CONCURRENCY_PRODUCTION_LIMIT` nicht, und das heißt fast immer,
+dass die `docker-compose.yml` beim Update nicht mitgezogen wurde. Genau das ist beim letzten Mal
+untergegangen. `ki.lokal` zeigt zusätzlich Bündelgröße und Lauf-Frist.
+
+### Bekannte Grenze
+Die Warteschlange aus Build 150 deckt nur den halben Weg ab: Der KI-Knoten in Workflow 01 ist ein
+`httpRequest` **direkt auf `ollama:11434`**, nur Workflow 04 geht über das Panel. Gleichzeitigkeit
+auf diesem Pfad bremst allein `N8N_CONCURRENCY_PRODUCTION_LIMIT`. Das zu ändern hieße, den KI-Knoten
+auch dort durch einen Panel-Aufruf zu ersetzen — ein Eingriff, der sich erst lohnt, wenn feststeht,
+dass die lokale KI überhaupt trägt.
+
+
 ## [4.4.3.0] - 2026-09-08 (Build 150) — *Sie rechneten gegeneinander*
 
 Build 149 hat den leeren Prompt behoben. Der Bericht danach (16:12) zeigt: Die KI wird gefragt,

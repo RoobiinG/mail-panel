@@ -1259,6 +1259,18 @@ const BUENDEL_MARKE = '// PANEL:BUENDEL v1';
 const KI_KNOTEN = ['Gemini klassifizieren', 'Ollama klassifizieren', 'KI klassifizieren'];
 const istKiKnoten = (name) => KI_KNOTEN.includes(String(name || ''));
 
+// Wie lange der Buendel-Knoten auf das Panel wartet: dessen Frist plus 40 s
+// Luft. Lazy geladen, weil der Klassifizierer seinerseits ueber kiText an
+// dieser Datei haengt — beim Patchen ist alles laengst da.
+const BUENDEL_LUFT_MS = 40000;
+function buendelZeitlimit() {
+  try {
+    return require('./klassifizierer').frist() + BUENDEL_LUFT_MS;
+  } catch {
+    return 240000 + BUENDEL_LUFT_MS;
+  }
+}
+
 function buendelCode() {
   const geheim = process.env.PANEL_SECRET || '';
   return [
@@ -1293,10 +1305,19 @@ function buendelCode() {
     '        nie_quarantaene: Boolean(__it.json.nie_quarantaene),',
     '      })),',
     '    },',
-    // Knapp unter n8ns eigener Grenze: Es bricht einen Code-Knoten nach 300
-    // Sekunden ab. Das Panel hoert von sich aus frueher auf (Frist 240 s) und
-    // gibt zurueck, was fertig ist — diese 280 s sind nur das Netz darunter.
-    '    json: true, timeout: 280000,',
+    // Das Netz unter der Frist des Panels: Es hoert von sich aus vorher auf und
+    // gibt zurueck, was fertig ist; dieses Zeitlimit greift nur, wenn das
+    // schiefgeht.
+    //
+    // Bis Build 150 standen hier feste 280000 — knapp unter n8ns Grenze von 300
+    // Sekunden fuer einen Code-Knoten. Damit war die Frist praktisch bei 240 s
+    // festgenagelt: Wer sie hochsetzte, lief in dieses Zeitlimit statt in seine
+    // eigene Frist. Fuer eine lokale KI, die je Buendel Minuten braucht, war das
+    // die eigentliche Fessel. Jetzt waechst es mit.
+    //
+    // Ueber 300 s hinaus braucht es zusaetzlich N8N_RUNNERS_TASK_TIMEOUT in der
+    // docker-compose.yml — sonst schneidet n8n den Knoten trotzdem ab.
+    `    json: true, timeout: ${buendelZeitlimit()},`,
     '  });',
     '} catch (__e) {',
     "  console.log('Klassifizierung nicht moeglich: ' + (__e.message || __e) + ' — es wird nichts sortiert.');",

@@ -112,9 +112,20 @@ describe('Bündelgröße: bei der lokalen KI kleiner', () => {
     assert.ok(k.buendelGroesse() <= 5, `20er-Bündel sind für die lokale KI zu groß (${k.buendelGroesse()})`);
   });
 
+  // Seit Build 151 ist der Deckel einstellbar (ollama_buendel, Standard 2).
+  // Die Regel dahinter bleibt dieselbe: Er deckelt nach unten und setzt nie
+  // herauf — deshalb steht der Deckel hier ausdruecklich hoeher als der Wert.
   test('ein kleinerer eingestellter Wert wird nicht heraufgesetzt', () => {
     settings.setze('ki_anbieter', 'ollama');
     settings.setze('gemini_buendel', '3');
+    settings.setze('ollama_buendel', '8');
     assert.equal(k.buendelGroesse(), 3);
+  });
+
+  test('von beiden Grenzen gilt die kleinere', () => {
+    settings.setze('ki_anbieter', 'ollama');
+    settings.setze('gemini_buendel', '3');
+    settings.setze('ollama_buendel', '2');
+    assert.equal(k.buendelGroesse(), 2);
   });
 });

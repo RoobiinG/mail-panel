@@ -79,6 +79,15 @@ router.put('/', (req, res) => {
       && (!Number.isInteger(Number(value)) || Number(value) < 2048 || Number(value) > 32768)) {
       return res.status(400).json({ error: 'ollama_kontext: ganze Zahl zwischen 2048 und 32768' });
     }
+    if (key === 'ollama_buendel' && String(value).trim()
+      && (!Number.isInteger(Number(value)) || Number(value) < 1 || Number(value) > 10)) {
+      return res.status(400).json({ error: 'ollama_buendel: ganze Zahl zwischen 1 und 10' });
+    }
+    // Leer ist erlaubt und heisst 240000 (siehe klassifizierer.frist()).
+    if (key === 'ki_lauf_frist_ms' && String(value).trim()
+      && (!Number.isInteger(Number(value)) || Number(value) < 30000 || Number(value) > 3600000)) {
+      return res.status(400).json({ error: 'ki_lauf_frist_ms: ganze Zahl zwischen 30000 und 3600000' });
+    }
     // Zugangsdaten laufen über den Settings-Service (verschlüsselt)
     if (settings.FELDER[key]) {
       // Maskierte Anzeige nicht zurückspeichern
@@ -126,7 +135,8 @@ router.put('/', (req, res) => {
   // Bildschirm gibt — beim KI-Anbieter hieß das: Panel sagt Ollama, n8n ruft
   // weiter Google. Deshalb stößt das Speichern den Abgleich jetzt selbst an.
   const inDenWorkflows = [
-    'ki_anbieter', 'ollama_url', 'ollama_modell', 'ollama_kontext',
+    'ki_anbieter', 'ollama_url', 'ollama_modell', 'ollama_kontext', 'ollama_buendel',
+    'ki_lauf_frist_ms',
     'gemini_modell', 'gemini_modell_ersatz', 'gemini_pause_ms', 'gemini_denkstufe',
     'neue_mails_ungelesen', 'bestand_intervall', 'spam_schwellwert',
   ];
@@ -219,6 +229,81 @@ function ollamaAdresse() {
   const url = String(settings.hole('ollama_url') || '').trim();
   return url ? url.replace(/\/$/, '') : null;
 }
+
+// Wie schnell ist ein Modell auf DIESER Maschine?
+//
+// /test/ollama sagt bisher nur „erreichbar, 3 Modelle". Das beantwortet die
+// einzige Frage nicht, auf die es bei lokaler KI ankommt. Vier Builds lang
+// wurde sie aus Zeitstempeln geschätzt, weil jede echte Anfrage in ihr
+// Zeitlimit lief und ein Zeitlimit nur „mehr als X" sagt.
+//
+// Hier läuft deshalb eine kleine, echte Anfrage — dieselbe Form wie eine
+// Klassifizierung, nur kurz — und gibt Ollamas eigene Kennzahlen zurück. Damit
+// lässt sich ein frisch geladenes Modell bewerten, OHNE die Sortierung darauf
+// umzustellen und einen halben Tag auf das Ergebnis zu warten.
+const TEMPO_PROMPT = [
+  'Du ordnest E-Mails ein. Antworte NUR mit JSON.',
+  'Format: {"treffer":[{"nr":1,"kategorie":"newsletter","thema":"Angebote","konfidenz":0.8}]}',
+  'Erlaubte Kategorien: spam, rechnung, bestellung, newsletter, persoenlich, sonstiges.',
+  '',
+  'Mail 1:',
+  'Von: angebote@beispiel-shop.de',
+  'Betreff: Unsere Angebote der Woche',
+  'Text: Diese Woche reduziert: Kaffee, Tee und Zubehoer. Jetzt im Shop stoebern.',
+  '',
+  'Mail 2:',
+  'Von: rechnung@beispiel-strom.de',
+  'Betreff: Ihre Jahresabrechnung 2026',
+  'Text: Ihre Abrechnung liegt bereit. Der Betrag wird in den naechsten Tagen eingezogen.',
+].join('\n');
+
+router.post('/ollama/tempo', async (req, res) => {
+  const url = ollamaAdresse();
+  if (!url) return res.status(400).json({ error: 'Keine Ollama-Adresse in den Einstellungen hinterlegt.' });
+  const modell = String(req.body?.model || settings.hole('ollama_modell') || '').trim();
+  if (!modell) return res.status(400).json({ error: 'Kein Modell angegeben.' });
+
+  const kiText = require('../services/kiText');
+  const messung = require('../services/ollamaMessung');
+  const klass = require('../services/klassifizierer');
+  const begonnen = Date.now();
+
+  try {
+    const r = await fetch(`${url}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: modell,
+        prompt: TEMPO_PROMPT,
+        stream: false,
+        format: 'json',
+        options: { temperature: 0.1, num_ctx: kiText.kontextFenster(), num_predict: 300 },
+      }),
+      // Grosszuegig, aber nicht unbegrenzt: Wer hier laenger als fuenf Minuten
+      // braucht, hat die Frage ohnehin beantwortet.
+      signal: AbortSignal.timeout(300000),
+    });
+    if (!r.ok) throw new Error(`Ollama antwortete mit HTTP ${r.status}`);
+    const daten = await r.json();
+    const k = messung.kennzahlen(daten, modell);
+
+    // Hochrechnung auf ein echtes Buendel. Der Testprompt ist rund ein Viertel
+    // so lang wie einer mit zwei vollen Mails samt Themenliste; die Zeit zum
+    // Einlesen waechst mit der Laenge, die zum Schreiben nicht.
+    const buendel = klass.buendelGroesse();
+    let hochrechnung = null;
+    if (k.promptProSekunde && k.antwortProSekunde) {
+      const promptToken = 1200 + buendel * 900;
+      hochrechnung = Math.round(promptToken / k.promptProSekunde + 250 / k.antwortProSekunde);
+    }
+    res.json({ ok: true, modell, kennzahlen: k, satz: messung.satz(k), buendel, hochrechnung });
+  } catch (err) {
+    res.status(502).json({
+      error: err.message,
+      sekunden: Math.round((Date.now() - begonnen) / 1000),
+    });
+  }
+});
 
 router.post('/ollama/modelle', async (req, res) => {
   const url = ollamaAdresse();

@@ -10,6 +10,7 @@
 const settings = require('./settings');
 const { loggen } = require('./panelLog');
 const schlange = require('./ollamaSchlange');
+const messung = require('./ollamaMessung');
 
 // Dasselbe Modell wie in den Workflows und im Beleg-Leser — welches das ist,
 // entscheidet services/kiModell.js. Damit folgt auch dieser Aufruf einem Wechsel
@@ -99,11 +100,16 @@ async function frageJson(prompt, opt = {}) {
         + 'Kontextfenster (Einstellungen → KI) helfen.');
     }
 
+    // Wann die Anfrage wirklich losging — nicht, wann sie sich angestellt hat.
+    // Bleibt 0, wenn die Warteschlange sie gar nicht erst durchgelassen hat;
+    // dann ist es keine Messung an Ollama und gehört nicht in die Statistik.
+    let angefangen = 0;
+
     try {
       // Eine Anfrage zur Zeit — siehe services/ollamaSchlange.js. Höchstens die
       // Hälfte des Zeitlimits fürs Warten; die andere Hälfte braucht die
       // Anfrage selbst noch.
-      const res = await schlange.nacheinander(() => fetch(ollamaUrl, {
+      const res = await schlange.nacheinander(() => { angefangen = Date.now(); return fetch(ollamaUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -129,7 +135,7 @@ async function frageJson(prompt, opt = {}) {
           },
         }),
         signal: AbortSignal.timeout(zeitlimit),
-      }), Math.round(zeitlimit / 2));
+      }); }, Math.round(zeitlimit / 2));
 
       if (!res.ok) {
         const text = (await res.text()).slice(0, 400);
@@ -140,7 +146,19 @@ async function frageJson(prompt, opt = {}) {
       const daten = await res.json();
       rohtext = daten?.response || '';
       grund = daten?.done_reason || (daten?.done ? 'STOP' : '');
+
+      // Ollamas eigene Kennzahlen mitnehmen — siehe services/ollamaMessung.js.
+      // Ohne sie steht am Ende wieder nur „hat nicht geantwortet" im Log, und
+      // die Frage, ob es am Prompt oder am Modell liegt, bleibt offen.
+      const k = messung.kennzahlen(daten, ollamaModell);
+      messung.merken(k);
+      loggen('info', quelle, messung.satz(k));
     } catch (err) {
+      if (angefangen) {
+        messung.merken(messung.abbruch(
+          ollamaModell, Math.round((Date.now() - angefangen) / 100) / 10, err.message,
+        ));
+      }
       loggen('warn', quelle, `Ollama nicht erreichbar: ${err.message}`);
       return { ok: false, fehler: `Ollama war nicht erreichbar: ${err.message}` };
     }
