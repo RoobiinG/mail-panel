@@ -43,14 +43,24 @@ function weiter() {
   if (gewartet > laengsteWarteMs) laengsteWarteMs = gewartet;
   laeuft = true;
   begonnenAm = Date.now();
+  // Erst den Platz freigeben, dann den Aufrufer bedienen — nicht umgekehrt.
+  //
+  // Mit einem .finally() am Ende der Kette laeuft das Freigeben eine Mikrotask
+  // SPAETER als das Aufloesen des Aufrufer-Versprechens. Wer direkt nach seinem
+  // `await` in die Schlange sieht, sieht sie dann faelschlich noch als belegt —
+  // und wer direkt danach eine neue Anfrage stellt, stellt sich hinter einen
+  // Platz, der in Wahrheit schon frei ist.
+  const freigeben = () => {
+    laeuft = false;
+    begonnenAm = 0;
+    weiter();
+  };
   Promise.resolve()
     .then(() => eintrag.aufgabe())
-    .then(eintrag.erfuellen, eintrag.ablehnen)
-    .finally(() => {
-      laeuft = false;
-      begonnenAm = 0;
-      weiter();
-    });
+    .then(
+      (wert) => { freigeben(); eintrag.erfuellen(wert); },
+      (fehler) => { freigeben(); eintrag.ablehnen(fehler); },
+    );
 }
 
 /**

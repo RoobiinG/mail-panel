@@ -100,7 +100,10 @@ describe('Die Antwortlänge ist begrenzt', () => {
     const quelle = require('fs').readFileSync(
       require('path').resolve(__dirname, '../src/services/kiText.js'), 'utf8',
     );
-    const n = Number(quelle.match(/num_predict:\s*opt\.maxAntwort \|\| (\d+)/)[1]);
+    // Seit Build 150 steht der Wert eine Zeile hoeher in einer Konstanten, weil
+    // ihn auch die Platzberechnung fuer den Prompt braucht. Die Regel ist
+    // dieselbe geblieben: Was das Panel selbst an Ollama schickt, bleibt kurz.
+    const n = Number(quelle.match(/antwortTokens = opt\.maxAntwort \|\| (\d+)/)[1]);
     assert.ok(n <= 2000, `${n} Token sind auf einer CPU eine Viertelstunde`);
   });
 });
