@@ -2,6 +2,42 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.5.0.0] - 2026-09-09 (Build 156) — *Aus einer Bitte wird eine Grammatik*
+
+Build 155 hat den blinden Fleck geöffnet: Die lokale KI **antwortet** — dreizehnmal zwischen
+22:04 und 22:06, jede Antwort in rund zwölf Sekunden — und der Lauf endet trotzdem mit
+„0 von 19 Mails klassifiziert". Nicht zu langsam. Unbrauchbar.
+
+### Der Grund
+Das Panel schickte `format: "json"`. Das erzwingt **gültiges** JSON, aber nicht die richtige
+**Form**. Gemini hält sich trotzdem an das Beispiel im Prompt; ein 1B-Modell antwortet, was ihm
+einfällt — mal `{"emails": […]}`, mal `{"1": {…}}`, mal ein einzelnes Objekt. Alles gültiges
+JSON, alles unbrauchbar, und `antwortZuordnen()` akzeptierte genau zwei Formen.
+
+### Ollama bekommt jetzt ein Schema statt einer Bitte
+`format` nimmt auch ein JSON-Schema entgegen. Ollama baut daraus eine Grammatik, und das Modell
+**kann** dann nichts anderes mehr erzeugen: kein anderer Wrapper, keine fehlende `nr`, keine
+erfundene Kategorie. Aus *„bitte halte dich an das Format"* wird *„du kannst nicht anders"*.
+
+Für kleine Modelle ist das der Unterschied zwischen unbrauchbar und brauchbar. `kategorie` steht
+dabei als `enum` im Schema — genau an dieser Stelle hatte ein Modell schon einmal die
+Auswahlliste wörtlich abgeschrieben. Gemini bekommt das Schema nicht; dort steuert weiterhin
+`responseMimeType`.
+
+### Und ein Netz darunter
+`antwortZuordnen()` versteht jetzt auch, was ein Modell **ohne** Schema produziert: eine Liste
+unter beliebigem Feldnamen, ein nach Nummern geschlüsseltes Objekt, ein einzelnes Objekt bei
+einem Bündel aus einer Mail. Fehlt die `nr`, zählt die Reihenfolge.
+
+Nicht geraten wird weiterhin dort, wo Raten schaden würde: Ein einzelnes Objekt für ein Bündel
+aus drei Mails bleibt verworfen. Eine falsch zugeordnete Antwort schiebt eine Mail in den
+falschen Ordner, und das merkt niemand.
+
+Der Prompt verlangt jetzt dieselbe Form, die das Schema erzwingt (`{"mails": [ … ]}`) — Prompt
+und Grammatik dürfen nicht auseinanderlaufen, sonst kämpft das Modell gegen die Grammatik statt
+mit ihr.
+
+
 ## [4.4.6.2] - 2026-09-09 (Build 155) — *Geantwortet ist nicht klassifiziert*
 
 Der erste Bericht mit echten Messwerten hat einen blinden Fleck aufgedeckt, der vier Builds lang

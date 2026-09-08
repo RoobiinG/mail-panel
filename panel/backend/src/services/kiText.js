@@ -116,7 +116,21 @@ async function frageJson(prompt, opt = {}) {
           model: ollamaModell,
           prompt: gekuerzt,
           stream: false,
-          format: 'json',
+          // Ein Schema statt nur „irgendein JSON".
+          //
+          // `format: 'json'` erzwingt GUELTIGES JSON, aber nicht die richtige
+          // FORM. Ein grosses Modell haelt sich trotzdem an das Beispiel im
+          // Prompt; ein kleines antwortet, was ihm einfaellt — mal
+          // {"emails": […]}, mal {"1": {…}}, mal ein einzelnes Objekt. Das ist
+          // alles gueltiges JSON und trotzdem unbrauchbar, und genau so sah es
+          // im Betrieb aus: dreizehn Antworten hintereinander, „0 von 19 Mails
+          // klassifiziert".
+          //
+          // Mit einem Schema baut Ollama daraus eine Grammatik und laesst das
+          // Modell gar nichts anderes mehr erzeugen. Aus „bitte halte dich an
+          // das Format" wird „du kannst nicht anders". Fuer kleine Modelle ist
+          // das der Unterschied zwischen unbrauchbar und brauchbar.
+          format: opt.schema || 'json',
           options: {
             temperature: 0.2,
             // Ohne diese Angabe nimmt Ollama sein eigenes Fenster (je nach

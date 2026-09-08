@@ -276,9 +276,12 @@ function promptBauen(gruppen, konto, bekannt) {
   // dadurch Kategorien wie "spam|rechnung|bestellung|newsletter|persoenlich|
   // sonstiges" in der Datenbank, und die Themen-Aufloesung lief ins Leere.
   // Ein Beispiel muss ein gueltiger Wert sein, keine Auswahlliste.
+  // Die Form ist dieselbe, die antwortSchema() erzwingt — Prompt und Schema
+  // duerfen nicht auseinanderlaufen, sonst kaempft das Modell gegen die
+  // Grammatik statt mit ihr.
   return 'Du bist ein E-Mail-Klassifizierer. Du bekommst MEHRERE E-Mails, jede mit einer Nummer in eckigen Klammern.\n'
-    + 'Antworte NUR mit einem JSON-Array — ein Objekt je Mail, in exakt diesem Format:\n'
-    + '[{"nr": 1, "kategorie": "newsletter", "spam_score": 0.1, "kurzfassung": "Ein Satz auf Deutsch", "ordner": null, "konfidenz": 0.8}]\n\n'
+    + 'Antworte NUR mit einem JSON-Objekt, das ein Feld "mails" enthaelt — darin ein Objekt je Mail, in exakt diesem Format:\n'
+    + '{"mails": [{"nr": 1, "kategorie": "newsletter", "spam_score": 0.1, "kurzfassung": "Ein Satz auf Deutsch", "ordner": "", "konfidenz": 0.8}]}\n\n'
     + `Erlaubte Werte fuer "kategorie" — genau einer davon, kein anderer Text: ${KATEGORIEN.join(', ')}.\n`
     + 'Wichtig: Gib zu JEDER Mail genau ein Objekt zurueck und uebernimm ihre "nr" unveraendert. Lass keine aus und erfinde keine dazu.\n\n'
     + 'Regeln:\n'
@@ -349,14 +352,53 @@ function antwortForm(daten) {
     + `nr: [${nummern.join(', ')}]`;
 }
 
+// Die Liste aus der Antwort herausholen — egal, wie das Modell sie verpackt hat.
+//
+// Bis Build 155 wurden genau zwei Formen akzeptiert: ein blankes Array oder
+// {mails: […]}. Alles andere fiel still durch. Gemini haelt sich an das
+// Beispiel im Prompt, ein kleines Modell nicht: {"emails": […]},
+// {"classifications": […]}, {"1": {…}, "2": {…}} oder bei einer einzelnen Mail
+// gleich das nackte Objekt — alles gueltiges JSON, alles unbrauchbar.
+//
+// Das Schema (siehe ANTWORT_SCHEMA) sollte das kuenftig erzwingen. Diese
+// Funktion ist das Netz darunter, fuer Modelle und Ollama-Fassungen, die das
+// Schema nicht koennen.
+function eintraegeAus(daten, anzahl) {
+  if (Array.isArray(daten)) return daten;
+  if (!daten || typeof daten !== 'object') return [];
+
+  // Irgendein Feld, in dem eine Liste steckt — mails, emails, treffer, result …
+  for (const wert of Object.values(daten)) {
+    if (Array.isArray(wert)) return wert;
+  }
+
+  // Nach Nummern geschluesselt: {"1": {…}, "2": {…}}
+  const nummeriert = Object.keys(daten).filter((k) => /^\d+$/.test(k));
+  if (nummeriert.length > 0) {
+    return nummeriert
+      .sort((a, b) => Number(a) - Number(b))
+      .map((k) => ({ nr: Number(k), ...(daten[k] || {}) }));
+  }
+
+  // Ein einzelnes Objekt fuer ein Buendel aus einer Mail. Bei mehreren waere
+  // es Raten — dann lieber nichts.
+  if (anzahl === 1 && ('kategorie' in daten || 'konfidenz' in daten)) return [daten];
+  return [];
+}
+
 // Nur was sauber zugeordnet werden kann, zaehlt. Lieber eine Mail unklassifiziert
 // zurueckgeben (sie kommt im naechsten Lauf wieder) als sie mit der Antwort der
 // Nachbarmail in den falschen Ordner schieben.
 function antwortZuordnen(daten, gruppen) {
-  const roh = Array.isArray(daten) ? daten : (Array.isArray(daten?.mails) ? daten.mails : []);
+  const roh = eintraegeAus(daten, gruppen.length);
   const treffer = new Map();
-  for (const eintrag of roh) {
-    const nr = Number(eintrag?.nr);
+  for (const [platz, eintrag] of roh.entries()) {
+    // Ohne nr zaehlt die Reihenfolge. Das ist kein Raten: Bei einem Buendel aus
+    // einer Mail gibt es nur eine Moeglichkeit, und bei mehreren liefert das
+    // Schema die nr ohnehin mit. Vorher fiel eine Antwort ohne nr komplett
+    // durch — auch die eindeutige.
+    const nr = eintrag?.nr === undefined || eintrag?.nr === null
+      ? platz + 1 : Number(eintrag.nr);
     if (!Number.isInteger(nr) || nr < 1 || nr > gruppen.length) continue;
     if (treffer.has(nr)) continue; // Doppelte Nummer: die erste gilt.
     treffer.set(nr, {
@@ -392,11 +434,47 @@ function anfrageZeitlimit(verbleibend) {
   return Math.max(ANFRAGE_MIN_MS, Math.min(ANFRAGE_MAX_MS, verbleibend));
 }
 
+// Das Schema, an das Ollama das Modell bindet.
+//
+// „Antworte NUR mit einem JSON-Array" ist eine Bitte. Ein Schema ist keine:
+// Ollama baut daraus eine Grammatik, und das Modell KANN dann nichts anderes
+// mehr erzeugen — keinen anderen Wrapper, keine erfundene Kategorie, keine
+// fehlende nr. Fuer ein kleines Modell ist das der Unterschied zwischen
+// unbrauchbar und brauchbar; Gemini braucht es nicht und bekommt es auch nicht
+// (dort steht responseMimeType).
+//
+// `kategorie` als enum ist dabei mehr als Kosmetik: Genau hier hat ein Modell
+// schon einmal die Auswahlliste woertlich abgeschrieben.
+function antwortSchema() {
+  return {
+    type: 'object',
+    properties: {
+      mails: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            nr: { type: 'integer' },
+            kategorie: { type: 'string', enum: KATEGORIEN },
+            spam_score: { type: 'number' },
+            kurzfassung: { type: 'string' },
+            ordner: { type: 'string' },
+            konfidenz: { type: 'number' },
+          },
+          required: ['nr', 'kategorie', 'konfidenz'],
+        },
+      },
+    },
+    required: ['mails'],
+  };
+}
+
 function fragen(teil, konto, bekannt, zeitlimit = ANFRAGE_MAX_MS) {
   return kiText.frageJson(promptBauen(teil, konto, bekannt), {
     quelle: 'backend:klassifizierer',
     zeitlimit,
     maxZeichen: 200000,
+    schema: antwortSchema(),
   });
 }
 
@@ -557,6 +635,8 @@ module.exports = {
   verdaechtig,
   betreffMuster,
   antwortZuordnen,
+  eintraegeAus,
+  antwortSchema,
   promptBauen,
   kategoriePruefen,
   KATEGORIEN,
