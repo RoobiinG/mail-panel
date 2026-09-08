@@ -44,14 +44,22 @@ function pdfBauen(text) {
     '<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>',
   ];
   let pdf = '%PDF-1.4\n';
-  const stellen = [];
   objekte.forEach((o, i) => {
-    stellen.push(pdf.length);
     pdf += `${i + 1} 0 obj\n${o}\nendobj\n`;
   });
+
+  // Die Stellen NACH dem Bauen suchen, nicht beim Bauen mitzaehlen.
+  //
+  // Beim Mitzaehlen war eine Stelle daneben, und pdf.js meldete dann „bad XRef
+  // entry": Es springt an die Stelle und erwartet dort „N 0 obj". Ist der
+  // Versatz auch nur um ein Zeichen falsch, ist das ganze Dokument unlesbar.
+  // indexOf kann sich nicht verzaehlen.
+  const stellen = objekte.map((_, i) => pdf.indexOf(`\n${i + 1} 0 obj\n`) + 1);
   const xref = pdf.length;
-  pdf += `xref\n0 ${objekte.length + 1}\n0000000000 65535 f \n`;
-  for (const s of stellen) pdf += `${String(s).padStart(10, '0')} 00000 n \n`;
+  // Jeder Eintrag ist genau 20 Byte: 10 Ziffern, Leerzeichen, 5 Ziffern,
+  // Leerzeichen, n/f, CRLF. Das ist die Form, die auch alte Parser lesen.
+  pdf += `xref\n0 ${objekte.length + 1}\n0000000000 65535 f\r\n`;
+  for (const s of stellen) pdf += `${String(s).padStart(10, '0')} 00000 n\r\n`;
   pdf += `trailer\n<</Size ${objekte.length + 1}/Root 1 0 R>>\nstartxref\n${xref}\n%%EOF`;
   // Alles ASCII, deshalb ist die Zeichen- gleich der Bytelaenge — sonst
   // stimmten die Stellen in der xref-Tabelle nicht.
