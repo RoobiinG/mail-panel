@@ -116,7 +116,9 @@ const ANTWORT_PARSEN = String.raw`// PANEL:THEMEN v6
 const mail = $('Prüfung auswerten').item.json;
 
 let roh = '';
-try { roh = $json.candidates[0].content.parts[0].text; } catch (e) { /* leer lassen */ }
+try { 
+  roh = $json.response || $json.candidates[0].content.parts[0].text; 
+} catch (e) { /* leer lassen */ }
 // Code-Fences abraeumen, die das Modell trotz responseMimeType manchmal mitliefert.
 // Das Backtick steht dabei als Unicode-Escape, weil dieser Code drueben in
 // workflowCode.js in einem String.raw-Literal liegt, das ein echtes Backtick

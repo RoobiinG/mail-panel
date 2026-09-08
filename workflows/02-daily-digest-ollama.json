@@ -1,4 +1,4 @@
-﻿{
+{
     "name":  "02 - TÃ¤glicher Digest (Telegram)",
     "nodes":  [
                   {
@@ -97,7 +97,7 @@
                   {
                       "parameters":  {
                                          "mode":  "runOnceForEachItem",
-                                         "jsCode":  "let digest = \u0027\u0027;\ntry { digest = $json.response; } catch (e) {}\nif (!digest) digest = \u0027Digest konnte nicht erstellt werden â€” Gemini-Antwort war leer. Bitte Execution in n8n pruefen.\u0027;\n// Telegram-Limit: 4096 Zeichen\ndigest = String(digest).slice(0, 4000);\nreturn { json: { digest } };"
+                                         "jsCode":  "let digest = '';\ntry { digest = $json.response || $json.candidates[0].content.parts[0].text; } catch (e) {}\nif (!digest) digest = 'Digest konnte nicht erstellt werden — KI-Antwort war leer. Bitte Execution in n8n pruefen.';\n// Telegram-Limit: 4096 Zeichen\ndigest = String(digest).slice(0, 4000);\nreturn { json: { digest } };"
                                      },
                       "id":  "code-digest-parse",
                       "name":  "Text extrahieren",
