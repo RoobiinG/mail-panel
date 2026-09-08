@@ -246,10 +246,18 @@ async function executionLoeschen(id) {
     throw fehler(err, `Execution ${id} konnte nicht gestoppt/gelöscht werden`);
   }
 }
+async function activeExecutionsAuflisten() {
+  try {
+    const { data } = await client().get('/executions/active');
+    return data.data || [];
+  } catch (err) {
+    return []; // Fail silently, as this is an auxiliary check
+  }
+}
 
 module.exports = {
   client, testVerbindung, workflowsAuflisten, workflowHolen, workflowErstellen, workflowSpeichern,
   workflowAktivieren, credentialAnlegen, headerCredentialAnlegen, telegramCredentialAnlegen,
   smtpCredentialAnlegen, credentialLoeschen,
-  executionsAuflisten, executionLoeschen,
+  executionsAuflisten, executionLoeschen, activeExecutionsAuflisten,
 };

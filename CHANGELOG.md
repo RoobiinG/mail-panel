@@ -4,6 +4,7 @@ Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
 ## [4.2.4.1] - 2026-09-08 (Build 138) — *Workflow-Bugfix*
 - **Fix:** Der Parser im Knoten "Antwort parsen" (Workflows 01 und 04) sowie "Text extrahieren" (Workflow 02) konnte bisher nur die Antwortstruktur von Gemini lesen (`$json.candidates[0].content.parts[0].text`). Bei Verwendung von Ollama schlug die Auswertung fehl. Die Skripte lesen nun korrekt den Output von beiden APIs.
+- **Fix:** Laufende Workflows wurden im UI nicht mehr als "läuft" angezeigt, da n8n's `/executions` API diese standardmäßig ausschließt. Das Panel fragt nun explizit `/executions/active` mit ab.
 
 ### System-Auswirkungen & Nachwirken (Impact Analysis)
 - **Kein Neustart nötig.**

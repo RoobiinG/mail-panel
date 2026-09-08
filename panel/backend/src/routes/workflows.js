@@ -42,12 +42,12 @@ router.post('/bestand-starten', async (req, res) => {
   }
 });
 
-// GET /api/workflows — Übersicht mit Status und letztem Lauf
 router.get('/', async (req, res) => {
   try {
-    const [workflows, executions] = await Promise.all([
+    const [workflows, executions, activeExecutions] = await Promise.all([
       n8n.workflowsAuflisten(),
       n8n.executionsAuflisten(100).catch(() => []),
+      n8n.activeExecutionsAuflisten().catch(() => []),
     ]);
 
     // Zu jedem Workflow den jüngsten Lauf heraussuchen — und getrennt davon den,
@@ -59,9 +59,11 @@ router.get('/', async (req, res) => {
 
     const letzte = new Map();
     const laufend = new Map();
-    for (const e of executions) {
+    const alleExecutions = [...activeExecutions, ...executions];
+    
+    for (const e of alleExecutions) {
       const id = String(e.workflowId);
-      if (!letzte.has(id)) letzte.set(id, e);
+      if (!letzte.has(id) && !laeuftNoch(e)) letzte.set(id, e);
       if (laeuftNoch(e) && !laufend.has(id)) laufend.set(id, e);
     }
 
@@ -136,8 +138,11 @@ function dauerVon(e) {
 // GET /api/workflows/:id/laeufe — die letzten Ausführungen mit Fehlermeldung
 router.get('/:id/laeufe', async (req, res) => {
   try {
-    const alle = await n8n.executionsAuflisten(100);
-    const eigene = alle
+    const [alle, aktive] = await Promise.all([
+      n8n.executionsAuflisten(100),
+      n8n.activeExecutionsAuflisten().catch(() => []),
+    ]);
+    const eigene = [...aktive, ...alle]
       .filter((e) => String(e.workflowId) === String(req.params.id))
       .slice(0, 20)
       .map((e) => ({
