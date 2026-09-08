@@ -36,6 +36,7 @@ router.post('/bestand-starten', async (req, res) => {
     }
     if (!antwort.ok) return res.status(502).json({ error: `n8n antwortete mit ${antwort.status}.` });
     loggen('info', 'workflows', 'Bestands-Triage über das Panel gestartet.');
+    settings.setze('bestand_letzter_start', new Date().toISOString());
     res.json({ ok: true });
   } catch (err) {
     res.status(502).json({ error: `n8n nicht erreichbar: ${err.message}` });
@@ -44,32 +45,47 @@ router.post('/bestand-starten', async (req, res) => {
 
 router.get('/', async (req, res) => {
   try {
-    const [workflows, executions, activeExecutions] = await Promise.all([
+    const [workflows, executions] = await Promise.all([
       n8n.workflowsAuflisten(),
       n8n.executionsAuflisten(100).catch(() => []),
-      n8n.activeExecutionsAuflisten().catch(() => []),
     ]);
 
+    // Da n8ns öffentliche REST-API keine laufenden Workflows liefert,
+    // behelfen wir uns für die "Bestands-Triage" (die als einzige lange läuft)
+    // mit einem lokal gemerkten Start-Zeitpunkt.
+    const aktivStart = settings.hole('bestand_letzter_start');
+    
     // Zu jedem Workflow den jüngsten Lauf heraussuchen — und getrennt davon den,
-    // der gerade läuft. Ein laufender Workflow ist nicht dasselbe wie der letzte:
-    // Die Bestands-Triage arbeitet auch mal eine halbe Stunde, und in der Zeit
-    // stand im Panel bisher nur das Ergebnis von vorgestern.
+    // der gerade läuft.
     const laeuftNoch = (e) => String(e.status) === 'running' || String(e.status) === 'new'
       || Boolean(e.startedAt && !e.stoppedAt);
 
     const letzte = new Map();
     const laufend = new Map();
-    const alleExecutions = [...activeExecutions, ...executions];
     
-    for (const e of alleExecutions) {
+    for (const e of executions) {
       const id = String(e.workflowId);
       if (!letzte.has(id) && !laeuftNoch(e)) letzte.set(id, e);
       if (laeuftNoch(e) && !laufend.has(id)) laufend.set(id, e);
     }
 
     res.json(workflows.map((w) => {
-      const lauf = letzte.get(String(w.id));
-      const jetzt = laufend.get(String(w.id));
+      const idStr = String(w.id);
+      const lauf = letzte.get(idStr);
+      let jetzt = laufend.get(idStr);
+      
+      // Fallback für Bestands-Triage (Name beginnt mit '04 -')
+      if (!jetzt && aktivStart && w.name.startsWith('04 -')) {
+        const startZeit = new Date(aktivStart).getTime();
+        const letzterEnde = lauf?.startedAt ? new Date(lauf.startedAt).getTime() : 0;
+        // Wenn der letzte Lauf IN n8n älter ist als unser gemerkter Startpunkt,
+        // und der Start nicht älter als 6 Stunden ist, läuft er noch.
+        // (Wir erlauben 30 Sekunden Puffer wegen Server-Uhr-Abweichungen).
+        if (startZeit > letzterEnde + 30000 && (Date.now() - startZeit) < 6 * 3600 * 1000) {
+           jetzt = { startedAt: aktivStart, id: 'aktiv', mode: 'webhook' };
+        }
+      }
+
       return {
         id: w.id,
         name: w.name,

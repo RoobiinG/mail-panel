@@ -2,6 +2,12 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.2.4.3] - 2026-09-08 (Build 140) — *Statusanzeige für Workflow 04 repariert*
+
+### Behoben
+- **Workflows:** Ein vorangegangener Fix in v4.2.4.1 für die "läuft"-Anzeige von Workflows nutzte einen API-Endpunkt von n8n (`/executions/active`), der in der REST API v1 gar nicht existiert. N8n's öffentliche API liefert grundsätzlich keine laufenden Workflows aus, weshalb die Workflows im UI immer noch nicht als aktiv angezeigt wurden.
+- Das Panel nutzt nun einen eigenen Watchdog-Mechanismus für die Bestands-Triage (Workflow 04): Es merkt sich lokal den Startzeitpunkt und prüft, ob in n8n bereits ein passender abgeschlossener Lauf vorliegt. Solange dieser fehlt, wird der Workflow künstlich im Panel als "läuft" markiert.
+
 ## [4.2.4.2] - 2026-09-08 (Build 139) — *Zeitzonen & Timeout-Fix*
 
 ### Behoben
