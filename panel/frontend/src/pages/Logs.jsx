@@ -47,8 +47,14 @@ const quelleChipFarbe = (() => {
 })();
 
 function fmtDate(s) {
-  const d = new Date(s);
-  return d.toLocaleDateString('de-DE') + ' ' + d.toLocaleTimeString('de-DE');
+  // SQLite CURRENT_TIMESTAMP ist immer in UTC und hat kein 'Z' am Ende
+  const str = String(s).endsWith('Z') ? s : String(s).replace(' ', 'T') + 'Z';
+  const d = new Date(str);
+  if (isNaN(d)) return String(s);
+  return d.toLocaleString('de-DE', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit'
+  });
 }
 
 // ─── Icon-Button mit kurzem Feedback ─────────────────────────────────────────

@@ -270,7 +270,7 @@ function antwortZuordnen(daten, gruppen) {
 function fragen(teil, konto, bekannt) {
   return kiText.frageJson(promptBauen(teil, konto, bekannt), {
     quelle: 'backend:klassifizierer',
-    zeitlimit: 90000,
+    zeitlimit: 180000,
     maxZeichen: 200000,
   });
 }

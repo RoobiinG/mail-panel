@@ -2,6 +2,16 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.2.4.2] - 2026-09-08 (Build 139) — *Zeitzonen & Timeout-Fix*
+
+### Behoben
+- **Logs: Datum & Uhrzeit korrigiert:** Einträge aus der Datenbank wurden fälschlicherweise in UTC statt in der lokalen Zeitzone angezeigt (z. B. 00:40 Uhr statt 02:40 Uhr), da SQLite-Timestamps kein "Z"-Suffix mitführen.
+- **Klassifizierer:** Das Timeout für die KI-Abfrage beim Klassifizieren von Mails (Bündel) wurde von 90 auf 180 Sekunden erhöht. Lokale KI-Modelle wie Ollama können bei größeren Bündeln länger benötigen und stürzten bisher mit "The operation was aborted due to timeout" ab.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Kompatibilität:** Voll kompatibel. Keine Änderungen an Datenbank oder Workflows.
+- **Hinweis zu Ollama:** Falls Ollama trotz der Erhöhung auf 3 Minuten immer noch Timeouts wirft (besonders bei großen E-Mail-Beständen), sollte die "Bündelgröße" (Anzahl Mails pro Anfrage) in den Einstellungen von 20 auf z. B. 5-10 verringert werden.
+
 ## [4.2.4.1] - 2026-09-08 (Build 138) — *Workflow-Bugfix*
 - **Fix:** Der Parser im Knoten "Antwort parsen" (Workflows 01 und 04) sowie "Text extrahieren" (Workflow 02) konnte bisher nur die Antwortstruktur von Gemini lesen (`$json.candidates[0].content.parts[0].text`). Bei Verwendung von Ollama schlug die Auswertung fehl. Die Skripte lesen nun korrekt den Output von beiden APIs.
 - **Fix:** Laufende Workflows wurden im UI nicht mehr als "läuft" angezeigt, da n8n's `/executions` API diese standardmäßig ausschließt. Das Panel fragt nun explizit `/executions/active` mit ab.
