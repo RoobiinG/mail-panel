@@ -938,6 +938,22 @@ function geminiRequestReparieren(workflow) {
       promptAusdruck = "String($json.promptText || '')";
     }
 
+    // Und der Fall, der im Betrieb wirklich weh tat: Der Knoten fragte nach
+    // $json.promptText, das Feld hiess an dieser Stelle aber `text` — also ging
+    // ein LEERER Prompt an die KI. Bei Gemini kommt darauf eine schnelle,
+    // unbrauchbare Antwort; Ollama mit format:'json' faengt an zu schreiben und
+    // hoert nicht mehr auf, bis das Zeitlimit greift. In n8n stand
+    // {"model":"llama3.2:latest","prompt":"","stream":false,…} und darunter
+    // "The connection was aborted, perhaps the server is offline".
+    //
+    // Welcher Knoten den KI-Knoten speist, haengt am Zweig (mit oder ohne
+    // Anhang) und an der Vorlagen-Fassung. Statt das zu erraten, fragt der
+    // Ausdruck beide Namen ab — beide stammen vom Panel selbst.
+    promptAusdruck = promptAusdruck.replace(
+      /String\(\s*\$json\.promptText\s*\|\|\s*''\s*\)/,
+      "String($json.promptText || $json.text || '')",
+    );
+
     if (kiAnbieter === 'ollama') {
       if (knoten.parameters.url !== ollamaUrl) {
         knoten.parameters.url = ollamaUrl;
@@ -949,7 +965,12 @@ function geminiRequestReparieren(workflow) {
         geaendert = true;
       }
       
-      const bodyNeu = `={{ JSON.stringify({ model: '${ollamaModell}', prompt: ${promptAusdruck}, stream: false, format: 'json', options: { temperature: 0.1 } }) }}`;
+      // num_predict begrenzt die Antwort. Ohne die Angabe schreibt Ollama, bis
+      // der Kontext voll ist — bei einem leeren oder schwachen Prompt heisst das
+      //: bis zum Zeitlimit. Die erwartete Antwort ist ein JSON-Objekt mit fuenf
+      // Feldern; 600 Token sind dafuer reichlich, und auf einer CPU ist jedes
+      // Token, das nicht erzeugt wird, gesparte Minute.
+      const bodyNeu = `={{ JSON.stringify({ model: '${ollamaModell}', prompt: ${promptAusdruck}, stream: false, format: 'json', options: { temperature: 0.1, num_predict: 600 } }) }}`;
       if (knoten.parameters.jsonBody !== bodyNeu) {
         knoten.parameters.jsonBody = bodyNeu;
         geaendert = true;
@@ -1010,6 +1031,14 @@ function geminiRequestReparieren(workflow) {
       // Wenn vorher Ollama drin war oder JSON komplett neu aufgebaut werden muss:
       if (alt.includes('prompt:') || alt.includes('model:')) {
         alt = `={{ JSON.stringify({ contents: [{ parts: [{ text: ${promptAusdruck} }] }], generationConfig: { responseMimeType: 'application/json', temperature: 0.1 } }) }}`;
+      } else {
+        // Sonst bleibt der vorhandene Rumpf stehen — dann muss der Rückfall auf
+        // `text` hier hinein, sonst ginge auch bei Gemini ein leerer Prompt
+        // hinaus. Siehe die lange Begründung oben bei promptAusdruck.
+        alt = alt.replace(
+          /String\(\s*\$json\.promptText\s*\|\|\s*''\s*\)/,
+          "String($json.promptText || $json.text || '')",
+        );
       }
     
       const stufe = String(settings.hole('gemini_denkstufe') || 'low').toLowerCase();

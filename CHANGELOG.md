@@ -2,6 +2,47 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.4.2.0] - 2026-09-08 (Build 149) — *Der Prompt war leer*
+
+Build 148 hat die Läufe von 15 auf 8 Minuten gebracht und die Meldungen ehrlich gemacht. Der
+n8n-Editor zeigt jetzt, warum sie überhaupt scheitern — im Rumpf, den n8n an Ollama schickt:
+
+```json
+{"model":"llama3.2:latest","prompt":"","stream":false,…}
+```
+
+### Bugfix (kritisch): Der KI-Knoten schickte einen leeren Prompt
+Der Knoten fragt nach `$json.promptText`. An der Stelle, an der er sitzt, heißt das Feld aber
+`text` — `themenKetteEinbauen()` benennt es im Normalisierer genau so um, weil die Bündelung in
+Workflow 04 es so braucht. Für den Einzelaufruf in Workflow 01 blieb nichts übrig.
+
+Bei Gemini käme darauf eine schnelle, unbrauchbare Antwort. **Ollama mit `format: 'json'` fängt an
+zu schreiben und hört nicht auf** — vier Minuten pro Mail, für nichts. Das erklärt beides auf
+einmal: die roten Läufe *und* `konfidenz: 0` bei praktisch jeder Entscheidung, samt 148×
+„Kein Thema erkannt".
+
+Der Ausdruck fragt jetzt beide Namen ab — `String($json.promptText || $json.text || '')`. Beide
+stammen vom Panel selbst; welcher ankommt, hängt vom Zweig (mit oder ohne Anhang) und von der
+Vorlagen-Fassung ab. Das zu erraten wäre der falsche Weg. Ein von Hand eingetragener eigener
+Ausdruck bleibt unangetastet.
+
+### Bugfix (hoch): Die Antwortlänge war unbegrenzt
+Weder der Workflow-Rumpf noch der Panel-Pfad begrenzten, wie viel Ollama schreiben darf. Ohne
+`num_predict` schreibt es, bis der Kontext voll ist — bei einem leeren Prompt also bis zum
+Zeitlimit. Auf einer CPU ist jedes Token, das nicht erzeugt wird, gesparte Minute.
+
+- Workflow-Rumpf: `num_predict: 600`. Die erwartete Antwort ist ein JSON-Objekt mit fünf Feldern.
+- Panel-Pfad (`kiText`): **8192 → 1500**. Bei Gemini kostet ein großzügiges Budget nichts, solange
+  die Antwort kurz ausfällt; hier rechnet die eigene Maschine jedes Token.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **DB-Migrationen:** keine.
+- **n8n-Workflow-Kompatibilität:** Der KI-Knoten bekommt beim nächsten Abgleich den neuen
+  Prompt-Ausdruck und `num_predict` — der Auto-Sync erledigt das beim Start.
+- **Bereits gespeicherte Entscheidungen** mit `konfidenz: 0` bleiben stehen. Sie sind das Ergebnis
+  eines leeren Prompts; die betroffenen Mails liegen ohnehin noch im Posteingang und kommen wieder.
+- **Neustart-/Session-Verhalten:** keine Änderung.
+
 ## [4.4.1.2] - 2026-09-08 (Build 148) — *Zeitlimit nur, wo keines steht*
 
 Build 147 setzte das Zeitlimit am KI-Knoten **immer** — und überschrieb damit ein von Hand in n8n

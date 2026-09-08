@@ -61,8 +61,13 @@ async function frageJson(prompt, opt = {}) {
           format: 'json',
           options: {
             temperature: 0.2,
-            num_predict: opt.maxAntwort || 8192
-          }
+            // Deutlich weniger als bei Gemini. Dort kostet ein grosszuegiges
+            // Budget nichts, solange die Antwort kurz ausfaellt — hier rechnet
+            // die eigene Maschine jedes einzelne Token. 8192 Token sind auf
+            // einer CPU eine Viertelstunde; die Antwort auf ein Buendel von
+            // fuenf Mails braucht keine 1500.
+            num_predict: opt.maxAntwort || 1500,
+          },
         }),
         signal: AbortSignal.timeout(opt.zeitlimit || 120000),
       });
