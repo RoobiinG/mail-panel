@@ -27,6 +27,10 @@ RUN apk add --no-cache su-exec openssl \
  && apk del .bauwerkzeug
 COPY panel/backend/ ./
 COPY workflows/ /app/workflows/
+# Die Versionsdatei gehoert auch ins Backend-Abbild: Der Diagnose-Bericht soll
+# sagen koennen, welcher Stand hier eigentlich laeuft. Ohne sie stand dort
+# "unbekannt" -- ausgerechnet in dem Bericht, der beim Fehlersuchen hilft.
+COPY version.json /app/version.json
 # Das Wiederherstellungs-Skript gehoert ins Image: Wer nur den Container hat und
 # eine Sicherung zurueckholen will, kommt sonst nicht heran. Es braucht selbst
 # nichts ausser Node — kein Panel, keine Datenbank, keine Pakete.

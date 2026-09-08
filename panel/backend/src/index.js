@@ -141,6 +141,10 @@ app.use('/api/internal', internalAuth, require('./routes/internal'));
 // dasselbe Recht wie die Sortierung und nicht hinter blosses "angemeldet".
 app.use('/api/statistik', auth, rechtErforderlich('sortierung'), require('./routes/statistik'));
 
+// Diagnose-Bericht: alles zum Fehlersuchen an einer Stelle, ohne dass jemand
+// eine Shell auf dem Server braucht. Siehe services/diagnose.js.
+app.use('/api/diagnose', auth, rechtErforderlich('einstellungen'), require('./routes/diagnose'));
+
 // Paste (verschlüsselte Logs) - enthält öffentliche Abrufe und geschütztes Erstellen
 app.use('/api/paste', require('./routes/paste'));
 

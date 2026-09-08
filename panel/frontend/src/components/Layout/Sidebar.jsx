@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Mail, ShieldAlert, ListChecks, Newspaper, Filter,
   Workflow, FolderInput, Settings, Users, FileWarning,
-  ChevronLeft, ChevronRight, Inbox, HardDriveDownload, BarChart3,
+  ChevronLeft, ChevronRight, Inbox, HardDriveDownload, BarChart3, Stethoscope,
 } from 'lucide-react';
 import { angemeldeterBenutzer } from '../../lib/auth';
 
@@ -32,6 +32,8 @@ export const navItems = [
   { to: '/sicherung',     icon: HardDriveDownload, label: 'Sicherung',  id: 'einstellungen' },
   { to: '/benutzer',      icon: Users,       label: 'Benutzer & Rollen', id: 'benutzer' },
   { to: '/logs',          icon: FileWarning, label: 'Logs',              id: 'logs' },
+  // Haengt am Einstellungs-Recht: Der Bericht zeigt Konfiguration und Konten.
+  { to: '/diagnose',      icon: Stethoscope, label: 'Diagnose',          id: 'einstellungen' },
 ];
 
 // Ein Abschnitt verschwindet mit, wenn der Benutzer auf keinen seiner Punkte

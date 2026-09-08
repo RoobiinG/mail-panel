@@ -2,6 +2,62 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.4.0.0] - 2026-09-08 (Build 144) — *Diagnose-Seite*
+
+Wer beim Fehlersuchen helfen soll, braucht Einblick. Wer aber Docker ausführen darf, ist faktisch
+root — `docker run -v /:/host … chroot /host` genügt — und käme damit auch an die Postfächer. Auf
+einem Server, auf dem der eigene Mailserver läuft, ist das keine Option.
+
+Diese Seite schließt die Lücke von der anderen Seite: Sie sammelt genau das, was zum Suchen nötig
+ist, und gibt es zum Weiterreichen heraus. Ohne SSH, ohne Docker, ohne Zugang.
+
+### Feature: Neue Seite „Diagnose"
+Erreichbar unter *Diagnose* (Recht `einstellungen`). Ein Knopf erzeugt einen Bericht aus:
+
+- **Panel** — Version und Build, Node-Version, Laufzeit, TLS-Betriebsart, Zeitzone
+- **Maschine** — Kerne, Last, Speicher, **Plattenbelegung**. Zweimal war eine volle Platte die
+  Ursache für „Exit 137", und das sieht man dem Panel sonst nirgends an
+- **Dienste** — Verbindungsversuch zu n8n, ClamAV, unbound, Ollama, Nextcloud (parallel)
+- **KI** — Anbieter, aktives Modell, Tagesbudget, heutiger Verbrauch, letzte Abweisung von Google
+- **Workflow-Abgleich** — wann zuletzt automatisch synchronisiert wurde
+- **Konfiguration** — alle Einstellungen; Schlüssel und Passwörter nur als „gesetzt"
+- **Konten** — Name, Host, Zielordner, ob in n8n verdrahtet — ohne Zugangsdaten
+- **Workflows in n8n** — je Knoten: Typ, KI-Adresse und Modell, ob der Parser beide Antwortformate
+  liest, Panel-Marken, was der IMAP-Auslöser nach dem Empfang tut, Zeitlimits
+- **Letzte Läufe** — Status, Dauer, letzter Knoten und Fehlermeldung
+- **Sortierung** — Zahlen: Entscheidungen heute und in sieben Tagen, davon von KI oder Regel,
+  liegengeblieben, korrigiert; die häufigsten Zielordner und **die häufigsten Gründe**
+- **Datenbank-Schema** — welche Spalten und Indizes vorhanden sind; „Spalte `grund` fehlt" erklärt
+  auf einen Blick, warum ein Feld leer bleibt
+- **Sicherung** und die **letzten 60 Logzeilen**
+
+### Was bewusst nicht drinsteht
+- **Keine Geheimnisse.** API-Schlüssel, Token und Passwörter erscheinen nur als „gesetzt" bzw.
+  „nicht gesetzt" — auch das verschlüsselte `password_enc` der Konten bleibt draußen.
+- **Keine Mailinhalte.** Keine Absender, keine Betreffe. Auch nicht durch die Hintertür:
+  Logzeilen tragen Adressen mit sich („Korrektur: max@example.com von A nach B"), die werden durch
+  `<adresse>` ersetzt. Dasselbe gilt für Gründe und Fehlermeldungen aus n8n.
+- **Ausnahme auf Ansage:** Ein Schalter nimmt die letzten zehn Entscheidungen im Klartext mit auf.
+  Er fragt vorher nach, der Bericht sagt oben, dass sie drin sind, und das Erstellen wird
+  protokolliert. Geheimnisse bleiben auch dann draußen.
+
+### Weitergeben
+„Als Text kopieren" oder **„Verschlüsselten Link erstellen"** — derselbe Zero-Knowledge-Weg wie bei
+den Logs: AES-GCM im Browser, der Schlüssel steht hinter dem `#` und erreicht den Server nie. Der
+Link verfällt nach sieben Tagen.
+
+### Nebenbei behoben
+- `version.json` lag nicht im Backend-Abbild — der Bericht hätte „unbekannt" gemeldet, ausgerechnet
+  beim Feld, das man zuerst braucht. Wird jetzt mitkopiert.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **DB-Migrationen:** keine. Der Bericht liest nur.
+- **API:** neu `GET /api/diagnose?logs=N&mails=1` (Recht `einstellungen`).
+- **n8n-Workflow-Kompatibilität:** keine.
+- **Grenze:** Container-Zustände kann das Panel nicht zeigen — es hat bewusst keinen Zugriff auf den
+  Docker-Socket. Statt „läuft der Container" beantwortet der Bericht „antwortet der Dienst", und
+  dass diese Grenze existiert, steht im Bericht selbst.
+
 ## [4.3.0.1] - 2026-09-08 (Build 143) — *Ollama-Dienst abgesichert*
 
 Beim Einrichten von Ollama auf dem Testserver kamen drei Schwächen des mitgelieferten
