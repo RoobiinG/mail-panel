@@ -470,6 +470,48 @@ async function uidsAuflisten({ ordner = 'INBOX', ...konto }) {
   }
 }
 
+// Holt die Text-Inhalte (und List-Unsubscribe Header) einer E-Mail anhand der UID
+async function mailLaden({ ordner = 'INBOX', uid, ...konto }) {
+  const nummer = Number(uid);
+  if (!Number.isInteger(nummer) || nummer <= 0) throw new Error('Ungültige UID.');
+
+  const client = verbindung(konto);
+  try {
+    await client.connect();
+    const schloss = await client.getMailboxLock(String(ordner || 'INBOX'));
+    try {
+      // Wir holen Text (text/plain oder text/html) und den Header List-Unsubscribe
+      const nachricht = await client.fetchOne(String(nummer), {
+        source: false,
+        headers: ['list-unsubscribe'],
+        bodyParts: ['text'] // Holt die bevorzugte Text-Repräsentation (oft HTML oder Plain)
+      }, { uid: true });
+      
+      if (!nachricht) throw new Error('E-Mail nicht gefunden');
+
+      let text = '';
+      if (nachricht.bodyParts && nachricht.bodyParts.has('text')) {
+         text = (await stromLesen(nachricht.bodyParts.get('text'), MAX_GROESSE)).toString('utf-8');
+      }
+
+      let unsubscribe = null;
+      if (nachricht.headers) {
+        const headerLines = nachricht.headers.toString().split('\n');
+        const unsubLine = headerLines.find(l => l.toLowerCase().startsWith('list-unsubscribe:'));
+        if (unsubLine) {
+          unsubscribe = unsubLine.replace(/^list-unsubscribe:\s*/i, '').trim();
+        }
+      }
+
+      return { text, unsubscribe };
+    } finally {
+      schloss.release();
+    }
+  } finally {
+    try { await client.logout(); } catch { /* Verbindung war schon zu */ }
+  }
+}
+
 module.exports = {
   testVerbindung,
   uidsAuflisten,
@@ -483,5 +525,6 @@ module.exports = {
   mailsVerschieben,
   mailsSuchen,
   anhaengeHolen,
+  mailLaden,
   STANDARD,
 };

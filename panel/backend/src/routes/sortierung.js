@@ -1357,4 +1357,31 @@ router.get('/belege', (req, res) => {
   }
 });
 
+// GET /api/sortierung/mail/:id — lädt eine wartende Mail (für die Vorschau im Frontend)
+router.get('/mail/:id', async (req, res) => {
+  try {
+    const eintrag = db.prepare('SELECT konto_id, uid FROM sort_inbox WHERE id = ?').get(req.params.id);
+    if (!eintrag) return res.status(404).json({ error: 'Mail nicht in der Sortier-Inbox gefunden.' });
+    
+    const konto = db.prepare('SELECT * FROM accounts WHERE id = ?').get(eintrag.konto_id);
+    if (!konto) return res.status(404).json({ error: 'Zugehöriges Konto nicht gefunden.' });
+    
+    konto.passwort = entschluesseln(konto.password_enc);
+    
+    const { text, unsubscribe } = await imap.mailLaden({
+      host: konto.host,
+      port: konto.port,
+      username: konto.username,
+      passwort: konto.passwort,
+      uid: eintrag.uid,
+      ordner: 'INBOX'
+    });
+    
+    res.json({ text, unsubscribe });
+  } catch (err) {
+    loggen('error', 'sortierung', `Konnte E-Mail ${req.params.id} nicht laden: ${err.message}`);
+    res.status(500).json({ error: 'Konnte E-Mail nicht vom Server laden.' });
+  }
+});
+
 module.exports = router;

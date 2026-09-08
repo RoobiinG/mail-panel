@@ -109,6 +109,18 @@ export default function Sortierung() {
   // State für die Zuordnung in der Inbox (welcher Ordner ist im Dropdown gewählt)
   const [ordnerWahl, setOrdnerWahl] = useState({});
   const [regelAnlegenWahl, setRegelAnlegenWahl] = useState({});
+  
+  const [ansicht, setAnsicht] = useState({ offen: false, laedt: false, text: '', unsubscribe: null });
+
+  const mailAnsehen = async (id) => {
+    setAnsicht({ offen: true, laedt: true, text: '', unsubscribe: null });
+    try {
+      const { data } = await api.get(`/sortierung/mail/${id}`);
+      setAnsicht({ offen: true, laedt: false, text: data.text, unsubscribe: data.unsubscribe });
+    } catch (err) {
+      setAnsicht({ offen: true, laedt: false, text: 'Fehler beim Laden der E-Mail.', unsubscribe: null });
+    }
+  };
 
   // Themen-Katalog und die Ordner, die die KI vorgeschlagen hat
   const [katalog, setKatalog] = useState([]);
@@ -1212,6 +1224,11 @@ export default function Sortierung() {
                                 <td className="px-3 py-2 text-right text-panel-muted whitespace-nowrap">
                                   {m.ki_konfidenz != null ? `${Math.round(m.ki_konfidenz * 100)} %` : '—'}
                                 </td>
+                                <td className="px-3 py-2 text-right">
+                                  <button onClick={() => mailAnsehen(m.id)} className="btn-ghost !py-1 !px-2 text-xs" title="E-Mail ansehen">
+                                    <Search size={14} />
+                                  </button>
+                                </td>
                               </tr>
                             ))}
                           </tbody>
@@ -1903,6 +1920,9 @@ export default function Sortierung() {
                           </div>
                         )}
                       </div>
+                      <button onClick={() => mailAnsehen(mail.id)} className="btn-ghost !py-1 !px-2 text-xs flex items-center gap-1 shrink-0 mt-1 h-fit">
+                        <Search size={14} /> Ansehen
+                      </button>
                     </div>
                     
                     <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center bg-panel-bg/50 p-3 rounded-lg border border-panel-border">
@@ -2056,6 +2076,38 @@ export default function Sortierung() {
               <button type="submit" className="btn flex-1">Speichern</button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* MODAL: E-Mail Ansicht */}
+      {ansicht.offen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="card w-full max-w-3xl space-y-4 shadow-2xl flex flex-col max-h-[85vh]">
+            <div className="flex items-center justify-between border-b border-panel-border pb-3">
+              <h2 className="text-lg font-medium flex items-center gap-2"><Search size={18} className="text-panel-accent"/> E-Mail Textvorschau</h2>
+              <button onClick={() => setAnsicht({ offen: false, laedt: false, text: '', unsubscribe: null })} className="text-panel-muted hover:text-panel-text">
+                <XCircle size={20} />
+              </button>
+            </div>
+            
+            {ansicht.laedt ? (
+              <p className="text-sm text-panel-muted p-8 text-center">Lade E-Mail vom Server...</p>
+            ) : (
+              <>
+                {ansicht.unsubscribe && (
+                  <div className="bg-panel-bg border border-panel-border rounded p-3 flex flex-col sm:flex-row sm:items-center gap-2">
+                    <span className="text-sm font-medium shrink-0">Abmelde-Link:</span>
+                    <a href={ansicht.unsubscribe.replace(/[<>]/g, '').split(',')[0].trim()} target="_blank" rel="noopener noreferrer" className="text-sm text-panel-accent hover:underline truncate max-w-[500px]">
+                      {ansicht.unsubscribe.replace(/[<>]/g, '').split(',')[0].trim()}
+                    </a>
+                  </div>
+                )}
+                <div className="flex-1 overflow-auto bg-panel-bg/50 border border-panel-border p-4 rounded text-sm whitespace-pre-wrap break-words font-mono">
+                  {ansicht.text}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>

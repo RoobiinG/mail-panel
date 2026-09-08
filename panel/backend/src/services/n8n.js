@@ -238,9 +238,18 @@ async function executionsAuflisten(limit = 20) {
   }
 }
 
+async function executionLoeschen(id) {
+  try {
+    const { data } = await client().delete(`/executions/${id}`);
+    return data;
+  } catch (err) {
+    throw fehler(err, `Execution ${id} konnte nicht gestoppt/gelöscht werden`);
+  }
+}
+
 module.exports = {
   client, testVerbindung, workflowsAuflisten, workflowHolen, workflowErstellen, workflowSpeichern,
   workflowAktivieren, credentialAnlegen, headerCredentialAnlegen, telegramCredentialAnlegen,
   smtpCredentialAnlegen, credentialLoeschen,
-  executionsAuflisten,
+  executionsAuflisten, executionLoeschen,
 };

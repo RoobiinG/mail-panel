@@ -299,6 +299,20 @@ export default function Workflows() {
     }
   };
 
+  const laufAbbrechen = async (w) => {
+    if (!w.laeuft || !w.laeuft.ausfuehrung) return;
+    if (!window.confirm(`Soll der aktuelle Lauf von "${w.name}" wirklich abgebrochen werden?`)) return;
+    setFehler('');
+    setMeldung('');
+    try {
+      await api.delete(`/workflows/stop/${w.laeuft.ausfuehrung}`);
+      await laden();
+      setMeldung(`Lauf von „${w.name}“ abgebrochen.`);
+    } catch (err) {
+      setFehler(err.response?.data?.error || 'Abbrechen fehlgeschlagen.');
+    }
+  };
+
   if (!workflows) return <p className="text-panel-muted">Lade…</p>;
 
   return (
@@ -384,6 +398,12 @@ export default function Workflows() {
                   <button onClick={() => umschalten(w)} className="btn-ghost !py-1 !px-2 flex items-center gap-1 text-xs">
                     {w.aktiv ? <><Pause size={14} /> Aus</> : <><Play size={14} /> An</>}
                   </button>
+
+                  {w.laeuft && (
+                    <button onClick={() => laufAbbrechen(w)} className="btn-ghost !py-1 !px-2 flex items-center gap-1 text-xs text-panel-red hover:bg-red-500/10">
+                      <XCircle size={14} /> Abbrechen
+                    </button>
+                  )}
                 </div>
 
                 {offen === w.id && <Einzelheiten id={w.id} />}
