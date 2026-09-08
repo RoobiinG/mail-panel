@@ -2,6 +2,30 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.4.6.1] - 2026-09-08 (Build 154) — *Die README kannte nur Gemini*
+
+Ollama kam in der README dreimal vor, davon einmal unter **„Ideen für später"** — und es gab
+keinerlei Einrichtungsanleitung dafür. Das stimmt seit Build 150 nicht mehr, und wer es nach der
+alten Anleitung versucht hätte, wäre in genau die Fallen gelaufen, die diese Builds beseitigt
+haben.
+
+* **Schritt 6** heißt jetzt *„KI wählen"* und hat zwei Wege. Weg B führt durch das Ollama-Profil,
+  `N8N_PARALLEL=1`, die Modellwahl, den **Tempo-Test** und die drei Stellschrauben (Mails je
+  Anfrage, Kontextfenster, Frist je Lauf) — samt der Abbruchregel: über 60 s für ein Bündel aus
+  zwei Mails reicht die Maschine nicht.
+* **Voraussetzungen, Kosten, Checkliste** nennen beide Anbieter samt ihrer jeweiligen Grenze.
+  Bei Gemini ist es das Tageslimit, bei der lokalen KI die Rechenzeit — und die kostet, wer
+  dafür einen größeren Server mietet, eine Monatsmiete. Das ist eine Entscheidung für
+  Datenschutz, keine für den Preis.
+* **Beleg-Ablage:** wie das PDF gelesen wird (Gemini direkt, lokal über die Textebene, Scans per
+  Texterkennung) und dass die Ablage inzwischen auch ohne KI Nummer und Rechnungsdatum findet.
+* **Neuer Abschnitt „Diagnose"** — den Bericht gab es seit Build 144, in der README stand er
+  nirgends. Samt der Zusage, was *nicht* drinsteht: keine Passwörter, keine Mailinhalte.
+* **Fehlersuche:** fünf neue Zeilen für die lokale KI — „0 von N klassifiziert", Konfidenz 0.00
+  durch ein zu kleines Kontextfenster, dieselbe Mail immer wieder, `fetch failed` nach einem
+  OOM-Kill, und überlappende Läufe als Zeichen einer nicht gezogenen `docker-compose.yml`.
+
+
 ## [4.4.6.0] - 2026-09-08 (Build 153) — *Der KI-Knoten ohne Eingang*
 
 ### Bugfix (kritisch): Eine frische Ollama-Installation hätte nie sortiert

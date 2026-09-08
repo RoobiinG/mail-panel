@@ -9,8 +9,17 @@ Die eigentliche Mail-Logik läuft in **n8n**, bedient wird alles über ein eigen
 Im Alltag musst du dich in n8n nicht anmelden — das Panel legt die Zugangsdaten dort an,
 baut die Workflows zusammen und schaltet sie ein und aus.
 
-Die KI-Klassifizierung läuft über den **kostenlosen Gemini Free Tier**. Es entstehen keine
-laufenden Kosten außer dem Server.
+Für die KI-Klassifizierung hast du die Wahl zwischen zwei Anbietern, umschaltbar im Panel:
+
+* **Google Gemini** (Free Tier) — schnell und gut, kostet nichts außer einem Google-Konto.
+  Die Mailinhalte verlassen dafür den Server.
+* **Lokale KI (Ollama)** — nichts verlässt den Server. Dafür rechnet er selbst, und das
+  braucht Kerne: Auf drei CPU-Kernen dauert eine Einordnung Minuten statt Sekunden.
+  Vor dem Umstellen den **Tempo-Test** laufen lassen (*Einstellungen → KI*), der sagt in
+  einer Minute, ob die Maschine reicht.
+
+Beides funktioniert vollständig — auch das Auslesen von PDF-Rechnungen, bei der lokalen KI
+über die Textebene des Dokuments und bei eingescannten Belegen über Texterkennung.
 
 **Zwei Grundsätze:** Es wird **nie gelöscht, nur verschoben.** Und n8n ergänzt die vorhandenen
 Spamfilter (Gmail-Filter, Rspamd in Mailcow), es ersetzt sie nicht.
@@ -26,7 +35,7 @@ Spamfilter (Gmail-Filter, Rspamd in Mailcow), es ersetzt sie nicht.
 | **Festplatte** | ~4 GB, davon allein ~1 GB für die ClamAV-Signaturen |
 | **Ports** | `3002` (Panel) und `5678` (n8n) frei, beide in der `.env` änderbar |
 | **Mail-Konten** | Zugangsdaten fürs IMAP-Postfach. Bei Anbietern mit Zwei-Faktor-Anmeldung ein **App-Passwort** statt des Konto-Passworts. |
-| **Google-Konto** | für den kostenlosen Gemini-API-Key |
+| **KI** | Entweder ein **Google-Konto** für den kostenlosen Gemini-API-Key — oder gar nichts, wenn du die **lokale KI** nimmst. Die will dann allerdings Rechenleistung: mindestens 4 CPU-Kerne und 4 GB RAM zusätzlich für ein kleines Modell (1–3 Mrd. Parameter). Auf weniger läuft sie, aber so langsam, dass die Sortierung nicht hinterherkommt. |
 
 Optional, aber empfohlen: eine Domain und ein Reverse Proxy (Nginx Proxy Manager, Traefik,
 Caddy …) für HTTPS. Ohne läuft alles genauso, nur unverschlüsselt über die Server-IP.
@@ -185,21 +194,69 @@ Diese fünf sind nur die Grundausstattung. Wer will, lässt zusätzlich **nach T
 „alles rund um Games in den Games-Ordner“, inklusive Ordner anlegen. Das steht weiter unten
 unter *Automatische Themen-Sortierung* und ist ab Werk aus.
 
-## Schritt 6 — Gemini-Schlüssel eintragen
+## Schritt 6 — KI wählen
 
-Ohne diesen Schlüssel bricht die Klassifizierung ab und es wird nichts sortiert.
+Ohne KI bricht die Klassifizierung ab und es wird nichts sortiert. Du hast zwei Wege; das
+Panel schaltet unter **Einstellungen → KI & Benachrichtigungen** zwischen ihnen um und schreibt
+die Wahl beim Speichern selbst in die Workflows.
+
+### Weg A — Google Gemini (empfohlen für den Einstieg)
 
 1. [aistudio.google.com](https://aistudio.google.com) öffnen → **API-Key erzeugen**.
    Das geht mit jedem Google-Konto und ist unabhängig von einem Gemini-Abo.
-2. Im Panel unter **Einstellungen → KI & Benachrichtigungen** eintragen und speichern.
+2. Im Panel eintragen und speichern.
 
-Das Panel legt daraus das Credential in n8n an und verteilt es beim nächsten
-Synchronisieren in die Workflows.
+Das Panel legt daraus das Credential in n8n an und verteilt es beim nächsten Synchronisieren
+in die Workflows.
 
 Zwei Hinweise zum Free Tier: Google darf die Eingaben zur Produktverbesserung nutzen — wenn
-dich das bei Mail-Inhalten stört, wechsle später auf den Paid Tier (Centbeträge) oder auf ein
-lokales Ollama; in den Workflows ändert sich dabei nur ein einziger Knoten. Und das
+dich das bei Mail-Inhalten stört, nimm den Paid Tier (Centbeträge) oder Weg B. Und das
 Tageskontingent ist begrenzt: bei Fehler 429 ist es aufgebraucht.
+
+### Weg B — Lokale KI (Ollama)
+
+Nichts verlässt den Server. Der Preis ist Rechenzeit, und der gehört vorher gemessen statt
+hinterher bereut.
+
+1. In der `.env` das Profil dazunehmen und den Stack neu starten:
+
+   ```bash
+   # in .env
+   COMPOSE_PROFILES=clamav,unbound,ollama
+   N8N_PARALLEL=1
+   ```
+
+   ```bash
+   docker compose up -d
+   ```
+
+   `N8N_PARALLEL=1` ist bei lokaler KI keine Feinheit: Mehrere Läufe gleichzeitig rechnen auf
+   derselben CPU **gegeneinander**, bis alle in ihr Zeitlimit laufen und keine einzige Mail
+   sortiert ist.
+
+2. Im Panel **Lokale KI (Ollama)** wählen. Adresse ist im Normalfall `http://ollama:11434`.
+
+3. Ein Modell laden — im Panel unter *Neues Modell installieren*. Fang klein an:
+   `llama3.2:1b` auf schwacher Hardware, `llama3.2` (3B) ab etwa 6 Kernen.
+
+4. **Tempo messen** drücken. Das schickt eine kurze, echte Anfrage und rechnet hoch, wie lange
+   ein Bündel dauern würde. Das ist der Schritt, den man gern überspringt und dann einen Tag
+   verliert: Ein Zeitlimit sagt hinterher nur „zu langsam", nie „wie viel zu langsam".
+
+   **Faustregel:** Braucht ein Bündel aus zwei Mails mehr als 60 Sekunden, reicht die Maschine
+   nicht — dann lieber Weg A oder mehr Kerne.
+
+5. Drei Stellschrauben, alle unter *Einstellungen → KI*:
+
+   | | |
+   |---|---|
+   | **Mails je Anfrage** | Standard 2. Die wirksamste Schraube: Die Zeit zum *Einlesen* des Prompts wächst mit seiner Länge. Zwei Mails, die nach 90 s zurückkommen, sind mehr wert als fünf, die abgeschnitten werden — dann ist das Ergebnis null. |
+   | **Kontextfenster** | Standard 8192 Token. Ohne diese Angabe nimmt Ollama seinen eigenen Wert und schneidet längere Anfragen **stillschweigend** ab, und zwar am Anfang, wo die Anweisung steht. Das Modell antwortet dann irgendetwas. |
+   | **Frist je Lauf** | Standard 240000 ms. Über 300000 wirkt nur, wenn in der `.env` auch `N8N_TASK_TIMEOUT` höher steht — sonst schneidet n8n vorher ab. |
+
+Für PDF-Rechnungen braucht die lokale KI nichts weiter: Das Panel holt die Textebene aus dem
+PDF und stellt der KI eine gewöhnliche Textfrage. Eingescannte Belege liest es per
+Texterkennung (abschaltbar, siehe *Belege automatisch ablegen*).
 
 ## Schritt 7 — Telegram (optional)
 
@@ -244,18 +301,30 @@ nach, was im Posteingang noch offen ist, und holt genau diese Mails. Schon entsc
 bleiben draußen — auch die, die absichtlich liegen bleiben (unklar oder „in Ruhe lassen").
 Deshalb kommt jeder Lauf ein Stück weiter, statt immer wieder bei denselben hundert Mails
 anzufangen. Du musst also nichts am Limit im Abruf-Knoten drehen: einfach so oft starten,
-bis der Bestand durch ist. Die Klassifizierung ist auf einen Gemini-Aufruf alle
-sechs Sekunden gedrosselt, damit das Freikontingent reicht: 300 Mails brauchen etwa
-30 Minuten. Das ist so gewollt — der Gratis-Tarif begrenzt nicht nur den Tag, sondern auch
-die Minute, und Inbox- und Bestands-Triage teilen sich dieses Limit. Wer ein bezahltes
-Kontingent hat, stellt die Pause unter **Einstellungen → KI** kürzer.
+bis der Bestand durch ist.
+
+**Mit Gemini** ist die Klassifizierung auf einen Aufruf alle sechs Sekunden gedrosselt, damit
+das Freikontingent reicht: 300 Mails brauchen etwa 30 Minuten. Das ist so gewollt — der
+Gratis-Tarif begrenzt nicht nur den Tag, sondern auch die Minute, und Inbox- und
+Bestands-Triage teilen sich dieses Limit. Wer ein bezahltes Kontingent hat, stellt die Pause
+unter **Einstellungen → KI** kürzer.
+
+**Mit der lokalen KI** gibt es keine Pause — es gibt ja kein Minutenlimit, nur eine CPU. Dort
+begrenzen stattdessen *Mails je Anfrage* und die *Frist je Lauf*, und die Anfragen laufen
+nacheinander statt nebeneinander. Rechne in Bündeln statt in Minuten: Wie lange eines dauert,
+sagt dir der Tempo-Test (Schritt 6).
 
 **Optional: im Hintergrund laufen lassen.** Setzt du `BESTAND_INTERVALL=6` in der `.env`
 (Stunden; `0` = aus), läuft die Bestands-Triage zusätzlich alle sechs Stunden von selbst und
-holt nach, was noch unsortiert ist. Das kann die KI **nicht** überlasten: Der
+holt nach, was noch unsortiert ist. Mit Gemini kann das die KI **nicht** überlasten: Der
 KI-Tagesbudget-Deckel (`GEMINI_TAGESBUDGET`, Standard 400) begrenzt die Klassifizierungen, und
 schon Sortiertes kostet kein Budget — nach ein paar Tagen läuft der Zeitplan quasi leer. Nach
 dem Setzen einmal **Workflows → Synchronisieren**; Workflow 04 muss dafür „aktiv" sein.
+
+Bei der lokalen KI gibt es keinen Tagesdeckel, weil es kein Kontingent gibt, das er schützen
+könnte. Die Grenze ist dort die Rechenzeit: Was die Frist eines Laufs nicht schafft, bleibt
+liegen und kommt beim nächsten zuerst dran. Setz das Intervall deshalb nicht zu kurz — vier
+bis sechs Stunden geben einem Lauf Zeit, fertig zu werden, bevor der nächste anfängt.
 
 **Der schnellste Weg durch einen großen Altbestand sind eigene Regeln.** Eine Mail, auf die
 eine Regel unter *Sortierung* passt, wird verschoben, **ohne** dass die KI sie ansieht — sie
@@ -393,7 +462,7 @@ passieren soll:
 
 Die KI macht daraus eine Regel und zeigt sie dir als Formular zur Kontrolle. Erst wenn du
 bestätigst, wird sie gespeichert und in n8n gebaut. Jedes Feld bleibt änderbar — ohne
-Gemini-Schlüssel füllst du das Formular einfach selbst aus.
+KI-Anbieter füllst du das Formular einfach selbst aus.
 
 ### Belege automatisch ablegen (der schnelle Weg)
 
@@ -417,6 +486,22 @@ Das Lesen kostet je Beleg eine KI-Abfrage; ein eigener **Tagesdeckel** (Standard
 erneut geprüft. Die Karte zeigt „heute abgelegt / übersprungen / gelesen" und die zuletzt
 verarbeiteten Belege; auf dem Dashboard gibt es dazu eine eigene Kachel. Voraussetzung ist eine
 verbundene Nextcloud (siehe *Einstellungen → Ziele für eigene Aktionen*).
+
+**Wie das PDF gelesen wird**, hängt am Anbieter — das Ergebnis nicht:
+
+* **Gemini** bekommt das PDF selbst und liest Layout und Tabellen mit.
+* **Die lokale KI** kann keine PDFs. Sie braucht sie auch nicht: Fast jede Rechnung ist ein
+  *digitales* PDF, in dem der Text bereits steht. Das Panel holt ihn heraus und stellt eine
+  gewöhnliche Textfrage — Rechnungsnummer, Datum und Firma stehen darin.
+* **Eingescannte Belege** haben keine Textebene; dort steht ein Bild. Die liest das Panel per
+  **Texterkennung** (abschaltbar unter *Einstellungen → KI*). Das kostet einige Sekunden je
+  Beleg und läuft nur, wenn wirklich kein Text da ist.
+
+Nebenbei: Auch ohne KI ist die Ablage besser geworden. Sobald der Belegtext vorliegt, findet
+das Panel Dokumentart, Rechnungsnummer und **Rechnungsdatum** selbst — das greift auch bei
+vollem Tagesdeckel. Beim Datum zählt nur ein ausdrücklich benanntes („Rechnungsdatum:",
+„Datum:"); ein beliebiges Datum aus dem Text wäre zu oft das Fälligkeitsdatum, und im
+Ordnernamen sieht man einem falschen später nicht an, dass es geraten war.
 
 Wer es feiner steuern will — nur bestimmte Absender, ein anderer Zielordner, ein Kalendereintrag
 statt einer Ablage — baut sich zusätzlich eine eigene Aktion wie unten beschrieben.
@@ -557,7 +642,7 @@ Ein Eintrag ist entweder eine vollständige Adresse (`info@example.org`) oder ei
 Die Workflows fragen vor der KI beim Panel nach, in dieser Reihenfolge:
 
 1. **Whitelist gewinnt immer.** Diese Mails landen nie in der Quarantäne.
-2. **Blacklist heißt sofort Quarantäne**, ohne KI-Abfrage — das spart Gemini-Kontingent.
+2. **Blacklist heißt sofort Quarantäne**, ohne KI-Abfrage — das spart Kontingent bzw. Rechenzeit.
 3. Sonst wird die Absender-IP gegen die **DNSBL-Listen** geprüft. Ein Treffer erhöht den
    Spam-Wert, entscheidet aber nicht allein.
 
@@ -591,10 +676,12 @@ erreichbaren Server **echte Post** verwaltet, geh einmal diese Liste durch:
   in `panel_data` liegen die Schlüssel, ohne die keine gespeicherten Zugangsdaten mehr lesbar
   sind. Zusätzlich die eingebaute **Postfach-Sicherung** (*Verwaltung → Sicherung*) einrichten,
   wenn du verschlüsselte Kopien deiner Mails auf einen FTP-Server legen willst.
-- [ ] **Gemini-Tageslimit kennen.** Der KI-Free-Tier ist am Tag begrenzt (Fehler 429). Der
+- [ ] **Die Grenze deiner KI kennen.** Bei **Gemini** ist es das Tageslimit (Fehler 429): Der
   **Budget-Deckel** (Standard 400 Einordnungen/Tag, plus 200 fürs Beleg-Lesen) fängt das ab und
   arbeitet einen großen Bestand über mehrere Tage ab. Bei viel Post ggf. auf den Paid Tier
-  (Centbeträge) oder ein lokales Ollama wechseln — dafür ist nur ein Knoten umzubiegen.
+  wechseln (Centbeträge). Bei der **lokalen KI** ist es die Rechenzeit — dort gibt es kein
+  Kontingent, aber auch keinen Ausweg außer kleineren Bündeln, einem kleineren Modell oder mehr
+  Kernen. Vorher den **Tempo-Test** laufen lassen und `N8N_PARALLEL=1` setzen.
 - [ ] **Aufsicht anlassen.** Der Watchdog (`AUFSICHT_AKTIV`) prüft alle 15 Minuten, ob die
   Workflows laufen, und schaltet sie nötigenfalls wieder ein — empfehlenswert im Dauerbetrieb.
 
@@ -641,11 +728,34 @@ gespeicherten Zugangsdaten nicht mehr heran.
 
 Zusätzlich lohnt es sich, die Workflows ab und zu aus n8n als JSON zu exportieren.
 
+## Diagnose — einen Bericht erzeugen
+
+Unter **Diagnose** legt das Panel auf Knopfdruck einen vollständigen Zustandsbericht als Text
+an: Version, Maschine (Kerne, RAM, Platte), welche Dienste erreichbar sind, die KI-Einstellungen
+samt gemessener Geschwindigkeit, alle Workflows mit ihren Knoten, die letzten Läufe, die
+Sortier-Zahlen und die letzten Logzeilen.
+
+Der Bericht ist dafür gedacht, ihn jemandem zu schicken, der beim Suchen hilft — ohne dafür eine
+Shell auf dem Server aufzumachen. Deshalb enthält er **keine Passwörter und keine
+Mailinhalte**: Schlüssel erscheinen nur als „gesetzt", und E-Mail-Adressen werden auch aus den
+Logzeilen entfernt. Wer Beispiele braucht, schaltet **„mit Mailinhalten"** ausdrücklich zu —
+dann steht im Bericht auch, dass sie drin sind.
+
+Zwei Zahlen darin lohnen einen eigenen Blick, wenn die lokale KI klemmt: `hoechsteGleichzeitig`
+sagt, ob sich Läufe überlappen (soll 1 sein), und `ki.lokal.messung` sagt, wie lange eine
+Anfrage wirklich dauert und wo die Zeit hingeht — beim Einlesen des Prompts oder beim Schreiben
+der Antwort. Steckt sie im Einlesen, hilft ein kleineres Bündel; steckt sie im Schreiben, ist
+das Modell zu groß.
+
 ## Kosten
 
-Keine, außer dem Server. n8n Community Edition, Gemini Free Tier, ClamAV und unbound sind
-kostenlos. Nur wenn du das Gemini-Tageskontingent regelmäßig sprengst, wird der Paid Tier
+Keine, außer dem Server. n8n Community Edition, Gemini Free Tier, Ollama, ClamAV und unbound
+sind kostenlos. Nur wenn du das Gemini-Tageskontingent regelmäßig sprengst, wird der Paid Tier
 nötig — der kostet für dieses Aufkommen Centbeträge.
+
+Die lokale KI kostet ebenfalls nichts an Gebühren, dafür Rechenleistung: Sie will Kerne und
+RAM, die sonst frei wären. Wer dafür einen größeren Server mietet, hat den Free Tier gegen
+eine Monatsmiete getauscht — das ist eine Entscheidung für Datenschutz, keine für den Preis.
 
 ---
 
@@ -656,9 +766,14 @@ nötig — der kostet für dieses Aufkommen Centbeträge.
 | n8n-Editor lädt nicht, dreht sich endlos | Websockets im Reverse Proxy aktivieren (NPM: Häkchen „Websockets Support") |
 | Workflow lässt sich nicht einschalten, n8n meldet „not published" | Auf der Workflows-Seite einmal **Synchronisieren** — dabei wird der Unter-Workflow 07 veröffentlicht |
 | IMAP-Knoten meldet „node not found" | `docker compose up -d` erneut ausführen; der Init-Container installiert `n8n-nodes-imap` ins n8n-Volume |
-| Nichts wird sortiert, der Lauf bricht bei *Gemini klassifizieren* ab mit „Credentials not found" | Gemini-Schlüssel fehlt (Schritt 6) oder es wurde danach nicht synchronisiert |
+| Nichts wird sortiert, der Lauf bricht beim KI-Knoten ab mit „Credentials not found" | Gemini-Schlüssel fehlt (Schritt 6) oder es wurde danach nicht synchronisiert. Der Knoten heißt je nach Herkunft *Gemini klassifizieren* oder *Ollama klassifizieren* — der Name sagt nichts darüber, welcher Anbieter gerade eingestellt ist. |
 | n8n meldet „Credential with ID … does not exist" | Auf der Workflows-Seite **Zugangsdaten erneuern** — das Panel legt sie neu an und trägt sie in alle Workflows ein |
 | Gemini meldet Fehler 429 | Tageskontingent des Free Tier aufgebraucht — morgen weitermachen, oder die Pause unter *Einstellungen → KI* verlängern |
+| **Lokale KI:** im Log steht immer wieder „0 von N Mails klassifiziert" | Die Anfragen laufen in ihr Zeitlimit. Der Reihe nach prüfen: **Tempo messen** (Schritt 6) — braucht ein Bündel aus zwei Mails über 60 s, reicht die Maschine nicht. Dann *Mails je Anfrage* auf 1–2, ein kleineres Modell (`llama3.2:1b`), und `N8N_PARALLEL=1` in der `.env` samt `docker compose up -d`. |
+| **Lokale KI:** sortiert wird, aber jede Mail bekommt „Kein Thema erkannt" und Konfidenz 0.00 | Das Modell hat die Anweisung nie gelesen. Fast immer ein zu kleines **Kontextfenster**: Ollama schneidet einen längeren Prompt stillschweigend ab, und zwar am Anfang. Fenster auf 8192 stellen und *Mails je Anfrage* verkleinern; im Log steht dann, wenn gekürzt werden musste. |
+| **Lokale KI:** dieselbe Mail taucht immer wieder in den Entscheidungen auf | Die Läufe enden rot, und n8n merkt sich die zuletzt gelesene Mail nur bei Erfolg. Ursache ist der Punkt darüber; zusätzlich `neue_mails_ungelesen` auf 0 stellen. |
+| **Lokale KI:** Ollama ist plötzlich „nicht erreichbar: fetch failed" | Der Container wurde vom Kernel wegen Speichermangel beendet (OOM). `OLLAMA_RAM` in der `.env` anheben oder ein kleineres Modell nehmen. |
+| Der Diagnose-Bericht meldet „N Läufe überlappten sich" | `N8N_CONCURRENCY_PRODUCTION_LIMIT` greift nicht — meist, weil beim Update nur das Image gezogen wurde und nicht die `docker-compose.yml`. Einmal `git pull` und `docker compose up -d`. |
 | Gmail lehnt die Anmeldung ab | Gmail verlangt Zwei-Faktor-Anmeldung plus **App-Passwort**; das normale Konto-Passwort funktioniert nicht |
 | Web.de- oder GMX-Anmeldung schlägt fehl | IMAP in den Einstellungen der Weboberfläche freischalten |
 | IMAP scheitert mit „self-signed certificate" | Beim Konto *Selbstsigniertes Zertifikat akzeptieren* anhaken |
@@ -724,5 +839,4 @@ Umgekehrt rufen die Workflows die Prüfdienste des Panels auf
 
 ## Ideen für später
 
-- **Lokale KI (Ollama)** statt Gemini — dafür muss nur ein HTTP-Knoten umgebogen werden.
 - Feinere Rechte im Mehrbenutzer-Betrieb, damit mehrere Leute getrennte Konten verwalten.
