@@ -317,6 +317,38 @@ function kategoriePruefen(wert) {
   return 'sonstiges';
 }
 
+// Woran eine Antwort scheiterte — ohne den Inhalt zu verraten.
+//
+// Der blinde Fleck, den das schliesst: antwortZuordnen() verwirft still alles,
+// was es nicht zuordnen kann. Im Log war eine Anfrage, die GEANTWORTET hat,
+// deren Antwort aber unbrauchbar war, danach nicht von einer zu unterscheiden,
+// die nie zurueckkam — beide enden als „0 von N klassifiziert".
+//
+// Genau dieser Unterschied ist entscheidend: Das eine heisst „die Maschine ist
+// zu langsam", das andere „das Modell kann die Aufgabe nicht". Im Betrieb am
+// 8. September kamen zwischen 22:04 und 22:06 dreizehn Antworten zurueck, und
+// der Lauf meldete „0 von 19 Mails klassifiziert".
+//
+// Bewusst nur die FORM, nicht der Inhalt: Feldnamen und die nr-Werte. Eine
+// Kurzfassung aus dem Modell koennte Mailinhalt enthalten, und dieses Log
+// landet im Diagnose-Bericht.
+function antwortForm(daten) {
+  const roh = Array.isArray(daten) ? daten : (Array.isArray(daten?.mails) ? daten.mails : null);
+  if (roh === null) {
+    const felder = (daten && typeof daten === 'object') ? Object.keys(daten).slice(0, 8) : [];
+    return `keine Liste (oberste Felder: ${felder.join(', ') || typeof daten})`;
+  }
+  if (roh.length === 0) return 'leere Liste';
+  const felder = new Set();
+  const nummern = [];
+  for (const eintrag of roh.slice(0, 5)) {
+    if (eintrag && typeof eintrag === 'object') Object.keys(eintrag).forEach((k) => felder.add(k));
+    nummern.push(JSON.stringify(eintrag?.nr));
+  }
+  return `${roh.length} Eintrag/Einträge, Felder [${[...felder].join(', ')}], `
+    + `nr: [${nummern.join(', ')}]`;
+}
+
 // Nur was sauber zugeordnet werden kann, zaehlt. Lieber eine Mail unklassifiziert
 // zurueckgeben (sie kommt im naechsten Lauf wieder) als sie mit der Antwort der
 // Nachbarmail in den falschen Ordner schieben.
@@ -483,6 +515,15 @@ async function klassifizieren(mails) {
       }
 
       const treffer = antwortZuordnen(antwort.daten, teil);
+      // Geantwortet, aber nichts davon brauchbar. Das gehoert gesagt — sonst
+      // sieht es im Log aus wie „die KI hat nicht geantwortet", und man sucht
+      // tagelang an der Geschwindigkeit statt am Modell.
+      if (treffer.size === 0) {
+        loggen('warn', 'klassifizierer',
+          `Die KI hat geantwortet, aber nichts davon war zuzuordnen — ${antwortForm(antwort.daten)}. `
+          + `Erwartet wird eine Liste mit "nr" von 1 bis ${teil.length}. `
+          + 'Kommt das immer wieder, ist das Modell für diese Aufgabe zu klein.');
+      }
       teil.forEach((gruppe, idx) => {
         const ki = treffer.get(idx + 1);
         if (!ki) return;

@@ -333,13 +333,24 @@ async function laeufe(anzahl = 15) {
   const lokal = (() => {
     try { return (settings.hole('ki_anbieter') || 'gemini') === 'ollama'; } catch { return false; }
   })();
+  // Die Compose deckelt ab Werk auf 2. Zwei überlappende Läufe sind also der
+  // eingestellte Zustand und kein Fund — den Verdacht „Compose nicht gezogen"
+  // gibt es erst darüber. Ein früherer Entwurf meldete schon bei 2 Alarm und
+  // hätte damit auf eine richtig eingestellte Anlage gezeigt.
+  const hinweis = (() => {
+    if (!lokal || hoechste <= 1) return null;
+    if (hoechste === 2) {
+      return '2 Läufe überlappten sich — das ist der Standardwert der Compose. Bei lokaler KI '
+        + 'rechnen sie auf derselben CPU gegeneinander; N8N_PARALLEL=1 in der .env stellt das ab.';
+    }
+    return `${hoechste} Läufe überlappten sich, mehr als die Compose ab Werk zulässt. `
+      + 'N8N_CONCURRENCY_PRODUCTION_LIMIT greift offenbar nicht — wurde die docker-compose.yml '
+      + 'beim Update mitgezogen (git pull)?';
+  })();
+
   return {
     hoechsteGleichzeitig: hoechste,
-    ...(lokal && hoechste > 1 ? {
-      hinweis: `${hoechste} Läufe überlappten sich. Bei lokaler KI rechnen die auf derselben `
-        + 'CPU gegeneinander — N8N_CONCURRENCY_PRODUCTION_LIMIT greift offenbar nicht. '
-        + 'Wurde die docker-compose.yml beim Update mitgezogen (git pull)?',
-    } : {}),
+    ...(hinweis ? { hinweis } : {}),
     liste,
   };
 }

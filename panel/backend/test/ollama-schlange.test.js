@@ -140,3 +140,58 @@ describe('Die Diagnose zählt überlappende Läufe', () => {
     assert.equal(diagnose.gleichzeitigkeit([]), 0);
   });
 });
+
+// Ein Hinweis, der bei richtiger Einstellung Alarm schlaegt, ist schlimmer als
+// keiner: Er schickt den Leser auf die Suche nach einem Fehler, den es nicht
+// gibt. Die Compose deckelt ab Werk auf 2.
+describe('Der Hinweis zu überlappenden Läufen', () => {
+  const settings = require('../src/services/settings');
+  const diagnose = require('../src/services/diagnose');
+  const z = (sek) => new Date(Date.UTC(2026, 8, 8, 22, 0, sek)).toISOString();
+  const laeufe = (n) => Array.from({ length: n }, (_, i) => ({ start: z(i), dauerSekunden: 300 }));
+
+  const hinweisFuer = async (n) => {
+    const n8n = require('../src/services/n8n');
+    const altWf = n8n.workflowsAuflisten;
+    const altEx = n8n.executionsAuflisten;
+    n8n.workflowsAuflisten = async () => [];
+    n8n.executionsAuflisten = async () => laeufe(n).map((l) => ({
+      startedAt: l.start, status: 'success', workflowId: 'W',
+      stoppedAt: new Date(Date.parse(l.start) + l.dauerSekunden * 1000).toISOString(),
+    }));
+    try {
+      const b = await diagnose.erstellen({ mitMails: false });
+      return b.laeufe;
+    } finally {
+      n8n.workflowsAuflisten = altWf;
+      n8n.executionsAuflisten = altEx;
+    }
+  };
+
+  test('bei zwei Läufen wird nicht die Compose verdächtigt', async () => {
+    settings.setze('ki_anbieter', 'ollama');
+    const r = await hinweisFuer(2);
+    assert.equal(r.hoechsteGleichzeitig, 2);
+    assert.match(r.hinweis, /Standardwert/);
+    assert.ok(!/git pull/.test(r.hinweis), 'zwei Laeufe sind der eingestellte Zustand');
+  });
+
+  test('darüber schon', async () => {
+    settings.setze('ki_anbieter', 'ollama');
+    const r = await hinweisFuer(4);
+    assert.equal(r.hoechsteGleichzeitig, 4);
+    assert.match(r.hinweis, /git pull/);
+  });
+
+  test('ein einzelner Lauf ist kein Hinweis wert', async () => {
+    settings.setze('ki_anbieter', 'ollama');
+    const r = await hinweisFuer(1);
+    assert.equal(r.hinweis, undefined);
+  });
+
+  test('mit Gemini ist Gleichzeitigkeit kein Problem', async () => {
+    settings.setze('ki_anbieter', 'gemini');
+    const r = await hinweisFuer(4);
+    assert.equal(r.hinweis, undefined, 'dort rechnet Google, nicht dieser Server');
+  });
+});

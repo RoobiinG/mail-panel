@@ -2,6 +2,37 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.4.6.2] - 2026-09-09 (Build 155) — *Geantwortet ist nicht klassifiziert*
+
+Der erste Bericht mit echten Messwerten hat einen blinden Fleck aufgedeckt, der vier Builds lang
+in die falsche Richtung gezeigt hat.
+
+Zwischen 22:04 und 22:06 kamen **dreizehn Antworten** von der lokalen KI zurück, jede in rund
+zwölf Sekunden. Der Lauf endete mit „0 von 19 Mails klassifiziert".
+
+### Bugfix (hoch): Eine unbrauchbare Antwort sah aus wie gar keine
+`antwortZuordnen()` verwirft still alles, was es nicht zuordnen kann — im Log war eine Anfrage,
+die *geantwortet* hat, deren Antwort aber unbrauchbar war, danach nicht von einer zu
+unterscheiden, die nie zurückkam. Beide enden als „0 von N klassifiziert".
+
+Genau dieser Unterschied ist der entscheidende: Das eine heißt *„die Maschine ist zu langsam"*,
+das andere *„das Modell kann die Aufgabe nicht"*. Ich habe tagelang an der Geschwindigkeit
+gesucht, während die Antworten längst ankamen.
+
+Neu wird das gesagt — bewusst nur die **Form**, nicht der Inhalt (Feldnamen und `nr`-Werte).
+Eine Kurzfassung aus dem Modell könnte Mailinhalt enthalten, und dieses Log landet im
+Diagnose-Bericht.
+
+### Bugfix: Der eigene Hinweis schlug bei richtiger Einstellung Alarm
+`laeufe.hinweis` aus Build 151 meldete ab **zwei** überlappenden Läufen „N8N_CONCURRENCY_-
+PRODUCTION_LIMIT greift offenbar nicht — wurde die docker-compose.yml mitgezogen?". Zwei ist
+aber der Standardwert ebendieser Compose. Der Hinweis zeigte damit auf eine richtig eingestellte
+Anlage und schickte den Leser einen Fehler suchen, den es nicht gab.
+
+Jetzt: bei zwei Läufen der sachliche Hinweis auf `N8N_PARALLEL=1`, der Compose-Verdacht erst
+darüber.
+
+
 ## [4.4.6.1] - 2026-09-08 (Build 154) — *Die README kannte nur Gemini*
 
 Ollama kam in der README dreimal vor, davon einmal unter **„Ideen für später"** — und es gab
