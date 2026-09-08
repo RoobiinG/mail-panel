@@ -1198,8 +1198,13 @@ function buendelCode() {
     '        uid: __it.json.uid,',
     '        von: __it.json.von,',
     '        betreff: __it.json.betreff,',
-    "        text: __it.json.text || '',",
-    '        links: __it.json.links || [],',
+    // Nur den Anfang des Mailtexts mitschicken. Das Panel kuerzt ohnehin auf 600
+    // beziehungsweise 1500 Zeichen — den ganzen Rumpf zu uebertragen bringt also
+    // nichts und hat den Lauf gekostet: Zwanzig Mails mit vollem HTML-Text
+    // sprengten die Rumpfgrenze, die Antwort war 413, und im Log stand nur
+    // "0 von 23 Mails klassifiziert".
+    "        text: String(__it.json.text || '').slice(0, 4000),",
+    '        links: (__it.json.links || []).slice(0, 30),',
     '        listUnsubscribe: __it.json.listUnsubscribe || null,',
     '        score_aufschlag: __it.json.score_aufschlag || 0,',
     '        dnsbl_treffer: __it.json.dnsbl_treffer || [],',

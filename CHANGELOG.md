@@ -2,6 +2,72 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.4.1.0] - 2026-09-08 (Build 146) — *Was der erste Diagnose-Bericht zutage brachte*
+
+Der erste echte Bericht aus dem Produktivbetrieb hat in fünf Minuten drei Fehler gezeigt, die
+zusammen erklären, warum von 2.649 Entscheidungen in sieben Tagen **803 liegengeblieben** sind.
+
+### Bugfix (kritisch): Jedes Bündel über 1 MB starb still
+`/api/internal/klassifizieren` deklariert `express.json({ limit: '25mb' })` — der **globale**
+Parser mit seiner 1-MB-Grenze läuft aber davor und weist vorher ab. Der eigene Parser kam nie zum
+Zug. Genau davor warnt der Kommentar an der Ausnahmeliste in `index.js`; der Pfad stand nur nicht
+darin.
+
+Im Log sah das so aus, tagelang:
+
+```
+ERROR [backend:POST /api/internal/klassifizieren] request entity too large
+INFO  [klassifizierer] 0 von 23 Mails in 4 Anfrage(n) klassifiziert.
+```
+
+Nirgends stand „Fehler" an einer Stelle, an der jemand hinschaut — der Lauf war „erfolgreich" und
+hatte nichts getan.
+
+- Pfad in `EIGENER_PARSER` eingetragen, zusammen mit `/budget` und `/scan-anhaenge`, deren engere
+  Grenzen aus demselben Grund wirkungslos waren.
+- **Neuer Test `parser-grenzen.test.js`**: Er liest beide Seiten aus dem Quelltext und vergleicht
+  sie. Wer künftig eine Route mit eigenem Parser anlegt und den Eintrag vergisst, fällt sofort auf.
+- Der Bündel-Knoten schickt außerdem nur noch die ersten 4.000 Zeichen je Mail und höchstens 30
+  Links. Das Panel kürzt ohnehin auf 600 bzw. 1.500 Zeichen — den ganzen HTML-Rumpf zu übertragen
+  war reine Last.
+
+### Bugfix (hoch): Das Beispiel im Prompt war eine Vorlage zum Abschreiben
+```json
+{"kategorie": "spam|rechnung|bestellung|newsletter|persoenlich|sonstiges"}
+```
+Das war als „eines davon" gemeint. Gemini versteht die Konvention; ein lokales 3B-Modell schreibt
+sie **wörtlich ab**. In der Chronik standen daraufhin Kategorien wie `spam|sonstiges` und
+`persoenlich|Abonnements` — keine Weiche traf sie, der Newsletter-Zähler sah sie nicht, und lesen
+konnte man sie auch nicht.
+
+- Das Beispiel zeigt jetzt einen gültigen Wert; die erlaubten Kategorien stehen als eigene Zeile
+  darunter.
+- **Und das Panel prüft die Antwort**, statt sie zu übernehmen: Was keine erlaubte Kategorie ist,
+  wird `sonstiges`. Steht genau eine erlaubte darin (`persoenlich|Abonnements`), gilt die; stehen
+  mehrere darin, wird nicht geraten. Worauf ein fremdes Modell antwortet, hat das Panel nicht in
+  der Hand — was es davon übernimmt, schon.
+
+### Bugfix (hoch): 20er-Bündel sind für die lokale KI die falsche Frage
+Gebündelt wird, weil Googles Limit **Anfragen** zählt. Ollama zählt gar nichts — übrig bleiben nur
+die Nachteile: Eine Anfrage über zwanzig Mails rechnet auf der eigenen Maschine minutenlang, und
+läuft sie in ihr Zeitlimit, sind alle zwanzig verloren:
+
+```
+WARN [klassifizierer] Ollama war nicht erreichbar: The operation was aborted due to timeout
+INFO [klassifizierer] Zeitbudget des Laufs erreicht — 0 von 364 Mails klassifiziert.
+```
+
+Bei Anbieter `ollama` wird die Bündelgröße jetzt auf 5 gedeckelt. Ein eingestellter kleinerer Wert
+bleibt unangetastet.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **DB-Migrationen:** keine.
+- **n8n-Workflow-Kompatibilität:** Der Bündel-Knoten in Workflow 04 ändert sich (Textkappung). Der
+  automatische Abgleich zieht ihn beim nächsten Start selbst nach — nichts zu tun.
+- **Bereits gespeicherte Kategorien** wie `spam|sonstiges` bleiben in der Chronik stehen; sie
+  nachträglich zu raten wäre schlimmer als sie stehen zu lassen.
+- **Neustart-/Session-Verhalten:** keine Änderung.
+
 ## [4.4.0.1] - 2026-09-08 (Build 145) — *Diagnose: das richtige Modell*
 
 Beim ersten echten Bericht auf dem Testserver aufgefallen: Bei Anbieter `ollama` stand unter „KI"

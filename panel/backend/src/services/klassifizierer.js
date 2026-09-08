@@ -42,7 +42,25 @@ function zahl(schluessel, standard, min, max) {
 
 // Plätze je Bündel. 20 ist der Kompromiss: genug für den Hebel, klein genug,
 // dass eine unbrauchbare Antwort nicht einen halben Lauf mitreißt.
-const buendelGroesse = () => zahl('gemini_buendel', 20, 1, 60);
+//
+// Bei der lokalen KI gilt das Gegenteil. Gebündelt wird, weil Googles Limit
+// ANFRAGEN zählt — Ollama zählt gar nichts. Übrig bleiben nur die Nachteile:
+// Eine Anfrage über zwanzig Mails rechnet auf der eigenen Maschine minutenlang,
+// und läuft sie in ihr Zeitlimit, sind alle zwanzig verloren. Im Betrieb las
+// sich das als „Ollama war nicht erreichbar: The operation was aborted due to
+// timeout" gefolgt von „0 von 364 Mails klassifiziert". Kleinere Bündel kommen
+// zurück, bevor die Frist des Laufs abläuft — und ein kürzerer Prompt ist für
+// ein kleines Modell ohnehin die bessere Frage.
+const OLLAMA_BUENDEL_MAX = 5;
+const buendelGroesse = () => {
+  const gewuenscht = zahl('gemini_buendel', 20, 1, 60);
+  try {
+    if ((settings.hole('ki_anbieter') || 'gemini') === 'ollama') {
+      return Math.min(gewuenscht, OLLAMA_BUENDEL_MAX);
+    }
+  } catch { /* dann eben der eingestellte Wert */ }
+  return gewuenscht;
+};
 const textKurz = () => zahl('gemini_text_kurz', 600, 100, 4000);
 const textLang = () => zahl('gemini_text_lang', 1500, 200, 8000);
 
@@ -228,9 +246,16 @@ function promptBauen(gruppen, konto, bekannt) {
     .map((g, i) => mailBlock(g.vertreter, i + 1, verdaechtig(g.vertreter, bekannt)))
     .join('\n');
 
+  // Das Beispiel enthaelt bewusst KEINE Aufzaehlung mit senkrechten Strichen
+  // mehr. "kategorie": "spam|rechnung|bestellung|..." war als "eines davon"
+  // gemeint — kleinere Modelle schreiben es woertlich ab. Im Betrieb standen
+  // dadurch Kategorien wie "spam|rechnung|bestellung|newsletter|persoenlich|
+  // sonstiges" in der Datenbank, und die Themen-Aufloesung lief ins Leere.
+  // Ein Beispiel muss ein gueltiger Wert sein, keine Auswahlliste.
   return 'Du bist ein E-Mail-Klassifizierer. Du bekommst MEHRERE E-Mails, jede mit einer Nummer in eckigen Klammern.\n'
     + 'Antworte NUR mit einem JSON-Array — ein Objekt je Mail, in exakt diesem Format:\n'
-    + '[{"nr": 1, "kategorie": "spam|rechnung|bestellung|newsletter|persoenlich|sonstiges", "spam_score": 0.0, "kurzfassung": "Ein Satz auf Deutsch", "ordner": null, "konfidenz": 0.0}]\n\n'
+    + '[{"nr": 1, "kategorie": "newsletter", "spam_score": 0.1, "kurzfassung": "Ein Satz auf Deutsch", "ordner": null, "konfidenz": 0.8}]\n\n'
+    + `Erlaubte Werte fuer "kategorie" — genau einer davon, kein anderer Text: ${KATEGORIEN.join(', ')}.\n`
     + 'Wichtig: Gib zu JEDER Mail genau ein Objekt zurueck und uebernimm ihre "nr" unveraendert. Lass keine aus und erfinde keine dazu.\n\n'
     + 'Regeln:\n'
     + '- spam_score: 0.0 (sicher kein Spam) bis 1.0 (sicher Spam). Phishing, Betrugsversuche, unserioese Werbung = hoher Score. Achte besonders auf die Links: fremde Domains, die sich als bekannte Marke ausgeben, sind ein starkes Zeichen.\n'
@@ -247,6 +272,27 @@ function promptBauen(gruppen, konto, bekannt) {
 
 // ─── Antwort auswerten ───────────────────────────────────────────────────────
 
+// Was die KI zurueckgeben darf. Alles andere ist keine Einstufung, sondern
+// Rauschen — und Rauschen gehoert nicht in die Datenbank.
+//
+// Der Anlass: Ein kleineres Modell schrieb die Auswahlliste aus dem Beispiel
+// woertlich ab ("spam|rechnung|bestellung|newsletter|persoenlich|sonstiges").
+// Ungeprueft landete das als Kategorie im Protokoll, zaehlte bei "newsletter"
+// nicht mit, traf keine Kategorie-Weiche und war in der Chronik nicht zu deuten.
+// Der Prompt ist inzwischen deutlicher; diese Pruefung ist das Netz darunter,
+// denn worauf ein fremdes Modell antwortet, hat das Panel nicht in der Hand.
+const KATEGORIEN = ['spam', 'rechnung', 'bestellung', 'newsletter', 'persoenlich', 'sonstiges'];
+
+function kategoriePruefen(wert) {
+  const roh = String(wert ?? '').trim().toLowerCase();
+  if (KATEGORIEN.includes(roh)) return roh;
+  // "spam|sonstiges" oder "persoenlich, sicherheit": Steht genau eine erlaubte
+  // Kategorie darin, ist die Absicht klar genug. Bei mehreren waere es geraten.
+  const genannt = KATEGORIEN.filter((k) => roh.split(/[|,/;\s]+/).includes(k));
+  if (genannt.length === 1) return genannt[0];
+  return 'sonstiges';
+}
+
 // Nur was sauber zugeordnet werden kann, zaehlt. Lieber eine Mail unklassifiziert
 // zurueckgeben (sie kommt im naechsten Lauf wieder) als sie mit der Antwort der
 // Nachbarmail in den falschen Ordner schieben.
@@ -258,7 +304,7 @@ function antwortZuordnen(daten, gruppen) {
     if (!Number.isInteger(nr) || nr < 1 || nr > gruppen.length) continue;
     if (treffer.has(nr)) continue; // Doppelte Nummer: die erste gilt.
     treffer.set(nr, {
-      kategorie: String(eintrag.kategorie || 'sonstiges'),
+      kategorie: kategoriePruefen(eintrag.kategorie),
       spam_score: Number(eintrag.spam_score) || 0,
       kurzfassung: String(eintrag.kurzfassung || ''),
       ordner: eintrag.ordner ? String(eintrag.ordner) : null,
@@ -400,5 +446,7 @@ module.exports = {
   betreffMuster,
   antwortZuordnen,
   promptBauen,
+  kategoriePruefen,
+  KATEGORIEN,
   PLAETZE_VERDACHT,
 };

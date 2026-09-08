@@ -72,9 +72,19 @@ app.use(compression());
 // die ganze Mail-Liste eines Bestands-Laufs) und bringen ihren eigenen, größeren
 // Parser mit. Liefe der globale zuerst, wiese er sie vorher als „zu groß" ab.
 // Deshalb überspringt er genau diese Pfade — jeder von ihnen parst selbst.
+// ACHTUNG beim Erweitern: Wer in routes/internal.js einen eigenen Parser an eine
+// Route haengt, MUSS den Pfad auch hier eintragen. Sonst greift der globale
+// zuerst, weist mit "request entity too large" ab, und der eigene Parser kommt
+// nie zum Zug — die Route sieht dann so aus, als haette sie ein grosses Limit,
+// und hat in Wahrheit 1 MB. Genau das ist mit /klassifizieren passiert: Jeder
+// Buendel-Lauf ueber 1 MB starb still, im Log stand "0 von 23 Mails
+// klassifiziert". Ein Test in test/parser-grenzen.test.js wacht darueber.
 const EIGENER_PARSER = new Set([
   '/api/internal/beleg-auslesen', // PDF als base64 (25 MB)
   '/api/internal/budget-filter',  // volle Mail-Liste des Bestands (25 MB)
+  '/api/internal/klassifizieren', // der ganze Lauf auf einmal (25 MB)
+  '/api/internal/budget',         // eigene, engere Grenze (512 kB)
+  '/api/internal/scan-anhaenge',  // eigene, engere Grenze (16 kB)
 ]);
 const globalJson = express.json({ limit: '1mb' });
 app.use((req, res, next) => {
