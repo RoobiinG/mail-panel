@@ -235,21 +235,21 @@ function themenBlock(konto) {
   const verboten = themen.kategorieOrdner(konto || {}).filter(Boolean);
   const verbotenBlock = verboten.length
     ? '- Diese Namen sind als Kategorie-Ordner bereits vergeben und kommen als Thema NICHT in Frage: '
-      + `${verboten.join(', ')}. Passt inhaltlich nur so etwas, setze null.\n`
+      + `${verboten.join(', ')}. Passt inhaltlich nur so etwas, lass das Feld leer ("").\n`
     : '';
 
   const neuRegel = e.anlegen !== 'aus'
     ? '- Passt wirklich keiner davon, benenne das Thema selbst und antworte "NEU:<Ordnername>". Auf Deutsch, hoechstens 20 Zeichen.\n'
       + '- Ein neuer Ordner ist ein LEBENSBEREICH, keine Firma und keine Marke. Also "Server & Hosting" statt "Plesk", "Streaming" statt "Netflix", "Games" statt "Steam Sommer-Sale". Wer eine einzelne Firma als Ordner vorschlaegt, macht es falsch — unter diesem Namen passt nie eine zweite Mail.\n'
       + '- Bevor du einen neuen Namen erfindest: Geh die Liste oben noch einmal durch. Steht dort schon etwas, das dasselbe meint — auch in Einzahl statt Mehrzahl, anderer Schreibweise oder auf Englisch —, nimm diesen Namen unveraendert.'
-    : '- Passt keiner davon, setze null. Neue Ordner sind nicht erlaubt.';
+    : '- Passt keiner davon, lass das Feld leer (""). Neue Ordner sind nicht erlaubt.';
 
   return `\n\nVorhandene Themen-Ordner:\n${liste}\n\n`
     + 'Bestimme fuer jede Mail zusaetzlich das Feld "ordner" — den Themen-Ordner, in den sie gehoert:\n'
     + '- Passt einer der vorhandenen Ordner inhaltlich, nimm ihn genau so, wie er oben steht.\n'
     + '- Hinter dem Gedankenstrich stehen BEISPIELE, keine vollstaendige Liste. Erkenne daran, WOFUER der Ordner da ist, und ordne auch Absender ein, die dazu passen, aber nicht genannt sind. Steht dort "Vodafone, Sky, Netflix", gehoert auch eine Mail von o2, 1&1 oder Disney+ dorthin.\n'
     + `${neuRegel}\n`
-    + '- Setze null nur, wenn die Mail kein erkennbares Sachthema hat: reine Werbung ohne Bezug, Systemmeldungen, kurze persoenliche Nachrichten.\n'
+    + '- Lass das Feld leer ("") nur, wenn die Mail kein erkennbares Sachthema hat: reine Werbung ohne Bezug, Systemmeldungen, kurze persoenliche Nachrichten.\n'
     + '- Das Sachthema zaehlt, nicht die Form. Ein Newsletter ueber Spiele gehoert nach "Games", nicht in einen Ordner namens "Newsletter".\n'
     + verbotenBlock
     + '- "konfidenz" ist deine Sicherheit beim Ordner, 0.0 bis 1.0.';
@@ -458,7 +458,7 @@ function antwortSchema() {
             kategorie: { type: 'string', enum: KATEGORIEN },
             spam_score: { type: 'number' },
             kurzfassung: { type: 'string' },
-            ordner: { type: 'string' },
+            ordner: { type: ['string', 'null'] },
             konfidenz: { type: 'number' },
           },
           required: ['nr', 'kategorie', 'konfidenz'],

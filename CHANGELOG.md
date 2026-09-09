@@ -2,6 +2,17 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.5.1.2] - 2026-09-09 (Build 161) — *Lokales Modell entlastet*
+
+**Bugfixes:**
+- **Ollama Timeout (Endlosschleife) behoben:** Das Modell `llama3.2:1b` verfing sich häufig in einer Endlosschleife und lief in Timeouts, weil der Prompt verlangte, das Feld `ordner` auf `null` zu setzen, das JSON-Schema für strukturierte Ausgaben aber streng `type: "string"` forderte. Die Diskrepanz zwang das Modell zum Halluzinieren. Der Prompt verlangt nun das Feld leer zu lassen (`""`) und das Schema erlaubt explizit `["string", "null"]`.
+- Mails werden dadurch wieder zuverlässig sortiert, anstatt massenhaft mit "Kein Thema erkannt" abgewiesen zu werden.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** keine.
+- **n8n-Kompatibilität:** Kompatibel.
+- **Neustart:** Backend startet nach dem automatischen Build neu.
+
 ## [4.5.1.1] - 2026-09-09 (Build 160) — *Warteschlangen-Dynamik*
 
 **Bugfixes:**
