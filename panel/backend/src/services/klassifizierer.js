@@ -427,11 +427,11 @@ function antwortZuordnen(daten, gruppen) {
 // Abstand von genau drei Minuten und darunter „0 von 456 Mails klassifiziert".
 //
 // Eine Anfrage, die über das Ende des Laufs hinausreicht, ist verlorene Zeit.
-const ANFRAGE_MAX_MS = 180000;
 const ANFRAGE_MIN_MS = 20000;
 
 function anfrageZeitlimit(verbleibend) {
-  return Math.max(ANFRAGE_MIN_MS, Math.min(ANFRAGE_MAX_MS, verbleibend));
+  // 5 Sekunden Puffer für Folgearbeiten (Speichern etc.)
+  return Math.max(ANFRAGE_MIN_MS, verbleibend - 5000);
 }
 
 // Das Schema, an das Ollama das Modell bindet.

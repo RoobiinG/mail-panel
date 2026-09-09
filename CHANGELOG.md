@@ -2,6 +2,17 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.5.1.1] - 2026-09-09 (Build 159) — *Warteschlangen-Dynamik*
+
+**Bugfixes:**
+- **Lokale KI Timeout-Behebung:** Die harte Grenze von 180s für `anfrageZeitlimit` wurde entfernt und nutzt jetzt die tatsächliche Restzeit des Laufs abzüglich eines Puffers. Das behebt das Problem, dass KI-Abfragen abgebrochen wurden, obwohl der Nutzer die Frist z.B. auf 240s erhöht hat.
+- **Warteschlangen-Sperre behoben:** Die Wartezeit für KI-Abfragen berechnet sich jetzt dynamisch aus 80% der Restlaufzeit (statt pauschal der Hälfte von 180s = 90s). Das behebt Timeouts, die entstanden, wenn bei der Standard-Compose-Einstellung (`N8N_PARALLEL=2`) zwei n8n-Workflows gleichzeitig Mails verarbeiten wollten und das zweite Bündel nach 90 Sekunden Warten scheiterte, obwohl der erste Lauf länger als 90 Sekunden dauerte.
+- **Tempo messen repariert:** Der Timeout für die "Tempo messen"-Schaltfläche in den Einstellungen wurde von 120 auf 300 Sekunden erhöht. Dadurch schlägt der Test nicht mehr vorzeitig fehl, wenn die KI gerade mit einem längeren n8n-Lauf beschäftigt ist.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** keine.
+- **n8n-Kompatibilität:** Kompatibel. Der Nutzer sollte in der `.env` `N8N_PARALLEL=1` setzen, um Überlappungen von Workflows auf derselben CPU generell zu vermeiden, aber das Panel stürzt nun auch ohne diese Maßnahme bei leichten Überlappungen nicht mehr unweigerlich ab.
+- **Neustart:** Backend startet nach dem automatischen Build neu.
 ## [4.5.1.0] - 2026-09-09 (Build 158) — *Ein Weg zur KI, nicht zwei*
 
 Der erste Bericht nach dem Schema-Build zeigte zwei Zahlen nebeneinander, die zusammen alles

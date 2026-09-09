@@ -290,9 +290,9 @@ router.post('/ollama/tempo', async (req, res) => {
       // Grosszuegig, aber nicht unbegrenzt: Wer hier laenger als fuenf Minuten
       // braucht, hat die Frage ohnehin beantwortet.
       signal: AbortSignal.timeout(300000),
-      // Zwei Minuten auf einen freien Platz warten. Laeuft gerade ein
-      // Sortierlauf, soll der Knopf das sagen statt daneben zu rechnen.
-    }), 120000);
+      // Fünf Minuten auf einen freien Platz warten. Läuft gerade ein langer
+      // Sortierlauf, dauert es, bis die KI frei ist.
+    }), 300000);
     if (!r.ok) throw new Error(`Ollama antwortete mit HTTP ${r.status}`);
     const daten = await r.json();
     const k = messung.kennzahlen(daten, modell);

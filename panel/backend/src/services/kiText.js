@@ -104,12 +104,17 @@ async function frageJson(prompt, opt = {}) {
     // Bleibt 0, wenn die Warteschlange sie gar nicht erst durchgelassen hat;
     // dann ist es keine Messung an Ollama und gehört nicht in die Statistik.
     let angefangen = 0;
+    const angestelltUm = Date.now();
 
     try {
-      // Eine Anfrage zur Zeit — siehe services/ollamaSchlange.js. Höchstens die
-      // Hälfte des Zeitlimits fürs Warten; die andere Hälfte braucht die
-      // Anfrage selbst noch.
-      const res = await schlange.nacheinander(() => { angefangen = Date.now(); return fetch(ollamaUrl, {
+      // Eine Anfrage zur Zeit — siehe services/ollamaSchlange.js.
+      // Wir lassen bis zu 80% des Limits fürs Warten zu; die restliche Zeit (mindestens 20%) 
+      // muss für die Anfrage selbst reichen.
+      const wartenMaxMs = Math.round(zeitlimit * 0.8);
+      const res = await schlange.nacheinander(() => { 
+        angefangen = Date.now(); 
+        const restFrist = zeitlimit - (angefangen - angestelltUm);
+        return fetch(ollamaUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -148,8 +153,8 @@ async function frageJson(prompt, opt = {}) {
             num_predict: antwortTokens,
           },
         }),
-        signal: AbortSignal.timeout(zeitlimit),
-      }); }, Math.round(zeitlimit / 2));
+        signal: AbortSignal.timeout(Math.max(10000, restFrist)),
+      }); }, wartenMaxMs);
 
       if (!res.ok) {
         const text = (await res.text()).slice(0, 400);
