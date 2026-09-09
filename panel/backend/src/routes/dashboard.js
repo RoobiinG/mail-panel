@@ -46,7 +46,7 @@ router.get('/stats', (req, res) => {
       const d = new Date();
       d.setDate(d.getDate() - i);
       const tag = d.toISOString().split('T')[0];
-      historyMap[tag] = { tag, Spam: 0, Viren: 0, Clean: 0, Phishing: 0 };
+      historyMap[tag] = { tag, Spam: 0, Viren: 0, Clean: 0, Phishing: 0, Newsletter: 0 };
     }
 
     logs.forEach(log => {
@@ -55,8 +55,8 @@ router.get('/stats', (req, res) => {
       else if (log.kategorie === 'spam') stats.spam++;
       else if (log.kategorie === 'phishing') stats.phishing++;
       else if (log.kategorie === 'newsletter') stats.newsletter++;
-      else if (log.zielordner === 'INBOX' && (log.kategorie === 'clean' || log.kategorie === 'Geniestreich' || log.kategorie === 'Wichtig')) {
-        stats.whitelist++; // bzw. "Clean"
+      else {
+        stats.whitelist++; // bzw. "Clean" (beinhaltet jetzt alle korrekt sortierten Themen wie Rechnungen, etc.)
       }
 
       // Tages-Verlauf
@@ -64,6 +64,7 @@ router.get('/stats', (req, res) => {
         if (log.virus_name) historyMap[log.tag].Viren++;
         else if (log.kategorie === 'spam') historyMap[log.tag].Spam++;
         else if (log.kategorie === 'phishing') historyMap[log.tag].Phishing++;
+        else if (log.kategorie === 'newsletter') historyMap[log.tag].Newsletter++;
         else historyMap[log.tag].Clean++;
       }
     });

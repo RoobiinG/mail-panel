@@ -56,10 +56,16 @@ export default function Statistik() {
   }
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-xl font-bold flex items-center gap-2">
-        <BarChart3 size={20} className="text-panel-accent" /> Statistiken
-      </h1>
+    <div className="space-y-8 animate-in fade-in duration-500">
+      <div className="flex flex-col gap-1">
+        <h1 className="text-2xl font-black tracking-tight text-white/95 flex items-center gap-3">
+          <div className="p-2 bg-panel-accent/10 rounded-lg border border-panel-accent/20">
+            <BarChart3 size={24} className="text-panel-accent" />
+          </div>
+          Statistiken
+        </h1>
+        <p className="text-sm text-panel-muted ml-12">Performance und Auswertung aller Postfächer im Detail</p>
+      </div>
 
       {data.map((konto) => {
         const pieData = Object.entries(konto.kategorien)
@@ -73,88 +79,112 @@ export default function Statistik() {
         ];
 
         return (
-          <div key={konto.name} className="bg-panel-card border border-panel-border rounded-lg overflow-hidden">
-            <div className="px-4 py-3 border-b border-panel-border bg-panel-surface/50 font-medium text-sm flex justify-between items-center">
-              <span>{konto.name}</span>
-              <span className="text-xs text-panel-muted font-normal">Gesamt: {konto.gesamtMails} klassifiziert</span>
+          <div key={konto.name} className="card card-hover relative overflow-hidden flex flex-col space-y-6 !p-6">
+            {/* Background Glows */}
+            <div className="absolute -left-12 -top-12 w-48 h-48 rounded-full blur-3xl opacity-5 bg-panel-accent pointer-events-none" />
+            <div className="absolute -right-12 -bottom-12 w-48 h-48 rounded-full blur-3xl opacity-5 bg-emerald-500 pointer-events-none" />
+
+            <div className="flex justify-between items-center relative z-10 border-b border-white/5 pb-4">
+              <h2 className="text-lg font-bold text-white tracking-wide">{konto.name}</h2>
+              <span className="px-3 py-1 rounded-full bg-panel-surface/50 border border-white/10 text-xs font-medium text-panel-muted shadow-inner">
+                {konto.gesamtMails} klassifiziert
+              </span>
             </div>
             
-            <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 relative z-10">
               
               {/* KI-Kategorien (Pie Chart) */}
-              <div className="col-span-1 lg:col-span-2 border border-panel-border/50 rounded p-4 bg-panel-darker/30">
-                <h3 className="text-xs font-semibold text-panel-muted uppercase mb-4 flex items-center gap-1">
-                  <Inbox size={12} /> Klassifizierungen
+              <div className="col-span-1 lg:col-span-2 bg-black/20 rounded-xl p-5 border border-white/5">
+                <h3 className="text-[11px] font-bold tracking-widest text-panel-muted/70 uppercase mb-4 flex items-center gap-2">
+                  <Inbox size={14} className="text-panel-accent" /> Klassifizierungen
                 </h3>
                 {pieData.length > 0 ? (
-                  <div className="h-48">
+                  <div className="h-56">
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
                         <Pie
                           data={pieData}
-                          innerRadius={40}
-                          outerRadius={70}
-                          paddingAngle={2}
+                          innerRadius={55}
+                          outerRadius={85}
+                          paddingAngle={3}
                           dataKey="value"
+                          stroke="none"
                         >
                           {pieData.map((entry, index) => (
                             <Cell key={`cell-${index}`} fill={COLORS[entry.name] || COLORS.sonstiges} />
                           ))}
                         </Pie>
                         <Tooltip 
-                          contentStyle={{ backgroundColor: '#1a1d24', border: '1px solid #333', borderRadius: '4px' }}
-                          itemStyle={{ color: '#eee', fontSize: '12px' }}
+                          contentStyle={{ backgroundColor: '#1a1d24', border: '1px solid #333', borderRadius: '8px' }}
+                          itemStyle={{ color: '#eee', fontSize: '13px', fontWeight: 500 }}
                         />
                       </PieChart>
                     </ResponsiveContainer>
-                    <div className="flex flex-wrap justify-center gap-3 mt-2">
+                    <div className="flex flex-wrap justify-center gap-3 mt-4">
                       {pieData.map(d => (
-                        <div key={d.name} className="flex items-center gap-1.5 text-[10px] text-panel-muted uppercase">
-                          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: COLORS[d.name] || COLORS.sonstiges }}></span>
-                          {d.name} ({d.value})
+                        <div key={d.name} className="flex items-center gap-1.5 text-[11px] font-medium text-panel-muted uppercase bg-white/5 px-2 py-1 rounded-md">
+                          <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: COLORS[d.name] || COLORS.sonstiges }}></span>
+                          {d.name} <span className="text-white/50 ml-1">{d.value}</span>
                         </div>
                       ))}
                     </div>
                   </div>
                 ) : (
-                  <div className="h-48 flex items-center justify-center text-xs text-panel-muted/50">
+                  <div className="h-56 flex items-center justify-center text-sm text-panel-muted/50 font-medium">
                     Keine Daten vorhanden
                   </div>
                 )}
               </div>
 
               {/* Unbekannte / Sort-Inbox (Bar Chart) */}
-              <div className="col-span-1 lg:col-span-2 border border-panel-border/50 rounded p-4 bg-panel-darker/30">
-                <h3 className="text-xs font-semibold text-panel-muted uppercase mb-4 flex items-center gap-1">
-                  <ArrowRightLeft size={12} /> Unbekannte Sender
+              <div className="col-span-1 lg:col-span-2 bg-black/20 rounded-xl p-5 border border-white/5">
+                <h3 className="text-[11px] font-bold tracking-widest text-panel-muted/70 uppercase mb-4 flex items-center gap-2">
+                  <ArrowRightLeft size={14} className="text-amber-500" /> Unbekannte Sender
                 </h3>
-                <div className="h-48">
+                <div className="h-56">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={barData} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} />
-                      <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#888' }} axisLine={false} tickLine={false} />
-                      <YAxis tick={{ fontSize: 10, fill: '#888' }} axisLine={false} tickLine={false} />
+                    <BarChart data={barData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="barOffen" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.8}/>
+                          <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.2}/>
+                        </linearGradient>
+                        <linearGradient id="barZugeordnet" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#10b981" stopOpacity={0.8}/>
+                          <stop offset="95%" stopColor="#10b981" stopOpacity={0.2}/>
+                        </linearGradient>
+                        <linearGradient id="barIgnoriert" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#6b7280" stopOpacity={0.8}/>
+                          <stop offset="95%" stopColor="#6b7280" stopOpacity={0.2}/>
+                        </linearGradient>
+                      </defs>
+                      <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#8b949e', fontWeight: 500 }} axisLine={false} tickLine={false} dy={5} />
+                      <YAxis tick={{ fontSize: 11, fill: '#8b949e', fontWeight: 500 }} axisLine={false} tickLine={false} dx={-5} />
                       <Tooltip 
-                        contentStyle={{ backgroundColor: '#1a1d24', border: '1px solid #333', borderRadius: '4px', fontSize: '12px' }}
-                        cursor={{ fill: 'rgba(255,255,255,0.05)' }}
+                        contentStyle={{ backgroundColor: '#1a1d24', border: '1px solid #333', borderRadius: '8px', fontSize: '13px', fontWeight: 500 }}
+                        cursor={{ fill: 'rgba(255,255,255,0.03)' }}
                       />
-                      <Bar dataKey="anzahl" radius={[2, 2, 0, 0]} />
+                      <Bar dataKey="anzahl" radius={[4, 4, 0, 0]}>
+                        {barData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={`url(#bar${entry.name})`} />
+                        ))}
+                      </Bar>
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
               </div>
 
               {/* Metriken */}
-              <div className="col-span-1 lg:col-span-4 grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="bg-panel-darker/50 border border-panel-border/40 rounded p-3 text-center">
-                  <div className="text-[10px] text-panel-muted uppercase mb-1">Gereinigter Bestand</div>
-                  <div className="text-xl font-bold text-panel-text">{konto.bestandErledigt}</div>
+              <div className="col-span-1 lg:col-span-4 grid grid-cols-2 gap-4 mt-2">
+                <div className="bg-gradient-to-br from-panel-surface/60 to-transparent border border-white/5 rounded-xl p-4 text-center group transition-all duration-300 hover:border-white/10 hover:shadow-lg">
+                  <div className="text-[10px] font-bold tracking-widest text-panel-muted/70 uppercase mb-2">Gereinigter Bestand</div>
+                  <div className="text-3xl font-black text-white/90 drop-shadow-sm group-hover:scale-105 transition-transform">{konto.bestandErledigt}</div>
                 </div>
-                <div className="bg-panel-darker/50 border border-panel-border/40 rounded p-3 text-center">
-                  <div className="text-[10px] text-panel-muted uppercase flex items-center justify-center gap-1 mb-1">
-                    <Target size={10} /> Regel-Treffer
+                <div className="bg-gradient-to-br from-panel-accent/10 to-transparent border border-panel-accent/20 rounded-xl p-4 text-center group transition-all duration-300 hover:border-panel-accent/40 hover:shadow-[0_0_20px_rgba(56,139,253,0.1)]">
+                  <div className="text-[10px] font-bold tracking-widest text-panel-accent uppercase flex items-center justify-center gap-1.5 mb-2">
+                    <Target size={12} /> Regel-Treffer
                   </div>
-                  <div className="text-xl font-bold text-panel-accent">{konto.regelTreffer}</div>
+                  <div className="text-3xl font-black text-panel-accent drop-shadow-sm group-hover:scale-105 transition-transform">{konto.regelTreffer}</div>
                 </div>
               </div>
 

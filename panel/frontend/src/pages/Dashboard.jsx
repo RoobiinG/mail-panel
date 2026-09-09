@@ -10,7 +10,8 @@ const COLORS = {
   Clean: '#10B981', // emerald-500
   Spam: '#F59E0B',  // amber-500
   Phishing: '#EF4444', // red-500
-  Viren: '#8B5CF6'  // violet-500
+  Viren: '#8B5CF6',  // violet-500
+  Newsletter: '#3B82F6' // blue-500
 };
 
 // Etwas Luft unter dem, was Google zuletzt zugelassen hat: Genau auf die Kante
@@ -39,22 +40,27 @@ function seit(iso) {
 // (Der Startknopf fuer die Bestands-Triage sitzt weiter unten in der Rueckstands-Karte.)
 function StatusKachel({ icon: Icon, titel, wert, unter, ton = 'neutral' }) {
   const toene = {
-    gut:     'border-emerald-500/30 bg-emerald-500/5',
-    warnung: 'border-yellow-600/40 bg-yellow-500/5',
-    schlecht:'border-panel-red/40 bg-panel-red/5',
-    neutral: 'border-panel-border',
+    gut:     'bg-gradient-to-br from-emerald-500/10 to-transparent border-emerald-500/20 shadow-[0_4px_20px_rgba(16,185,129,0.05)]',
+    warnung: 'bg-gradient-to-br from-yellow-500/10 to-transparent border-yellow-500/20 shadow-[0_4px_20px_rgba(234,179,8,0.05)]',
+    schlecht:'bg-gradient-to-br from-panel-red/15 to-transparent border-panel-red/30 shadow-[0_4px_20px_rgba(248,81,73,0.1)]',
+    neutral: 'bg-gradient-to-br from-panel-surface/50 to-transparent border-panel-border shadow-sm',
   };
   const icons = {
     gut: 'text-emerald-500', warnung: 'text-yellow-500',
     schlecht: 'text-panel-red', neutral: 'text-panel-accent',
   };
   return (
-    <div className={`card !p-4 border ${toene[ton]}`}>
-      <div className="flex items-center gap-2 text-xs text-panel-muted mb-1">
-        <Icon size={15} className={icons[ton]} /> {titel}
+    <div className={`card card-hover relative overflow-hidden !p-5 ${toene[ton]}`}>
+      {/* Sanfter Glow-Effekt im Hintergrund */}
+      <div className={`absolute -right-6 -top-6 w-24 h-24 rounded-full blur-2xl opacity-20 ${icons[ton].replace('text-', 'bg-')}`} />
+      
+      <div className="relative z-10">
+        <div className="flex items-center gap-2 text-xs font-semibold tracking-wide text-panel-muted/80 uppercase mb-2">
+          <Icon size={16} className={icons[ton]} /> {titel}
+        </div>
+        <div className="text-3xl font-black tracking-tight text-white/95 leading-tight">{wert}</div>
+        {unter && <div className="text-[11px] text-panel-muted/70 mt-1 font-medium">{unter}</div>}
       </div>
-      <div className="text-2xl font-bold text-panel-text leading-tight">{wert}</div>
-      {unter && <div className="text-[11px] text-panel-muted mt-0.5">{unter}</div>}
     </div>
   );
 }
@@ -151,6 +157,7 @@ export default function Dashboard() {
     { name: 'Spam', value: stats.summen.spam },
     { name: 'Phishing', value: stats.summen.phishing },
     { name: 'Viren', value: stats.summen.viren },
+    { name: 'Newsletter', value: stats.summen.newsletter },
     { name: 'Clean', value: stats.summen.whitelist }
   ].filter(d => d.value > 0) : [];
 
@@ -454,12 +461,16 @@ export default function Dashboard() {
           { label: 'Phishing erkannt', val: stats?.summen?.phishing ?? 0, color: 'text-red-500' },
           { label: 'Viren isoliert', val: stats?.summen?.viren ?? 0, color: 'text-violet-500' },
         ].map((kpi, i) => (
-          <div key={i} className="card relative overflow-hidden group">
-            <div className="text-sm font-medium text-panel-muted mb-1">{kpi.label}</div>
-            <div className={`text-3xl font-black ${kpi.color}`}>
-              {loadingStats ? <span className="animate-pulse">...</span> : kpi.val}
+          <div key={i} className="card card-hover relative overflow-hidden group">
+            <div className={`absolute -right-8 -bottom-8 w-32 h-32 rounded-full blur-3xl opacity-10 transition-opacity duration-500 group-hover:opacity-20 ${kpi.color.replace('text-', 'bg-')}`} />
+            
+            <div className="relative z-10">
+              <div className="text-xs font-semibold tracking-wide text-panel-muted/80 uppercase mb-2">{kpi.label}</div>
+              <div className={`text-4xl font-black tracking-tighter ${kpi.color} drop-shadow-sm`}>
+                {loadingStats ? <span className="animate-pulse opacity-50">...</span> : kpi.val}
+              </div>
             </div>
-            <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity text-8xl">#</div>
+            <div className="absolute right-2 bottom-0 opacity-0 group-hover:opacity-5 transition-all duration-500 transform translate-y-4 group-hover:translate-y-0 text-7xl font-black pointer-events-none">#</div>
           </div>
         ))}
       </div>
@@ -489,17 +500,40 @@ export default function Dashboard() {
               <div className="w-full h-full flex items-center justify-center text-panel-red">Fehler beim Laden</div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={stats.history} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
-                  <XAxis dataKey="tag" tick={{fill: '#6b7280', fontSize: 12}} tickFormatter={(v) => v.split('-').slice(1).join('.')} axisLine={false} tickLine={false} />
-                  <YAxis tick={{fill: '#6b7280', fontSize: 12}} axisLine={false} tickLine={false} />
+                <BarChart data={stats.history} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="colorClean" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={COLORS.Clean} stopOpacity={0.8}/>
+                      <stop offset="95%" stopColor={COLORS.Clean} stopOpacity={0.2}/>
+                    </linearGradient>
+                    <linearGradient id="colorNewsletter" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={COLORS.Newsletter} stopOpacity={0.8}/>
+                      <stop offset="95%" stopColor={COLORS.Newsletter} stopOpacity={0.2}/>
+                    </linearGradient>
+                    <linearGradient id="colorSpam" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={COLORS.Spam} stopOpacity={0.8}/>
+                      <stop offset="95%" stopColor={COLORS.Spam} stopOpacity={0.2}/>
+                    </linearGradient>
+                    <linearGradient id="colorPhishing" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={COLORS.Phishing} stopOpacity={0.8}/>
+                      <stop offset="95%" stopColor={COLORS.Phishing} stopOpacity={0.2}/>
+                    </linearGradient>
+                    <linearGradient id="colorViren" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={COLORS.Viren} stopOpacity={0.8}/>
+                      <stop offset="95%" stopColor={COLORS.Viren} stopOpacity={0.2}/>
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="tag" tick={{fill: '#8b949e', fontSize: 11, fontWeight: 500}} tickFormatter={(v) => v.split('-').slice(1).join('.')} axisLine={false} tickLine={false} dy={5} />
+                  <YAxis tick={{fill: '#8b949e', fontSize: 11, fontWeight: 500}} axisLine={false} tickLine={false} dx={-5} />
                   <Tooltip 
                     contentStyle={{ backgroundColor: '#1a1b1e', borderColor: '#374151', borderRadius: '8px', color: '#f3f4f6' }}
                     itemStyle={{ fontSize: '13px' }}
                   />
-                  <Bar dataKey="Clean" stackId="a" fill={COLORS.Clean} radius={[0, 0, 4, 4]} />
-                  <Bar dataKey="Spam" stackId="a" fill={COLORS.Spam} />
-                  <Bar dataKey="Phishing" stackId="a" fill={COLORS.Phishing} />
-                  <Bar dataKey="Viren" stackId="a" fill={COLORS.Viren} radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="Clean" stackId="a" fill="url(#colorClean)" radius={[0, 0, 4, 4]} />
+                  <Bar dataKey="Newsletter" stackId="a" fill="url(#colorNewsletter)" />
+                  <Bar dataKey="Spam" stackId="a" fill="url(#colorSpam)" />
+                  <Bar dataKey="Phishing" stackId="a" fill="url(#colorPhishing)" />
+                  <Bar dataKey="Viren" stackId="a" fill="url(#colorViren)" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             )}

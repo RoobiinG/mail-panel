@@ -57,21 +57,21 @@ if (themen.aktiv) {
     ? '- Passt wirklich keiner davon, benenne das Thema selbst und antworte "NEU:<Ordnername>". Auf Deutsch, hoechstens 20 Zeichen, nur Buchstaben, Zahlen, Leerzeichen und Bindestriche.\n'
       + '- Ein neuer Ordner ist ein LEBENSBEREICH, keine Firma und keine Marke. Also "Server & Hosting" statt "Plesk", "Streaming" statt "Netflix", "Games" statt "Steam Sommer-Sale", "Reisen" statt "Fluege nach Rom". Wer eine einzelne Firma als Ordner vorschlaegt, macht es falsch — unter diesen Namen passt nie eine zweite Mail.\n'
       + '- Bevor du einen neuen Namen erfindest: Geh die Liste oben noch einmal durch. Steht dort schon etwas, das dasselbe meint — auch in Einzahl statt Mehrzahl, anderer Schreibweise oder auf Englisch —, nimm diesen Namen unveraendert. Zwei Ordner fuer dieselbe Sache sind der haeufigste Fehler: "Gaming" neben "Games", "Nachrichten" neben "News".'
-    : '- Passt keiner davon, setze null. Neue Ordner sind nicht erlaubt.';
+    : '- Passt keiner davon, lass das Feld leer (""). Neue Ordner sind nicht erlaubt.';
   themenBlock = '\n\nVorhandene Themen-Ordner:\n' + liste
     + '\n\nBestimme zusaetzlich das Feld "ordner" — den Themen-Ordner, in den diese Mail gehoert:\n'
     + '- Passt einer der vorhandenen Ordner inhaltlich, nimm ihn genau so, wie er oben steht. Eintraege mit dem Zusatz "vorgeschlagen, noch nicht angelegt" zaehlen dabei mit — auch die sind schon vergeben.\n'
     + '- Hinter dem Gedankenstrich stehen BEISPIELE, keine vollstaendige Liste: Absender, Marken und Themen, die der Nutzer diesem Ordner zugeordnet hat. Erkenne daran, WOFUER der Ordner da ist, und ordne auch Absender ein, die dazu passen, aber nicht genannt sind. Steht dort "Vodafone, Sky, Netflix", gehoert auch eine Mail von o2, 1&1 oder Disney+ dorthin. Steht dort "Jobsuche, Bewerbung", auch eine Absage von einem Arbeitgeber.\n'
     + '- Der Zusatz "bisher hier gelandet" nennt Absender, die tatsaechlich schon in diesem Ordner einsortiert wurden. Auch das sind Beispiele fuer die Art des Ordners, keine Bedingung.\n'
     + neuRegel + '\n'
-    + '- Setze null nur, wenn die Mail kein erkennbares Sachthema hat: reine Werbung ohne Bezug, Systemmeldungen, kurze persoenliche Nachrichten.\n'
+    + '- Lass das Feld leer ("") nur, wenn die Mail kein erkennbares Sachthema hat: reine Werbung ohne Bezug, Systemmeldungen, kurze persoenliche Nachrichten.\n'
     + '- Das Sachthema zaehlt, nicht die Form. Ein Newsletter ueber Spiele gehoert nach "Games", nicht in einen Ordner namens "Newsletter".\n'
     + verbotenBlock
     + '- "konfidenz" ist deine Sicherheit beim Ordner, 0.0 bis 1.0.';
 }
 
 const promptText = 'Du bist ein E-Mail-Klassifizierer. Analysiere die folgende E-Mail und antworte NUR mit einem JSON-Objekt in exakt diesem Format:\n'
-  + '{"kategorie": "spam|rechnung|bestellung|newsletter|persoenlich|sonstiges", "spam_score": 0.0, "kurzfassung": "Ein Satz Zusammenfassung auf Deutsch", "ordner": null, "konfidenz": 0.0}\n\n'
+  + '{"kategorie": "spam|rechnung|bestellung|newsletter|persoenlich|sonstiges", "spam_score": 0.0, "kurzfassung": "Ein Satz Zusammenfassung auf Deutsch", "ordner": "", "konfidenz": 0.0}\n\n'
   + 'Regeln:\n'
   + '- spam_score: 0.0 (sicher kein Spam) bis 1.0 (sicher Spam). Phishing, Betrugsversuche, unserioese Werbung = hoher Score.\n'
   + '- kategorie "rechnung": Rechnungen, Zahlungsaufforderungen, Kontoauszuege, Vertraege.\n'

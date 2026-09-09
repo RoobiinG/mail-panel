@@ -2,6 +2,21 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.5.2.0] - 2026-09-09 (Build 162) — *Premium Dashboard Redesign*
+
+**Features:**
+- **Premium UI Redesign:** Das Panel hat einen komplett neuen, deutlich moderneren Look erhalten. Einsatz von sanften Glassmorphism-Effekten (Milchglas-Optik), radialen Hintergrundverläufen und Micro-Animationen bei interaktiven Karten (Hover-Effekte).
+- **Dashboard & Statistik Upgrade:** Die statischen Kacheln auf dem Dashboard und der Statistik-Seite wurden durch weichere Gradient-Karten ersetzt. Die Diagramme (`Recharts`) nutzen nun ebenfalls fließende Farbverläufe (`linearGradient`) anstelle platter Farben, was das Interface insgesamt luftiger und zeitgemäßer wirken lässt.
+
+**Bugfixes:**
+- **Dashboard Zähllogik:** Fehler behoben, durch den regulär sortierte E-Mails (wie Rechnungen, Bestellungen) in den Diagrammen komplett verschluckt wurden. Die Summen und Kuchendiagramme umfassen nun auch *alle* erfolgreich einsortierten Mails als "Clean".
+- **Sicherheits-Audit durchgeführt:** Keine kritischen SQL-Injections oder Umgehungen gefunden, Parameterisierung und `rechtErforderlich`-Middleware greifen korrekt.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** keine.
+- **n8n-Kompatibilität:** Kompatibel.
+- **Neustart:** Backend startet nach dem automatischen Build neu.
+
 ## [4.5.1.2] - 2026-09-09 (Build 161) — *Lokales Modell entlastet*
 
 **Bugfixes:**
