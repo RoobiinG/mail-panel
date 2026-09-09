@@ -1259,6 +1259,40 @@ const BUENDEL_MARKE = '// PANEL:BUENDEL v1';
 const KI_KNOTEN = ['Gemini klassifizieren', 'Ollama klassifizieren', 'KI klassifizieren'];
 const istKiKnoten = (name) => KI_KNOTEN.includes(String(name || ''));
 
+// Der Zusammenfasser im Digest — dieselbe Geschichte, andere Aufgabe.
+const KI_ZUSAMMENFASSER = ['Gemini zusammenfassen', 'Ollama zusammenfassen', 'KI zusammenfassen'];
+
+// Wie der Knoten am Ende heissen soll: neutral.
+const KI_NAME = 'KI klassifizieren';
+const KI_ZUSAMMENFASSER_NAME = 'KI zusammenfassen';
+
+// Den KI-Knoten auf einen anbieterneutralen Namen bringen.
+//
+// Im n8n-Editor stand bei einer Bestandsinstallation weiter „Gemini
+// klassifizieren", waehrend darunter `POST http://ollama:11434/…` zu lesen war.
+// Der Name war ein Ueberbleibsel des ersten Imports; angefasst hat ihn niemand,
+// weil geminiBuendelEinbauen() den Knoten AUSSCHLIESSLICH ueber den Namen
+// findet — ohne Adress-Rueckfall. Ihn einfach zu aendern haette Workflow 04
+// stumm seine Buendelung gekostet.
+//
+// Das ist kein Grund, ihn falsch stehen zu lassen, sondern einer, ihn richtig
+// umzubenennen: knotenUmbenennen() zieht die Verbindungen mit (die laufen in
+// n8n ueber den Namen), und der neue Name steht selbst in KI_KNOTEN — der
+// Knoten bleibt also vor und nach der Umbenennung auffindbar.
+function kiKnotenNeutralBenennen(workflow) {
+  let geaendert = false;
+  for (const knoten of workflow.nodes || []) {
+    if (istKiKnoten(knoten.name) && knoten.name !== KI_NAME) {
+      knotenUmbenennen(workflow, knoten, KI_NAME);
+      geaendert = true;
+    } else if (KI_ZUSAMMENFASSER.includes(knoten.name) && knoten.name !== KI_ZUSAMMENFASSER_NAME) {
+      knotenUmbenennen(workflow, knoten, KI_ZUSAMMENFASSER_NAME);
+      geaendert = true;
+    }
+  }
+  return geaendert;
+}
+
 // Wie lange der Buendel-Knoten auf das Panel wartet: dessen Frist plus 40 s
 // Luft. Lazy geladen, weil der Klassifizierer seinerseits ueber kiText an
 // dieser Datei haengt — beim Patchen ist alles laengst da.
@@ -1672,6 +1706,10 @@ async function kiUndBenachrichtigungenSynchronisieren() {
       // dem abgekündigten Gemini-Modell stehen, weil ihn sonst niemand anfasst.
       if (geminiRequestReparieren(workflow)) geaendert = true;
       if (kiAntwortLesenAngleichen(workflow)) geaendert = true;
+      // Nach dem Reparieren, nicht davor: geminiRequestReparieren() findet den
+      // Knoten ueber die Adresse ODER den Namen, danach heisst er ohnehin
+      // neutral.
+      if (kiKnotenNeutralBenennen(workflow)) geaendert = true;
       // Auch die Vorlagen-Knoten, die das Panel fragen — siehe panelZeitlimitSetzen.
       if (panelZeitlimitSetzen(workflow)) geaendert = true;
 
@@ -1680,9 +1718,8 @@ async function kiUndBenachrichtigungenSynchronisieren() {
         // ist aber ein Code-Knoten und ruft Google gar nicht mehr selbst auf.
         // Ohne diese Prüfung bekäme er bei jedem Rundgang Zugangsdaten
         // angeheftet, die er nicht braucht — und würde jedes Mal neu gespeichert.
-        const zusammenfasser = ['Gemini zusammenfassen', 'Ollama zusammenfassen', 'KI zusammenfassen'];
         if (knoten.type === 'n8n-nodes-base.httpRequest'
-          && (istKiKnoten(knoten.name) || zusammenfasser.includes(knoten.name))) {
+          && (istKiKnoten(knoten.name) || KI_ZUSAMMENFASSER.includes(knoten.name))) {
           // Mit Ollama darf hier kein Google-Zugang mehr hängen: Der Knoten
           // zeigt dann auf den lokalen Server, und ein Header mit einem
           // Google-Schlüssel hätte dort nichts zu suchen.
@@ -1938,6 +1975,7 @@ module.exports = {
   fingerabdruck, zugangsdatenVergessen, absenderFallbackEinbauen, ABSENDER_MARKE,
   geminiModellNachziehen,
   geminiBuendelEinbauen, BUENDEL_MARKE, panelZeitlimitSetzen,
+  kiKnotenNeutralBenennen, KI_NAME, KI_ZUSAMMENFASSER_NAME,
   KI_ZEITLIMIT_GEMINI, KI_ZEITLIMIT_OLLAMA,
   kiAntwortLesenAngleichen, istKiKnoten,
 };

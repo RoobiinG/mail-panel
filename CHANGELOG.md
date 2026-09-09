@@ -2,6 +2,28 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.5.0.1] - 2026-09-09 (Build 157) — *Der Knoten hieß noch Gemini*
+
+Im n8n-Editor stand weiter **„Gemini klassifizieren"**, während direkt darunter
+`POST http://ollama:11434/api/generate` zu lesen war. Die Adresse hatte der Patcher längst
+umgebogen — den Namen nie.
+
+Warum er so lange stehen blieb, ist der interessantere Teil: Verbindungen laufen in n8n über den
+**Namen**, nicht über die id, und `geminiBuendelEinbauen()` findet den KI-Knoten
+*ausschließlich* über den Namen, ohne Adress-Rückfall. Ihn einfach zu ändern hätte Workflow 04
+stumm seine Bündelung gekostet, ohne dass irgendwo ein Fehler erschienen wäre. Deshalb stand er
+in der Fehleranalyse als „Falle, nicht anfassen".
+
+Das war ein Grund, vorsichtig zu sein — kein Grund, ihn falsch stehen zu lassen. Der Abgleich
+benennt ihn jetzt bei jedem Durchgang auf **„KI klassifizieren"** um (und den Zusammenfasser im
+Digest auf „KI zusammenfassen"). `knotenUmbenennen()` zieht die Verbindungen mit, und der neue
+Name steht selbst in der Erkennungsliste — der Knoten bleibt vor und nach der Umbenennung
+auffindbar.
+
+Der Name verspricht damit nichts mehr über den Anbieter. Welcher gerade arbeitet, steht in den
+Einstellungen und in der Adresse des Knotens — an zwei Stellen, die tatsächlich stimmen.
+
+
 ## [4.5.0.0] - 2026-09-09 (Build 156) — *Aus einer Bitte wird eine Grammatik*
 
 Build 155 hat den blinden Fleck geöffnet: Die lokale KI **antwortet** — dreizehnmal zwischen
