@@ -469,7 +469,7 @@ function antwortSchema() {
   };
 }
 
-function fragen(teil, konto, bekannt, zeitlimit = ANFRAGE_MAX_MS) {
+function fragen(teil, konto, bekannt, zeitlimit = 180000) {
   return kiText.frageJson(promptBauen(teil, konto, bekannt), {
     quelle: 'backend:klassifizierer',
     zeitlimit,

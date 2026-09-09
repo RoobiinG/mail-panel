@@ -2,7 +2,7 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
-## [4.5.1.1] - 2026-09-09 (Build 159) — *Warteschlangen-Dynamik*
+## [4.5.1.1] - 2026-09-09 (Build 160) — *Warteschlangen-Dynamik*
 
 **Bugfixes:**
 - **Lokale KI Timeout-Behebung:** Die harte Grenze von 180s für `anfrageZeitlimit` wurde entfernt und nutzt jetzt die tatsächliche Restzeit des Laufs abzüglich eines Puffers. Das behebt das Problem, dass KI-Abfragen abgebrochen wurden, obwohl der Nutzer die Frist z.B. auf 240s erhöht hat.
