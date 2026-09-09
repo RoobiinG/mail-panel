@@ -178,6 +178,59 @@ export default function Sortierung() {
   const [korrekturOrdner, setKorrekturOrdner] = useState('');
   const [korrekturRegel, setKorrekturRegel] = useState('domain');
 
+  // Ordner-Ansicht
+  const [ordnerInhalt, setOrdnerInhalt] = useState([]);
+  const [ordnerAnsichtOrdner, setOrdnerAnsichtOrdner] = useState('INBOX');
+  const [ordnerInhaltLaedt, setOrdnerInhaltLaedt] = useState(false);
+  const [ordnerAuswahl, setOrdnerAuswahl] = useState([]);
+  const [ordnerAnsichtZiel, setOrdnerAnsichtZiel] = useState('');
+
+  const ordnerInhaltLaden = async (kontoId = aktivesKonto, ordner = ordnerAnsichtOrdner) => {
+    if (!kontoId || !ordner) return;
+    setOrdnerInhaltLaedt(true);
+    setOrdnerAuswahl([]);
+    try {
+      if (!ordnerJeKonto[kontoId]) {
+        const { data: o } = await api.get(`/sortierung/postfach-ordner?konto_id=${kontoId}`);
+        setOrdnerJeKonto(prev => ({ ...prev, [kontoId]: o || [] }));
+      }
+      const { data } = await api.get(`/sortierung/ordner-inhalt?konto_id=${kontoId}&ordner=${encodeURIComponent(ordner)}`);
+      setOrdnerInhalt(data || []);
+    } catch (err) {
+      melden(err.response?.data?.error || 'Fehler beim Laden des Ordners', 'fehler');
+      setOrdnerInhalt([]);
+    } finally {
+      setOrdnerInhaltLaedt(false);
+    }
+  };
+
+  const ordnerAnsichtVerschieben = async () => {
+    if (ordnerAuswahl.length === 0 || !ordnerAnsichtZiel) return;
+    if (!(await nachfragen({
+      titel: `${ordnerAuswahl.length} Mail(s) verschieben?`,
+      text: `Die ${ordnerAuswahl.length} ausgewählten Mails wandern nach "${ordnerAnsichtZiel}".`,
+      bestaetigen: 'Verschieben',
+    }))) return;
+
+    try {
+      const { data } = await api.post('/sortierung/mails-verschieben', {
+        konto_id: aktivesKonto,
+        von: ordnerAnsichtOrdner,
+        nach: ordnerAnsichtZiel,
+        uids: ordnerAuswahl
+      });
+      melden(`${data.verschoben.length} Mail(s) nach "${ordnerAnsichtZiel}" verschoben.`);
+      setOrdnerAuswahl([]);
+      ordnerInhaltLaden();
+    } catch (err) {
+      melden(err.response?.data?.error || 'Verschieben fehlgeschlagen', 'fehler');
+    }
+  };
+
+  useEffect(() => {
+    if (tab === 'ordner') ordnerInhaltLaden();
+  }, [tab, aktivesKonto, ordnerAnsichtOrdner]);
+
   // Nur die Konten holen — alles Weitere hängt am gewählten Konto und wird vom
   // Effekt darunter geladen, sobald eines feststeht.
   const ladenInit = async () => {
@@ -919,6 +972,9 @@ export default function Sortierung() {
       <div className="card !p-2 flex flex-wrap items-center gap-1">
         <TabKnopf aktiv={tab === 'sortieren'} onClick={() => setTab('sortieren')} icon={Inbox} zahl={gefilterteInbox.length}>
           Sortieren
+        </TabKnopf>
+        <TabKnopf aktiv={tab === 'ordner'} onClick={() => setTab('ordner')} icon={FolderTree}>
+          Ordner
         </TabKnopf>
         <TabKnopf aktiv={tab === 'vorschlaege'} onClick={() => setTab('vorschlaege')} icon={Sparkles} zahl={vorschlaege.length}>
           Vorschläge
@@ -1972,6 +2028,87 @@ export default function Sortierung() {
               </div>
             )}
           </div>
+        </div>
+      </div>
+      )}
+      {tab === 'ordner' && (
+      <div className="card !p-0 overflow-hidden flex flex-col">
+        <div className="p-4 border-b border-panel-border bg-panel-card/50 flex flex-wrap gap-4 justify-between items-center">
+          <div className="flex items-center gap-3">
+            <FolderTree size={18} className="text-panel-accent" />
+            <select
+              value={ordnerAnsichtOrdner}
+              onChange={e => setOrdnerAnsichtOrdner(e.target.value)}
+              className="text-sm bg-panel-bg font-medium"
+              disabled={ordnerInhaltLaedt}
+            >
+              {(ordnerJeKonto[aktivesKonto] || ['INBOX']).map(o => (
+                <option key={o} value={o}>{o === 'INBOX' ? 'Posteingang' : o}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-center gap-3">
+            <input
+              type="text"
+              placeholder="Verschieben nach …"
+              value={ordnerAnsichtZiel}
+              onChange={e => setOrdnerAnsichtZiel(e.target.value)}
+              list="ordner-vorschlaege"
+              className="text-sm w-48"
+              disabled={ordnerAuswahl.length === 0}
+            />
+            <button
+              onClick={ordnerAnsichtVerschieben}
+              disabled={ordnerAuswahl.length === 0 || !ordnerAnsichtZiel}
+              className="btn !py-1.5 !px-3 text-sm flex items-center gap-1 disabled:opacity-50"
+            >
+              <Layers size={14} /> Verschieben ({ordnerAuswahl.length})
+            </button>
+            <button onClick={() => ordnerInhaltLaden()} className="btn-ghost text-xs disabled:opacity-50" disabled={ordnerInhaltLaedt}>
+              {ordnerInhaltLaedt ? 'Lädt …' : 'Aktualisieren'}
+            </button>
+          </div>
+        </div>
+        
+        <div className="flex-1 overflow-auto max-h-[600px]">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-panel-border text-left text-panel-muted text-xs bg-panel-bg/30">
+                <th className="py-2 px-4 w-8">
+                  <input
+                    type="checkbox"
+                    checked={ordnerInhalt.length > 0 && ordnerAuswahl.length === ordnerInhalt.length}
+                    onChange={e => setOrdnerAuswahl(e.target.checked ? ordnerInhalt.map(m => m.uid) : [])}
+                  />
+                </th>
+                <th className="py-2 px-4 whitespace-nowrap">Datum</th>
+                <th className="py-2 px-4">Absender</th>
+                <th className="py-2 px-4">Betreff</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ordnerInhalt.length === 0 && !ordnerInhaltLaedt && (
+                <tr><td colSpan="4" className="py-8 px-4 text-center text-panel-muted text-sm">Keine Nachrichten gefunden.</td></tr>
+              )}
+              {ordnerInhaltLaedt && ordnerInhalt.length === 0 && (
+                <tr><td colSpan="4" className="py-8 px-4 text-center text-panel-muted text-sm animate-pulse">Lädt Ordnerinhalt …</td></tr>
+              )}
+              {ordnerInhalt.map(mail => (
+                <tr key={mail.uid} className="border-b border-panel-border/50 hover:bg-panel-bg/30 transition-colors">
+                  <td className="py-2 px-4">
+                    <input
+                      type="checkbox"
+                      checked={ordnerAuswahl.includes(mail.uid)}
+                      onChange={e => setOrdnerAuswahl(p => e.target.checked ? [...p, mail.uid] : p.filter(u => u !== mail.uid))}
+                    />
+                  </td>
+                  <td className="py-2 px-4 text-xs text-panel-muted whitespace-nowrap">{zeitpunkt(mail.datum)}</td>
+                  <td className="py-2 px-4 max-w-[200px] truncate" title={mail.von}>{mail.von}</td>
+                  <td className="py-2 px-4 truncate max-w-[300px] text-panel-muted" title={mail.betreff}>{mail.betreff}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
       )}

@@ -460,7 +460,12 @@ async function uidsAuflisten({ ordner = 'INBOX', ...konto }) {
       const da = new Set();
       // Ein leerer Ordner laesst sich nicht abrufen — imapflow wirft dann.
       if (!client.mailbox || client.mailbox.exists === 0) return da;
-      for await (const m of client.fetch('1:*', { uid: true })) da.add(Number(m.uid));
+      if (konto.unseenOnly) {
+        const uids = await client.search({ unseen: true }, { uid: true });
+        if (Array.isArray(uids)) uids.forEach(u => da.add(Number(u)));
+      } else {
+        for await (const m of client.fetch('1:*', { uid: true })) da.add(Number(m.uid));
+      }
       return da;
     } finally {
       schloss.release();
@@ -511,6 +516,33 @@ async function mailLaden({ ordner = 'INBOX', uid, ...konto }) {
     try { await client.logout(); } catch { /* Verbindung war schon zu */ }
   }
 }
+// Holt eine Liste der neuesten Mails (Kopfzeilen) aus einem Ordner
+async function ordnerInhaltLaden({ ordner, limit = 100, ...konto }) {
+  const client = verbindung(konto);
+  try {
+    await client.connect();
+    const schloss = await client.getMailboxLock(String(ordner || 'INBOX'));
+    try {
+      if (!client.mailbox || client.mailbox.exists === 0) return [];
+      
+      const start = Math.max(1, client.mailbox.exists - limit + 1);
+      const liste = [];
+      for await (const m of client.fetch(`${start}:*`, { uid: true, envelope: true })) {
+        liste.push({
+          uid: m.uid,
+          von: m.envelope.from?.[0]?.address || m.envelope.from?.[0]?.name || '',
+          betreff: m.envelope.subject || '(kein Betreff)',
+          datum: m.envelope.date || new Date().toISOString()
+        });
+      }
+      return liste.reverse(); // Neueste zuerst
+    } finally {
+      schloss.release();
+    }
+  } finally {
+    try { await client.logout(); } catch { /* Verbindung war schon zu */ }
+  }
+}
 
 module.exports = {
   testVerbindung,
@@ -526,5 +558,6 @@ module.exports = {
   mailsSuchen,
   anhaengeHolen,
   mailLaden,
+  ordnerInhaltLaden,
   STANDARD,
 };

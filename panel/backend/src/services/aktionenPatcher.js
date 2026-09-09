@@ -206,8 +206,9 @@ function belegDatenKnoten(aktion, konfig, quellKnotenName, position) {
 
   // Nur beim Auslesen: eigener Ordner je Vorgang (Belege/Firma/Aktenzeichen),
   // sonst nach Jahr (Belege/Jahr/Firma). Die drei Teile füllen {{beleg_t1..3}}.
+  const belegPfad = settings.hole('nextcloud_beleg_pfad') || 'Belege';
   const ordnerBlock = auslesen ? String.raw`
-    j.beleg_t1 = 'Belege';
+    j.beleg_t1 = ${JSON.stringify(belegPfad)};
     if (aktenzeichen) { j.beleg_t2 = firma; j.beleg_t3 = aktenzeichen; }
     else { j.beleg_t2 = (datum || '').slice(0, 4) || heute().slice(0, 4); j.beleg_t3 = firma; }` : '';
 

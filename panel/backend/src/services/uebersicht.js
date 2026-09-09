@@ -27,7 +27,7 @@ async function posteingangStaende() {
   const raus = [];
   for (const konto of konten) {
     try {
-      const uids = await imap.uidsAuflisten({ ...themen.zugang(konto), ordner: 'INBOX' });
+      const uids = await imap.uidsAuflisten({ ...themen.zugang(konto), ordner: 'INBOX', unseenOnly: true });
       raus.push({ konto: konto.name, konto_id: konto.id, wartend: uids.size, erreichbar: true });
     } catch (err) {
       // Ein nicht erreichbares Postfach darf die Übersicht nicht scheitern

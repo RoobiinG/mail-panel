@@ -1128,6 +1128,8 @@ export default function Einstellungen() {
               disabled={settings.nextcloud_passwort_per_env} onChange={v => set('nextcloud_passwort', v)} />
             <Feld label="Kalender (Name in der Adresse)" value={settings.nextcloud_kalender} placeholder="personal"
               disabled={settings.nextcloud_kalender_per_env} onChange={v => set('nextcloud_kalender', v)} />
+            <Feld label="Basis-Pfad für Belege" value={settings.nextcloud_beleg_pfad} placeholder="Belege"
+              disabled={settings.nextcloud_beleg_pfad_per_env} onChange={v => set('nextcloud_beleg_pfad', v)} />
             <SpeichernBtn onSpeichern={() => speichern('nextcloud')} meldung={meldung.nextcloud} />
           </Card>
 

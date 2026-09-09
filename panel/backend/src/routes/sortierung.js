@@ -166,44 +166,62 @@ router.get('/inbox', async (req, res) => {
   }
 });
 
-// POST /api/sortierung/zuordnen — Mail aus Inbox einem Ordner zuweisen
-router.post('/zuordnen', async (req, res) => {
-  const { id, zielordner, regelAnlegen } = req.body || {};
-  if (!id || !zielordner) return res.status(400).json({ error: 'ID und Zielordner fehlen.' });
+router.get('/ordner-inhalt', async (req, res) => {
+  const { konto_id, ordner } = req.query;
+  if (!konto_id || !ordner) return res.status(400).json({ error: 'konto_id und ordner fehlen' });
+  const konto = db.prepare('SELECT * FROM accounts WHERE id = ?').get(konto_id);
+  if (!konto) return res.status(400).json({ error: 'Konto nicht gefunden' });
   
   try {
-    const mail = db.prepare('SELECT * FROM sort_inbox WHERE id = ?').get(id);
-    if (!mail) throw new Error('Mail nicht gefunden.');
+    konto.passwort = entschluesseln(konto.password_enc);
+    const inhalt = await imap.ordnerInhaltLaden({ ...konto, ordner, limit: 100 });
+    res.json(inhalt);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
+// POST /api/sortierung/zuordnen — Mail(s) aus Inbox einem Ordner zuweisen
+router.post('/zuordnen', async (req, res) => {
+  const { zielordner, regelAnlegen } = req.body || {};
+  let ids = req.body?.ids || (req.body?.id ? [req.body.id] : []);
+  if (!ids.length || !zielordner) return res.status(400).json({ error: 'ID(s) und Zielordner fehlen.' });
+  
+  try {
+    const uebergeben = [];
     db.transaction(() => {
-      // In der Inbox als zugeordnet markieren (Wird nicht gelöscht, für spätere Analyse/Logs)
-      db.prepare("UPDATE sort_inbox SET status = 'zugeordnet', vorschlag = ? WHERE id = ?").run(zielordner, id);
+      for (const id of ids) {
+        const mail = db.prepare('SELECT * FROM sort_inbox WHERE id = ?').get(id);
+        if (!mail) continue;
 
-      // Regel anlegen? regelAnlegen ist entweder true (= Absender, wie frueher)
-      // oder 'absender' / 'domain'.
-      if (regelAnlegen && mail.konto_id) {
-        const typ = regelAnlegen === 'domain' ? 'domain' : 'absender';
-        const muster = typ === 'domain'
-          ? sortierung.domain(mail.von)
-          : sortierung.adresse(mail.von);
+        db.prepare("UPDATE sort_inbox SET status = 'zugeordnet', vorschlag = ? WHERE id = ?").run(zielordner, id);
+        uebergeben.push(mail);
 
-        if (muster) {
-          const exists = db.prepare(
-            'SELECT id FROM sort_rules WHERE konto_id = ? AND typ = ? AND muster = ?',
-          ).get(mail.konto_id, typ, muster);
-          if (!exists) {
-            db.prepare(`
-              INSERT INTO sort_rules (konto_id, typ, muster, zielordner, erstellt_von)
-              VALUES (?, ?, ?, ?, ?)
-            `).run(mail.konto_id, typ, muster, zielordner, req.user.id);
+        if (regelAnlegen && mail.konto_id) {
+          const typ = regelAnlegen === 'domain' ? 'domain' : 'absender';
+          const muster = typ === 'domain'
+            ? sortierung.domain(mail.von)
+            : sortierung.adresse(mail.von);
+
+          if (muster) {
+            const exists = db.prepare(
+              'SELECT id FROM sort_rules WHERE konto_id = ? AND typ = ? AND muster = ?',
+            ).get(mail.konto_id, typ, muster);
+            if (!exists) {
+              db.prepare(`
+                INSERT INTO sort_rules (konto_id, typ, muster, zielordner, erstellt_von)
+                VALUES (?, ?, ?, ?, ?)
+              `).run(mail.konto_id, typ, muster, zielordner, req.user.id);
+            }
           }
         }
       }
     })();
 
-    if (mail.konto_id) {
+    const genutzteKonten = new Set(uebergeben.map(m => m.konto_id).filter(Boolean));
+    for (const konto_id of genutzteKonten) {
       try {
-        const konto = db.prepare('SELECT * FROM accounts WHERE id = ?').get(mail.konto_id);
+        const konto = db.prepare('SELECT * FROM accounts WHERE id = ?').get(konto_id);
         if (konto) {
           konto.passwort = entschluesseln(konto.password_enc);
           const angelegt = await imap.ordnerErstellen(konto, zielordner.trim());
@@ -214,8 +232,31 @@ router.post('/zuordnen', async (req, res) => {
       }
     }
 
-    loggen('info', 'sortierung', `Mail ${mail.uid} (Konto ${mail.konto}) soll in Ordner ${zielordner} verschoben werden.`);
-    res.json({ ok: true });
+    loggen('info', 'sortierung', `${uebergeben.length} Mail(s) sollen in Ordner ${zielordner} verschoben werden.`);
+    res.json({ ok: true, aktualisiert: uebergeben.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/sortierung/mails-verschieben — Mails direkt per IMAP verschieben (Ordner-Ansicht)
+router.post('/mails-verschieben', async (req, res) => {
+  const { konto_id, von, nach, uids } = req.body || {};
+  if (!konto_id || !von || !nach || !Array.isArray(uids)) return res.status(400).json({ error: 'Parameter fehlen' });
+  
+  try {
+    const konto = db.prepare('SELECT * FROM accounts WHERE id = ?').get(konto_id);
+    if (!konto) return res.status(400).json({ error: 'Konto nicht gefunden' });
+    konto.passwort = entschluesseln(konto.password_enc);
+    
+    // Zielordner anlegen falls nötig
+    await imap.ordnerErstellen(konto, nach.trim());
+    
+    const mails = uids.map(uid => ({ uid }));
+    const ergebnis = await imap.mailsVerschieben({ ...konto, mails, von, nach });
+    
+    loggen('info', 'sortierung', `${ergebnis.verschoben.length} Mail(s) von ${von} nach ${nach} verschoben.`);
+    res.json(ergebnis);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

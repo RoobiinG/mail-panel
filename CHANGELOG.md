@@ -2,6 +2,21 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.5.4.0] - 2026-09-10 (Build 166) — *Ordner-Ansicht, Nextcloud-Pfad & Dashboard-Update*
+
+**Features:**
+- **Ordner-Ansicht (Multi-Select):** Unter Sortierung gibt es nun einen eigenen Tab "Ordner". Dieser zeigt live den IMAP-Inhalt ausgewählter Ordner und erlaubt es, beliebig viele Mails mittels Checkboxen auf einmal zu markieren und in einen Zielordner zu verschieben (`/api/sortierung/mails-verschieben`).
+- **Einstellbarer Nextcloud-Pfad:** Der Basis-Pfad für das Ablegen von Belegen in Nextcloud kann nun in den Einstellungen definiert werden. Der Workflow-Generator berücksichtigt diesen Pfad fortan automatisch.
+- **Bulk-Zuordnung in der Sortier-Inbox:** Die gebündelte Sortier-Inbox-Funktion ("Alle x verschieben") wurde im Backend auf die Verarbeitung eines Arrays von IDs umgestellt, um die Leistung bei größeren Stapeln zu verbessern.
+
+**Fixes:**
+- **Dashboard Sortier-Rückstand:** Das Diagramm im Dashboard berücksichtigt nun ausschließlich "ungelesene" (`UNSEEN`) E-Mails im Posteingang. So zählen bewusst ungelesen liegengelassene E-Mails (z. B. durch "In Ruhe lassen") nicht länger permanent als unbearbeiteter Rückstand.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine neuen Migrationen erforderlich.
+- **n8n-Kompatibilität:** Kompatibel. Um den geänderten Nextcloud-Pfad anzuwenden, ist unter Workflows einmalig der Button "Synchronisieren" zu betätigen.
+- **Neustart:** Panel startet durch.
+
 ## [4.5.3.0] - 2026-09-09 (Build 165) — *Performance-Update: Stau-Vermeidung & Bestand-Fix*
 
 **Features:**
