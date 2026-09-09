@@ -161,6 +161,12 @@ router.put('/:id', async (req, res) => {
            ordner.folder_newsletter || null, ordner.folder_archive || null,
            konto.id);
 
+    // Bugfix: Historische Logs aktualisieren, falls der Kontoname geändert wurde
+    if (name !== konto.name) {
+      db.prepare('UPDATE quarantine_log SET konto = ? WHERE konto = ?').run(name, konto.name);
+      db.prepare('UPDATE sort_inbox SET konto = ? WHERE konto = ?').run(name, konto.name);
+    }
+
     const sync = await patcher.alleSynchronisieren(alleAktiven());
     // Erst nach erfolgreichem Sync entfernen — sonst zeigen die Knoten ins Leere
     try { await n8n.credentialLoeschen(konto.n8n_credential_id); } catch { /* best effort */ }

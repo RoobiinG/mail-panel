@@ -2,6 +2,17 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.5.2.1] - 2026-09-09 (Build 163) — *Geisterkonten & Rspamd-Duplikate gefixt*
+
+**Bugfixes:**
+- **Konto-Umbenennung (Geisterkonten):** Bislang wurde bei der Umbenennung eines Postfachs in den Einstellungen (z. B. "Web.de" zu "g.robin.2002") nur der Name in den Stammdaten geändert. Alte Statistiken in `quarantine_log` verblieben auf dem alten Namen, was dazu führte, dass alte Namen in der Statistik weiter als separate Geisterkonten auftauchten. Die Umbenennung kaskadiert nun sauber in die Logs, auch die historischen Daten wurden in der Datenbank glattgezogen.
+- **Rspamd-Duplikate:** Ein Fehler, bei dem die Mailcow-API identische Einträge (Whitelists/Blacklists) mehrfach an das Panel gemeldet hat, wurde behoben. Die Ausgabe in der Rspamd-Ansicht wird nun auf Backend-Seite strikt gefiltert, sodass du keine doppelten Einträge mehr siehst.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Manuelles `UPDATE` für das bestehende Postfach wurde ausgeführt.
+- **n8n-Kompatibilität:** Kompatibel.
+- **Neustart:** Backend startet nach dem automatischen Build neu.
+
 ## [4.5.2.0] - 2026-09-09 (Build 162) — *Premium Dashboard Redesign*
 
 **Features:**

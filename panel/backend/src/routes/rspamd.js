@@ -60,12 +60,20 @@ router.get('/policy', async (req, res) => {
     return res.json(antwort);
   }
 
+  const gesehen = { whitelist: new Set(), blacklist: new Set() };
+
   for (const domain of domains) {
     for (const [pfad, ziel] of [['policy_wl_domain', 'whitelist'], ['policy_bl_domain', 'blacklist']]) {
       try {
         const { data } = await mailcow.client().get(`/get/${pfad}/${encodeURIComponent(domain)}`);
         for (const eintrag of alsListe(data)) {
           if (!eintrag?.object) continue;
+          
+          // Bugfix: Duplikate filtern (Absender + Domain)
+          const schluessel = `${domain}:${eintrag.object.toLowerCase()}`;
+          if (gesehen[ziel].has(schluessel)) continue;
+          gesehen[ziel].add(schluessel);
+
           antwort[ziel].push({ domain, object: eintrag.object, prefid: eintrag.prefid ?? null });
         }
       } catch (err) {
