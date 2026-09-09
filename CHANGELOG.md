@@ -2,6 +2,18 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.5.3.0] - 2026-09-09 (Build 165) — *Performance-Update: Stau-Vermeidung & Bestand-Fix*
+
+**Features:**
+- **Stau-Vermeidung für Inbox-Workflow:** Der Inbox-Workflow prüft nun beim Empfang einer neuen Mail über das Panel ab, ob die lokale KI (Ollama) bereits anderweitig ausgelastet ist oder Warteschlangen gebildet hat. Ist dies der Fall, wird die Mail sofort abgewiesen und verbleibt ungelesen im Postfach, wodurch der n8n-Workflow nach nur einer Sekunde ohne Blockade abschließen kann. Kurze Zeit später sammelt der Bestands-Workflow die liegengebliebenen Mails ohnehin ein und verarbeitet sie weitaus ressourcenschonender (als gebündelte Bündel statt als Einzelläufe).
+
+**Bugfixes:**
+- **Bestands-Workflow (4448 unklare Mails):** Mails, die wegen des Ollama-Timeouts nicht verarbeitet werden konnten, wurden durch eine zu restriktive "Raten"-Logik in `bestand.js` beim nächsten Lauf fälschlicherweise dauerhaft als "unklar" aussortiert und somit im Posteingang vergessen. Diese Logik wurde restlos entfernt. Unklare Fälle (z.B. fehlender Absender) werden stattdessen nun präzise und fehlerfrei über den Endpoint `/einsortieren` abgefangen. Mails, die wegen Ollama-Timeouts zurückbleiben, rutschen ganz regulär und ohne Abstrafung in die nächste Queue.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine neuen Migrationen erforderlich.
+- **n8n-Kompatibilität:** Kompatibel. Mails ohne sofortige Verarbeitung durch den Inbox-Workflow werden fortan einfach dem Bestands-Workflow überlassen.
+- **Neustart:** Panel startet durch. Ein Klick auf "Bestandsspeicher leeren" (oder API-Aufruf `/api/workflows/bestand-reset`) ist erforderlich, um die angesammelten 4448 falsch abgebogenen Mails wieder in die Pipeline aufzunehmen.
 ## [4.5.2.2] - 2026-09-09 (Build 164) — *Hotfix für Web.de Geisterkonto*
 
 **Bugfixes:**

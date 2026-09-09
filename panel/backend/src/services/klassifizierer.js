@@ -102,6 +102,19 @@ const schlafen = (ms) => (ms > 0 ? new Promise((f) => { setTimeout(f, ms); }) : 
 // Zeit selbst; mehr als anderthalb Minuten wären für einen Lauf zu viel.
 const WARTEN_MAX_MS = 90000;
 
+// Sagt dem Aufrufer, ob die KI gerade ausgelastet ist.
+// Wird genutzt, um bei Ollama den Inbox-Triage-Lauf abzukürzen, wenn
+// ohnehin gerade andere Mails klassifiziert werden.
+function istBeschaeftigt() {
+  try {
+    if ((settings.hole('ki_anbieter') || 'gemini') === 'ollama') {
+      const stand = require('./ollamaSchlange').stand();
+      return stand.inArbeit || stand.wartend > 0;
+    }
+  } catch { /* ignorieren */ }
+  return false;
+}
+
 // Wie lange darf eine Klassifizier-Anfrage insgesamt dauern?
 //
 // n8n bricht einen Code-Knoten nach 300 Sekunden ab („Task execution timed out
@@ -641,4 +654,5 @@ module.exports = {
   kategoriePruefen,
   KATEGORIEN,
   PLAETZE_VERDACHT,
+  istBeschaeftigt,
 };

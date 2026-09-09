@@ -181,23 +181,10 @@ async function kandidaten(grenze = 0) {
       const vorherige = letztesFenster(konto.id);
       const davor = letztesFenster(konto.id, true);
 
-      // Wer zweimal hintereinander angeboten wurde und immer noch offen ist,
-      // laesst sich offenbar nicht einordnen — eine Mail ohne Absender, ein
-      // fehlender Zielordner. Die wird vermerkt, damit sie den Bestand nicht
-      // dauerhaft blockiert, und im Panel als solche gezaehlt.
-      // Aber nur, wenn der Lauf davor ueberhaupt etwas geschafft hat. Starb er
-      // an Googles Kontingent, liegt es nicht an dieser Mail — sie dafuer als
-      // unklar abzustempeln waere die falsche Schuldzuweisung.
-      const etwasGeschafft = vorherige.some((u) => !offenSet.has(u));
+      // Was im letzten Lauf liegen geblieben ist (z.B. wegen KI-Timeout),
+      // wird im nächsten Lauf als erstes wieder angeboten.
+      // (Wirkliche Problemfälle ohne Absender werden in /einsortieren explizit als 'unklar' aussortiert).
       const haengen = vorherige.filter((u) => offenSet.has(u));
-      if (etwasGeschafft) {
-        for (const u of haengen) {
-          if (davor.includes(u)) {
-            erledigtMerken(konto.id, u, 'unklar');
-            offenSet.delete(u);
-          }
-        }
-      }
 
       const nachzuegler = haengen.filter((u) => offenSet.has(u));
       const frisch = offen.filter((u) => u > zeiger && !vorherige.includes(u));

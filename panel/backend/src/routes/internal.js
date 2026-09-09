@@ -184,12 +184,12 @@ router.post('/sort', (req, res) => {
     // Inbox". Genau das ist hier gewollt: nichts anfassen, nichts
     // protokollieren. Die Mail bleibt ungelesen liegen und wird spaeter von der
     // Bestands-Triage geholt, die ihr eigenes Budget verwaltet.
-    if (!kiPlatzFrei()) {
+    if (!kiPlatzFrei() || klassifizierer.istBeschaeftigt()) {
       return res.json({
         aktion: 'verschieben',
         ordner: null,
         warten: true,
-        grund: 'KI-Kontingent fuer heute aufgebraucht — die Mail bleibt liegen',
+        grund: 'KI-Kontingent aufgebraucht oder KI ist ausgelastet — die Mail bleibt liegen und wird vom Bestands-Workflow verarbeitet',
       });
     }
     // Kein Treffer: Die Mail laeuft weiter durch Pruefdienste und KI. In die
@@ -482,7 +482,11 @@ router.post('/einsortieren', async (req, res) => {
     grund: '',
   };
   try {
-    if (!b.konto || !b.von) return res.status(400).json({ ...rueckfall, error: 'konto und von sind Pflicht' });
+    if (!b.konto || !b.von) {
+      const k = kontoZeile(b.konto);
+      if (k && b.uid != null) bestand.erledigtMerken(k.id, b.uid, 'unklar');
+      return res.status(400).json({ ...rueckfall, error: 'konto und von sind Pflicht' });
+    }
 
     const konto = kontoZeile(b.konto);
     let ordner = b.zielordner ?? null;
