@@ -1128,6 +1128,25 @@ async function triageSynchronisieren(konten, credentialId, aktionenWorkflowId) {
   anhangKetteReparieren(workflow, NORMALISIERER['01']);
   absenderFallbackEinbauen(workflow, NORMALISIERER['01']);
   themenKetteEinbauen(workflow, NORMALISIERER['01'], credentialId);
+  // Auch Workflow 01 fragt die KI ueber das Panel, nicht selbst.
+  //
+  // Bis hierher rief sein KI-Knoten Ollama direkt auf — und damit an allem
+  // vorbei, was das Panel inzwischen kann: keine Warteschlange, kein Schema,
+  // keine Messung, keine Lauf-Frist. Im Betrieb sah das so aus:
+  //
+  //     5 Laeufe "01 - Inbox-Triage", alle error, jeder exakt 486 Sekunden
+  //     ki.lokal.messung.anfragen: 0
+  //
+  // 486 s sind 240 s Zeitlimit + 5 s Pause + 240 s zweiter Versuch. Der Knoten
+  // hat Ollama also alle acht Minuten fuer acht Minuten belegt und ist dann
+  // gestorben — waehrend die Bestands-Triage, die ueber das Panel geht, nie an
+  // die Reihe kam. Das Schema aus Build 156 wurde kein einziges Mal benutzt.
+  //
+  // Der Buendel-Knoten ist fuer diese Topologie schon gebaut: Er kennt die zwei
+  // Eingaenge (mit und ohne Anhang) und reicht pairedItem weiter. Und
+  // "Pruefung auswerten" ist in 01 und 04 derselbe Knoten (PANEL:THEMEN v6),
+  // liefert also dieselben Felder.
+  geminiBuendelEinbauen(workflow);
 
   for (const name of [ANKER.triage.ziel, ANKER.triage.weiche]) {
     if (!workflow.nodes.some((k) => k.name === name)) {

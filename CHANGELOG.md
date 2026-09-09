@@ -2,6 +2,45 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.5.1.0] - 2026-09-09 (Build 158) — *Ein Weg zur KI, nicht zwei*
+
+Der erste Bericht nach dem Schema-Build zeigte zwei Zahlen nebeneinander, die zusammen alles
+erklären:
+
+```
+5 Läufe "01 - Inbox-Triage", alle error, jeder exakt 486 Sekunden
+ki.lokal.messung.anfragen: 0
+```
+
+**486 s = 240 s Zeitlimit + 5 s Pause + 240 s zweiter Versuch.** Und null Anfragen heißt: Das
+Schema aus Build 156 wurde kein einziges Mal benutzt.
+
+### Der Grund
+Workflow 01 rief Ollama **direkt** auf — ein `httpRequest` auf `ollama:11434`. Nur Workflow 04
+ging über das Panel. Damit lief die Inbox-Triage an allem vorbei, was das Panel inzwischen kann:
+keine Warteschlange, kein Schema, keine Messung, keine Lauf-Frist.
+
+Schlimmer als das Vorbeilaufen war die Verdrängung: Der Knoten belegte Ollama **alle acht Minuten
+für acht Minuten** und starb dann. Die Bestands-Triage, die über das Panel geht und das Schema
+bekommen hätte, kam nie an die Reihe. `bestand.unklar` stieg in derselben Nacht von 2539 auf 2856.
+
+Ich hatte das in Build 151 als „bekannte Grenze" ins Changelog geschrieben — *„ein Eingriff, der
+sich erst lohnt, wenn feststeht, dass die lokale KI überhaupt trägt"*. Das war die falsche
+Reihenfolge: Solange dieser Pfad offen ist, kann sie es gar nicht.
+
+### Jetzt geht auch Workflow 01 über das Panel
+Derselbe Bündel-Knoten wie in Workflow 04. Er war für diese Topologie längst gebaut — er kennt
+die zwei Eingänge (mit und ohne Anhang) und reicht `pairedItem` weiter, damit *„Antwort parsen"*
+nicht mit „Multiple matches" scheitert. Und *„Prüfung auswerten"* ist in 01 und 04 derselbe
+Knoten (`PANEL:THEMEN v6`), liefert also dieselben Felder.
+
+Damit gilt für beide Workflows dasselbe: eine Anfrage zur Zeit, mit Schema, mit Zeitmessung,
+mit Lauf-Frist. Und die Inbox-Triage bündelt jetzt ebenfalls, statt eine Anfrage je Mail zu
+stellen.
+
+Der Digest (Workflow 02) fragt weiterhin selbst — einmal täglich um 7:30, das verdrängt nichts.
+
+
 ## [4.5.0.1] - 2026-09-09 (Build 157) — *Der Knoten hieß noch Gemini*
 
 Im n8n-Editor stand weiter **„Gemini klassifizieren"**, während direkt darunter

@@ -153,3 +153,61 @@ describe('Nach dem Umbenennen findet der Patcher den Knoten weiter', () => {
     assert.match(wf.nodes.find((k) => k.name === patcher.KI_NAME).parameters.jsonBody, /num_ctx/);
   });
 });
+
+// Ein Weg zur KI, nicht zwei.
+//
+// Bis Build 157 rief der KI-Knoten in Workflow 01 Ollama DIREKT auf — und damit
+// an allem vorbei, was das Panel inzwischen kann: keine Warteschlange, kein
+// Schema, keine Messung, keine Lauf-Frist. Im Bericht vom 9. September stand
+// das nebeneinander:
+//
+//     5 Laeufe "01 - Inbox-Triage", alle error, jeder exakt 486 Sekunden
+//     ki.lokal.messung.anfragen: 0
+//
+// 486 s sind 240 s Zeitlimit + 5 s Pause + 240 s zweiter Versuch. Der Knoten
+// hat Ollama alle acht Minuten fuer acht Minuten belegt und ist dann gestorben,
+// waehrend die Bestands-Triage — die ueber das Panel geht — nie an die Reihe
+// kam.
+describe('Workflow 01 fragt die KI über das Panel', () => {
+  const fs = require('fs');
+  const path = require('path');
+
+  test('der Abgleich baut den Bündel-Knoten auch in 01 ein', () => {
+    const quelle = fs.readFileSync(
+      path.resolve(__dirname, '../src/services/workflowPatcher.js'), 'utf8',
+    );
+    const triage = quelle.slice(quelle.indexOf('async function triageSynchronisieren'));
+    const rumpf = triage.slice(0, triage.indexOf('\n}\n'));
+    assert.match(rumpf, /geminiBuendelEinbauen\(workflow\)/,
+      'sonst ruft Workflow 01 die KI weiter selbst auf, an Warteschlange und Schema vorbei');
+  });
+
+  test('aus dem HTTP-Knoten wird ein Panel-Aufruf', () => {
+    const wf = workflowMit('Gemini klassifizieren');
+    assert.equal(wf.nodes.find((k) => k.name === 'Gemini klassifizieren').type,
+      'n8n-nodes-base.httpRequest');
+    patcher.geminiBuendelEinbauen(wf);
+    const ki = wf.nodes.find((k) => patcher.istKiKnoten(k.name));
+    assert.equal(ki.type, 'n8n-nodes-base.code');
+    assert.match(ki.parameters.jsCode, /api\/internal\/klassifizieren/);
+    assert.ok(!/ollama:11434/.test(ki.parameters.jsCode), 'nicht mehr direkt an Ollama');
+  });
+
+  // Der Knoten hat in Workflow 01 ZWEI Eingaenge (mit und ohne Anhang). Reisst
+  // einer davon ab, sieht die KI nur noch die Haelfte der Mails — und es faellt
+  // nicht auf.
+  test('beide Eingänge bleiben am Knoten', () => {
+    const wf = workflowMit('Gemini klassifizieren');
+    patcher.geminiBuendelEinbauen(wf);
+    const name = wf.nodes.find((k) => patcher.istKiKnoten(k.name)).name;
+    assert.equal(zieleAuf(wf, name), 2);
+  });
+
+  test('der Bündel-Knoten reicht pairedItem weiter', () => {
+    const wf = workflowMit('Gemini klassifizieren');
+    patcher.geminiBuendelEinbauen(wf);
+    const code = wf.nodes.find((k) => patcher.istKiKnoten(k.name)).parameters.jsCode;
+    assert.match(code, /pairedItem/,
+      'ohne das scheitert "Antwort parsen" mit "Multiple matches"');
+  });
+});
