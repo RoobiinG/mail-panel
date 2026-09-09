@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import {
   AlertTriangle, Inbox, Gauge, ShieldCheck, HardDriveDownload, Target,
-  CheckCircle2, XCircle, Workflow, ArrowRight, Archive, Check,
+  CheckCircle2, XCircle, Workflow, ArrowRight, Archive, Check, RefreshCw
 } from 'lucide-react';
 import api from '../api';
 
@@ -289,12 +289,29 @@ export default function Dashboard() {
                       Der Posteingang leert sich, während die Sortierung läuft. Ein voller
                       Balken heißt: nichts liegt mehr ungeordnet.
                     </p>
-                    <div className="flex items-center gap-3 pt-1">
-                      <button onClick={bestandStarten} disabled={startet}
-                        className="btn !py-1.5 !px-3 text-sm flex items-center gap-1 disabled:opacity-50">
-                        <Workflow size={14} /> {startet ? 'Wird gestartet …' : 'Bestand jetzt sortieren'}
-                      </button>
-                      {startMeldung && <span className="text-xs text-panel-muted">{startMeldung}</span>}
+                    <div className="flex flex-col gap-2 pt-1">
+                      <div className="flex items-center gap-3">
+                        <button onClick={bestandStarten} disabled={startet}
+                          className="btn !py-1.5 !px-3 text-sm flex items-center gap-1 disabled:opacity-50">
+                          <Workflow size={14} /> {startet ? 'Wird gestartet …' : 'Bestand jetzt sortieren'}
+                        </button>
+                        {startMeldung && <span className="text-xs text-panel-muted">{startMeldung}</span>}
+                      </div>
+                      <div className="flex items-center gap-3 pt-2 mt-2 border-t border-white/5">
+                        <button onClick={async () => {
+                            if (!confirm('Willst du wirklich das Gedächtnis des Bestands-Scanners löschen? Er wird danach deinen gesamten Posteingang erneut prüfen.')) return;
+                            try {
+                              await api.post('/workflows/bestand-reset');
+                              await bestandStarten();
+                            } catch (err) {
+                              setStartMeldung('Fehler beim Reset.');
+                            }
+                          }}
+                          className="btn btn-ghost !py-1 !px-3 text-[11px] flex items-center gap-1 text-panel-muted hover:text-white"
+                        >
+                          <RefreshCw size={12} /> Gesamten Posteingang neu bewerten (Reset)
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}

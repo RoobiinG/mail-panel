@@ -43,6 +43,19 @@ router.post('/bestand-starten', async (req, res) => {
   }
 });
 
+// POST /api/workflows/bestand-reset — leert das "Gedächtnis" des Bestands-Workflows.
+// So scannt der Workflow 04 alle Mails im Posteingang noch einmal neu, um
+// beispielsweise neu gelernte Regeln rückwirkend anzuwenden.
+router.post('/bestand-reset', async (req, res) => {
+  try {
+    db.prepare('DELETE FROM bestand_erledigt').run();
+    loggen('info', 'workflows', 'Bestand-Speicher geleert. Der nächste Lauf prüft alle Mails neu.');
+    res.json({ ok: true });
+  } catch (err) {
+    fehlerAntwort(res, err, 'Fehler beim Zurücksetzen des Bestands-Speichers');
+  }
+});
+
 router.get('/', async (req, res) => {
   try {
     const [workflows, executions] = await Promise.all([
