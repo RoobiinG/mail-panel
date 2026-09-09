@@ -338,6 +338,11 @@ const migrations = [
   // ersten Mal nichts mehr.
   "UPDATE konto_ordner SET beschreibung = TRIM(REPLACE(beschreibung, 'Zuletzt vorgeschlagen für:', ''))"
   + " WHERE beschreibung LIKE 'Zuletzt vorgeschlagen für:%'",
+  // Einmalige Korrektur: Ein manuelles Update von "Web.de" auf "g.robin.2002" 
+  // wurde nicht kaskadiert, bevor der Bug in Build 163 behoben wurde. 
+  // Wir korrigieren die historischen Daten jetzt sauber auf Datenbankebene.
+  "UPDATE quarantine_log SET konto = 'g.robin.2002' WHERE konto = 'Web.de'",
+  "UPDATE sort_inbox SET konto = 'g.robin.2002' WHERE konto = 'Web.de'",
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch { /* Spalte existiert schon */ }

@@ -2,6 +2,16 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.5.2.2] - 2026-09-09 (Build 164) — *Hotfix für Web.de Geisterkonto*
+
+**Bugfixes:**
+- **Konto-Umbenennung (Hotfix):** Die Behebung der Geisterkonten im letzten Build wurde nur lokal ausgeführt statt auf dem Server. Dieser Hotfix integriert die SQL-Korrektur als feste Migration beim Starten des Panels, wodurch "Web.de" beim nächsten Neustart automatisch auch auf dem Live-Server aus der Datenbank getilgt wird.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Einmal-Migration für das "Web.de"-Konto eingebaut.
+- **n8n-Kompatibilität:** Unverändert.
+- **Neustart:** Panel muss durchstarten, um die Migration einmalig auszuführen.
+
 ## [4.5.2.1] - 2026-09-09 (Build 163) — *Geisterkonten & Rspamd-Duplikate gefixt*
 
 **Bugfixes:**
