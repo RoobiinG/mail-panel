@@ -57,7 +57,7 @@ describe('Auswahl der Bestands-Mails', () => {
 
   test('in Ruhe gelassene Mails ebenfalls nicht', async () => {
     const id = kontoAnlegen();
-    bestand.erledigtMerken(id, 2, 'ruhe');
+    bestand.erledigtMerken(id, 'INBOX', 2, 'ruhe');
     postfachMit([1, 2, 3]);
     assert.equal((await bestand.kandidaten()).konten.K?.uids, '1,3');
   });
@@ -74,8 +74,8 @@ describe('Auswahl der Bestands-Mails', () => {
     assert.equal((await bestand.kandidaten(3)).konten.K?.uids, '1,2,3');
 
     // Zwei sind durch, die 2 blieb liegen — sie muss vorn wieder auftauchen.
-    bestand.erledigtMerken(id, 1, 'ruhe');
-    bestand.erledigtMerken(id, 3, 'ruhe');
+    bestand.erledigtMerken(id, 'INBOX', 1, 'ruhe');
+    bestand.erledigtMerken(id, 'INBOX', 3, 'ruhe');
     assert.equal((await bestand.kandidaten(3)).konten.K?.uids, '2,4,5',
       'sonst wartet die 2 einen ganzen Durchlauf des Postfachs');
   });
@@ -86,11 +86,11 @@ describe('Auswahl der Bestands-Mails', () => {
     assert.equal((await bestand.kandidaten(2)).konten.K?.uids, '1,2');
 
     // Der Lauf hat etwas geschafft (1), die 2 blieb liegen.
-    bestand.erledigtMerken(id, 1, 'ruhe');
+    bestand.erledigtMerken(id, 'INBOX', 1, 'ruhe');
     assert.equal((await bestand.kandidaten(2)).konten.K?.uids, '2,3', 'die 2 kommt zuerst wieder');
 
     // Wieder etwas geschafft (3), die 2 liegt immer noch — zweimal drangewesen.
-    bestand.erledigtMerken(id, 3, 'ruhe');
+    bestand.erledigtMerken(id, 'INBOX', 3, 'ruhe');
     assert.equal((await bestand.kandidaten(2)).konten.K?.uids, '2,4',
       'die 2 bleibt hartnaeckig vorn, da es kein automatisches unklar-Abstempeln mehr gibt');
   });
@@ -99,9 +99,9 @@ describe('Auswahl der Bestands-Mails', () => {
     const id = kontoAnlegen();
     postfachMit([1, 2, 3]);
     await bestand.kandidaten(2);           // 1,2
-    bestand.erledigtMerken(id, 1, 'ruhe');
+    bestand.erledigtMerken(id, 'INBOX', 1, 'ruhe');
     await bestand.kandidaten(2);           // 2 (Nachzuegler) + 3
-    bestand.erledigtMerken(id, 3, 'ruhe'); // etwas geschafft, 2 liegt weiter
+    bestand.erledigtMerken(id, 'INBOX', 3, 'ruhe'); // etwas geschafft, 2 liegt weiter
     await bestand.kandidaten(2);           // 2 wird zurueckgestellt, nichts mehr da
     assert.equal((await bestand.kandidaten(2)).konten.K?.uids, '2',
       '„unklar" heisst zurueckgestellt, nicht aufgegeben');
@@ -138,7 +138,7 @@ describe('Auswahl der Bestands-Mails', () => {
 
   test('eine geloeschte Ruhe-Regel gibt die Mails wieder frei', async () => {
     const id = kontoAnlegen();
-    bestand.erledigtMerken(id, 2, 'ruhe');
+    bestand.erledigtMerken(id, 'INBOX', 2, 'ruhe');
     bestand.ruheVergessen(id);
     postfachMit([1, 2]);
     assert.equal((await bestand.kandidaten()).konten.K?.uids, '1,2');

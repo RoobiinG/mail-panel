@@ -2,6 +2,16 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.6.1.4] - 2026-09-10 (Build 172) — *Test-Fix*
+
+**Fix:**
+- **CI Pipeline:** Die Test-Signatur von `bestand.erledigtMerken()` in `bestand-auswahl.test.js` wurde angepasst. Die Funktion erwartet seit der Unterordner-Implementierung den Ordner als zweiten Parameter. Das Fehlen dieses Parameters verursachte Fehler bei der Simulation liegengebliebener E-Mails, wodurch die Assertions scheiterten.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine.
+- **n8n-Kompatibilität:** Keine Änderung.
+- **Neustart:** Panel startet durch.
+
 ## [4.6.1.3] - 2026-09-10 (Build 171) — *Test-Fix*
 
 **Fix:**
