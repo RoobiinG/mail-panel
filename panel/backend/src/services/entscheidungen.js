@@ -11,6 +11,8 @@
 // nach denen man tatsächlich sucht — Absender, Betreff, Thema, Ordner.
 const db = require('../db');
 const settings = require('./settings');
+const imap = require('./imap');
+const { entschluesseln } = require('./crypto');
 
 // Was die Liste zeigt. spam_score und virus_name gehören dazu, weil eine
 // Fehlentscheidung auch „fälschlich als Spam" heißen kann; ki sagt, ob die KI
@@ -112,22 +114,73 @@ const GRENZE = 200;
  * @param {number} [o.seite]  1-basiert.
  * @param {number} [o.limit]  Zeilen je Seite, höchstens 200.
  */
-function suchen({ konto, suche, nur, tage, seite, limit, ordner } = {}) {
+async function suchen({ konto, suche, nur, tage, seite, limit, ordner } = {}) {
   const proSeite = Math.min(GRENZE, Math.max(1, Number(limit) || 50));
-  const { wo, werte } = bedingung({ konto, suche, nur, tage, ordner });
+  const aktuell = Math.max(1, Math.floor(Number(seite)) || 1);
+
+  // Live-IMAP Modus greift nur, wenn ein spezifisches Konto und ein Ordner gewählt wurden, 
+  // kein Suchbegriff eingegeben wurde und entweder kein Filter oder "Alle" (nur="alle") aktiv ist.
+  const kannLiveLaden = konto && typeof konto === 'object' && ordner && (!nur || nur === 'alle') && !suche;
+
+  if (kannLiveLaden) {
+    konto.passwort = entschluesseln(konto.password_enc);
+    const { eintraege: imapMails, gesamt, seiten } = await imap.ordnerInhaltLaden({
+      ...konto,
+      ordner,
+      limit: proSeite,
+      seite: aktuell
+    });
+
+    const logMap = {};
+    if (imapMails.length > 0) {
+      const uids = imapMails.map(m => m.uid);
+      const platzhalter = uids.map(() => '?').join(',');
+      const dbEintraege = db.prepare(`
+        SELECT ${SPALTEN} FROM quarantine_log
+        WHERE konto = ? AND zielordner = ? AND uid IN (${platzhalter})
+      `).all(konto.name, ordner, ...uids);
+
+      for (const e of dbEintraege) {
+        logMap[e.uid] = e;
+      }
+    }
+
+    const gemischt = imapMails.map(m => {
+      const dbEintrag = logMap[m.uid];
+      if (dbEintrag) return dbEintrag;
+      
+      // Virtueller Eintrag für Mails, die nicht vom Panel sortiert wurden
+      return {
+        id: `imap-${m.uid}`,
+        konto: konto.name,
+        von: m.von,
+        betreff: m.betreff,
+        zielordner: ordner,
+        uid: m.uid,
+        ki: 0,
+        grund: 'Bereits im Ordner',
+        created_at: m.datum
+      };
+    });
+
+    return { eintraege: gemischt, gesamt, seite: aktuell, seiten, limit: proSeite };
+  }
+
+  // Normaler Datenbank-Fallback (für "Alle Konten", Suchbegriffe, bestimmte Filter)
+  const kontoName = konto && typeof konto === 'object' ? konto.name : konto;
+  const { wo, werte } = bedingung({ konto: kontoName, suche, nur, tage, ordner });
 
   const gesamt = db.prepare(`SELECT COUNT(*) n FROM quarantine_log ${wo}`).get(...werte).n;
   const seiten = Math.max(1, Math.ceil(gesamt / proSeite));
-  // Eine Seitenzahl jenseits des Endes soll nicht ins Leere zeigen — das
-  // passiert regelmäßig, wenn man auf Seite 7 einen Suchbegriff eingibt.
-  const aktuell = Math.min(seiten, Math.max(1, Math.floor(Number(seite)) || 1));
+  // Eine Seitenzahl jenseits des Endes soll nicht ins Leere zeigen
+  const validSeite = Math.min(seiten, aktuell);
 
   const eintraege = db.prepare(`
     SELECT ${SPALTEN} FROM quarantine_log ${wo}
     ORDER BY id DESC LIMIT ? OFFSET ?
-  `).all(...werte, proSeite, (aktuell - 1) * proSeite);
+  `).all(...werte, proSeite, (validSeite - 1) * proSeite);
 
-  return { eintraege, gesamt, seite: aktuell, seiten, limit: proSeite };
+  return { eintraege, gesamt, seite: validSeite, seiten, limit: proSeite };
 }
 
 module.exports = { suchen, bedingung, maskieren, suchTeile, SUCHFELDER };

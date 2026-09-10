@@ -176,7 +176,7 @@ router.get('/ordner-inhalt', async (req, res) => {
   try {
     konto.passwort = entschluesseln(konto.password_enc);
     const inhalt = await imap.ordnerInhaltLaden({ ...konto, ordner, limit: 100 });
-    res.json(inhalt);
+    res.json(inhalt.eintraege || []);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -290,7 +290,7 @@ router.post('/ignorieren', (req, res) => {
 // Die Antwort ist ein Objekt, kein Array: Ohne Gesamtzahl gibt es kein
 // Blättern, und ohne Blättern wäre man wieder auf die letzten paar Zeilen
 // beschränkt — genau daran scheiterte bisher jede nachträgliche Korrektur.
-router.get('/entscheidungen', (req, res) => {
+router.get('/entscheidungen', async (req, res) => {
   // "alle": Wer eine falsch einsortierte Mail sucht, weiß oft nicht mehr, in
   // welchem Postfach sie ankam. Danach erst das Konto zu raten, wäre eine
   // Hürde ohne Zweck — die Zeile trägt ihr Konto ohnehin bei sich.
@@ -298,8 +298,8 @@ router.get('/entscheidungen', (req, res) => {
   const konto = ueberAlle ? null : kontoLaden(req.query.konto_id);
   if (!ueberAlle && !konto) return res.status(400).json({ error: 'konto_id fehlt oder unbekannt.' });
   try {
-    res.json(entscheidungen.suchen({
-      konto: konto ? konto.name : null,
+    res.json(await entscheidungen.suchen({
+      konto: konto,
       suche: req.query.suche,
       nur: req.query.nur,
       ordner: req.query.ordner,
@@ -315,13 +315,30 @@ router.get('/entscheidungen', (req, res) => {
 // POST /api/sortierung/korrigieren
 // { log_id, zielordner, regelTyp: 'domain'|'absender'|'keine' }
 router.post('/korrigieren', async (req, res) => {
-  const { log_id, zielordner, regelTyp = 'domain' } = req.body || {};
+  const { log_id, zielordner, regelTyp = 'domain', imap_uid, imap_konto, imap_ordner, imap_von, imap_betreff } = req.body || {};
   if (!log_id || !zielordner) return res.status(400).json({ error: 'log_id und zielordner sind Pflicht.' });
 
-  const eintrag = db.prepare('SELECT * FROM quarantine_log WHERE id = ?').get(Number(log_id));
-  if (!eintrag) return res.status(404).json({ error: 'Eintrag nicht gefunden.' });
-  const konto = db.prepare('SELECT * FROM accounts WHERE name = ?').get(eintrag.konto);
-  if (!konto) return res.status(400).json({ error: `Konto "${eintrag.konto}" existiert nicht mehr.` });
+  const isVirtual = String(log_id).startsWith('imap-');
+  let eintrag, konto;
+
+  if (isVirtual) {
+    konto = db.prepare('SELECT * FROM accounts WHERE name = ?').get(imap_konto);
+    if (!konto) return res.status(400).json({ error: `Konto existiert nicht.` });
+
+    eintrag = {
+      id: log_id,
+      konto: imap_konto,
+      von: imap_von,
+      betreff: imap_betreff,
+      zielordner: imap_ordner,
+      uid: imap_uid
+    };
+  } else {
+    eintrag = db.prepare('SELECT * FROM quarantine_log WHERE id = ?').get(Number(log_id));
+    if (!eintrag) return res.status(404).json({ error: 'Eintrag nicht gefunden.' });
+    konto = db.prepare('SELECT * FROM accounts WHERE name = ?').get(eintrag.konto);
+    if (!konto) return res.status(400).json({ error: `Konto "${eintrag.konto}" existiert nicht mehr.` });
+  }
 
   const ziel = String(zielordner).trim();
   if (ziel === eintrag.zielordner) {
@@ -347,24 +364,35 @@ router.post('/korrigieren', async (req, res) => {
     let hinweis = null;
     try {
       const zugang = themen.zugang(konto);
-      const treffer = await imap.mailsSuchen({
-        ...zugang,
-        ordner: eintrag.zielordner,
-        von: sortierung.adresse(eintrag.von),
-        betreff: eintrag.betreff || undefined,
-      });
-
-      if (treffer.length === 0) {
-        hinweis = `In "${eintrag.zielordner}" war diese Mail nicht mehr zu finden — `
-          + 'vermutlich schon von Hand verschoben oder gelöscht. Die Regel gilt trotzdem.';
+      if (isVirtual && eintrag.uid) {
+        // UID ist bekannt, direkter Move ohne Suche
+        const ergebnis = await imap.mailsVerschieben({ 
+          ...konto, ...zugang, 
+          mails: [{ uid: eintrag.uid }], 
+          von: eintrag.zielordner, 
+          nach: ziel 
+        });
+        verschoben = ergebnis.verschoben.length > 0;
       } else {
-        // Bei mehreren Treffern die juengste nehmen: Wiederkehrende Newsletter
-        // haben denselben Betreff, gemeint ist die zuletzt einsortierte.
-        const uid = Math.max(...treffer);
-        await imap.mailVerschieben({ ...zugang, uid, von: eintrag.zielordner, nach: ziel });
-        verschoben = true;
-        if (treffer.length > 1) {
-          hinweis = `${treffer.length} Mails passten zu Absender und Betreff — verschoben wurde die neueste.`;
+        const treffer = await imap.mailsSuchen({
+          ...zugang,
+          ordner: eintrag.zielordner,
+          von: sortierung.adresse(eintrag.von),
+          betreff: eintrag.betreff || undefined,
+        });
+
+        if (treffer.length === 0) {
+          hinweis = `In "${eintrag.zielordner}" war diese Mail nicht mehr zu finden — `
+            + 'vermutlich schon von Hand verschoben oder gelöscht. Die Regel gilt trotzdem.';
+        } else {
+          // Bei mehreren Treffern die juengste nehmen: Wiederkehrende Newsletter
+          // haben denselben Betreff, gemeint ist die zuletzt einsortierte.
+          const uid = Math.max(...treffer);
+          await imap.mailVerschieben({ ...zugang, uid, von: eintrag.zielordner, nach: ziel });
+          verschoben = true;
+          if (treffer.length > 1) {
+            hinweis = `${treffer.length} Mails passten zu Absender und Betreff — verschoben wurde die neueste.`;
+          }
         }
       }
     } catch (err) {
@@ -415,7 +443,9 @@ router.post('/korrigieren', async (req, res) => {
       .get(konto.id, ziel);
     if (zielEintrag) themen.gelerntMerken(zielEintrag.id, eintrag.von);
 
-    db.prepare('UPDATE quarantine_log SET korrigiert_zu = ? WHERE id = ?').run(ziel, eintrag.id);
+    if (!isVirtual) {
+      db.prepare('UPDATE quarantine_log SET korrigiert_zu = ? WHERE id = ?').run(ziel, eintrag.id);
+    }
     themen.cacheVerwerfen(konto.id);
     uebersicht.cacheVerwerfen();
     loggen('info', 'sortierung',

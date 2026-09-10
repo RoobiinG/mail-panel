@@ -516,26 +516,34 @@ async function mailLaden({ ordner = 'INBOX', uid, ...konto }) {
     try { await client.logout(); } catch { /* Verbindung war schon zu */ }
   }
 }
-// Holt eine Liste der neuesten Mails (Kopfzeilen) aus einem Ordner
-async function ordnerInhaltLaden({ ordner, limit = 100, ...konto }) {
+// Holt eine Liste der Mails (Kopfzeilen) aus einem Ordner, mit Paginierung
+async function ordnerInhaltLaden({ ordner, limit = 100, seite = 1, ...konto }) {
   const client = verbindung(konto);
   try {
     await client.connect();
     const schloss = await client.getMailboxLock(String(ordner || 'INBOX'));
     try {
-      if (!client.mailbox || client.mailbox.exists === 0) return [];
+      if (!client.mailbox || client.mailbox.exists === 0) {
+        return { eintraege: [], gesamt: 0, seiten: 0 };
+      }
       
-      const start = Math.max(1, client.mailbox.exists - limit + 1);
+      const gesamt = client.mailbox.exists;
+      const seiten = Math.max(1, Math.ceil(gesamt / limit));
+      const aktuell = Math.min(seiten, Math.max(1, Math.floor(Number(seite)) || 1));
+      
+      const start = Math.max(1, gesamt - (aktuell * limit) + 1);
+      const ende = Math.max(1, gesamt - ((aktuell - 1) * limit));
+      
       const liste = [];
-      for await (const m of client.fetch(`${start}:*`, { uid: true, envelope: true })) {
+      for await (const m of client.fetch(`${start}:${ende}`, { uid: true, envelope: true })) {
         liste.push({
-          uid: m.uid,
+          uid: String(m.uid), // Explizit als String für einheitliche Handhabung
           von: m.envelope.from?.[0]?.address || m.envelope.from?.[0]?.name || '',
           betreff: m.envelope.subject || '(kein Betreff)',
           datum: m.envelope.date || new Date().toISOString()
         });
       }
-      return liste.reverse(); // Neueste zuerst
+      return { eintraege: liste.reverse(), gesamt, seiten }; // Neueste zuerst
     } finally {
       schloss.release();
     }

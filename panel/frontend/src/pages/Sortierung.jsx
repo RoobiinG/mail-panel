@@ -354,7 +354,14 @@ export default function Sortierung() {
     if (!ziel) return melden('Bitte den richtigen Ordner angeben.', 'hinweis');
     try {
       const { data } = await api.post('/sortierung/korrigieren', {
-        log_id: eintrag.id, zielordner: ziel, regelTyp: korrekturRegel,
+        log_id: eintrag.id, 
+        zielordner: ziel, 
+        regelTyp: korrekturRegel,
+        imap_uid: String(eintrag.id).startsWith('imap-') ? eintrag.uid : null,
+        imap_konto: eintrag.konto,
+        imap_ordner: eintrag.zielordner,
+        imap_von: eintrag.von,
+        imap_betreff: eintrag.betreff
       });
       const teile = [];
       teile.push(data.verschoben ? `Mail nach „${ziel}" verschoben.` : 'Mail nicht verschoben.');
@@ -387,8 +394,16 @@ export default function Sortierung() {
     try {
       for (const logId of auswahlChronik) {
         try {
+          const mail = entscheidungen.eintraege.find(e => e.id === logId);
           await api.post('/sortierung/korrigieren', {
-            log_id: logId, zielordner: ziel, regelTyp: korrekturRegel,
+            log_id: logId, 
+            zielordner: ziel, 
+            regelTyp: korrekturRegel,
+            imap_uid: String(logId).startsWith('imap-') ? mail.uid : null,
+            imap_konto: mail?.konto,
+            imap_ordner: mail?.zielordner,
+            imap_von: mail?.von,
+            imap_betreff: mail?.betreff
           });
           ok++;
         } catch {
@@ -1574,9 +1589,11 @@ export default function Sortierung() {
                           : <span className="font-sans text-panel-muted">im Posteingang geblieben</span>}
                     </td>
                     <td className="py-2 px-4 text-xs whitespace-nowrap">
-                      {e.ki
-                        ? <span className="inline-flex items-center gap-1 text-panel-muted"><Sparkles size={12} /> KI</span>
-                        : <span className="inline-flex items-center gap-1 text-panel-muted"><Tag size={12} /> Regel</span>}
+                      {String(e.id).startsWith('imap-')
+                        ? <span className="inline-flex items-center gap-1 text-panel-muted opacity-50" title="Lag bereits im Ordner">Live-Ordner</span>
+                        : e.ki
+                          ? <span className="inline-flex items-center gap-1 text-panel-muted"><Sparkles size={12} /> KI</span>
+                          : <span className="inline-flex items-center gap-1 text-panel-muted"><Tag size={12} /> Regel</span>}
                     </td>
                     <td className="py-2 px-4 text-right whitespace-nowrap">
                       <div className="flex items-center justify-end gap-1">
