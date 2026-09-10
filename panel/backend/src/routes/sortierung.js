@@ -11,6 +11,7 @@ const sortierung = require('../services/sortierung');
 const entscheidungen = require('../services/entscheidungen');
 const belegLeser = require('../services/belegLeser');
 const settings = require('../services/settings');
+const uebersicht = require('../services/uebersicht');
 const { entschluesseln } = require('../services/crypto');
 
 const router = express.Router();
@@ -233,6 +234,7 @@ router.post('/zuordnen', async (req, res) => {
     }
 
     loggen('info', 'sortierung', `${uebergeben.length} Mail(s) sollen in Ordner ${zielordner} verschoben werden.`);
+    uebersicht.cacheVerwerfen();
     res.json({ ok: true, aktualisiert: uebergeben.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -256,6 +258,7 @@ router.post('/mails-verschieben', async (req, res) => {
     const ergebnis = await imap.mailsVerschieben({ ...konto, mails, von, nach });
     
     loggen('info', 'sortierung', `${ergebnis.verschoben.length} Mail(s) von ${von} nach ${nach} verschoben.`);
+    uebersicht.cacheVerwerfen();
     res.json(ergebnis);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -266,6 +269,7 @@ router.post('/mails-verschieben', async (req, res) => {
 router.post('/ignorieren', (req, res) => {
   try {
     db.prepare("UPDATE sort_inbox SET status = 'ignoriert' WHERE id = ?").run(Number(req.body.id));
+    uebersicht.cacheVerwerfen();
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -413,6 +417,7 @@ router.post('/korrigieren', async (req, res) => {
 
     db.prepare('UPDATE quarantine_log SET korrigiert_zu = ? WHERE id = ?').run(ziel, eintrag.id);
     themen.cacheVerwerfen(konto.id);
+    uebersicht.cacheVerwerfen();
     loggen('info', 'sortierung',
       `Korrektur: ${eintrag.von} von "${eintrag.zielordner}" nach "${ziel}"`
       + (regel ? ` — Regel [${regel.typ}] ${regel.muster}` : ' — ohne Regel'));
@@ -551,6 +556,7 @@ router.post('/sammel-zuordnen', async (req, res) => {
     // 3. Alles nachziehen, was schon wartet
     const ergebnis = await sortierung.bestandAnwenden(konto, regel);
     themen.cacheVerwerfen(konto.id);
+    uebersicht.cacheVerwerfen();
 
     res.json({ ok: true, regel_id: regelId, ...ergebnis });
   } catch (err) {
@@ -816,6 +822,7 @@ router.post('/vorschlaege/zusammenfassen', async (req, res) => {
     }
 
     themen.cacheVerwerfen(konto.id);
+    uebersicht.cacheVerwerfen();
     loggen('info', 'sortierung',
       `${namen.length} Vorschläge zu "${pfad}" zusammengefasst (${namen.join(', ')}), `
       + `${verschoben} von ${wartend} Mail(s) verschoben.`);
@@ -1116,6 +1123,7 @@ router.post('/absender/einsortieren', async (req, res) => {
     ).run(ziel, konto.id, `%@${domain}`);
     db.prepare('DELETE FROM absender_stat WHERE konto_id = ? AND domain = ?').run(konto.id, domain);
     themen.cacheVerwerfen(konto.id);
+    uebersicht.cacheVerwerfen();
 
     loggen('info', 'sortierung',
       `Absender-Regel @${domain} → "${ziel}": ${verschoben} von ${uids.length} Mail(s) aus dem `
@@ -1243,6 +1251,7 @@ router.post('/absender/kategorie-anwenden', async (req, res) => {
     }
 
     themen.cacheVerwerfen(konto.id);
+    uebersicht.cacheVerwerfen();
     loggen('info', 'sortierung',
       `Kategorie "${ziel}": ${domains.length} Absender-Regeln, ${verschoben} von ${gefunden} Mail(s) verschoben.`);
     res.json({ ok: true, ordner: ziel, regeln: domains.length, gefunden, verschoben });
@@ -1314,6 +1323,7 @@ router.post('/katalog/:id/aufgehen-in', async (req, res) => {
     db.prepare('UPDATE sort_rules SET zielordner = ? WHERE konto_id = ? AND zielordner = ?')
       .run(ziel, konto.id, quelle.ordner);
     themen.cacheVerwerfen(konto.id);
+    uebersicht.cacheVerwerfen();
 
     loggen('info', 'sortierung',
       `Ordner "${quelle.ordner}" ist in "${ziel}" aufgegangen: ${verschoben} von ${uids.length} Mail(s) `

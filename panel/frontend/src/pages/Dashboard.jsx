@@ -245,7 +245,7 @@ export default function Dashboard() {
                 unter={auf ? `zuletzt ${new Date(auf.zeitpunkt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}` : 'noch nicht geprüft'} />
               <StatusKachel icon={Target} titel="Trefferquote (7 T.)"
                 ton={quote == null ? 'neutral' : quote >= 90 ? 'gut' : quote >= 75 ? 'warnung' : 'schlecht'}
-                wert={quote == null ? '—' : `${quote} %`}
+                wert={quote == null ? '—' : `${quote.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %`}
                 unter={`${u.lernen.einordnungen7} einsortiert, ${u.lernen.korrigiert7} korrigiert`} />
               <StatusKachel icon={HardDriveDownload} titel="Sicherung" ton={sichTon}
                 wert={!sich?.eingerichtet ? 'offen' : sich.letzter?.ok ? 'aktuell' : sich.letzter ? 'Fehler' : 'bereit'}

@@ -480,6 +480,7 @@ router.post('/einsortieren', async (req, res) => {
     zielordner: b.zielordner ?? null,
     neu_angelegt: false,
     grund: '',
+    ordner: b.ordner || 'INBOX',
   };
   try {
     if (!b.konto || !b.von) {
@@ -635,6 +636,7 @@ router.post('/einsortieren', async (req, res) => {
       zielordner: ordner,
       neu_angelegt: neuAngelegt,
       grund,
+      ordner: b.ordner || 'INBOX',
     });
   } catch (err) {
     console.error('Einsortieren-Fehler:', err.message);

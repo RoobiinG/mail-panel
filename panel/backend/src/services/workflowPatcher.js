@@ -136,7 +136,7 @@ function verschiebeKnoten(konto, position) {
       authentication: 'coreImapAccount',
       resource: 'email',
       operation: 'moveEmail',
-      sourceMailbox: postfach('INBOX'),
+      sourceMailbox: postfach('={{ $json.ordner || "INBOX" }}'),
       emailUid: '={{ $json.uid }}',
       destinationMailbox: postfach('={{ $json.zielordner }}'),
     },
@@ -285,7 +285,7 @@ function bestandKnoten(konto, position) {
       authentication: 'coreImapAccount',
       resource: 'email',
       operation: 'getEmailsList',
-      mailboxPath: postfach('INBOX'),
+      mailboxPath: postfach(`={{ ${auswahl}?.konten?.[${JSON.stringify(konto.name)}]?.ordner || 'INBOX' }}`),
       // Das Limit folgt dem Fenster, das das Panel gerade ausgesucht hat.
       //
       // Vorher stand hier fest 100. Solange das Fenster ebenfalls 100 war, fiel
@@ -298,7 +298,7 @@ function bestandKnoten(konto, position) {
       limit: `={{ ${auswahl}?.fenster || 100 }}`,
       // Nur die Mails, die das Panel fuer diesen Lauf ausgesucht hat.
       emailSearchFilters: {
-        uid: `={{ ${auswahl}?.konten?.[${JSON.stringify(konto.name)}] || '${KEINE_UID}' }}`,
+        uid: `={{ ${auswahl}?.konten?.[${JSON.stringify(konto.name)}]?.uids || '${KEINE_UID}' }}`,
       },
       // headers wird für die Absender-IP der DNSBL-Prüfung gebraucht
       // attachmentsInfo liefert Namen und Größen der Anhänge — die Dateien
@@ -668,7 +668,7 @@ function anhangKetteReparieren(workflow, quelle) {
       scan.parameters.contentType = 'json';
       scan.parameters.specifyBody = 'json';
       scan.parameters.jsonBody =
-        `={{ JSON.stringify({ konto: $json.konto, uid: $json.uid, ordner: "INBOX" }) }}`;
+        `={{ JSON.stringify({ konto: $json.konto, uid: $json.uid, ordner: $json.ordner || "INBOX" }) }}`;
       knotenUmbenennen(workflow, scan, 'Anhänge scannen');
       geaendert = true;
     }
@@ -741,7 +741,7 @@ function einsortierenKnoten(position, credentialId) {
     'kurzfassung: $json.kurzfassung', 'list_unsubscribe: $json.listUnsubscribe',
     'virus_name: $json.virus_name', 'dnsbl_treffer: $json.dnsbl_treffer',
     'zielordner: $json.zielordner', 'ziel_fest: $json.ziel_fest',
-    'thema: $json.thema', 'konfidenz: $json.konfidenz',
+    'thema: $json.thema', 'konfidenz: $json.konfidenz', 'ordner: $json.ordner',
   ].join(', ');
 
   const knoten = {
@@ -1342,6 +1342,7 @@ function buendelCode() {
     '    body: {',
     '      mails: __alle.map((__it) => ({',
     '        konto: __it.json.konto,',
+    '        ordner: $(' + JSON.stringify(AUSWAHL_KNOTEN) + ').first()?.json?.konten?.[__it.json.konto]?.ordner || \'INBOX\',',
     '        uid: __it.json.uid,',
     '        von: __it.json.von,',
     '        betreff: __it.json.betreff,',
@@ -1389,6 +1390,7 @@ function buendelCode() {
     '  if (!__k) continue;',
     '  __raus.push({',
     '    json: Object.assign({}, __alle[__i].json, {',
+    '      ordner: $(' + JSON.stringify(AUSWAHL_KNOTEN) + ').first()?.json?.konten?.[__alle[__i].json.konto]?.ordner || \'INBOX\',',
     '      candidates: [{ content: { parts: [{ text: JSON.stringify(__k) }] } }],',
     '    }),',
     '    // Die Herkunft des Eingangs-Items weiterreichen statt sie neu zu',

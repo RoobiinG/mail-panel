@@ -21,26 +21,19 @@ const CACHE_MS = 60 * 1000;
 let cache = { zeit: 0, stand: null };
 
 async function posteingangStaende() {
-  if (cache.stand && Date.now() - cache.zeit < CACHE_MS) return cache.stand;
-
   const konten = db.prepare('SELECT * FROM accounts').all();
   const raus = [];
   for (const konto of konten) {
-    try {
-      const uids = await imap.uidsAuflisten({ ...themen.zugang(konto), ordner: 'INBOX', unseenOnly: true });
-      raus.push({ konto: konto.name, konto_id: konto.id, wartend: uids.size, erreichbar: true });
-    } catch (err) {
-      // Ein nicht erreichbares Postfach darf die Übersicht nicht scheitern
-      // lassen — es wird als solches ausgewiesen.
-      raus.push({ konto: konto.name, konto_id: konto.id, wartend: null, erreichbar: false, fehler: err.message });
-      loggen('warn', 'uebersicht', `Posteingang von ${konto.name} nicht lesbar: ${err.message}`);
-    }
+    // Statt per IMAP (was Caching erfordert und nachhinkt), lesen wir den echten
+    // Sortierungs-Rückstand direkt aus der Datenbank aus. So ist die Zahl
+    // im Dashboard immer exakt synchron mit dem Sortierungs-Reiter.
+    const anzahl = db.prepare("SELECT COUNT(*) n FROM sort_inbox WHERE konto_id = ? AND status='offen'").get(konto.id)?.n || 0;
+    raus.push({ konto: konto.name, konto_id: konto.id, wartend: anzahl, erreichbar: true });
   }
-  cache = { zeit: Date.now(), stand: raus };
   return raus;
 }
 
-function cacheVerwerfen() { cache = { zeit: 0, stand: null }; }
+function cacheVerwerfen() { /* Wird nicht mehr benoetigt, aber als Dummy behalten */ }
 
 // ─── Zahlen aus der Datenbank ────────────────────────────────────────────────
 
@@ -122,7 +115,7 @@ async function laden({ mitPosteingang = true } = {}) {
         ? zahl('SELECT COUNT(*) n FROM themen_katalog') : 0,
       einordnungen7,
       korrigiert7,
-      trefferquote: einordnungen7 > 0 ? Math.round((1 - korrigiert7 / einordnungen7) * 100) : null,
+      trefferquote: einordnungen7 > 0 ? Number(((1 - korrigiert7 / einordnungen7) * 100).toFixed(1)) : null,
     },
 
     // Belege: was heute/diese Woche nach Nextcloud ging und was das Gate aussortiert hat

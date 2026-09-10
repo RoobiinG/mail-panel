@@ -168,10 +168,11 @@ db.exec(`
   -- verschwunden, und scheitert das Verschieben, sollen sie wiederkommen.
   CREATE TABLE IF NOT EXISTS bestand_erledigt (
     konto_id INTEGER NOT NULL,
+    ordner TEXT NOT NULL,
     uid INTEGER NOT NULL,
     grund TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (konto_id, uid)
+    PRIMARY KEY (konto_id, ordner, uid)
   );
 
   -- Eigene Aktionen: "Wenn eine Mail so aussieht, mach das damit."
@@ -409,6 +410,32 @@ if (!inboxMigration) {
     .run(new Date().toISOString());
   if (info.changes > 0) {
     console.log(`[db] Sortier-Inbox: ${info.changes} doppelte Zeile(n) auf "ignoriert" gesetzt.`);
+  }
+}
+
+// ─── Einmalige Migration: Ordner in bestand_erledigt ─────────────────────────
+const bestandMigration = db.prepare("SELECT value FROM settings WHERE key = 'migration_bestand_erledigt_ordner'").get();
+if (!bestandMigration) {
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS bestand_erledigt_neu (
+        konto_id INTEGER NOT NULL,
+        ordner TEXT NOT NULL,
+        uid INTEGER NOT NULL,
+        grund TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (konto_id, ordner, uid)
+      );
+      INSERT OR IGNORE INTO bestand_erledigt_neu (konto_id, ordner, uid, grund, created_at)
+      SELECT konto_id, 'INBOX', uid, grund, created_at FROM bestand_erledigt;
+      DROP TABLE bestand_erledigt;
+      ALTER TABLE bestand_erledigt_neu RENAME TO bestand_erledigt;
+    `);
+    db.prepare("INSERT INTO settings (key, value) VALUES ('migration_bestand_erledigt_ordner', ?)")
+      .run(new Date().toISOString());
+    console.log(`[db] Tabelle bestand_erledigt erfolgreich auf neues Schema (inkl. Ordner) migriert.`);
+  } catch (err) {
+    console.warn('[db] Fehler bei Migration von bestand_erledigt:', err.message);
   }
 }
 

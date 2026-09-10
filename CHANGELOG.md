@@ -2,6 +2,18 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.6.1.0] - 2026-09-10 (Build 168) — *Workflow- & UI-Bugfixes*
+
+**Features & Fixes:**
+- **Sortierungs-Rückstand:** Das Dashboard liest nun den offenen Rückstand direkt und blitzschnell aus der internen Sortier-Datenbank anstatt IMAP zu bemühen. Dadurch gibt es keine Verzögerung (Lag) mehr.
+- **Bestands-Workflow Fix:** Der n8n-Workflow verwendet nun beim Verschieben und Virenscannen dynamisch den tatsächlichen Unterordner (`$json.ordner`), nicht mehr pauschal "INBOX". Das behebt Fehler beim Verschieben aus anderen Bestandsordnern.
+- **Vorschlag-Button repariert:** Der Button "Beschreibung von der KI vorschlagen lassen" unter *Themen-Ordner* speichert nun das Ergebnis direkt in den Katalog und zeigt Fehler sauber an, anstatt scheinbar nichts zu tun.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine.
+- **n8n-Kompatibilität:** Workflows müssen über den Panel-Button (Einstellungen -> Synchronisieren) aktualisiert werden, um die dynamische Ordnerübergabe im Verschiebeknoten und Scanner zu erhalten.
+- **Neustart:** Panel startet durch.
+
 ## [4.6.0.0] - 2026-09-10 (Build 167) — *Sortierungs- & Quarantäne-Verbesserungen*
 
 **Features:**

@@ -438,10 +438,10 @@ export default function Sortierung() {
     try {
       const { data } = await api.post(`/sortierung/katalog/${o.id}/beschreibung-vorschlagen`);
       setBeschreibungEntwurf(p => ({ ...p, [o.id]: data.beschreibung }));
-      melden(`Vorschlag aus ${data.absender} Absender(n). Zum Übernehmen ins Feld klicken und `
-        + 'wieder herausklicken — dann wird gespeichert.');
+      await katalogAendern(o.id, { beschreibung: data.beschreibung });
+      melden(`Vorschlag aus ${data.absender} Absender(n) gespeichert.`);
     } catch (err) {
-      melden(err.response?.data?.error || 'Vorschlag fehlgeschlagen', 'fehler');
+      melden(err.response?.data?.error || err.message || 'Vorschlag fehlgeschlagen', 'fehler');
     } finally {
       setBeschreibungLaeuft(null);
     }
