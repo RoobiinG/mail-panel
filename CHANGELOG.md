@@ -2,6 +2,19 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.6.0.0] - 2026-09-10 (Build 167) — *Sortierungs- & Quarantäne-Verbesserungen*
+
+**Features:**
+- **Bestands-Workflow & Unterordner:** Der Bestands-Workflow durchsucht nun alle Ordner und erkennt deren Pfad automatisch. Dies verhindert, dass nicht-verschobene Mails in der Pipeline stecken bleiben.
+- **Entscheidungs-Chronik Bulk-Aktionen:** In der Sortierung > Entscheidungen gibt es nun einen Filter nach Zielordner sowie die Möglichkeit, mehrere Fehlentscheidungen per Checkbox auszuwählen und gesammelt in einen neuen Ordner zu verschieben (inklusive Neuanlage von Regeln).
+- **Quarantäne Redesign:** Die Quarantäne-Ansicht (sowohl n8n als auch Mailcow) wurde übersichtlicher gestaltet und verwendet nun farbliche Badges für Kategorien und Spam-Scores zur schnelleren Gefahrenerkennung.
+- **Trefferquote-Präzision:** Die Trefferquote wird nun mit einer Nachkommastelle angezeigt, um Veränderungen besser sichtbar zu machen.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine neuen Migrationen erforderlich.
+- **n8n-Kompatibilität:** Kompatibel. Der Bestands-Workflow erhält nun `ordner` im Payload.
+- **Neustart:** Panel startet durch.
+
 ## [4.5.4.0] - 2026-09-10 (Build 166) — *Ordner-Ansicht, Nextcloud-Pfad & Dashboard-Update*
 
 **Features:**
