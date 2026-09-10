@@ -77,7 +77,7 @@ describe('Auswahl der Bestands-Mails', () => {
       'sonst wartet die 2 einen ganzen Durchlauf des Postfachs');
   });
 
-  test('wer zweimal drankam und immer noch liegt, wird zurueckgestellt', async () => {
+  test('wer zweimal drankam und immer noch liegt, wird weiterhin angeboten', async () => {
     const id = kontoAnlegen();
     postfachMit([1, 2, 3, 4, 5, 6]);
     assert.equal((await bestand.kandidaten(2)).konten.K, '1,2');
@@ -88,19 +88,8 @@ describe('Auswahl der Bestands-Mails', () => {
 
     // Wieder etwas geschafft (3), die 2 liegt immer noch — zweimal drangewesen.
     bestand.erledigtMerken(id, 3, 'ruhe');
-    assert.equal((await bestand.kandidaten(2)).konten.K, '4,5',
-      'danach geht es weiter, sonst steht der Bestand fuer immer');
-    assert.equal(bestand.unklareAnzahl(id), 1, 'gezaehlt, nicht still verschwunden');
-  });
-
-  test('ein gescheiterter Lauf stempelt keine Mail als unklar ab', async () => {
-    const id = kontoAnlegen();
-    postfachMit([1, 2, 3, 4]);
-    await bestand.kandidaten(2);   // 1,2
-    await bestand.kandidaten(2);   // nichts geschafft -> wieder 1,2
-    await bestand.kandidaten(2);
-    assert.equal(bestand.unklareAnzahl(id), 0,
-      'starb der Lauf an Googles Kontingent, liegt es nicht an der Mail');
+    assert.equal((await bestand.kandidaten(2)).konten.K, '2,4',
+      'die 2 bleibt hartnaeckig vorn, da es kein automatisches unklar-Abstempeln mehr gibt');
   });
 
   test('zurueckgestellte Mails kommen in der naechsten Runde wieder', async () => {
