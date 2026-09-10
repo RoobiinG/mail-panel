@@ -261,7 +261,7 @@ describe('Die Route liefert das auch aus', () => {
 
   test('konto_id=alle sucht über alle Postfächer', async () => {
     const { res, antwort } = attrappe();
-    handler({ query: { konto_id: 'alle', suche: 'amazon' } }, res);
+    await handler({ query: { konto_id: 'alle', suche: 'amazon' } }, res);
     assert.equal(antwort.code, 200, `Fehler: ${antwort.koerper && antwort.koerper.error}`);
     assert.equal(antwort.koerper.gesamt, 3);
     for (const feld of ['eintraege', 'gesamt', 'seite', 'seiten', 'limit']) {
@@ -274,14 +274,14 @@ describe('Die Route liefert das auch aus', () => {
                 VALUES ('Post', 'imap.example', 993, 'p', 'x')`).run();
     const id = db.prepare("SELECT id FROM accounts WHERE name = 'Post'").get().id;
     const { res, antwort } = attrappe();
-    handler({ query: { konto_id: id } }, res);
+    await handler({ query: { konto_id: id } }, res);
     assert.equal(antwort.code, 200);
     assert.equal(antwort.koerper.gesamt, 5);
   });
 
   test('ein unbekanntes Konto ist ein Fehler, kein leeres Ergebnis', async () => {
     const { res, antwort } = attrappe();
-    handler({ query: { konto_id: 999999 } }, res);
+    await handler({ query: { konto_id: 999999 } }, res);
     assert.equal(antwort.code, 400);
   });
 });

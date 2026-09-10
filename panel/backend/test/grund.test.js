@@ -112,7 +112,7 @@ describe('Der Grund steht im Protokoll', () => {
     await post('/api/internal/sort', { konto: 'K', von: 'a@shop.de', betreff: 'x', uid: 15 });
     await post('/api/internal/einsortieren', { konto: 'K', von: 'a@shop.de', betreff: 'x', uid: 15 });
 
-    const treffer = entscheidungen.suchen({ konto: 'K', suche: 'Eigene Regel' });
+    const treffer = await entscheidungen.suchen({ konto: 'K', suche: 'Eigene Regel' });
     assert.equal(treffer.gesamt, 1);
     assert.equal(treffer.eintraege[0].von, 'a@shop.de');
   });
