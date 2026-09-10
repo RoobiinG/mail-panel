@@ -2,6 +2,16 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.6.1.2] - 2026-09-10 (Build 170) — *Test-Fix*
+
+**Fix:**
+- **CI Pipeline:** Die Bestandsauswahl-Tests in der CI-Pipeline schlugen fehl, da das Passwort-Mocking im Testsetup eine Entschlüsselungs-Ausnahme warf (passiert im Hintergrund bei `bestand.kandidaten()`). Das Setup nutzt jetzt korrekt verschlüsselte Dummy-Passwörter.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine.
+- **n8n-Kompatibilität:** Keine Änderung.
+- **Neustart:** Panel startet durch.
+
 ## [4.6.1.1] - 2026-09-10 (Build 169) — *Entscheidungen-Checkbox Fix*
 
 **Fix:**

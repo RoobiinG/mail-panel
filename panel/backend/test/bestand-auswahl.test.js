@@ -18,11 +18,12 @@ const settings = require('../src/services/settings');
 const imap = require('../src/services/imap');
 const bestand = require('../src/services/bestand');
 const patcher = require('../src/services/workflowPatcher');
+const { verschluesseln } = require('../src/services/crypto');
 
 const kontoAnlegen = (name = 'K') => db.prepare(
   'INSERT INTO accounts (name, host, port, username, password_enc, aktiv)'
-  + " VALUES (?, 'h', 993, 'u', 'x', 1)",
-).run(name).lastInsertRowid;
+  + " VALUES (?, 'h', 993, 'u', ?, 1)",
+).run(name, verschluesseln('x')).lastInsertRowid;
 
 // Statt eines echten Postfachs: eine feste UID-Liste.
 function postfachMit(uids) {
