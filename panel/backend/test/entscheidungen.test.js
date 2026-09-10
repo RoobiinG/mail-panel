@@ -64,12 +64,12 @@ describe('Suche — man sucht nach dem, woran man sich erinnert', () => {
   });
 
   test('nach Ordner — auch nach dem, in den korrigiert wurde', async () => {
-    assert.equal(await e.suchen({ suche: 'Bestellungen' }).gesamt, 1);
-    assert.equal(await e.suchen({ suche: 'Arbeit' }).gesamt, 1);
+    assert.equal((await e.suchen({ suche: 'Bestellungen' })).gesamt, 1);
+    assert.equal((await e.suchen({ suche: 'Arbeit' })).gesamt, 1);
   });
 
   test('Groß- und Kleinschreibung ist egal', async () => {
-    assert.equal(await e.suchen({ suche: 'AMAZON' }).gesamt, 3);
+    assert.equal((await e.suchen({ suche: 'AMAZON' })).gesamt, 3);
   });
 
   // Zwei Wörter heißen „beides muss zutreffen", nicht „genau diese Zeichenkette":
@@ -82,37 +82,37 @@ describe('Suche — man sucht nach dem, woran man sich erinnert', () => {
   });
 
   test('mehrere Wörter schließen aus, was nur eines trifft', async () => {
-    assert.equal(await e.suchen({ suche: 'amazon urlaub' }).gesamt, 0);
+    assert.equal((await e.suchen({ suche: 'amazon urlaub' })).gesamt, 0);
   });
 
   // % und _ sind in LIKE Platzhalter. Ungemaskiert hätte „50%" jede Zeile
   // getroffen, in der irgendwo „50" steht — und die Suche wäre wertlos.
   test('Prozentzeichen wird wörtlich gesucht, nicht als Platzhalter', async () => {
-    assert.equal(await e.suchen({ suche: '50%' }).gesamt, 1);
-    assert.equal(await e.suchen({ suche: '%' }).gesamt, 1, 'ein nacktes % darf nicht alles finden');
+    assert.equal((await e.suchen({ suche: '50%' })).gesamt, 1);
+    assert.equal((await e.suchen({ suche: '%' })).gesamt, 1, 'ein nacktes % darf nicht alles finden');
   });
 
   test('leere Suche liefert alles', async () => {
-    assert.equal(await e.suchen({ suche: '   ' }).gesamt, 6);
+    assert.equal((await e.suchen({ suche: '   ' })).gesamt, 6);
   });
 });
 
 describe('Postfächer', () => {
   test('ein Konto zeigt nur seine eigenen Entscheidungen', async () => {
-    assert.equal(await e.suchen({ konto: 'Post' }).gesamt, 5);
-    assert.equal(await e.suchen({ konto: 'Zweitpostfach' }).gesamt, 1);
+    assert.equal((await e.suchen({ konto: 'Post' })).gesamt, 5);
+    assert.equal((await e.suchen({ konto: 'Zweitpostfach' })).gesamt, 1);
   });
 
   // Wer eine falsch einsortierte Mail sucht, weiß oft nicht mehr, wo sie ankam.
   test('ohne Konto wird über alle Postfächer gesucht', async () => {
-    assert.equal(await e.suchen({ konto: null, suche: 'amazon' }).gesamt, 3);
+    assert.equal((await e.suchen({ konto: null, suche: 'amazon' })).gesamt, 3);
   });
 });
 
 describe('Filter', () => {
   test('nur KI beziehungsweise nur eigene Regeln', async () => {
-    assert.equal(await e.suchen({ nur: 'ki' }).gesamt, 5);
-    assert.equal(await e.suchen({ nur: 'regel' }).gesamt, 1);
+    assert.equal((await e.suchen({ nur: 'ki' })).gesamt, 5);
+    assert.equal((await e.suchen({ nur: 'regel' })).gesamt, 1);
   });
 
   test('nur bereits korrigierte', async () => {
@@ -131,7 +131,7 @@ describe('Filter', () => {
   });
 
   test('ohne Filter sind sie trotzdem dabei', async () => {
-    assert.ok(await e.suchen({}).eintraege.some((z) => z.zielordner === null));
+    assert.ok((await e.suchen({})).eintraege.some((z) => z.zielordner === null));
   });
 
   // Der Blick für „ich glaube, die Spam- und Virenprüfung stimmt nicht".
@@ -160,26 +160,26 @@ describe('Filter', () => {
 
 describe('Zeitraum', () => {
   test('die letzten 7 Tage lassen alles Ältere weg', async () => {
-    assert.equal(await e.suchen({ tage: 7 }).gesamt, 4, 'ohne die Zeilen von vor 10 und 40 Tagen');
+    assert.equal((await e.suchen({ tage: 7 })).gesamt, 4, 'ohne die Zeilen von vor 10 und 40 Tagen');
   });
 
   test('30 Tage nehmen die von vor 10 Tagen wieder mit', async () => {
-    assert.equal(await e.suchen({ tage: 30 }).gesamt, 5);
+    assert.equal((await e.suchen({ tage: 30 })).gesamt, 5);
   });
 
   test('ohne Angabe zählt alles', async () => {
-    assert.equal(await e.suchen({ tage: 0 }).gesamt, 6);
-    assert.equal(await e.suchen({}).gesamt, 6);
+    assert.equal((await e.suchen({ tage: 0 })).gesamt, 6);
+    assert.equal((await e.suchen({})).gesamt, 6);
   });
 
   test('Unsinn im Feld grenzt nicht versehentlich ein', async () => {
-    assert.equal(await e.suchen({ tage: 'übermorgen' }).gesamt, 6);
-    assert.equal(await e.suchen({ tage: -5 }).gesamt, 6);
+    assert.equal((await e.suchen({ tage: 'übermorgen' })).gesamt, 6);
+    assert.equal((await e.suchen({ tage: -5 })).gesamt, 6);
   });
 
   test('Zeitraum und Suche greifen zusammen', async () => {
-    assert.equal(await e.suchen({ suche: 'amazon' }).gesamt, 3);
-    assert.equal(await e.suchen({ suche: 'amazon', tage: 7 }).gesamt, 1, 'nur die aus dem Zweitpostfach');
+    assert.equal((await e.suchen({ suche: 'amazon' })).gesamt, 3);
+    assert.equal((await e.suchen({ suche: 'amazon', tage: 7 })).gesamt, 1, 'nur die aus dem Zweitpostfach');
   });
 });
 
@@ -198,7 +198,7 @@ describe('Der Grund — weshalb ist die Mail dort gelandet?', () => {
   });
 
   test('Zeilen ohne Grund stören die Suche nicht', async () => {
-    assert.equal(await e.suchen({ suche: 'Urlaub' }).eintraege[0].grund, null);
+    assert.equal((await e.suchen({ suche: 'Urlaub' })).eintraege[0].grund, null);
   });
 });
 
@@ -211,15 +211,15 @@ describe('Blättern', () => {
   });
 
   test('Seite 2 setzt fort, statt zu wiederholen', async () => {
-    const s1 = await e.suchen({ limit: 2, seite: 1 }).eintraege.map((z) => z.id);
-    const s2 = await e.suchen({ limit: 2, seite: 2 }).eintraege.map((z) => z.id);
+    const s1 = (await e.suchen({ limit: 2, seite: 1 })).eintraege.map((z) => z.id);
+    const s2 = (await e.suchen({ limit: 2, seite: 2 })).eintraege.map((z) => z.id);
     assert.equal(s1.length, 2);
     assert.equal(s2.length, 2);
     assert.equal(s1.filter((id) => s2.includes(id)).length, 0, 'keine Zeile darf doppelt erscheinen');
   });
 
   test('das Neueste steht oben', async () => {
-    const ids = await e.suchen({}).eintraege.map((z) => z.id);
+    const ids = (await e.suchen({})).eintraege.map((z) => z.id);
     assert.deepEqual(ids, [...ids].sort((a, b) => b - a));
   });
 
@@ -232,8 +232,8 @@ describe('Blättern', () => {
   });
 
   test('unsinnige Werte kippen die Abfrage nicht', async () => {
-    assert.equal(await e.suchen({ seite: -5, limit: 0 }).seite, 1);
-    assert.ok(await e.suchen({ limit: 99999 }).limit <= 200, 'die Seitengröße bleibt gedeckelt');
+    assert.equal((await e.suchen({ seite: -5, limit: 0 })).seite, 1);
+    assert.ok((await e.suchen({ limit: 99999 })).limit <= 200, 'die Seitengröße bleibt gedeckelt');
   });
 });
 
