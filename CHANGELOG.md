@@ -2,6 +2,16 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.6.1.3] - 2026-09-10 (Build 171) — *Test-Fix*
+
+**Fix:**
+- **CI Pipeline:** Weitere Behebung fehlgeschlagener Tests in `bestand-auswahl.test.js`. Die Rückgabestruktur von `bestand.kandidaten()` wurde zuvor auf ein Objekt (`{ ordner, uids }`) erweitert, weshalb die Unit-Tests nun `.uids` überprüfen müssen, statt einen puren String zu erwarten.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine.
+- **n8n-Kompatibilität:** Keine Änderung.
+- **Neustart:** Panel startet durch.
+
 ## [4.6.1.2] - 2026-09-10 (Build 170) — *Test-Fix*
 
 **Fix:**
