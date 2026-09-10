@@ -27,6 +27,8 @@ const kontoAnlegen = (name = 'K') => db.prepare(
 // Statt eines echten Postfachs: eine feste UID-Liste.
 function postfachMit(uids) {
   imap.uidsAuflisten = async () => new Set(uids);
+  // Seit dem Unterordner-Scan braucht bestand.kandidaten() auch ordnerDetails.
+  imap.ordnerDetails = async () => [{ pfad: 'INBOX', auswaehlbar: true, spezial: 'inbox' }];
 }
 
 beforeEach(() => {

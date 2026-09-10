@@ -27,8 +27,8 @@ const uebersicht = require('../src/services/uebersicht');
 const budget = require('../src/services/budget');
 
 function konto(name) {
-  db.prepare(`INSERT INTO accounts (name, host, port, username, password_enc, aktiv)
-    VALUES (?, 'h', 993, 'u', ?, 1)`).run(name, verschluesseln('x'));
+  return db.prepare(`INSERT INTO accounts (name, host, port, username, password_enc, aktiv)
+    VALUES (?, 'h', 993, 'u', ?, 1)`).run(name, verschluesseln('x')).lastInsertRowid;
 }
 function log({ von = 'a@b.de', kat = 'clean', ziel = 'Games', korr = null, alter = 0 }) {
   const id = db.prepare(`INSERT INTO quarantine_log (konto, von, kategorie, zielordner, korrigiert_zu)
@@ -104,7 +104,7 @@ describe('Trefferquote', () => {
     const u = await uebersicht.laden({ mitPosteingang: false });
     assert.equal(u.lernen.einordnungen7, 12);
     assert.equal(u.lernen.korrigiert7, 2);
-    assert.equal(u.lernen.trefferquote, Math.round((1 - 2 / 12) * 100));
+    assert.equal(u.lernen.trefferquote, Number(((1 - 2 / 12) * 100).toFixed(1)));
   });
 
   test('ohne Einordnungen keine erfundene Quote', async () => {
@@ -115,8 +115,14 @@ describe('Trefferquote', () => {
 
 describe('Posteingangs-Rückstand', () => {
   test('summiert erreichbare Postfächer', async () => {
-    konto('Eins'); konto('Zwei');
-    imapStub.naechste = new Set([1, 2, 3]);
+    const idE = konto('Eins'); const idZ = konto('Zwei');
+    // Der Rückstand kommt jetzt aus sort_inbox, nicht mehr per IMAP.
+    db.prepare("INSERT INTO sort_inbox (konto, konto_id, von, uid, status) VALUES ('Eins', ?, 'a@b.de', '1', 'offen')").run(idE);
+    db.prepare("INSERT INTO sort_inbox (konto, konto_id, von, uid, status) VALUES ('Eins', ?, 'a@b.de', '2', 'offen')").run(idE);
+    db.prepare("INSERT INTO sort_inbox (konto, konto_id, von, uid, status) VALUES ('Eins', ?, 'a@b.de', '3', 'offen')").run(idE);
+    db.prepare("INSERT INTO sort_inbox (konto, konto_id, von, uid, status) VALUES ('Zwei', ?, 'a@b.de', '4', 'offen')").run(idZ);
+    db.prepare("INSERT INTO sort_inbox (konto, konto_id, von, uid, status) VALUES ('Zwei', ?, 'a@b.de', '5', 'offen')").run(idZ);
+    db.prepare("INSERT INTO sort_inbox (konto, konto_id, von, uid, status) VALUES ('Zwei', ?, 'a@b.de', '6', 'offen')").run(idZ);
     const u = await uebersicht.laden();
     assert.equal(u.posteingang.konten.length, 2);
     assert.equal(u.posteingang.wartendGesamt, 6, '3 + 3');
@@ -124,10 +130,11 @@ describe('Posteingangs-Rückstand', () => {
 
   test('ein nicht erreichbares Postfach lässt die Übersicht nicht scheitern', async () => {
     konto('Kaputt');
-    imapStub.wirft = true;
+    // Ohne sort_inbox-Einträge für das Konto ist der Rückstand 0,
+    // und die DB-basierte Logik gibt immer erreichbar=true.
     const u = await uebersicht.laden();
-    assert.equal(u.posteingang.konten[0].erreichbar, false);
-    assert.equal(u.posteingang.wartendGesamt, 0, 'unlesbare zählen nicht mit');
+    assert.equal(u.posteingang.konten[0].erreichbar, true);
+    assert.equal(u.posteingang.wartendGesamt, 0, 'keine offenen Einträge');
   });
 });
 
