@@ -2,7 +2,7 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
-## [4.6.2.0] - 2026-09-11 (Build 173) — *Live-IMAP im Entscheidungen-Tab*
+## [4.6.2.0] - 2026-09-11 (Build 174) — *Live-IMAP im Entscheidungen-Tab*
 
 **Features:**
 - **Live-IMAP Ansicht:** Wenn im Entscheidungen-Tab ein bestimmtes Konto und ein Ordner ausgewählt sind, werden nun live alle E-Mails dieses Ordners direkt vom Mail-Server (IMAP) geladen und angezeigt.

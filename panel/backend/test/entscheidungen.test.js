@@ -52,71 +52,71 @@ anlegen({
 });
 
 describe('Suche — man sucht nach dem, woran man sich erinnert', () => {
-  test('nach Absender', () => {
-    const t = e.suchen({ suche: 'amazon' });
+  test('nach Absender', async () => {
+    const t = await e.suchen({ suche: 'amazon' });
     assert.equal(t.gesamt, 3, 'zwei im ersten Postfach, eine im zweiten');
   });
 
-  test('nach Betreff', () => {
-    const t = e.suchen({ suche: 'Urlaub' });
+  test('nach Betreff', async () => {
+    const t = await e.suchen({ suche: 'Urlaub' });
     assert.equal(t.gesamt, 1);
     assert.equal(t.eintraege[0].von, 'chef@firma.example');
   });
 
-  test('nach Ordner — auch nach dem, in den korrigiert wurde', () => {
-    assert.equal(e.suchen({ suche: 'Bestellungen' }).gesamt, 1);
-    assert.equal(e.suchen({ suche: 'Arbeit' }).gesamt, 1);
+  test('nach Ordner — auch nach dem, in den korrigiert wurde', async () => {
+    assert.equal(await e.suchen({ suche: 'Bestellungen' }).gesamt, 1);
+    assert.equal(await e.suchen({ suche: 'Arbeit' }).gesamt, 1);
   });
 
-  test('Groß- und Kleinschreibung ist egal', () => {
-    assert.equal(e.suchen({ suche: 'AMAZON' }).gesamt, 3);
+  test('Groß- und Kleinschreibung ist egal', async () => {
+    assert.equal(await e.suchen({ suche: 'AMAZON' }).gesamt, 3);
   });
 
   // Zwei Wörter heißen „beides muss zutreffen", nicht „genau diese Zeichenkette":
   // Sonst findet „amazon bestellung" nichts, weil Absender und Betreff in
   // verschiedenen Spalten stehen.
-  test('mehrere Wörter über verschiedene Felder hinweg', () => {
-    const t = e.suchen({ suche: 'amazon bestellung' });
+  test('mehrere Wörter über verschiedene Felder hinweg', async () => {
+    const t = await e.suchen({ suche: 'amazon bestellung' });
     assert.equal(t.gesamt, 1);
     assert.equal(t.eintraege[0].betreff, 'Ihre Bestellung');
   });
 
-  test('mehrere Wörter schließen aus, was nur eines trifft', () => {
-    assert.equal(e.suchen({ suche: 'amazon urlaub' }).gesamt, 0);
+  test('mehrere Wörter schließen aus, was nur eines trifft', async () => {
+    assert.equal(await e.suchen({ suche: 'amazon urlaub' }).gesamt, 0);
   });
 
   // % und _ sind in LIKE Platzhalter. Ungemaskiert hätte „50%" jede Zeile
   // getroffen, in der irgendwo „50" steht — und die Suche wäre wertlos.
-  test('Prozentzeichen wird wörtlich gesucht, nicht als Platzhalter', () => {
-    assert.equal(e.suchen({ suche: '50%' }).gesamt, 1);
-    assert.equal(e.suchen({ suche: '%' }).gesamt, 1, 'ein nacktes % darf nicht alles finden');
+  test('Prozentzeichen wird wörtlich gesucht, nicht als Platzhalter', async () => {
+    assert.equal(await e.suchen({ suche: '50%' }).gesamt, 1);
+    assert.equal(await e.suchen({ suche: '%' }).gesamt, 1, 'ein nacktes % darf nicht alles finden');
   });
 
-  test('leere Suche liefert alles', () => {
-    assert.equal(e.suchen({ suche: '   ' }).gesamt, 6);
+  test('leere Suche liefert alles', async () => {
+    assert.equal(await e.suchen({ suche: '   ' }).gesamt, 6);
   });
 });
 
 describe('Postfächer', () => {
-  test('ein Konto zeigt nur seine eigenen Entscheidungen', () => {
-    assert.equal(e.suchen({ konto: 'Post' }).gesamt, 5);
-    assert.equal(e.suchen({ konto: 'Zweitpostfach' }).gesamt, 1);
+  test('ein Konto zeigt nur seine eigenen Entscheidungen', async () => {
+    assert.equal(await e.suchen({ konto: 'Post' }).gesamt, 5);
+    assert.equal(await e.suchen({ konto: 'Zweitpostfach' }).gesamt, 1);
   });
 
   // Wer eine falsch einsortierte Mail sucht, weiß oft nicht mehr, wo sie ankam.
-  test('ohne Konto wird über alle Postfächer gesucht', () => {
-    assert.equal(e.suchen({ konto: null, suche: 'amazon' }).gesamt, 3);
+  test('ohne Konto wird über alle Postfächer gesucht', async () => {
+    assert.equal(await e.suchen({ konto: null, suche: 'amazon' }).gesamt, 3);
   });
 });
 
 describe('Filter', () => {
-  test('nur KI beziehungsweise nur eigene Regeln', () => {
-    assert.equal(e.suchen({ nur: 'ki' }).gesamt, 5);
-    assert.equal(e.suchen({ nur: 'regel' }).gesamt, 1);
+  test('nur KI beziehungsweise nur eigene Regeln', async () => {
+    assert.equal(await e.suchen({ nur: 'ki' }).gesamt, 5);
+    assert.equal(await e.suchen({ nur: 'regel' }).gesamt, 1);
   });
 
-  test('nur bereits korrigierte', () => {
-    const t = e.suchen({ nur: 'korrigiert' });
+  test('nur bereits korrigierte', async () => {
+    const t = await e.suchen({ nur: 'korrigiert' });
     assert.equal(t.gesamt, 1);
     assert.equal(t.eintraege[0].korrigiert_zu, 'Arbeit');
   });
@@ -124,19 +124,19 @@ describe('Filter', () => {
   // Der häufigste Grund für „warum wurde die nicht sortiert?" — und bis hierher
   // war er unsichtbar: Die alte Abfrage verlangte einen Zielordner und ließ
   // genau die Zeilen weg, die man sucht.
-  test('liegengebliebene Mails sind auffindbar', () => {
-    const t = e.suchen({ nur: 'liegen' });
+  test('liegengebliebene Mails sind auffindbar', async () => {
+    const t = await e.suchen({ nur: 'liegen' });
     assert.equal(t.gesamt, 1);
     assert.equal(t.eintraege[0].zielordner, null);
   });
 
-  test('ohne Filter sind sie trotzdem dabei', () => {
-    assert.ok(e.suchen({}).eintraege.some((z) => z.zielordner === null));
+  test('ohne Filter sind sie trotzdem dabei', async () => {
+    assert.ok(await e.suchen({}).eintraege.some((z) => z.zielordner === null));
   });
 
   // Der Blick für „ich glaube, die Spam- und Virenprüfung stimmt nicht".
-  test('Spam und Viren zusammen', () => {
-    const t = e.suchen({ nur: 'spam' });
+  test('Spam und Viren zusammen', async () => {
+    const t = await e.suchen({ nur: 'spam' });
     assert.equal(t.gesamt, 2, 'ein Virenfund und ein Wert über der Schwelle');
     assert.ok(t.eintraege.some((z) => z.virus_name));
     assert.ok(t.eintraege.some((z) => z.spam_score >= 0.8));
@@ -144,12 +144,12 @@ describe('Filter', () => {
 
   // Die Schwelle darf nicht im Code stehen: Sonst zeigt der Filter etwas
   // anderes an, als in den Workflows tatsächlich passiert ist.
-  test('die Schwelle kommt aus den Einstellungen', () => {
+  test('die Schwelle kommt aus den Einstellungen', async () => {
     const settings = require('../src/services/settings');
     const vorher = settings.hole('spam_schwellwert');
     try {
       settings.setze('spam_schwellwert', '0.99');
-      const t = e.suchen({ nur: 'spam' });
+      const t = await e.suchen({ nur: 'spam' });
       assert.equal(t.gesamt, 1, 'bei 0,99 bleibt nur noch der Virenfund übrig');
       assert.ok(t.eintraege[0].virus_name);
     } finally {
@@ -159,81 +159,81 @@ describe('Filter', () => {
 });
 
 describe('Zeitraum', () => {
-  test('die letzten 7 Tage lassen alles Ältere weg', () => {
-    assert.equal(e.suchen({ tage: 7 }).gesamt, 4, 'ohne die Zeilen von vor 10 und 40 Tagen');
+  test('die letzten 7 Tage lassen alles Ältere weg', async () => {
+    assert.equal(await e.suchen({ tage: 7 }).gesamt, 4, 'ohne die Zeilen von vor 10 und 40 Tagen');
   });
 
-  test('30 Tage nehmen die von vor 10 Tagen wieder mit', () => {
-    assert.equal(e.suchen({ tage: 30 }).gesamt, 5);
+  test('30 Tage nehmen die von vor 10 Tagen wieder mit', async () => {
+    assert.equal(await e.suchen({ tage: 30 }).gesamt, 5);
   });
 
-  test('ohne Angabe zählt alles', () => {
-    assert.equal(e.suchen({ tage: 0 }).gesamt, 6);
-    assert.equal(e.suchen({}).gesamt, 6);
+  test('ohne Angabe zählt alles', async () => {
+    assert.equal(await e.suchen({ tage: 0 }).gesamt, 6);
+    assert.equal(await e.suchen({}).gesamt, 6);
   });
 
-  test('Unsinn im Feld grenzt nicht versehentlich ein', () => {
-    assert.equal(e.suchen({ tage: 'übermorgen' }).gesamt, 6);
-    assert.equal(e.suchen({ tage: -5 }).gesamt, 6);
+  test('Unsinn im Feld grenzt nicht versehentlich ein', async () => {
+    assert.equal(await e.suchen({ tage: 'übermorgen' }).gesamt, 6);
+    assert.equal(await e.suchen({ tage: -5 }).gesamt, 6);
   });
 
-  test('Zeitraum und Suche greifen zusammen', () => {
-    assert.equal(e.suchen({ suche: 'amazon' }).gesamt, 3);
-    assert.equal(e.suchen({ suche: 'amazon', tage: 7 }).gesamt, 1, 'nur die aus dem Zweitpostfach');
+  test('Zeitraum und Suche greifen zusammen', async () => {
+    assert.equal(await e.suchen({ suche: 'amazon' }).gesamt, 3);
+    assert.equal(await e.suchen({ suche: 'amazon', tage: 7 }).gesamt, 1, 'nur die aus dem Zweitpostfach');
   });
 });
 
 describe('Der Grund — weshalb ist die Mail dort gelandet?', () => {
-  test('er kommt mit der Zeile heraus', () => {
-    const t = e.suchen({ suche: 'stadtwerke' });
+  test('er kommt mit der Zeile heraus', async () => {
+    const t = await e.suchen({ suche: 'stadtwerke' });
     assert.equal(t.eintraege[0].grund, 'Eigene Regel [domain] stadtwerke.example');
   });
 
   // Der Grund ist das schnellste Sieb: „existiert nicht" findet auf einen
   // Schlag alle Mails, die an einem fehlenden Zielordner gescheitert sind.
-  test('nach ihm lässt sich suchen', () => {
-    const t = e.suchen({ suche: 'existiert nicht' });
+  test('nach ihm lässt sich suchen', async () => {
+    const t = await e.suchen({ suche: 'existiert nicht' });
     assert.equal(t.gesamt, 1);
     assert.equal(t.eintraege[0].von, 'unklar@nirgendwo.example');
   });
 
-  test('Zeilen ohne Grund stören die Suche nicht', () => {
-    assert.equal(e.suchen({ suche: 'Urlaub' }).eintraege[0].grund, null);
+  test('Zeilen ohne Grund stören die Suche nicht', async () => {
+    assert.equal(await e.suchen({ suche: 'Urlaub' }).eintraege[0].grund, null);
   });
 });
 
 describe('Blättern', () => {
-  test('Gesamtzahl und Seitenzahl passen zusammen', () => {
-    const t = e.suchen({ limit: 2 });
+  test('Gesamtzahl und Seitenzahl passen zusammen', async () => {
+    const t = await e.suchen({ limit: 2 });
     assert.equal(t.gesamt, 6);
     assert.equal(t.seiten, 3);
     assert.equal(t.eintraege.length, 2);
   });
 
-  test('Seite 2 setzt fort, statt zu wiederholen', () => {
-    const s1 = e.suchen({ limit: 2, seite: 1 }).eintraege.map((z) => z.id);
-    const s2 = e.suchen({ limit: 2, seite: 2 }).eintraege.map((z) => z.id);
+  test('Seite 2 setzt fort, statt zu wiederholen', async () => {
+    const s1 = await e.suchen({ limit: 2, seite: 1 }).eintraege.map((z) => z.id);
+    const s2 = await e.suchen({ limit: 2, seite: 2 }).eintraege.map((z) => z.id);
     assert.equal(s1.length, 2);
     assert.equal(s2.length, 2);
     assert.equal(s1.filter((id) => s2.includes(id)).length, 0, 'keine Zeile darf doppelt erscheinen');
   });
 
-  test('das Neueste steht oben', () => {
-    const ids = e.suchen({}).eintraege.map((z) => z.id);
+  test('das Neueste steht oben', async () => {
+    const ids = await e.suchen({}).eintraege.map((z) => z.id);
     assert.deepEqual(ids, [...ids].sort((a, b) => b - a));
   });
 
   // Wer auf Seite 3 einen Suchbegriff eintippt, hätte sonst eine leere Liste vor
   // sich und hielte die Suche für kaputt.
-  test('eine Seite hinter dem Ende zeigt die letzte, nicht nichts', () => {
-    const t = e.suchen({ limit: 2, seite: 99 });
+  test('eine Seite hinter dem Ende zeigt die letzte, nicht nichts', async () => {
+    const t = await e.suchen({ limit: 2, seite: 99 });
     assert.equal(t.seite, 3);
     assert.ok(t.eintraege.length > 0);
   });
 
-  test('unsinnige Werte kippen die Abfrage nicht', () => {
-    assert.equal(e.suchen({ seite: -5, limit: 0 }).seite, 1);
-    assert.ok(e.suchen({ limit: 99999 }).limit <= 200, 'die Seitengröße bleibt gedeckelt');
+  test('unsinnige Werte kippen die Abfrage nicht', async () => {
+    assert.equal(await e.suchen({ seite: -5, limit: 0 }).seite, 1);
+    assert.ok(await e.suchen({ limit: 99999 }).limit <= 200, 'die Seitengröße bleibt gedeckelt');
   });
 });
 
@@ -259,7 +259,7 @@ describe('Die Route liefert das auch aus', () => {
     };
   };
 
-  test('konto_id=alle sucht über alle Postfächer', () => {
+  test('konto_id=alle sucht über alle Postfächer', async () => {
     const { res, antwort } = attrappe();
     handler({ query: { konto_id: 'alle', suche: 'amazon' } }, res);
     assert.equal(antwort.code, 200, `Fehler: ${antwort.koerper && antwort.koerper.error}`);
@@ -269,7 +269,7 @@ describe('Die Route liefert das auch aus', () => {
     }
   });
 
-  test('ein bekanntes Konto grenzt ein', () => {
+  test('ein bekanntes Konto grenzt ein', async () => {
     db.prepare(`INSERT INTO accounts (name, host, port, username, password_enc)
                 VALUES ('Post', 'imap.example', 993, 'p', 'x')`).run();
     const id = db.prepare("SELECT id FROM accounts WHERE name = 'Post'").get().id;
@@ -279,7 +279,7 @@ describe('Die Route liefert das auch aus', () => {
     assert.equal(antwort.koerper.gesamt, 5);
   });
 
-  test('ein unbekanntes Konto ist ein Fehler, kein leeres Ergebnis', () => {
+  test('ein unbekanntes Konto ist ein Fehler, kein leeres Ergebnis', async () => {
     const { res, antwort } = attrappe();
     handler({ query: { konto_id: 999999 } }, res);
     assert.equal(antwort.code, 400);
