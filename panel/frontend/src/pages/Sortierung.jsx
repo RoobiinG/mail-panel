@@ -4,6 +4,7 @@ import {
   FolderTree, Sparkles, Lock, Unlock, RefreshCw, Check, Wand2,
   ChevronRight, ChevronLeft, ChevronDown, Layers, AtSign, History, Undo2, Search
 } from 'lucide-react';
+import api from '../api';
 import { useMelden } from '../components/ui/Meldungen';
 import BelegeKarte from '../components/BelegeKarte';
 
@@ -14,7 +15,6 @@ const adresse = (von) => {
   return (t ? t[1] : roh).trim();
 };
 const domainVon = (von) => (adresse(von).split('@')[1] || '').trim();
-import api from '../api';
 
 const REGEL_TYPEN = {
   absender: 'Exakter Absender (E-Mail)',
