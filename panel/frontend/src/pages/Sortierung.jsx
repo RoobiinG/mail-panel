@@ -374,6 +374,42 @@ export default function Sortierung() {
     }
   };
 
+  // Sammelkorrektur: alle markierten Einträge der Chronik in einen neuen Ordner
+  // verschieben und optional eine Regel anlegen. Nutzt die gleiche API wie die
+  // Einzelkorrektur — ein Batch-Endpunkt existiert noch nicht.
+  const chronikSammelKorrigieren = async () => {
+    const ziel = korrekturOrdner.trim();
+    if (!ziel) return melden('Bitte den richtigen Ordner angeben.', 'hinweis');
+    if (auswahlChronik.length === 0) return;
+    setChronikLaedt(true);
+    let ok = 0;
+    let fehler = 0;
+    try {
+      for (const logId of auswahlChronik) {
+        try {
+          await api.post('/sortierung/korrigieren', {
+            log_id: logId, zielordner: ziel, regelTyp: korrekturRegel,
+          });
+          ok++;
+        } catch {
+          fehler++;
+        }
+      }
+      const teile = [`${ok} von ${auswahlChronik.length} Einträgen nach „${ziel}" korrigiert.`];
+      if (fehler > 0) teile.push(`${fehler} fehlgeschlagen.`);
+      melden(teile.join(' '), fehler > 0 ? 'warnung' : 'erfolg');
+      setAuswahlChronik([]);
+      setKorrekturOrdner('');
+      setChronikTakt(t => t + 1);
+      regelnLaden(aktivesKonto);
+      inboxLaden();
+    } catch (err) {
+      melden(err.response?.data?.error || 'Fehler bei der Sammelkorrektur', 'fehler');
+    } finally {
+      setChronikLaedt(false);
+    }
+  };
+
   // Alles auf dieser Seite gehört zu genau einem Postfach — Vorschläge,
   // wartende Mails, Regeln, Ordner. Ohne das Konto in der Abfrage stand hier
   // alles durcheinander: Vorschläge aus Konto B neben den Ordnern aus Konto A.
