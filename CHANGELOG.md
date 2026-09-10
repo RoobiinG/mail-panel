@@ -2,6 +2,16 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.6.1.1] - 2026-09-10 (Build 169) — *Entscheidungen-Checkbox Fix*
+
+**Fix:**
+- **Schwarze Seite beim Anhaken:** Im Entscheidungen-Tab der Sortierung führte das Anhaken einer Checkbox zum Absturz (schwarze Seite), weil die Funktion `chronikSammelKorrigieren` fehlte. Die Bulk-Korrektur (mehrere markierte Einträge in einen neuen Ordner verschieben) funktioniert nun.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine.
+- **n8n-Kompatibilität:** Keine Änderung.
+- **Neustart:** Panel startet durch.
+
 ## [4.6.1.0] - 2026-09-10 (Build 168) — *Workflow- & UI-Bugfixes*
 
 **Features & Fixes:**
