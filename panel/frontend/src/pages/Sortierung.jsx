@@ -166,9 +166,11 @@ export default function Sortierung() {
   const [suche, setSuche] = useState('');            // was im Feld steht
   const [suchbegriff, setSuchbegriff] = useState(''); // was davon schon abgeschickt ist
   const [nur, setNur] = useState('alle');
+  const [ordnerFilter, setOrdnerFilter] = useState('');
   const [tage, setTage] = useState(0);                // 0 = gesamter Zeitraum
   const [seite, setSeite] = useState(1);
   const [alleKonten, setAlleKonten] = useState(false);
+  const [auswahlChronik, setAuswahlChronik] = useState([]);
   const [chronikLaedt, setChronikLaedt] = useState(false);
   const [chronikTakt, setChronikTakt] = useState(0);  // hochzählen = neu laden
   // Eine aufgeklappte Zeile zeigt Grund, Kurzfassung und Prüfwerte — und, wo es
@@ -309,6 +311,7 @@ export default function Sortierung() {
         });
         if (suchbegriff.trim()) p.set('suche', suchbegriff.trim());
         if (nur !== 'alle') p.set('nur', nur);
+        if (ordnerFilter) p.set('ordner', ordnerFilter);
         if (tage > 0) p.set('tage', String(tage));
         const { data } = await api.get(`/sortierung/entscheidungen?${p.toString()}`);
         if (verworfen) return;
@@ -320,19 +323,22 @@ export default function Sortierung() {
       } catch {
         if (!verworfen) setEntscheidungen(CHRONIK_LEER);
       } finally {
-        if (!verworfen) setChronikLaedt(false);
+        if (!verworfen) {
+          setChronikLaedt(false);
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
       }
     })();
     // Eine überholte Antwort darf eine neuere nicht überschreiben.
     return () => { verworfen = true; };
-  }, [aktivesKonto, alleKonten, suchbegriff, nur, tage, seite, chronikTakt]);
+  }, [aktivesKonto, alleKonten, suchbegriff, nur, ordnerFilter, tage, seite, chronikTakt]);
 
   // Beim Postfach-Wechsel zurück auf Seite 1. Sonst blieb man auf Seite 5, der
   // Server deckelte auf das, was es dort überhaupt gibt, und es kostete eine
   // überflüssige Runde durch die Leitung.
-  useEffect(() => { setSeite(1); setOffeneZeile(null); }, [aktivesKonto]);
+  useEffect(() => { setSeite(1); setOffeneZeile(null); setAuswahlChronik([]); }, [aktivesKonto]);
 
-  const chronikSpalten = alleKonten ? 8 : 7;
+  const chronikSpalten = alleKonten ? 9 : 8;
 
   // Eine Zeile auf- oder zuklappen. Die Korrektur-Felder gehören zu der Zeile,
   // die gerade offen ist — beim Wechsel müssen sie leer sein, sonst steht der
@@ -1389,6 +1395,15 @@ export default function Sortierung() {
             >
               {ZEITRAEUME.map(z => <option key={z.wert} value={z.wert}>{z.text}</option>)}
             </select>
+            <select
+              value={ordnerFilter}
+              onChange={ev => { setOrdnerFilter(ev.target.value); setSeite(1); }}
+              className="text-xs bg-panel-bg rounded px-2 py-1.5 border border-panel-border"
+              title="Nach Zielordner filtern"
+            >
+              <option value="">Alle Ordner</option>
+              {alleOrdner.map(o => <option key={o} value={o}>{o}</option>)}
+            </select>
             {/* Wer eine falsch einsortierte Mail sucht, weiß oft nicht mehr, in
                 welchem Postfach sie ankam. Erst raten zu müssen, wäre eine Hürde
                 ohne Zweck. */}
@@ -1404,9 +1419,46 @@ export default function Sortierung() {
         </div>
 
         <div className="overflow-auto max-h-[520px]">
+          {auswahlChronik.length > 0 && (
+            <div className="bg-panel-accent/10 border-t border-b border-panel-accent/20 px-4 py-2 flex flex-wrap gap-3 items-center text-sm">
+              <span className="font-medium text-panel-accent whitespace-nowrap">
+                {auswahlChronik.length} markiert
+              </span>
+              <input
+                type="text"
+                placeholder="Neuer Ordner..."
+                value={korrekturOrdner}
+                onChange={ev => setKorrekturOrdner(ev.target.value)}
+                list="ordner-vorschlaege"
+                className="flex-1 min-w-[150px] !py-1 !px-2 text-sm bg-panel-bg border border-panel-border rounded"
+              />
+              <select
+                value={korrekturRegel}
+                onChange={ev => setKorrekturRegel(ev.target.value)}
+                className="text-sm bg-panel-bg border-panel-border rounded !py-1"
+              >
+                <option value="domain">Merken: Domain</option>
+                <option value="absender">Merken: Exakter Absender</option>
+                <option value="keine">Nur diese verschieben</option>
+              </select>
+              <button onClick={chronikSammelKorrigieren} disabled={chronikLaedt} className="btn !py-1 !px-3 text-sm flex items-center gap-1">
+                <CheckCircle2 size={14} /> Korrigieren
+              </button>
+              <button onClick={() => setAuswahlChronik([])} className="btn-ghost !py-1 !px-2 text-sm ml-auto">
+                Auswahl aufheben
+              </button>
+            </div>
+          )}
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-panel-border text-left text-panel-muted text-xs bg-panel-bg/30">
+                <th className="py-2 px-3 w-8">
+                  <input
+                    type="checkbox"
+                    checked={entscheidungen.eintraege.length > 0 && auswahlChronik.length === entscheidungen.eintraege.length}
+                    onChange={e => setAuswahlChronik(e.target.checked ? entscheidungen.eintraege.map(x => x.id) : [])}
+                  />
+                </th>
                 <th className="py-2 px-4 whitespace-nowrap">Wann</th>
                 {alleKonten && <th className="py-2 px-4">Postfach</th>}
                 <th className="py-2 px-4">Absender</th>
@@ -1431,10 +1483,25 @@ export default function Sortierung() {
               {entscheidungen.eintraege.map(e => (
                 <React.Fragment key={e.id}>
                   <tr
-                    onClick={() => zeileUmschalten(e.id)}
+                    onClick={(ev) => {
+                      if (ev.target.type === 'checkbox') return;
+                      zeileUmschalten(e.id);
+                    }}
                     className="border-b border-panel-border/50 hover:bg-panel-bg/30 transition-colors cursor-pointer"
                     title="Aufklappen: warum ist diese Mail dort gelandet?"
                   >
+                    <td className="py-2 px-3">
+                      <input
+                        type="checkbox"
+                        checked={auswahlChronik.includes(e.id)}
+                        onChange={(ev) => {
+                          ev.stopPropagation();
+                          setAuswahlChronik(prev => 
+                            ev.target.checked ? [...prev, e.id] : prev.filter(id => id !== e.id)
+                          );
+                        }}
+                      />
+                    </td>
                     <td className="py-2 px-4 text-xs text-panel-muted whitespace-nowrap">{zeitpunkt(e.created_at)}</td>
                     {alleKonten && <td className="py-2 px-4 text-xs whitespace-nowrap">{e.konto}</td>}
                     <td className="py-2 px-4 max-w-[200px]">

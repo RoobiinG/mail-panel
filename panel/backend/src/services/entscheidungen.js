@@ -58,11 +58,12 @@ function spamSchwelle() {
 // Der WHERE-Teil samt Werten — als eigene Funktion, weil ihn Liste und Zählung
 // beide brauchen und ein Auseinanderlaufen der beiden eine falsche Gesamtzahl
 // ergäbe.
-function bedingung({ konto, suche, nur, tage } = {}) {
+function bedingung({ konto, suche, nur, tage, ordner } = {}) {
   const teile = [];
   const werte = [];
 
   if (konto) { teile.push('konto = ?'); werte.push(konto); }
+  if (ordner) { teile.push('zielordner = ?'); werte.push(ordner); }
 
   for (const wort of suchTeile(suche)) {
     const muster = `%${maskieren(wort)}%`;
@@ -106,13 +107,14 @@ const GRENZE = 200;
  * @param {string} [o.konto]  Kontoname; fehlt er, wird über alle Postfächer gesucht.
  * @param {string} [o.suche]  Freitext über Absender, Betreff, Thema, Ordner, Grund.
  * @param {string} [o.nur]    'ki' | 'regel' | 'korrigiert' | 'liegen' | 'spam'
+ * @param {string} [o.ordner]   Nur Entscheidungen für diesen Zielordner.
  * @param {number} [o.tage]   Nur die letzten N Tage; 0 oder fehlend = alles.
  * @param {number} [o.seite]  1-basiert.
  * @param {number} [o.limit]  Zeilen je Seite, höchstens 200.
  */
-function suchen({ konto, suche, nur, tage, seite, limit } = {}) {
+function suchen({ konto, suche, nur, tage, seite, limit, ordner } = {}) {
   const proSeite = Math.min(GRENZE, Math.max(1, Number(limit) || 50));
-  const { wo, werte } = bedingung({ konto, suche, nur, tage });
+  const { wo, werte } = bedingung({ konto, suche, nur, tage, ordner });
 
   const gesamt = db.prepare(`SELECT COUNT(*) n FROM quarantine_log ${wo}`).get(...werte).n;
   const seiten = Math.max(1, Math.ceil(gesamt / proSeite));

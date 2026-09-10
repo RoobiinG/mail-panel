@@ -298,6 +298,7 @@ router.get('/entscheidungen', (req, res) => {
       konto: konto ? konto.name : null,
       suche: req.query.suche,
       nur: req.query.nur,
+      ordner: req.query.ordner,
       tage: req.query.tage,
       seite: req.query.seite,
       limit: req.query.limit,

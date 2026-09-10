@@ -108,23 +108,41 @@ export default function Quarantaene() {
               <tbody className="divide-y divide-panel-border">
                 {n8nLogs.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="py-4 text-center text-panel-muted">{laedt ? 'Lade...' : 'Keine Logs vorhanden.'}</td>
+                    <td colSpan={5} className="py-8 text-center text-panel-muted">{laedt ? 'Sucht Logs...' : 'Keine Quarantäne-Fälle vorhanden.'}</td>
                   </tr>
                 ) : (
-                  n8nLogs.map(log => (
-                    <tr key={log.id} className="hover:bg-panel-surface">
-                      <td className="py-2 px-3 text-panel-muted">{new Date(log.created_at).toLocaleString('de-DE')}</td>
-                      <td className="py-2 px-3">{log.konto}</td>
-                      <td className="py-2 px-3 truncate max-w-[200px]" title={log.von}>{log.von}</td>
-                      <td className="py-2 px-3">
-                        {log.kategorie === 'Malware' || log.kategorie === 'Phishing' 
-                          ? <span className="text-panel-red flex items-center gap-1"><ShieldAlert size={14} /> {log.kategorie}</span>
-                          : log.kategorie
-                        }
+                  n8nLogs.map(log => {
+                    const istGefahr = log.kategorie === 'Malware' || log.kategorie === 'Phishing';
+                    const istSpam = log.kategorie === 'Spam';
+                    return (
+                    <tr key={log.id} className="border-b border-panel-border/50 hover:bg-panel-bg/30 transition-colors">
+                      <td className="py-3 px-3 text-panel-muted text-xs whitespace-nowrap">{new Date(log.created_at).toLocaleString('de-DE')}</td>
+                      <td className="py-3 px-3 whitespace-nowrap">{log.konto}</td>
+                      <td className="py-3 px-3 truncate max-w-[240px]" title={log.von}>{log.von}</td>
+                      <td className="py-3 px-3">
+                        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium border ${
+                          istGefahr 
+                            ? 'bg-red-500/10 text-red-400 border-red-500/20' 
+                            : istSpam
+                              ? 'bg-orange-500/10 text-orange-400 border-orange-500/20'
+                              : 'bg-panel-bg text-panel-muted border-panel-border'
+                        }`}>
+                          {istGefahr && <ShieldAlert size={12} />}
+                          {log.kategorie}
+                        </span>
                       </td>
-                      <td className="py-2 px-3 text-panel-muted">{log.spam_score !== null ? log.spam_score : '—'}</td>
+                      <td className="py-3 px-3 text-xs">
+                        {log.spam_score !== null ? (
+                           <span className={`px-2 py-0.5 rounded font-mono ${
+                             log.spam_score >= 0.8 ? 'bg-orange-500/10 text-orange-400' : 'text-panel-muted'
+                           }`}>
+                             {Number(log.spam_score).toFixed(2)}
+                           </span>
+                        ) : '—'}
+                      </td>
                     </tr>
-                  ))
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -184,26 +202,38 @@ export default function Quarantaene() {
                   <tbody className="divide-y divide-panel-border">
                     {mailcowQ.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="py-4 text-center text-panel-muted">{laedt ? 'Lade...' : 'Quarantäne ist leer.'}</td>
+                        <td colSpan={5} className="py-8 text-center text-panel-muted">{laedt ? 'Sucht Quarantäne-Mails...' : 'Quarantäne ist leer.'}</td>
                       </tr>
                     ) : (
                       mailcowQ.map(q => {
                         const id = q.id || q.qhash; // id oder qhash je nach mailcow version
+                        const scoreNum = parseFloat(q.score) || 0;
+                        const scoreGefahr = scoreNum >= 15;
+                        const scoreSpam = scoreNum >= 5 && !scoreGefahr;
+                        
                         return (
-                          <tr key={id} className="hover:bg-panel-surface">
-                            <td className="py-2 px-3">
+                          <tr key={id} className="border-b border-panel-border/50 hover:bg-panel-bg/30 transition-colors">
+                            <td className="py-3 px-3">
                               <input 
                                 type="checkbox" 
                                 checked={mcGewaehlt.has(id)} 
                                 onChange={() => toggleGewaehlt(id)}
                               />
                             </td>
-                            <td className="py-2 px-3 text-panel-muted">
+                            <td className="py-3 px-3 text-xs text-panel-muted whitespace-nowrap">
                               {new Date(q.created ? q.created * 1000 : Date.now()).toLocaleString('de-DE')}
                             </td>
-                            <td className="py-2 px-3 truncate max-w-[200px]" title={q.sender}>{q.sender}</td>
-                            <td className="py-2 px-3">{q.rcpt}</td>
-                            <td className="py-2 px-3 font-mono">{q.score}</td>
+                            <td className="py-3 px-3 truncate max-w-[240px]" title={q.sender}>{q.sender}</td>
+                            <td className="py-3 px-3 truncate max-w-[200px]" title={q.rcpt}>{q.rcpt}</td>
+                            <td className="py-3 px-3 text-xs">
+                              <span className={`px-2 py-0.5 rounded font-mono ${
+                                scoreGefahr ? 'bg-red-500/10 text-red-400' 
+                                : scoreSpam ? 'bg-orange-500/10 text-orange-400' 
+                                : 'text-panel-muted'
+                              }`}>
+                                {q.score}
+                              </span>
+                            </td>
                           </tr>
                         );
                       })
