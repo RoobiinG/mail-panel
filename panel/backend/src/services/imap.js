@@ -517,7 +517,7 @@ async function mailLaden({ ordner = 'INBOX', uid, ...konto }) {
   }
 }
 // Holt eine Liste der Mails (Kopfzeilen) aus einem Ordner, mit Paginierung
-async function ordnerInhaltLaden({ ordner, limit = 100, seite = 1, ...konto }) {
+async function ordnerInhaltLaden({ ordner, suche, limit = 100, seite = 1, ...konto }) {
   const client = verbindung(konto);
   try {
     await client.connect();
@@ -527,15 +527,41 @@ async function ordnerInhaltLaden({ ordner, limit = 100, seite = 1, ...konto }) {
         return { eintraege: [], gesamt: 0, seiten: 0 };
       }
       
-      const gesamt = client.mailbox.exists;
+      let zielUids = null;
+      if (suche && suche.trim()) {
+        const term = suche.trim();
+        const searchResult = await client.search({
+          or: [
+            { from: term },
+            { subject: term },
+            { body: term }
+          ]
+        });
+        if (!searchResult || searchResult.length === 0) {
+          return { eintraege: [], gesamt: 0, seiten: 0 };
+        }
+        zielUids = searchResult;
+      }
+      
+      const gesamt = zielUids ? zielUids.length : client.mailbox.exists;
       const seiten = Math.max(1, Math.ceil(gesamt / limit));
       const aktuell = Math.min(seiten, Math.max(1, Math.floor(Number(seite)) || 1));
       
-      const start = Math.max(1, gesamt - (aktuell * limit) + 1);
-      const ende = Math.max(1, gesamt - ((aktuell - 1) * limit));
+      let fetchMuster = '';
+      if (zielUids) {
+        const startIdx = Math.max(0, gesamt - (aktuell * limit));
+        const endeIdx = Math.max(0, gesamt - ((aktuell - 1) * limit));
+        const slice = zielUids.slice(startIdx, endeIdx);
+        if (slice.length === 0) return { eintraege: [], gesamt, seiten };
+        fetchMuster = slice.join(',');
+      } else {
+        const start = Math.max(1, gesamt - (aktuell * limit) + 1);
+        const ende = Math.max(1, gesamt - ((aktuell - 1) * limit));
+        fetchMuster = `${start}:${ende}`;
+      }
       
       const liste = [];
-      for await (const m of client.fetch(`${start}:${ende}`, { uid: true, envelope: true })) {
+      for await (const m of client.fetch(fetchMuster, { uid: true, envelope: true })) {
         liste.push({
           uid: String(m.uid), // Explizit als String für einheitliche Handhabung
           von: m.envelope.from?.[0]?.address || m.envelope.from?.[0]?.name || '',

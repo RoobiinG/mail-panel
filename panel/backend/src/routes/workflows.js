@@ -43,12 +43,12 @@ router.post('/bestand-starten', async (req, res) => {
   }
 });
 
-// POST /api/workflows/bestand-reset — leert das "Gedächtnis" des Bestands-Workflows.
-// So scannt der Workflow 04 alle Mails im Posteingang noch einmal neu, um
-// beispielsweise neu gelernte Regeln rückwirkend anzuwenden.
+// POST /api/workflows/bestand-reset - leert das "Gedächtnis" des Bestands-Workflows.
+// Startet die Triage für alle Mails im Posteingang komplett von vorn.
 router.post('/bestand-reset', async (req, res) => {
   try {
     db.prepare('DELETE FROM bestand_erledigt').run();
+    db.prepare("DELETE FROM settings WHERE key LIKE 'bestand_zeiger_%' OR key LIKE 'bestand_fenster_%'").run();
     loggen('info', 'workflows', 'Bestand-Speicher geleert. Der nächste Lauf prüft alle Mails neu.');
     res.json({ ok: true });
   } catch (err) {

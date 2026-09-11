@@ -135,12 +135,22 @@ function unklareAnzahl(kontoId = null) {
   } catch { return 0; }
 }
 
-// Wie viele Mails darf dieser Lauf überhaupt anfassen? Mehr anzubieten, als das
-// Tagesbudget hergibt, wäre schädlich: Der Zeiger würde über Mails hinweglaufen,
-// die gar nicht drankamen — die wären dann eine ganze Runde lang weg.
 function fensterGroesse(anzahlKonten) {
+  const anbieter = settings.hole('ki_anbieter');
   const grenze = budget.tagesbudget();
-  if (grenze === 0) return FENSTER; // kein Deckel gesetzt
+  
+  if (grenze === 0) {
+    // Bei lokaler KI (Ollama) gibt es kein API-Kostenlimit, aber ein Zeitlimit.
+    // 250 Mails dauern lokal viel zu lange für den Workflow-Timeout (4 Min).
+    // Deshalb beschränken wir das Fenster hier auf einen kleinen Happen, den
+    // die KI sicher in der Zeit schafft. (z.B. 4 Bündel á 3 Mails = 12 Mails).
+    if (anbieter === 'ollama') {
+      const buendelGroesse = Number(settings.hole('ollama_buendel')) || 3;
+      return Math.max(1, Math.floor((buendelGroesse * 4) / Math.max(1, anzahlKonten)));
+    }
+    return Math.floor(FENSTER / Math.max(1, anzahlKonten)); // kein Deckel gesetzt, z.B. Gemini Free
+  }
+  
   // Grenze und Verbrauch stehen in ANFRAGEN, das Fenster in Mails. Eine Anfrage
   // trägt seit der Bündelung mehrere Mails — ohne die Umrechnung bliebe das
   // Fenster bei einem Bruchteil dessen, was der Tag noch hergibt.

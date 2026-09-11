@@ -119,14 +119,15 @@ async function suchen({ konto, suche, nur, tage, seite, limit, ordner } = {}) {
   const aktuell = Math.max(1, Math.floor(Number(seite)) || 1);
 
   // Live-IMAP Modus greift nur, wenn ein spezifisches Konto und ein Ordner gewählt wurden, 
-  // kein Suchbegriff eingegeben wurde und entweder kein Filter oder "Alle" (nur="alle") aktiv ist.
-  const kannLiveLaden = konto && typeof konto === 'object' && ordner && (!nur || nur === 'alle') && !suche;
+  // und entweder kein Filter oder "Alle" (nur="alle") aktiv ist.
+  const kannLiveLaden = konto && typeof konto === 'object' && ordner && (!nur || nur === 'alle');
 
   if (kannLiveLaden) {
     konto.passwort = entschluesseln(konto.password_enc);
     const { eintraege: imapMails, gesamt, seiten } = await imap.ordnerInhaltLaden({
       ...konto,
       ordner,
+      suche,
       limit: proSeite,
       seite: aktuell
     });

@@ -2,6 +2,17 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.6.2.1] - 2026-09-11 (Build 178) — *Bestand-Timeout & IMAP-Suche*
+
+### Bugfixes & Verbesserungen
+- **Bestands-Triage (Ollama Timeout):** Ein zu großes Fenster bei lokaler KI führte zu Timeouts (z.B. > 500 Mails im Batch), weil die KI nicht in die n8n-Frist von 4 Minuten passte. Die Fenstergröße für Ollama wurde nun in `bestand.js` gedrosselt, sodass nur so viele Mails an die KI übergeben werden, wie in die Frist passen.
+- **Bestand-Reset Button:** Der Reset-Endpunkt hat bisher nur die Datenbanktabelle geleert, aber die Zeiger (`bestand_zeiger_`) in den Settings nicht zurückgesetzt. Der Reset fängt nun wirklich beim ersten Element an.
+- **IMAP Suche in Entscheidungen:** Wenn in den Entscheidungen nach einem Absender oder Stichwort gesucht wurde, fiel die Suche auf die Datenbank zurück und fand keine unentschiedenen Live-IMAP Mails. `suche` wird nun in den Live-IMAP Request an den Server (via `client.search()`) weitergeleitet.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- *n8n-Workflow-Kompatibilität*: Keine Anpassungen nötig.
+- *Neustart-/Session-Verhalten*: Live-Suche über IMAP ist nun direkt im UI verfügbar. Der nächste Bestands-Reset wird sauber durchlaufen.
+
 ## [4.6.2.0] - 2026-09-11 (Build 177) — *Live-IMAP im Entscheidungen-Tab*
 
 **Features:**
