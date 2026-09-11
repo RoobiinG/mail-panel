@@ -2,7 +2,16 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
-## [4.6.2.2] - 2026-09-11 (Build 180) — *Ollama Auth-Fix*
+## [4.6.2.3] - 2026-09-11 (Build 181) — *Ollama Auth-Fix (Node.js)*
+- **Fix:** Echter `Authorization`-Header für Ollama: Da Node.js `fetch()` Credentials innerhalb der URL (z. B. `http://user:pass@host`) grundsätzlich mit einer Exception ablehnt (`Request cannot be constructed from a URL that includes credentials`), werden Basic-Auth-Credentials nun aus der URL extrahiert und sauber als `Authorization: Basic ...` Header mitgesendet.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis)**
+- **Datenbank:** Keine Änderungen am Schema.
+- **n8n:** Keine Änderungen an den Workflows erforderlich.
+
+---
+
+## [4.6.2.2] - 2026-09-11 (Build 180) — *Ollama Auth-Sonderzeichen*
 - **Fix:** URLs mit Sonderzeichen im Passwort (z.B. bei Basic Auth für Ollama) brachten den Node.js URL-Parser zum Absturz (`Failed to parse URL`). Diese werden jetzt automatisch und sicher URL-encodiert, bevor sie an n8n oder interne Dienste weitergereicht werden, bleiben in der Benutzeroberfläche aber lesbar.
 
 **System-Auswirkungen & Nachwirken (Impact Analysis)**
