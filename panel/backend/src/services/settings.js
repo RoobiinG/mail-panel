@@ -27,6 +27,8 @@ const FELDER = {
   // mit seiner Laenge, und zwei Mails, die zurueckkommen, sind mehr wert als
   // fuenf, die ins Zeitlimit laufen — dort ist das Ergebnis null.
   ollama_buendel:       { env: 'OLLAMA_BUENDEL', geheim: false, standard: '2' },
+  // Wie viele CPU-Kerne soll Ollama zur Inferenz nutzen?
+  ollama_threads:       { env: 'OLLAMA_THREADS', geheim: false, standard: '6' },
   // Wie lange darf ein Klassifizier-Lauf insgesamt dauern?
   //
   // Bewusst OHNE Standardwert: hole() gaebe ihn sonst zurueck, und der

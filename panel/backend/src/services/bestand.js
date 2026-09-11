@@ -137,17 +137,14 @@ function unklareAnzahl(kontoId = null) {
 
 function fensterGroesse(anzahlKonten) {
   const anbieter = settings.hole('ki_anbieter');
+  if (anbieter === 'ollama') {
+    const buendelGroesse = Number(settings.hole('ollama_buendel')) || 2;
+    // Bei lokaler KI: z. B. 6 Bündel pro Lauf, verteilt auf die Konten, aber mindestens 4 pro Konto
+    return Math.max(4, Math.floor((buendelGroesse * 6) / Math.max(1, anzahlKonten)));
+  }
+
   const grenze = budget.tagesbudget();
-  
   if (grenze === 0) {
-    // Bei lokaler KI (Ollama) gibt es kein API-Kostenlimit, aber ein Zeitlimit.
-    // 250 Mails dauern lokal viel zu lange für den Workflow-Timeout (4 Min).
-    // Deshalb beschränken wir das Fenster hier auf einen kleinen Happen, den
-    // die KI sicher in der Zeit schafft. (z.B. 4 Bündel á 3 Mails = 12 Mails).
-    if (anbieter === 'ollama') {
-      const buendelGroesse = Number(settings.hole('ollama_buendel')) || 3;
-      return Math.max(1, Math.floor((buendelGroesse * 4) / Math.max(1, anzahlKonten)));
-    }
     return Math.floor(FENSTER / Math.max(1, anzahlKonten)); // kein Deckel gesetzt, z.B. Gemini Free
   }
   
@@ -201,33 +198,26 @@ async function kandidaten(grenze = 0) {
       raus.offen[konto.name] = offen.length;
       if (offen.length === 0) continue;
 
-      // Was vom letzten Fenster übrig blieb, kommt zuerst wieder dran.
-      //
-      // Die zweite Chance galt bisher fürs ganze Fenster: Wurden 200 von 250
-      // Mails sortiert, rückte der Zeiger über alle 250 — und die 50, die
-      // liegen blieben (Budget alle, keine Antwort, Zielordner fehlt), warteten
-      // einen kompletten Durchlauf des Postfachs. Bei 23.000 Mails heisst das:
-      // wochenlang unsichtbar.
-      //
-      // Jetzt wird je Mail nachgehalten. „Übrig geblieben" ist genau, was noch
-      // im Posteingang liegt und nicht als entschieden vermerkt ist.
-      const zeiger = Number(settings.hole(zeigerSchluessel(konto.id, aktuellerOrdner))) || 0;
       const offenSet = new Set(offen);
       const vorherige = letztesFenster(konto.id, aktuellerOrdner);
       const davor = letztesFenster(konto.id, aktuellerOrdner, true);
 
-      // Was im letzten Lauf liegen geblieben ist (z.B. wegen KI-Timeout),
-      // wird im nächsten Lauf als erstes wieder angeboten.
-      // (Wirkliche Problemfälle ohne Absender werden in /einsortieren explizit als 'unklar' aussortiert).
-      const haengen = vorherige.filter((u) => offenSet.has(u));
+      // Dauerblockierer: War eine Mail in den letzten beiden Läufen im Fenster
+      // und liegt immer noch unentschieden in offen, wird sie zurückgestellt ('unklar'),
+      // damit sie den weiteren Bestand nicht dauerhaft blockiert.
+      const dauerBlockierer = vorherige.filter((u) => davor.includes(u) && offenSet.has(u));
+      for (const u of dauerBlockierer) {
+        erledigtMerken(konto.id, aktuellerOrdner, u, 'unklar');
+        offenSet.delete(u);
+      }
 
-      const nachzuegler = haengen.filter((u) => offenSet.has(u));
-      const frisch = offen.filter((u) => u > zeiger && !vorherige.includes(u));
-      let fenster = [...nachzuegler, ...frisch].slice(0, proKonto);
-      // Nichts mehr über dem Zeiger: neue Runde. Dann bekommen auch die
-      // geparkten Mails wieder eine Chance — „unklar" heisst zurückgestellt,
-      // nicht aufgegeben. Sonst wäre das Parken doch wieder das stille
-      // Verschwinden, gegen das die ganze Übung geht.
+      // Was im vorherigen Fenster liegen geblieben ist (z. B. Timeout),
+      // wird prioritär erneut angeboten.
+      const haengen = vorherige.filter((u) => offenSet.has(u));
+      const frisch = offen.filter((u) => !haengen.includes(u));
+      let fenster = [...haengen, ...frisch].slice(0, proKonto);
+
+      // Nichts mehr da: neue Runde beginnen
       if (fenster.length === 0) {
         unklarVergessen(konto.id);
         const neueRunde = erledigteUids(konto.id, aktuellerOrdner);

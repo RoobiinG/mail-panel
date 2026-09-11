@@ -568,8 +568,14 @@ export default function Einstellungen() {
             <p className="text-xs text-panel-muted">
               Prüft die Erreichbarkeit der Dienste aus Sicht des Panel-Backends.
             </p>
-            {DIENSTE_TESTS.map(({ id, label }) => (
-              <TestZeile key={id} id={id} label={label} onTest={testen} tests={tests} />
+            {DIENSTE_TESTS
+              .filter(t => {
+                if (settings.ki_anbieter === 'ollama' && t.id === 'gemini') return false;
+                if (settings.ki_anbieter !== 'ollama' && t.id === 'ollama') return false;
+                return true;
+              })
+              .map(({ id, label }) => (
+                <TestZeile key={id} id={id} label={label} onTest={testen} tests={tests} />
             ))}
           </Card>
 
@@ -658,6 +664,18 @@ export default function Einstellungen() {
                       placeholder="2"
                       disabled={settings.ollama_buendel_per_env}
                       onChange={e => set('ollama_buendel', e.target.value)} className={inputCls} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="block text-xs text-panel-muted">CPU-Kerne für Ollama (Threads)</label>
+                    <p className="text-[10px] text-panel-muted/60">
+                      Wie viele CPU-Kerne Ollama zur Inferenz nutzen soll. Bei Systemen mit z. B. 6 zugewiesenen
+                      Kernen hier 6 eintragen für maximale Geschwindigkeit.
+                    </p>
+                    <input type="number" min="1" max="32" step="1"
+                      value={settings.ollama_threads ?? ''}
+                      placeholder="6"
+                      disabled={settings.ollama_threads_per_env}
+                      onChange={e => set('ollama_threads', e.target.value)} className={inputCls} />
                   </div>
                   <div className="space-y-1">
                     <label className="block text-xs text-panel-muted">Frist je Lauf (Millisekunden)</label>
@@ -824,6 +842,43 @@ export default function Einstellungen() {
                       disabled={settings.gemini_tagesbudget_per_env}
                       onChange={e => set('gemini_tagesbudget', e.target.value)} className={inputCls} />
                   </div>
+                  <div className="space-y-1 pt-2 border-t border-panel-border/30">
+                    <label className="block text-xs text-panel-muted">Wie viel darf die KI nachdenken?</label>
+                    <p className="text-[10px] text-panel-muted/60">
+                      Die neueren Modelle (Gemini 3.7/3.8 Flash) denken von Haus aus — und bezahlen das
+                      aus demselben Budget, aus dem die Antwort kommt. Beim Einsortieren bringt das
+                      nichts und kann alles kosten: Kam die Antwort leer zurück, meldete der Lauf
+                      trotzdem „erfolgreich" und sortierte keine einzige Mail. <b>Niedrig</b> ist hier
+                      richtig; „aus" schickt die Angabe gar nicht mit, falls ein Modell sie nicht kennt.
+                    </p>
+                    <select value={settings.gemini_denkstufe || 'low'}
+                      disabled={settings.gemini_denkstufe_per_env}
+                      onChange={e => set('gemini_denkstufe', e.target.value)} className={inputCls}>
+                      <option value="minimal">so wenig wie möglich</option>
+                      <option value="low">niedrig (empfohlen)</option>
+                      <option value="medium">mittel</option>
+                      <option value="high">hoch</option>
+                      <option value="aus">gar nicht mitschicken</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1 pt-2 border-t border-panel-border">
+                    <label className="block text-xs text-panel-muted">Antwort von Google ansehen</label>
+                    <p className="text-[10px] text-panel-muted/60">
+                      Stellt <span className="text-panel-text">eine</span> echte Anfrage mit dem aktiven
+                      Modell und zeigt, was Google zurückgibt — bei einer Abweisung samt Kontingent-Kennung,
+                      Grenzwert und Modell. Genau das, was in der Fehlermeldung eines Workflows fehlt.
+                    </p>
+                    <button onClick={kiTesten} disabled={kiTest === 'laeuft'}
+                      className="btn !py-1 !px-3 text-xs flex items-center gap-1">
+                      <TestTube2 size={13} />
+                      {kiTest === 'laeuft' ? 'Frage Google …' : 'Eine Anfrage stellen'}
+                    </button>
+                    {kiTest && kiTest !== 'laeuft' && (
+                      <pre className="mt-2 text-[10px] whitespace-pre-wrap break-all bg-panel-surface border border-panel-border rounded-md p-2 max-h-64 overflow-auto">
+                        {kiTest}
+                      </pre>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -838,48 +893,6 @@ export default function Einstellungen() {
                   <span className="text-[10px] text-panel-muted/70">Mails werden von der KI klassifiziert und geloggt, aber nicht verschoben (perfekt zum Testen).</span>
                 </div>
               </label>
-            </div>
-              <div className="space-y-1">
-                <label className="block text-xs text-panel-muted">Wie viel darf die KI nachdenken?</label>
-                <p className="text-[10px] text-panel-muted/60">
-                  Die neueren Modelle (Gemini 3.7/3.8 Flash) denken von Haus aus — und bezahlen das
-                  aus demselben Budget, aus dem die Antwort kommt. Beim Einsortieren bringt das
-                  nichts und kann alles kosten: Kam die Antwort leer zurück, meldete der Lauf
-                  trotzdem „erfolgreich" und sortierte keine einzige Mail. <b>Niedrig</b> ist hier
-                  richtig; „aus" schickt die Angabe gar nicht mit, falls ein Modell sie nicht kennt.
-                </p>
-                <select value={settings.gemini_denkstufe || 'low'}
-                  disabled={settings.gemini_denkstufe_per_env}
-                  onChange={e => set('gemini_denkstufe', e.target.value)} className={inputCls}>
-                  <option value="minimal">so wenig wie möglich</option>
-                  <option value="low">niedrig (empfohlen)</option>
-                  <option value="medium">mittel</option>
-                  <option value="high">hoch</option>
-                  <option value="aus">gar nicht mitschicken</option>
-                </select>
-              </div>
-
-            {/* Der kürzeste Weg von „es scheitert" zu „deshalb".
-                „The service is receiving too many requests from you" sagt nicht,
-                WELCHES Limit gemeint ist — das steht im Antwortrumpf. Eine
-                einzige echte Anfrage holt ihn. */}
-            <div className="space-y-1 pt-2 border-t border-panel-border">
-              <label className="block text-xs text-panel-muted">Antwort von Google ansehen</label>
-              <p className="text-[10px] text-panel-muted/60">
-                Stellt <span className="text-panel-text">eine</span> echte Anfrage mit dem aktiven
-                Modell und zeigt, was Google zurückgibt — bei einer Abweisung samt Kontingent-Kennung,
-                Grenzwert und Modell. Genau das, was in der Fehlermeldung eines Workflows fehlt.
-              </p>
-              <button onClick={kiTesten} disabled={kiTest === 'laeuft'}
-                className="btn !py-1 !px-3 text-xs flex items-center gap-1">
-                <TestTube2 size={13} />
-                {kiTest === 'laeuft' ? 'Frage Google …' : 'Eine Anfrage stellen'}
-              </button>
-              {kiTest && kiTest !== 'laeuft' && (
-                <pre className="mt-2 text-[10px] whitespace-pre-wrap break-all bg-panel-surface border border-panel-border rounded-md p-2 max-h-64 overflow-auto">
-                  {kiTest}
-                </pre>
-              )}
             </div>
             </div>
 

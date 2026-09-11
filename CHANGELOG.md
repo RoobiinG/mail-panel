@@ -2,6 +2,30 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.7.1.0] - 2026-09-11 (Build 184) — *Ollama-Turbine & Bestands-Rettung*
+
+### Features & Verbesserungen
+- **Ollama Inferenz- & Performance-Turbine:**
+  - **Multi-Core Threading (`ollama_threads`):** Konfigurierbare Thread-Anzahl für Ollama (Standard: 6 Kerne, passend für dedizierte 6-Core Docker-Container), damit Ollama CPU-Inferenz parallel über alle zugewiesenen Kerne nutzt.
+  - **Token-Limit-Fix (`finish_reason: length` behoben):** `num_predict` wurde von 250 auf mindestens 800 Token bzw. dynamisch nach Bündelgröße erhöht, sodass Antworten nie wieder mitten im JSON abgeschnitten werden.
+  - **Prompt-Diät für lokale LLMs:** Bei Ollama wird die Ordnerliste auf relevante Ordner gestrafft und Beschreibungen gekürzt (Prefill von ~6000 Token auf ~1200 Token gesenkt, Latenz um 70% reduziert).
+  - **Kurzfassungs-Begrenzung:** LLMs werden angewiesen, bei Ollama prägnante 5–10 Wörter Zusammenfassungen zu erstellen, was Rechenzeit und Generierungstokens spart.
+- **Bestands-Workflow Entstörung & Zeiger-Rettung:**
+  - **Fenstergröße für Ollama optimiert:** Bei Ollama werden nun 12–18 Mails pro Durchlauf (4–6 pro Konto) verarbeitet statt zuvor nur 2 Mails pro Konto.
+  - **Kein Überspringen fehlgeschlagener Mails mehr:** Der Bestandszeiger wandert nur noch weiter, wenn E-Mails auch tatsächlich verarbeitet wurden. Fehlgeschlagene Mails verbleiben nicht unbemerkt im Nirwana, sondern werden nach 2 Wiederholungen kontrolliert als 'unklar' markiert.
+  - **Resiliente Timeout-Behandlung:** Ein einzelner HTTP-Timeout bricht nicht mehr die gesamte Bündelverarbeitung ab, sondern überspringt das problematische Bündel isoliert.
+- **Frontend & Einstellungen Bereinigung:**
+  - **Strikte Trennung nach KI-Anbieter:** Wenn Ollama ausgewählt ist, werden sämtliche Google Gemini bezogenen Felder (Google Test-Button, Denkstufe-Auswahl, API-Schlüssel) vollständig ausgeblendet.
+  - **Verbindungstests:** In den Verbindungstests wird nur noch der tatsächlich ausgewählte KI-Dienst (Ollama oder Google Gemini) angezeigt und geprüft.
+  - **Kerne-Einstellung:** Neues Feld zur bequemen Konfiguration der CPU-Kerne für Ollama in der Web-Oberfläche.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine Schema-Änderung erforderlich. Die neue Einstellung `ollama_threads` wird über die `settings`-Tabelle mit Standardwert 6 automatisch verwaltet.
+- **n8n-Workflow-Kompatibilität:** Keine Änderungen an den Workflows 01/04 nötig; volle Abwärtskompatibilität.
+- **Neustart-/Session-Verhalten:** Nach dem Update im Panel-Dashboard unter Einstellungen die Kerne prüfen (Standard 6) und den Bestands-Workflow wie gewohnt laufen lassen.
+
+---
+
 ## [4.7.0.0] - 2026-09-11 (Build 183) — *Sortierungs- & Ollama-Stabilität*
 
 ### Features & Verbesserungen

@@ -84,6 +84,10 @@ router.put('/', (req, res) => {
       && (!Number.isInteger(Number(value)) || Number(value) < 1 || Number(value) > 10)) {
       return res.status(400).json({ error: 'ollama_buendel: ganze Zahl zwischen 1 und 10' });
     }
+    if (key === 'ollama_threads' && String(value).trim()
+      && (!Number.isInteger(Number(value)) || Number(value) < 1 || Number(value) > 32)) {
+      return res.status(400).json({ error: 'ollama_threads: ganze Zahl zwischen 1 und 32' });
+    }
     // Leer ist erlaubt und heisst 240000 (siehe klassifizierer.frist()).
     if (key === 'ki_lauf_frist_ms' && String(value).trim()
       && (!Number.isInteger(Number(value)) || Number(value) < 30000 || Number(value) > 3600000)) {
@@ -286,7 +290,7 @@ router.post('/ollama/tempo', async (req, res) => {
         prompt: TEMPO_PROMPT,
         stream: false,
         format: 'json',
-        options: { temperature: 0.1, num_ctx: kiText.kontextFenster(), num_predict: 300 },
+        options: { temperature: 0.1, num_ctx: kiText.kontextFenster(), num_predict: 300, num_thread: Number(settings.hole('ollama_threads') || 6) },
       }),
       // Grosszuegig, aber nicht unbegrenzt: Wer hier laenger als fuenf Minuten
       // braucht, hat die Frage ohnehin beantwortet.
