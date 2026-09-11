@@ -62,7 +62,7 @@ const buendelGroesse = () => {
   const gewuenscht = zahl('gemini_buendel', 20, 1, 60);
   try {
     if ((settings.hole('ki_anbieter') || 'gemini') === 'ollama') {
-      return Math.min(gewuenscht, Math.min(3, zahl('ollama_buendel', OLLAMA_BUENDEL_STANDARD, 1, 10)));
+      return Math.min(gewuenscht, zahl('ollama_buendel', OLLAMA_BUENDEL_STANDARD, 1, 10));
     }
   } catch { /* dann eben der eingestellte Wert */ }
   return gewuenscht;

@@ -86,7 +86,7 @@ async function frageJson(prompt, opt = {}) {
     const ollamaUrl = (settings.hole('ollama_url') || 'http://ollama:11434').replace(/\/$/, '') + '/api/generate';
     const ollamaModell = settings.hole('ollama_modell') || 'llama3.1';
     const zeitlimit = opt.zeitlimit || 120000;
-    const antwortTokens = opt.maxAntwort || (kiAnbieter === 'ollama' ? 450 : 1500);
+    const antwortTokens = opt.maxAntwort || 1500;
     const kontext = kontextFenster();
 
     // Was nicht ins Fenster passt, wirft Ollama weg — schweigend.
