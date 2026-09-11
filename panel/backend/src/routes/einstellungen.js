@@ -214,7 +214,7 @@ router.post('/test/:dienst', async (req, res) => {
     res.json(ergebnis);
   } catch (err) {
     // Fehlermeldung durchreichen, aber keine Stacktraces/Interna
-    res.status(502).json({ ok: false, error: err.message });
+    res.status(400).json({ ok: false, error: err.message });
   }
 });
 
@@ -294,8 +294,13 @@ router.post('/ollama/tempo', async (req, res) => {
       // Fünf Minuten auf einen freien Platz warten. Läuft gerade ein langer
       // Sortierlauf, dauert es, bis die KI frei ist.
     }), 300000);
-    if (!r.ok) throw new Error(`Ollama antwortete mit HTTP ${r.status}`);
-    const daten = await r.json();
+    let fehlerText = `Ollama antwortete mit HTTP ${r.status}`;
+    let daten = {};
+    try {
+      daten = await r.json();
+      if (!r.ok && daten.error) fehlerText += `: ${daten.error}`;
+    } catch (e) {}
+    if (!r.ok) throw new Error(fehlerText);
     const k = messung.kennzahlen(daten, modell);
 
     // Hochrechnung auf ein echtes Buendel. Der Testprompt ist rund ein Viertel
@@ -309,7 +314,7 @@ router.post('/ollama/tempo', async (req, res) => {
     }
     res.json({ ok: true, modell, kennzahlen: k, satz: messung.satz(k), buendel, hochrechnung });
   } catch (err) {
-    res.status(502).json({
+    res.status(400).json({
       error: err.message,
       sekunden: Math.round((Date.now() - begonnen) / 1000),
     });
@@ -325,7 +330,7 @@ router.post('/ollama/modelle', async (req, res) => {
     if (!r.ok) throw new Error(`Ollama antwortete mit HTTP ${r.status}`);
     res.json(body.models?.map(m => m.name) || []);
   } catch (err) {
-    res.status(502).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
 
