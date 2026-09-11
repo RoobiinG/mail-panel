@@ -2,7 +2,16 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
-## [4.6.2.2] - 2026-09-11 (Build 179) — *Intelligente Sortierung (Domain-Regel Bugfix)*
+## [4.6.2.2] - 2026-09-11 (Build 180) — *Ollama Auth-Fix*
+- **Fix:** URLs mit Sonderzeichen im Passwort (z.B. bei Basic Auth für Ollama) brachten den Node.js URL-Parser zum Absturz (`Failed to parse URL`). Diese werden jetzt automatisch und sicher URL-encodiert, bevor sie an n8n oder interne Dienste weitergereicht werden, bleiben in der Benutzeroberfläche aber lesbar.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis)**
+- **Datenbank:** Keine Änderungen am Schema.
+- **n8n:** Die Workflows müssen nicht neu importiert werden.
+
+---
+
+## [4.6.2.1] - 2026-09-11 (Build 179) — *Intelligente Sortierung (Domain-Regel Bugfix)*
 
 ### Bugfixes & Verbesserungen
 - **Intelligentes Regel-Lernen:** Bisher hat das System automatisch Regeln für ganze Domains gelernt (z.B. `amazon.de -> Bestellungen`), sobald zwei unterschiedliche Absender derselben Domain im selben Ordner landeten. Das führte dazu, dass Newsletter von z.B. Amazon ebenfalls blind in "Bestellungen" einsortiert wurden, weil die Domain-Regel die KI-Bewertung für den Betreff blockierte.

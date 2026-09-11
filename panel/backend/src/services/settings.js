@@ -159,10 +159,30 @@ const FELDER = {
 
 function hole(key) {
   const feld = FELDER[key];
-  if (feld?.env && process.env[feld.env]) return process.env[feld.env];
-  const zeile = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-  if (!zeile) return feld?.standard || '';
-  return feld?.geheim ? entschluesseln(zeile.value) : zeile.value;
+  let wert;
+  if (feld?.env && process.env[feld.env]) wert = process.env[feld.env];
+  else {
+    const zeile = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+    if (!zeile) wert = feld?.standard || '';
+    else wert = feld?.geheim ? entschluesseln(zeile.value) : zeile.value;
+  }
+
+  // Fallback: Selbst wenn die URL unencodiert in der DB steht (z.B. vor dem Update),
+  // wird sie hier fuer den Aufrufer (n8n, fetch) sicher encodiert.
+  if (key.endsWith('_url') && typeof wert === 'string' && wert) {
+    const match = wert.match(/^(https?:\/\/)([^:]+):(.+)@([^@/]+.*)$/);
+    if (match) {
+      try {
+        const user = encodeURIComponent(decodeURIComponent(match[2]));
+        const pass = encodeURIComponent(decodeURIComponent(match[3]));
+        wert = match[1] + user + ':' + pass + '@' + match[4];
+      } catch (e) {
+        wert = match[1] + encodeURIComponent(match[2]) + ':' + encodeURIComponent(match[3]) + '@' + match[4];
+      }
+    }
+  }
+
+  return wert;
 }
 
 function setze(key, wert) {
@@ -183,7 +203,18 @@ function fuerUi() {
       ergebnis[key] = wert ? '••••••••' : '';
       ergebnis[`${key}_gesetzt`] = Boolean(wert);
     } else {
-      ergebnis[key] = wert;
+      let uiWert = wert;
+      // Fuer die Anzeige in der UI wieder decodieren, damit der Nutzer nicht
+      // %23 statt # sieht und beim naechsten Speichern doppelt encodiert wird.
+      if (key.endsWith('_url') && uiWert) {
+        const match = String(uiWert).match(/^(https?:\/\/)([^:]+):(.+)@([^@/]+.*)$/);
+        if (match) {
+          try {
+            uiWert = match[1] + decodeURIComponent(match[2]) + ':' + decodeURIComponent(match[3]) + '@' + match[4];
+          } catch (e) { /* Falls es manuell kaputt-encodiert wurde */ }
+        }
+      }
+      ergebnis[key] = uiWert;
     }
     ergebnis[`${key}_per_env`] = Boolean(feld.env && process.env[feld.env]);
   }
