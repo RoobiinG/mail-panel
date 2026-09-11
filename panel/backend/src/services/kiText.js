@@ -11,6 +11,7 @@ const settings = require('./settings');
 const { loggen } = require('./panelLog');
 const schlange = require('./ollamaSchlange');
 const messung = require('./ollamaMessung');
+const fetchMitAuth = require('./fetchAuth');
 
 // Dasselbe Modell wie in den Workflows und im Beleg-Leser — welches das ist,
 // entscheidet services/kiModell.js. Damit folgt auch dieser Aufruf einem Wechsel
@@ -114,7 +115,7 @@ async function frageJson(prompt, opt = {}) {
       const res = await schlange.nacheinander(() => { 
         angefangen = Date.now(); 
         const restFrist = zeitlimit - (angefangen - angestelltUm);
-        return fetch(ollamaUrl, {
+        return fetchMitAuth(ollamaUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -10,6 +10,7 @@ const smtp      = require('../services/smtp');
 const google    = require('../services/google');
 const themen    = require('../services/themen');
 const kiModell  = require('../services/kiModell');
+const fetchMitAuth = require('../services/fetchAuth');
 
 const router = express.Router();
 
@@ -196,7 +197,7 @@ router.post('/test/:dienst', async (req, res) => {
     else if (dienst === 'ollama') {
       const url = settings.hole('ollama_url');
       if (!url) throw new Error('Keine Ollama Host-URL gesetzt.');
-      const r = await fetch(url.replace(/\/$/, '') + '/api/tags', { signal: AbortSignal.timeout(5000) });
+      const r = await fetchMitAuth(url.replace(/\/$/, '') + '/api/tags', { signal: AbortSignal.timeout(5000) });
       const body = await r.json();
       if (!r.ok) throw new Error(`Ollama antwortete mit HTTP ${r.status}`);
       ergebnis = { ok: true, hinweis: `Verbunden — ${(body.models?.length ?? 0)} Modell(e) geladen` };
@@ -277,7 +278,7 @@ router.post('/ollama/tempo', async (req, res) => {
     // die herauskommt, sagt nichts ueber das Modell — nur etwas ueber den
     // Zufall des Zeitpunkts. Eine Messung, die man nicht wiederholen kann,
     // ist keine.
-    const r = await schlange.nacheinander(() => fetch(`${url}/api/generate`, {
+    const r = await schlange.nacheinander(() => fetchMitAuth(`${url}/api/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -319,7 +320,7 @@ router.post('/ollama/modelle', async (req, res) => {
   const url = ollamaAdresse();
   if (!url) return res.status(400).json({ error: 'Keine Ollama-Adresse in den Einstellungen hinterlegt.' });
   try {
-    const r = await fetch(`${url}/api/tags`, { signal: AbortSignal.timeout(5000) });
+    const r = await fetchMitAuth(`${url}/api/tags`, { signal: AbortSignal.timeout(5000) });
     const body = await r.json();
     if (!r.ok) throw new Error(`Ollama antwortete mit HTTP ${r.status}`);
     res.json(body.models?.map(m => m.name) || []);
@@ -358,7 +359,7 @@ router.post('/ollama/pull', async (req, res) => {
   const uhr = setTimeout(() => abbruch.abort(), 30 * 60 * 1000);
 
   try {
-    const r = await fetch(`${url}/api/pull`, {
+    const r = await fetchMitAuth(`${url}/api/pull`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model, stream: true }),
