@@ -1317,6 +1317,7 @@ export default function Sortierung() {
                                   onChange={() => alleUmschalten(v.id, mails)}
                                   title="Alle oder keine" />
                               </th>
+                              <th className="text-left px-3 py-2 font-medium whitespace-nowrap">Datum</th>
                               <th className="text-left px-3 py-2 font-medium">Absender</th>
                               <th className="text-left px-3 py-2 font-medium">Betreff</th>
                               <th className="text-right px-3 py-2 font-medium whitespace-nowrap">Sicherheit</th>
@@ -1330,6 +1331,7 @@ export default function Sortierung() {
                                     checked={angehakt(v.id).includes(m.id)}
                                     onChange={() => mailUmschalten(v.id, m.id)} />
                                 </td>
+                                <td className="px-3 py-2 text-panel-muted whitespace-nowrap">{zeitpunkt(m.created_at)}</td>
                                 <td className="px-3 py-2 text-panel-muted whitespace-nowrap">{adresse(m.von)}</td>
                                 <td className="px-3 py-2 truncate max-w-[380px]" title={m.betreff || ''}>
                                   {m.betreff || '(kein Betreff)'}
@@ -1640,6 +1642,7 @@ export default function Sortierung() {
                             </div>
                           )}
                           <div><span className="text-panel-muted">Kategorie: </span>{e.kategorie || '—'}</div>
+                          <div><span className="text-panel-muted">Datum: </span>{zeitpunkt(e.created_at)}</div>
                           <div>
                             <span className="text-panel-muted">Sicherheit: </span>
                             {e.konfidenz != null ? `${Math.round(e.konfidenz * 100)} %` : '—'}
@@ -2079,7 +2082,7 @@ export default function Sortierung() {
                       <div className="truncate">
                         <div className="text-xs text-panel-muted mb-1 flex items-center gap-2">
                           <span className="bg-panel-border/50 px-1.5 py-0.5 rounded">{mail.account_name || mail.konto}</span>
-                          {new Date(mail.created_at).toLocaleString('de-DE')}
+                          {zeitpunkt(mail.created_at)}
                         </div>
                         <div className="font-medium truncate" title={mail.von}>{mail.von}</div>
                         <div className="text-sm text-panel-muted truncate" title={mail.betreff}>{mail.betreff || '(Kein Betreff)'}</div>

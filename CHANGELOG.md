@@ -2,13 +2,14 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
-## [4.6.2.0] - 2026-09-11 (Build 176) — *Live-IMAP im Entscheidungen-Tab*
+## [4.6.2.0] - 2026-09-11 (Build 177) — *Live-IMAP im Entscheidungen-Tab*
 
 **Features:**
 - **Live-IMAP Ansicht:** Wenn im Entscheidungen-Tab ein bestimmtes Konto und ein Ordner ausgewählt sind, werden nun live alle E-Mails dieses Ordners direkt vom Mail-Server (IMAP) geladen und angezeigt.
 - Mails, die nicht durch das Panel einsortiert wurden (z. B. händisch verschobene), werden als "Live-Ordner" gekennzeichnet.
 - Für diese Live-Einträge kann ebenfalls die Sammelkorrektur verwendet werden (Checkbox -> Zielordner -> Verschieben & Regel anlegen).
 - Paginierung (Blättern) funktioniert nun direkt via IMAP, wenn diese Ansicht aktiv ist.
+- In verschiedenen Ansichten (Vorschläge, Sortieren, Aufklapp-Details der Entscheidungen) wird nun konsequent das Datum der Mail mit angezeigt.
 
 **Fix (Build 176):**
 - **Testsuite:** Dritte (und letzte) Ausbesserung - vergessene `await` bei `handler()` Aufrufen (Route Tests) und in `grund.test.js` ergänzt.
