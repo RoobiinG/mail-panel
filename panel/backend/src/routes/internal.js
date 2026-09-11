@@ -304,10 +304,17 @@ router.post('/klassifizieren', express.json({ limit: '25mb' }), async (req, res)
   try {
     const mails = (req.body || {}).mails;
     const ergebnis = await klassifizierer.klassifizieren(mails);
-    // Diese Mails sind bezahlt — und zwar gebuendelt. /einsortieren darf fuer
-    // sie keine zweite Anfrage vermerken.
+    // Diese Mails sind bezahlt bzw. vorab durch Regeln entschieden.
+    // /einsortieren soll für Regel-Mails keine KI verbuchen (ki: 0), für KI-Mails kein zweites Mal.
     (Array.isArray(mails) ? mails : []).forEach((m, i) => {
-      if (ergebnis.ergebnisse[i]) buendelMerken(m && m.konto, m && m.uid);
+      const erg = ergebnis.ergebnisse[i];
+      if (erg) {
+        if (erg.regel) {
+          regelMerken(m && m.konto, m && m.uid);
+        } else {
+          buendelMerken(m && m.konto, m && m.uid);
+        }
+      }
     });
     res.json(ergebnis);
   } catch (err) {
@@ -810,3 +817,4 @@ router.get('/google-token', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.regelMerken = regelMerken;

@@ -142,6 +142,11 @@ export default function Sortierung() {
   const [absenderLaeuft, setAbsenderLaeuft] = useState(false);
   const [absenderZiel, setAbsenderZiel] = useState({});         // domain -> Zielordner
   const [absenderArbeit, setAbsenderArbeit] = useState('');     // domain, die gerade läuft
+  const [offeneDomain, setOffeneDomain] = useState(null);       // domain, die gerade aufgeklappt ist
+  const [domainAdressen, setDomainAdressen] = useState({});     // domain -> [ { adresse, anzahl, regel, ... } ]
+  const [adressenLaedt, setAdressenLaedt] = useState(false);
+  const [einzelAbsenderZiel, setEinzelAbsenderZiel] = useState({}); // adresse -> Zielordner
+  const [einzelAbsenderArbeit, setEinzelAbsenderArbeit] = useState(''); // adresse, die gerade läuft
   const [kategorien, setKategorien] = useState(null);           // Vorschläge der KI
   const [kategorienLaeuft, setKategorienLaeuft] = useState(false);
   const [alias, setAlias] = useState([]);                     // umgeleitete Namen des aktiven Kontos
@@ -445,6 +450,7 @@ export default function Sortierung() {
     setInbox([]); setVorschlaege([]); setKatalog([]); setRegeln([]);
     setOffenerVorschlag(null); setVorschlagMails({}); setMailAuswahl({});
     setAbsender({ absender: [], aktualisiert: null }); setKategorien(null);
+    setOffeneDomain(null); setDomainAdressen({}); setEinzelAbsenderZiel({});
     regelnLaden(aktivesKonto);
     katalogLaden(aktivesKonto);
     // Die Chronik lädt ihr eigener Effekt — sie hängt außer am Konto auch an
@@ -789,6 +795,56 @@ export default function Sortierung() {
     }
   };
 
+  const domainUmschalten = async (domain) => {
+    if (offeneDomain === domain) {
+      setOffeneDomain(null);
+      return;
+    }
+    setOffeneDomain(domain);
+    if (!domainAdressen[domain]) {
+      setAdressenLaedt(true);
+      try {
+        const { data } = await api.get(`/sortierung/absender/adressen?konto_id=${aktivesKonto}&domain=${encodeURIComponent(domain)}`);
+        setDomainAdressen(p => ({ ...p, [domain]: data?.adressen || [] }));
+      } catch (err) {
+        melden(err.response?.data?.error || 'Fehler beim Laden der Absender-Adressen', 'fehler');
+      } finally {
+        setAdressenLaedt(false);
+      }
+    }
+  };
+
+  const absenderEinzelnEinsortieren = async (domain, item) => {
+    const ziel = (einzelAbsenderZiel[item.adresse] || absenderZiel[domain] || '').trim();
+    if (!ziel) return melden('Bitte einen Zielordner angeben.', 'hinweis');
+    if (!(await nachfragen({
+      titel: `Mails von ${item.adresse} nach „${ziel}"?`,
+      text: `${item.anzahl} Mail(s) dieser Adresse wandern nach „${ziel}".\n\n`
+        + `Dazu entsteht eine Regel für diesen konkreten Absender (${item.adresse}) — ohne KI-Abfrage.`,
+      bestaetigen: 'Verschieben',
+    }))) return;
+    setEinzelAbsenderArbeit(item.adresse);
+    try {
+      const { data } = await api.post('/sortierung/absender/einsortieren', {
+        konto_id: aktivesKonto,
+        typ: 'absender',
+        domain,
+        adresse: item.adresse,
+        zielordner: ziel,
+      });
+      melden(`${data.verschoben} von ${data.gefunden} Mail(s) nach „${data.ziel}" verschoben. Regel für ${data.adresse} angelegt.`);
+      try {
+        const { data: neu } = await api.get(`/sortierung/absender/adressen?konto_id=${aktivesKonto}&domain=${encodeURIComponent(domain)}`);
+        setDomainAdressen(p => ({ ...p, [domain]: neu?.adressen || [] }));
+      } catch {}
+      absenderLaden(); regelnLaden(aktivesKonto); katalogLaden(aktivesKonto); inboxLaden();
+    } catch (err) {
+      melden(err.response?.data?.error || 'Einsortieren fehlgeschlagen', 'fehler');
+    } finally {
+      setEinzelAbsenderArbeit('');
+    }
+  };
+
   const kategorienHolen = async () => {
     setKategorienLaeuft(true);
     try {
@@ -1120,45 +1176,168 @@ export default function Sortierung() {
                     </tr>
                   </thead>
                   <tbody>
-                    {absender.absender.map(a => (
-                      <tr key={a.domain} className="border-b border-panel-border/50 hover:bg-panel-bg/30">
-                        <td className="py-2 px-4 font-mono text-panel-accent whitespace-nowrap">
-                          @{a.domain}
-                          {a.adressen > 1 && (
-                            <span className="ml-2 text-[10px] text-panel-muted font-sans">
-                              {a.adressen} Adressen
-                            </span>
+                    {absender.absender.map(a => {
+                      const offen = offeneDomain === a.domain;
+                      const adressenListe = domainAdressen[a.domain] || [];
+                      return (
+                        <React.Fragment key={a.domain}>
+                          <tr className={`border-b border-panel-border/50 hover:bg-panel-bg/30 transition-colors ${offen ? 'bg-panel-bg/40' : ''}`}>
+                            <td className="py-2 px-4 font-mono text-panel-accent whitespace-nowrap">
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => domainUmschalten(a.domain)}
+                                  className="btn-ghost !p-0.5 text-panel-muted hover:text-panel-accent"
+                                  title={offen ? 'Zuklappen' : 'Einzelne Absender-Adressen anzeigen'}
+                                >
+                                  {offen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                                </button>
+                                <span
+                                  onClick={() => domainUmschalten(a.domain)}
+                                  className="cursor-pointer hover:underline"
+                                  title="Klicken zum Aufklappen der einzelnen Adressen"
+                                >
+                                  @{a.domain}
+                                </span>
+                                {a.adressen > 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => domainUmschalten(a.domain)}
+                                    className="text-[10px] text-panel-muted hover:text-panel-text font-sans bg-panel-border/40 px-1.5 py-0.5 rounded cursor-pointer"
+                                    title="Klicken für Adress-Details"
+                                  >
+                                    {a.adressen} Adressen
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                            <td className="py-2 px-4 text-right font-medium whitespace-nowrap">{a.anzahl}</td>
+                            <td className="py-2 px-4">
+                              {a.regel ? (
+                                <span className="text-xs text-panel-muted">
+                                  Regel vorhanden → <span className="font-mono">{a.regel}</span>
+                                </span>
+                              ) : (
+                                <input
+                                  type="text"
+                                  value={absenderZiel[a.domain] || ''}
+                                  onChange={e => setAbsenderZiel(z => ({ ...z, [a.domain]: e.target.value }))}
+                                  list="ordner-vorschlaege"
+                                  placeholder="Ganze Domain in Ordner …"
+                                  className="w-full bg-transparent text-sm border-b border-transparent hover:border-panel-border focus:border-panel-accent focus:outline-none"
+                                />
+                              )}
+                            </td>
+                            <td className="py-2 px-4 text-right whitespace-nowrap">
+                              <div className="flex items-center justify-end gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => domainUmschalten(a.domain)}
+                                  className="btn-ghost !py-1 !px-2 text-xs text-panel-muted hover:text-panel-text"
+                                  title="Details auf-/zuklappen"
+                                >
+                                  {offen ? 'Zuklappen' : 'Details'}
+                                </button>
+                                {!a.regel && absenderZiel[a.domain] && (
+                                  <button onClick={() => absenderEinsortieren(a)}
+                                    disabled={absenderArbeit === a.domain}
+                                    className="btn !py-1 !px-3 text-xs flex items-center gap-1 ml-auto">
+                                    <ArrowRight size={13} />
+                                    {absenderArbeit === a.domain ? 'läuft …' : `Alle ${a.anzahl} verschieben`}
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+
+                          {offen && (
+                            <tr className="bg-panel-bg/50 border-b border-panel-border/60">
+                              <td colSpan="4" className="py-3 px-4 pl-8">
+                                <div className="space-y-2">
+                                  <div className="flex items-center justify-between text-xs text-panel-muted">
+                                    <span className="font-medium">
+                                      Konkrete Absender unter @{a.domain}:
+                                    </span>
+                                    {adressenLaedt && <span className="animate-pulse">Lade Adressen…</span>}
+                                  </div>
+
+                                  {!adressenLaedt && adressenListe.length === 0 && (
+                                    <p className="text-xs text-panel-muted italic py-1">
+                                      Keine einzelnen Adressen gefunden oder Posteingang noch nicht gezählt.
+                                    </p>
+                                  )}
+
+                                  {adressenListe.length > 0 && (
+                                    <div className="border border-panel-border/70 rounded-lg overflow-hidden bg-panel-card/40">
+                                      <table className="w-full text-xs">
+                                        <thead>
+                                          <tr className="border-b border-panel-border/60 text-left text-panel-muted bg-panel-bg/60">
+                                            <th className="py-1.5 px-3 font-medium">E-Mail-Adresse</th>
+                                            <th className="py-1.5 px-3 font-medium">Letzter Betreff</th>
+                                            <th className="py-1.5 px-3 text-right font-medium whitespace-nowrap">Mails</th>
+                                            <th className="py-1.5 px-3 font-medium">Zielordner</th>
+                                            <th className="py-1.5 px-3 text-right font-medium"></th>
+                                          </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-panel-border/40">
+                                          {adressenListe.map(item => {
+                                            const ziel = einzelAbsenderZiel[item.adresse] ?? (absenderZiel[a.domain] || '');
+                                            const arbeitet = einzelAbsenderArbeit === item.adresse;
+                                            return (
+                                              <tr key={item.adresse} className="hover:bg-panel-bg/40 transition-colors">
+                                                <td className="py-1.5 px-3 font-mono text-panel-text whitespace-nowrap" title={item.adresse}>
+                                                  {item.adresse}
+                                                </td>
+                                                <td className="py-1.5 px-3 text-panel-muted truncate max-w-[220px]" title={item.letzterBetreff || ''}>
+                                                  {item.letzterBetreff || '—'}
+                                                </td>
+                                                <td className="py-1.5 px-3 text-right font-medium whitespace-nowrap">
+                                                  {item.anzahl}
+                                                </td>
+                                                <td className="py-1.5 px-3">
+                                                  {item.hatEigeneRegel ? (
+                                                    <span className="text-panel-muted">
+                                                      Regel → <span className="font-mono text-panel-accent">{item.regel}</span>
+                                                    </span>
+                                                  ) : (
+                                                    <input
+                                                      type="text"
+                                                      value={ziel}
+                                                      onChange={e => setEinzelAbsenderZiel(z => ({ ...z, [item.adresse]: e.target.value }))}
+                                                      list="ordner-vorschlaege"
+                                                      placeholder={absenderZiel[a.domain] || 'Ordner …'}
+                                                      className="bg-panel-bg border border-panel-border/60 rounded px-2 py-0.5 text-xs w-full max-w-[180px]"
+                                                    />
+                                                  )}
+                                                </td>
+                                                <td className="py-1.5 px-3 text-right whitespace-nowrap">
+                                                  {!item.hatEigeneRegel && (
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => absenderEinzelnEinsortieren(a.domain, item)}
+                                                      disabled={arbeitet || !ziel.trim()}
+                                                      className="btn !py-0.5 !px-2 text-xs flex items-center gap-1 ml-auto disabled:opacity-40"
+                                                      title={`Nur die Mails von ${item.adresse} verschieben und Regel anlegen`}
+                                                    >
+                                                      <ArrowRight size={11} />
+                                                      {arbeitet ? '…' : `${item.anzahl} verschieben`}
+                                                    </button>
+                                                  )}
+                                                </td>
+                                              </tr>
+                                            );
+                                          })}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
                           )}
-                        </td>
-                        <td className="py-2 px-4 text-right font-medium whitespace-nowrap">{a.anzahl}</td>
-                        <td className="py-2 px-4">
-                          {a.regel ? (
-                            <span className="text-xs text-panel-muted">
-                              Regel vorhanden → <span className="font-mono">{a.regel}</span>
-                            </span>
-                          ) : (
-                            <input
-                              type="text"
-                              value={absenderZiel[a.domain] || ''}
-                              onChange={e => setAbsenderZiel(z => ({ ...z, [a.domain]: e.target.value }))}
-                              list="ordner-vorschlaege"
-                              placeholder="Ordner …"
-                              className="w-full bg-transparent text-sm border-b border-transparent hover:border-panel-border focus:border-panel-accent focus:outline-none"
-                            />
-                          )}
-                        </td>
-                        <td className="py-2 px-4 text-right whitespace-nowrap">
-                          {!a.regel && absenderZiel[a.domain] && (
-                            <button onClick={() => absenderEinsortieren(a)}
-                              disabled={absenderArbeit === a.domain}
-                              className="btn !py-1 !px-3 text-xs flex items-center gap-1 ml-auto">
-                              <ArrowRight size={13} />
-                              {absenderArbeit === a.domain ? 'läuft …' : `${a.anzahl} verschieben`}
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                        </React.Fragment>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

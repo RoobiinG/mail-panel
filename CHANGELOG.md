@@ -2,6 +2,35 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.7.2.0] - 2026-09-12 (Build 185) — *Resilienz, Deduplizierung & Absender-Drilldown*
+
+### Features & Verbesserungen
+- **Vorschlags-Deduplizierung & Ähnlichkeitsabgleich (`themen.js`):**
+  - **Tippfehler & Wortstamm-Toleranz:** Neue Levenshtein-Distanzprüfung und Token-Jaccard-Overlap fangen Schreibweisen wie *„Rechnungen und Zahlungsauforderungen"* vs. *„Rechnungen und Zahlungsaufforderungen"* sowie *„Rechnungen und Zahlungsaufträge"* automatisch ab.
+  - **Kategorie- & Katalogabgleich:** Neue Vorschläge werden vor dem Speichern mit den konfigurierten Kontokategorien (`folder_invoices`, etc.) und dem Themen-Katalog abgeglichen und direkt zugeordnet, statt redundante Einträge in `ordner_vorschlaege` zu erzeugen.
+  - **Bereinigungsroutine (`vorschlaegeAufraeumen`):** Dedupliziert und bereinigt bereits bestehende ähnliche Vorschläge in der Datenbank.
+- **Absender-Drilldown & Einzelabsender-Sortierung:**
+  - **Detailansicht im Tab *Absender*:** Klick auf eine Absender-Domain klappt eine Untertabelle auf, die alle konkreten E-Mail-Adressen unter dieser Domain mit Mail-Anzahl, letztem Betreff und aktuellem Regelstatus auflistet.
+  - **Gezielte Einzelregeln:** Nutzer können wählen, ob die gesamte Domain verschoben werden soll oder nur eine spezifische Absender-Adresse (z. B. `newsletter@domain.de` in Ordner X, während `rechnung@domain.de` separat behandelt wird).
+  - **Neuer Endpunkt:** `GET /api/sortierung/absender/adressen` und Erweiterung von `POST /api/sortierung/absender/einsortieren` um `typ: 'absender'` und `adresse`.
+- **Klassifizierer-Resilienz & Pre-AI Regelprüfung:**
+  - **Index-0-Resilienz (`antwortZuordnen`):** Behebt das Phänomen, bei dem kleine Modelle wie `llama3.2:1b` mit 0-basierten Indizes antworteten (`nr: 0`), wodurch zuvor 0 von 19 Mails klassifiziert wurden. Fehlende oder ungültige Indizes werden automatisch positionell oder per +1-Shift gemappt.
+  - **Schema-Bindung (`minimum: 1, maximum: anzahl`):** Das JSON-Grammar-Schema für Ollama verbietet nun explizit `nr: 0`.
+  - **Pre-AI Rule Check in Bestands-Triage:** Bevor E-Mails an die KI geschickt werden, prüft `klassifizieren(mails)` vorab bestehende Regeln und Stichworte. Treffer werden sofort ohne KI-Budget/CPU einsortiert und als `vonRegeln` gewertet.
+  - **Prompt-Kompaktierung für lokale Modelle:** Mailtexte (max. 500 Zeichen), Themenkatalog (max. 15 Ordner) und Links (max. 3) werden für Ollama optimiert gekürzt, um Prompt-Overflows über 10k Zeichen zu unterbinden.
+- **Dashboard & Statusanzeige Klarheit:**
+  - **Differenzierte Posteingangs-Anzeige:** Unterscheidung zwischen „Mails in Sortier-Inbox“ (warten auf Freigabe) und Mails im tatsächlichen IMAP-Posteingang.
+  - **Fortschrittsbalken korrigiert:** Zeigt nicht mehr irreführend 100% grün an, wenn im Posteingang noch unorganisierte Mails liegen.
+- **Projekt-Richtlinien:**
+  - **Testserver-Deaktivierung:** SSH-Zugriff und automatisches Deployment auf den Testserver `45.81.234.149` wurden in `AGENTS.md` per Nutzeranweisung dauerhaft deaktiviert (Validierung erfolgt lokal / via GitHub Actions).
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine zwingenden Schema-Änderungen. Bestehende `sort_rules` und `ordner_vorschlaege` bleiben voll kompatibel.
+- **n8n-Workflow-Kompatibilität:** Keine Anpassungen an den Workflows 01/04 nötig; volle Abwärtskompatibilität.
+- **Neustart-/Session-Verhalten:** Nach dem Update profitieren Bestands-Triage und Sortier-Vorschläge sofort von der neuen Resilienz und Deduplizierung.
+
+---
+
 ## [4.7.1.0] - 2026-09-11 (Build 184) — *Ollama-Turbine & Bestands-Rettung*
 
 ### Features & Verbesserungen

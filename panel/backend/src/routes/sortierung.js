@@ -1101,7 +1101,61 @@ router.get('/absender', (req, res) => {
   }
 });
 
-// POST /api/sortierung/absender/einsortieren — { konto_id, domain, zielordner }
+// GET /api/sortierung/absender/adressen?konto_id=&domain= — alle konkreten E-Mail-Adressen einer Domain
+router.get('/absender/adressen', (req, res) => {
+  const kontoId = Number(req.query.konto_id);
+  const domain = String(req.query.domain || '').trim().toLowerCase();
+  if (!kontoId || !domain) return res.status(400).json({ error: 'konto_id und domain fehlen' });
+
+  try {
+    const konto = db.prepare('SELECT name FROM accounts WHERE id = ?').get(kontoId);
+    const zeilen = db.prepare(`
+      SELECT adresse, anzahl, aktualisiert
+      FROM absender_stat
+      WHERE konto_id = ? AND domain = ?
+      ORDER BY anzahl DESC, adresse
+    `).all(kontoId, domain);
+
+    const regeln = db.prepare(
+      "SELECT typ, muster, zielordner FROM sort_rules WHERE konto_id = ? AND (typ = 'absender' OR (typ = 'domain' AND muster = ?))",
+    ).all(kontoId, domain);
+
+    const domainRegel = regeln.find((r) => r.typ === 'domain');
+
+    const adressen = zeilen.map((z) => {
+      const addr = String(z.adresse || '').toLowerCase().trim();
+      const eigeneRegel = regeln.find((r) => r.typ === 'absender' && r.muster.toLowerCase() === addr);
+
+      let letzterBetreff = null;
+      try {
+        const log = db.prepare(
+          "SELECT betreff FROM quarantine_log WHERE konto = ? AND von LIKE ? ORDER BY id DESC LIMIT 1",
+        ).get(konto?.name, `%${addr}%`);
+        letzterBetreff = log?.betreff || null;
+        if (!letzterBetreff) {
+          const inbox = db.prepare(
+            "SELECT betreff FROM sort_inbox WHERE konto_id = ? AND von LIKE ? ORDER BY id DESC LIMIT 1",
+          ).get(kontoId, `%${addr}%`);
+          letzterBetreff = inbox?.betreff || null;
+        }
+      } catch {}
+
+      return {
+        adresse: z.adresse,
+        anzahl: z.anzahl,
+        regel: eigeneRegel ? eigeneRegel.zielordner : (domainRegel ? `(Domain: ${domainRegel.zielordner})` : null),
+        hatEigeneRegel: Boolean(eigeneRegel),
+        letzterBetreff,
+      };
+    });
+
+    res.json({ ok: true, domain, adressen });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/sortierung/absender/einsortieren — { konto_id, domain, adresse?, typ?, zielordner }
 //
 // Der eine Handgriff, der wirklich etwas bewegt: Regel anlegen UND die Mails
 // dieses Absenders aus dem Posteingang holen. Nicht über bestandAnwenden — das
@@ -1109,10 +1163,14 @@ router.get('/absender', (req, res) => {
 // hat. Hier geht es um alle, die im Postfach liegen.
 router.post('/absender/einsortieren', async (req, res) => {
   const konto = kontoHolen(req.body?.konto_id);
+  const typ = req.body?.typ === 'absender' ? 'absender' : 'domain';
   const domain = String(req.body?.domain || '').trim().toLowerCase();
+  const adresse = String(req.body?.adresse || '').trim().toLowerCase();
   const ziel = String(req.body?.zielordner || '').trim();
   if (!konto) return res.status(400).json({ error: 'Konto nicht gefunden.' });
-  if (!domain || !ziel) return res.status(400).json({ error: 'Absender und Zielordner sind Pflicht.' });
+  if (typ === 'absender' && !adresse) return res.status(400).json({ error: 'Adresse fehlt.' });
+  if (typ === 'domain' && !domain) return res.status(400).json({ error: 'Domain fehlt.' });
+  if (!ziel) return res.status(400).json({ error: 'Absender und Zielordner sind Pflicht.' });
 
   try {
     const zugang = themen.zugang(konto);
@@ -1122,20 +1180,23 @@ router.post('/absender/einsortieren', async (req, res) => {
       await themen.ordnerAnlegen(konto, name);
     }
 
+    const muster = typ === 'absender' ? adresse : domain;
+
     // Regel merken, damit künftige Mails gar nicht erst zur KI gehen.
     const vorhanden = db.prepare(
-      "SELECT id FROM sort_rules WHERE konto_id = ? AND typ = 'domain' AND muster = ?",
-    ).get(konto.id, domain);
+      'SELECT id FROM sort_rules WHERE konto_id = ? AND typ = ? AND muster = ?',
+    ).get(konto.id, typ, muster);
     if (vorhanden) {
       db.prepare('UPDATE sort_rules SET zielordner = ? WHERE id = ?').run(ziel, vorhanden.id);
     } else {
       db.prepare(`
-        INSERT INTO sort_rules (konto_id, typ, muster, zielordner, erstellt_von) VALUES (?, 'domain', ?, ?, ?)
-      `).run(konto.id, domain, ziel, req.user.id);
+        INSERT INTO sort_rules (konto_id, typ, muster, zielordner, erstellt_von) VALUES (?, ?, ?, ?, ?)
+      `).run(konto.id, typ, muster, ziel, req.user.id);
     }
 
-    // Und jetzt der Berg: alles von dieser Domain aus dem Posteingang.
-    const uids = await imap.mailsSuchen({ ...zugang, ordner: 'INBOX', von: domain });
+    // Und jetzt der Berg: alles von diesem Absender bzw. dieser Domain aus dem Posteingang.
+    const sucheVon = typ === 'absender' ? adresse : domain;
+    const uids = await imap.mailsSuchen({ ...zugang, ordner: 'INBOX', von: sucheVon });
     let verschoben = 0;
     const fehler = [];
     if (uids.length) {
@@ -1147,18 +1208,26 @@ router.post('/absender/einsortieren', async (req, res) => {
     }
 
     // Was das Panel selbst noch offen hatte, gleich mit abhaken.
+    const inboxLike = typ === 'absender' ? `%${adresse}%` : `%@${domain}`;
     db.prepare(
       "UPDATE sort_inbox SET status = 'zugeordnet', vorschlag = ?"
       + " WHERE konto_id = ? AND status = 'offen' AND LOWER(von) LIKE ?",
-    ).run(ziel, konto.id, `%@${domain}`);
-    db.prepare('DELETE FROM absender_stat WHERE konto_id = ? AND domain = ?').run(konto.id, domain);
+    ).run(ziel, konto.id, inboxLike);
+
+    if (typ === 'absender') {
+      db.prepare('DELETE FROM absender_stat WHERE konto_id = ? AND LOWER(adresse) = ?').run(konto.id, adresse);
+    } else {
+      db.prepare('DELETE FROM absender_stat WHERE konto_id = ? AND domain = ?').run(konto.id, domain);
+    }
+
     themen.cacheVerwerfen(konto.id);
     uebersicht.cacheVerwerfen();
 
+    const bez = typ === 'absender' ? adresse : `@${domain}`;
     loggen('info', 'sortierung',
-      `Absender-Regel @${domain} → "${ziel}": ${verschoben} von ${uids.length} Mail(s) aus dem `
+      `Absender-Regel [${typ}] ${bez} → "${ziel}": ${verschoben} von ${uids.length} Mail(s) aus dem `
       + 'Posteingang verschoben (ohne KI).');
-    res.json({ ok: true, domain, ziel, gefunden: uids.length, verschoben, fehler });
+    res.json({ ok: true, typ, muster, ziel, gefunden: uids.length, verschoben, fehler });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

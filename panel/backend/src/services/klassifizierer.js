@@ -243,10 +243,10 @@ function themenBlock(konto) {
   const istOllama = (settings.hole('ki_anbieter') || 'gemini') === 'ollama';
 
   const alleThemen = themen.fuerPrompt(konto && konto.id);
-  const liste = (istOllama ? alleThemen.slice(0, 25) : alleThemen)
+  const liste = (istOllama ? alleThemen.slice(0, 15) : alleThemen)
     .map((o) => {
       if (istOllama) {
-        const kurzDesc = o.beschreibung ? ` — ${o.beschreibung.slice(0, 80)}` : '';
+        const kurzDesc = o.beschreibung ? ` — ${o.beschreibung.slice(0, 50)}` : '';
         return `- ${o.name}${kurzDesc}`;
       }
       return `- ${o.name}${o.beschreibung ? ` — ${o.beschreibung}` : ''}`;
@@ -277,8 +277,9 @@ function themenBlock(konto) {
 }
 
 function mailBlock(mail, nr, lang) {
-  const grenze = lang ? textLang() : textKurz();
-  const links = (Array.isArray(mail.links) ? mail.links : []).slice(0, LINKS_MAX);
+  const istOllama = (settings.hole('ki_anbieter') || 'gemini') === 'ollama';
+  const grenze = istOllama ? Math.min(500, lang ? textLang() : textKurz()) : (lang ? textLang() : textKurz());
+  const links = (Array.isArray(mail.links) ? mail.links : []).slice(0, istOllama ? 3 : LINKS_MAX);
   return `[${nr}]\n`
     + `Von: ${String(mail.von || '').slice(0, 200)}\n`
     + `Betreff: ${String(mail.betreff || '').slice(0, 300)}\n`
@@ -300,7 +301,7 @@ function promptBauen(gruppen, konto, bekannt) {
     + 'Antworte NUR mit einem JSON-Objekt, das ein Feld "mails" enthaelt — darin ein Objekt je Mail, in exakt diesem Format:\n'
     + '{"mails": [{"nr": 1, "kategorie": "newsletter", "spam_score": 0.1, "kurzfassung": "Kurze Zusammenfassung auf Deutsch", "ordner": "", "konfidenz": 0.8}]}\n\n'
     + `Erlaubte Werte fuer "kategorie" — genau einer davon, kein anderer Text: ${KATEGORIEN.join(', ')}.\n`
-    + 'Wichtig: Gib zu JEDER Mail genau ein Objekt zurueck und uebernimm ihre "nr" unveraendert. Lass keine aus und erfinde keine dazu.\n\n'
+    + 'Wichtig: Gib zu JEDER Mail genau ein Objekt zurueck und uebernimm ihre "nr" unveraendert (1, 2, ... beginnend bei 1, NIEMALS 0!). Lass keine aus und erfinde keine dazu.\n\n'
     + 'Regeln:\n'
     + '- spam_score: 0.0 (sicher kein Spam) bis 1.0 (sicher Spam). Phishing, Betrugsversuche, unserioese Werbung = hoher Score. Achte besonders auf die Links: fremde Domains, die sich als bekannte Marke ausgeben, sind ein starkes Zeichen.\n'
     + '- kategorie "rechnung": Rechnungen, Zahlungsaufforderungen, Kontoauszuege, Vertraege.\n'
@@ -410,15 +411,46 @@ function eintraegeAus(daten, anzahl) {
 function antwortZuordnen(daten, gruppen) {
   const roh = eintraegeAus(daten, gruppen.length);
   const treffer = new Map();
+  if (roh.length === 0) return treffer;
+
+  // Spezialfall: Genau eine Gruppe angefragt. Wenn genau 1 (oder der erste) Eintrag vorliegt,
+  // gehört er unstrittig zu dieser Mail — egal ob nr=0, nr=1 oder ein ID-Feld!
+  if (gruppen.length === 1 && roh.length >= 1) {
+    const eintrag = roh[0];
+    treffer.set(1, {
+      kategorie: kategoriePruefen(eintrag?.kategorie),
+      spam_score: Number(eintrag?.spam_score) || 0,
+      kurzfassung: String(eintrag?.kurzfassung || ''),
+      ordner: eintrag?.ordner ? String(eintrag.ordner) : null,
+      konfidenz: Number(eintrag?.konfidenz) || 0,
+    });
+    return treffer;
+  }
+
+  // Erkennung für 0-basierten Index (z.B. kleines Modell liefert 0 .. gruppen.length - 1):
+  const rawNrs = roh.map((e, idx) => (e?.nr !== undefined && e?.nr !== null ? Number(e.nr) : idx));
+  const minNr = Math.min(...rawNrs);
+  const maxNr = Math.max(...rawNrs);
+  const istZeroBased = minNr === 0 && maxNr === gruppen.length - 1 && rawNrs.length === gruppen.length;
+
   for (const [platz, eintrag] of roh.entries()) {
-    // Ohne nr zaehlt die Reihenfolge. Das ist kein Raten: Bei einem Buendel aus
-    // einer Mail gibt es nur eine Moeglichkeit, und bei mehreren liefert das
-    // Schema die nr ohnehin mit. Vorher fiel eine Antwort ohne nr komplett
-    // durch — auch die eindeutige.
-    const nr = eintrag?.nr === undefined || eintrag?.nr === null
-      ? platz + 1 : Number(eintrag.nr);
+    let nr;
+    if (istZeroBased && Number.isInteger(Number(eintrag?.nr))) {
+      nr = Number(eintrag.nr) + 1;
+    } else if (eintrag?.nr === undefined || eintrag?.nr === null) {
+      nr = platz + 1;
+    } else {
+      nr = Number(eintrag.nr);
+    }
+
+    // Wenn nr außerhalb 1..gruppen.length liegt, aber wir genau so viele Einträge wie Gruppen haben:
+    if ((!Number.isInteger(nr) || nr < 1 || nr > gruppen.length) && roh.length === gruppen.length) {
+      nr = platz + 1;
+    }
+
     if (!Number.isInteger(nr) || nr < 1 || nr > gruppen.length) continue;
     if (treffer.has(nr)) continue; // Doppelte Nummer: die erste gilt.
+
     treffer.set(nr, {
       kategorie: kategoriePruefen(eintrag.kategorie),
       spam_score: Number(eintrag.spam_score) || 0,
@@ -463,7 +495,7 @@ function anfrageZeitlimit(verbleibend) {
 //
 // `kategorie` als enum ist dabei mehr als Kosmetik: Genau hier hat ein Modell
 // schon einmal die Auswahlliste woertlich abgeschrieben.
-function antwortSchema() {
+function antwortSchema(anzahl = 20) {
   return {
     type: 'object',
     properties: {
@@ -472,7 +504,7 @@ function antwortSchema() {
         items: {
           type: 'object',
           properties: {
-            nr: { type: 'integer' },
+            nr: { type: 'integer', minimum: 1, maximum: Math.max(1, anzahl) },
             kategorie: { type: 'string', enum: KATEGORIEN },
             spam_score: { type: 'number' },
             kurzfassung: { type: 'string' },
@@ -496,7 +528,7 @@ function fragen(teil, konto, bekannt, zeitlimit = 180000) {
     quelle: 'backend:klassifizierer',
     zeitlimit,
     maxZeichen: 200000,
-    schema: antwortSchema(),
+    schema: antwortSchema(teil.length),
     maxAntwort,
   });
 }
@@ -544,8 +576,53 @@ async function klassifizieren(mails) {
     const konto = (() => {
       try { return db.prepare('SELECT * FROM accounts WHERE name = ?').get(kontoName) || null; } catch { return null; }
     })();
+
+    // ── Vorprüfung: Regeln und Stichwörter VOR dem KI-Aufruf prüfen ──
+    // Mails, die schon eine Regel oder ein Stichwort treffen, kosten kein Budget,
+    // keine KI-Rechenzeit und werden im Quarantäne-Log als "von Regel" erfasst.
+    const nochZuKlassifizieren = [];
+    if (konto) {
+      for (const m of kontoMails) {
+        const regelMatch = sortierung.pruefeRegeln(konto.id, m.von, m.betreff);
+        if (regelMatch) {
+          ergebnisse[m.__i] = {
+            kategorie: 'sonstiges',
+            spam_score: 0,
+            kurzfassung: `Eigene Regel [${regelMatch.typ}]: ${regelMatch.muster}`,
+            ordner: regelMatch.ordner || null,
+            konfidenz: 1.0,
+            regel: true,
+          };
+          klassifiziert += 1;
+          continue;
+        }
+
+        if (themen.einstellungen().aktiv) {
+          const stich = themen.stichwortTreffer(konto.id, m.von, m.betreff);
+          if (stich && stich.ordner) {
+            ergebnisse[m.__i] = {
+              kategorie: 'sonstiges',
+              spam_score: 0,
+              kurzfassung: `Stichwort „${stich.wort}" aus Ordner-Beschreibung`,
+              ordner: stich.ordner,
+              konfidenz: 1.0,
+              regel: true,
+            };
+            klassifiziert += 1;
+            continue;
+          }
+        }
+
+        nochZuKlassifizieren.push(m);
+      }
+    } else {
+      nochZuKlassifizieren.push(...kontoMails);
+    }
+
+    if (nochZuKlassifizieren.length === 0) continue;
+
     const bekannt = bekannteDomains(kontoName);
-    const gruppen = gruppieren(kontoMails, bekannt);
+    const gruppen = gruppieren(nochZuKlassifizieren, bekannt);
     const buendel = buendeln(gruppen, bekannt);
 
     for (const teil of buendel) {

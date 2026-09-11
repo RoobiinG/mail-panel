@@ -266,29 +266,46 @@ export default function Dashboard() {
               {/* Sortier-Fortschritt je Postfach */}
               <div className="card">
                 <h2 className="font-medium flex items-center gap-2 mb-3">
-                  <Inbox size={16} className="text-panel-accent" /> Sortier-Rückstand
+                  <Inbox size={16} className="text-panel-accent" /> Sortier-Rückstand &amp; Posteingang
                 </h2>
                 {u.posteingang.konten.length === 0 ? (
                   <p className="text-sm text-panel-muted">Kein Postfach eingerichtet.</p>
                 ) : (
                   <div className="space-y-3">
-                    {u.posteingang.konten.map((k) => (
-                      <div key={k.konto_id}>
-                        <div className="flex justify-between text-sm mb-1">
-                          <span className="font-medium">{k.konto}</span>
-                          <span className={k.erreichbar ? 'text-panel-muted' : 'text-panel-red'}>
-                            {k.erreichbar ? `${k.wartend} im Posteingang` : 'nicht erreichbar'}
-                          </span>
+                    {u.posteingang.konten.map((k) => {
+                      const hatBestand = k.posteingangGesamt > 0;
+                      const hatWartend = k.wartend > 0;
+                      const istVollstaendig = !hatWartend && (!hatBestand || k.posteingangGesamt === 0);
+                      const anteil = istVollstaendig
+                        ? 100
+                        : Math.max(5, Math.min(95, 100 - (k.wartend * 3 + (hatBestand ? Math.min(80, k.posteingangGesamt / 50) : 0))));
+                      const ton = istVollstaendig ? 'gruen' : (k.wartend > 20 || k.posteingangGesamt > 500) ? 'warnung' : 'accent';
+                      return (
+                        <div key={k.konto_id}>
+                          <div className="flex justify-between text-sm mb-1">
+                            <span className="font-medium">{k.konto}</span>
+                            <span className={k.erreichbar ? 'text-panel-muted' : 'text-panel-red'}>
+                              {k.erreichbar ? (
+                                <>
+                                  <span className={hatWartend ? 'text-amber-400 font-medium' : ''}>
+                                    {k.wartend} in Sortier-Inbox
+                                  </span>
+                                  {hatBestand && (
+                                    <span className="text-panel-muted"> · {k.posteingangGesamt.toLocaleString('de-DE')} im Posteingang</span>
+                                  )}
+                                </>
+                              ) : 'nicht erreichbar'}
+                            </span>
+                          </div>
+                          {k.erreichbar && (
+                            <Balken anteil={anteil} ton={ton} />
+                          )}
                         </div>
-                        {k.erreichbar && (
-                          <Balken anteil={k.wartend === 0 ? 100 : Math.max(4, 100 - Math.min(100, k.wartend))}
-                            ton={k.wartend === 0 ? 'gruen' : k.wartend > 50 ? 'warnung' : 'accent'} />
-                        )}
-                      </div>
-                    ))}
+                      );
+                    })}
                     <p className="text-xs text-panel-muted pt-1">
-                      Der Posteingang leert sich, während die Sortierung läuft. Ein voller
-                      Balken heißt: nichts liegt mehr ungeordnet.
+                      „Sortier-Inbox“ sind Mails, die auf manuelle Freigabe/Zuordnung warten. Ein grüner Balken
+                      signalisiert, dass weder in der Sortier-Inbox noch im Posteingang unorganisierte Mails liegen.
                     </p>
                     <div className="flex flex-col gap-2 pt-1">
                       <div className="flex items-center gap-3">

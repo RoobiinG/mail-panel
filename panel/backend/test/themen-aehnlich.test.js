@@ -62,6 +62,19 @@ describe('Was dasselbe meint', () => {
     assert.ok(themen.aehnlich('Spiele', 'Games'));
   });
 
+  test('Tippfehler via Levenshtein-Distanz', () => {
+    assert.ok(themen.aehnlich('Zahlungsaufforderungen', 'Zahlungsauforderungen'));
+    assert.ok(themen.aehnlich('Bestellbestaetigung', 'Bestellbestaetigungen'));
+    assert.equal(themen.levenshtein('Zahlungsaufforderung', 'Zahlungsauforderung'), 1);
+  });
+
+  test('Mehrwort-Phrasen und Teilbegriffe (Screenshot 3 aus dem Panel)', () => {
+    assert.ok(themen.aehnlich('Rechnungen und Zahlungsaufträge', 'Rechnungen und Zahlungsaufforderungen'));
+    assert.ok(themen.aehnlich('Rechnungen und Zahlungsaufforderungen', 'Rechnungen und Zahlungsauforderungen'));
+    assert.ok(themen.aehnlich('Rechnungen', 'Rechnungen und Zahlungsaufträge'));
+    assert.ok(themen.aehnlich('Rechnungen & Finanzen', 'Rechnungen'));
+  });
+
   test('und wo es aufhoert — sonst landet alles in einem Topf', () => {
     assert.equal(themen.aehnlich('Games', 'Gesundheit'), false);
     assert.equal(themen.aehnlich('Auto', 'Autor'), false);

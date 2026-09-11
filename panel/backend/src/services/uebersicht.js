@@ -24,11 +24,14 @@ async function posteingangStaende() {
   const konten = db.prepare('SELECT * FROM accounts').all();
   const raus = [];
   for (const konto of konten) {
-    // Statt per IMAP (was Caching erfordert und nachhinkt), lesen wir den echten
-    // Sortierungs-Rückstand direkt aus der Datenbank aus. So ist die Zahl
-    // im Dashboard immer exakt synchron mit dem Sortierungs-Reiter.
-    const anzahl = db.prepare("SELECT COUNT(*) n FROM sort_inbox WHERE konto_id = ? AND status='offen'").get(konto.id)?.n || 0;
-    raus.push({ konto: konto.name, konto_id: konto.id, wartend: anzahl, erreichbar: true });
+    // Sortier-Inbox (wartet auf manuelle Freigabe/Zuordnung)
+    const wartend = db.prepare("SELECT COUNT(*) n FROM sort_inbox WHERE konto_id = ? AND status='offen'").get(konto.id)?.n || 0;
+    // Im Posteingang gezählte Mails (aus der Absender-Zählung)
+    let posteingangGesamt = 0;
+    try {
+      posteingangGesamt = db.prepare("SELECT SUM(anzahl) n FROM absender_stat WHERE konto_id = ?").get(konto.id)?.n || 0;
+    } catch {}
+    raus.push({ konto: konto.name, konto_id: konto.id, wartend, posteingangGesamt, erreichbar: true });
   }
   return raus;
 }

@@ -173,13 +173,103 @@ const SYNONYME = [
 const SYNONYM_GRUPPE = new Map();
 SYNONYME.forEach((gruppe, nummer) => gruppe.forEach((wort) => SYNONYM_GRUPPE.set(stamm(wort), nummer)));
 
+// ─── Levenshtein & Wort-Tokens für Tippfehler & Mehrwort-Erkennung ───────────
+
+function levenshtein(s1, s2) {
+  if (s1 === s2) return 0;
+  if (!s1.length) return s2.length;
+  if (!s2.length) return s1.length;
+  const prev = [];
+  const curr = [];
+  for (let j = 0; j <= s2.length; j++) prev[j] = j;
+  for (let i = 1; i <= s1.length; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= s2.length; j++) {
+      const cost = s1[i - 1] === s2[j - 1] ? 0 : 1;
+      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+    }
+    for (let j = 0; j <= s2.length; j++) prev[j] = curr[j];
+  }
+  return prev[s2.length];
+}
+
+const STOPWORTE = new Set([
+  'und', 'oder', 'der', 'die', 'das', 'den', 'dem', 'des', 'ein', 'eine', 'einer',
+  'eines', 'fur', 'von', 'vom', 'mit', 'bei', 'aus', 'auf', 'alle', 'alles',
+  'rund', 'etc', 'usw', 'sowie', 'sonstige', 'sonstiges', 'mail', 'mails',
+  'email', 'emails', 'newsletter', 'info', 'service', 'kontakt', 'noreply',
+  'no-reply', 'com', 'net', 'org', 'www',
+]);
+
+function zerlegen(text) {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/ä/g, 'a').replace(/ö/g, 'o').replace(/ü/g, 'u').replace(/ß/g, 'ss')
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+}
+
+function wortTokens(text) {
+  return zerlegen(text).filter((w) => w.length >= 3 && !STOPWORTE.has(w));
+}
+
 function aehnlich(a, b) {
+  if (!a || !b) return false;
+  const rawA = String(a).trim().toLowerCase();
+  const rawB = String(b).trim().toLowerCase();
+  if (rawA === rawB) return true;
+
   const sa = stamm(a);
   const sb = stamm(b);
-  if (!sa || !sb || sa.length < 3 || sb.length < 3) return false;
-  if (sa === sb) return true;
-  const ga = SYNONYM_GRUPPE.get(sa);
-  return ga !== undefined && ga === SYNONYM_GRUPPE.get(sb);
+  if (sa && sb && sa === sb) return true;
+
+  // Synonym-Gruppen (z. B. "games" und "gaming", "reisen" und "travel")
+  if (sa && sb) {
+    const ga = SYNONYM_GRUPPE.get(sa);
+    if (ga !== undefined && ga === SYNONYM_GRUPPE.get(sb)) return true;
+  }
+
+  // Levenshtein auf dem Gesamtwort / Wortstamm (fängt Tippfehler wie Zahlungsauforderung vs Zahlungsaufforderung ab)
+  if (sa && sb) {
+    const minLen = Math.min(sa.length, sb.length);
+    const maxLen = Math.max(sa.length, sb.length);
+    if (minLen >= 5 && Math.abs(sa.length - sb.length) <= 2) {
+      const maxDist = maxLen >= 10 ? 2 : 1;
+      if (levenshtein(sa, sb) <= maxDist) return true;
+    }
+  }
+
+  // Wort-Tokens und Mehrwort-Phrasen prüfen (z. B. "Rechnungen und Zahlungsaufträge" vs "Rechnungen und Zahlungsaufforderungen")
+  const tokensA = wortTokens(a);
+  const tokensB = wortTokens(b);
+  if (tokensA.length > 0 && tokensB.length > 0) {
+    if (tokensA.length > 1 || tokensB.length > 1) {
+      const stemsA = tokensA.map(stamm).filter(Boolean);
+      const stemsB = tokensB.map(stamm).filter(Boolean);
+      if (stemsA.length > 0 && stemsB.length > 0) {
+        let treffer = 0;
+        for (const ta of stemsA) {
+          const match = stemsB.some((tb) => {
+            if (ta === tb) return true;
+            if (ta.length >= 5 && tb.length >= 5 && (ta.startsWith(tb.slice(0, 5)) || tb.startsWith(ta.slice(0, 5)))) return true;
+            if (Math.min(ta.length, tb.length) >= 6 && levenshtein(ta, tb) <= 2) return true;
+            return false;
+          });
+          if (match) treffer += 1;
+        }
+
+        // Kürzerer Begriff komplett im längeren enthalten (z. B. "Rechnungen" in "Rechnungen und Zahlungsaufträge")
+        const minTokenCount = Math.min(stemsA.length, stemsB.length);
+        if (treffer === minTokenCount) return true;
+
+        // Jaccard-Ähnlichkeit bei Mehrwort-Kombinationen (>= 50% übereinstimmende Kernstämme)
+        const jaccard = treffer / Math.max(stemsA.length, stemsB.length);
+        if (jaccard >= 0.5) return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 // ─── Katalog ─────────────────────────────────────────────────────────────────
@@ -250,24 +340,7 @@ function fuerPrompt(kontoId) {
 // nichts unterscheiden. „newsletter" und „info" müssen mit: Als Absenderteil
 // (newsletter@…, info@…) träfen sie sonst jeden Ordner, dessen Beschreibung das
 // Wort enthält.
-const STOPWORTE = new Set([
-  'und', 'oder', 'der', 'die', 'das', 'den', 'dem', 'des', 'ein', 'eine', 'einer',
-  'eines', 'fur', 'von', 'vom', 'mit', 'bei', 'aus', 'auf', 'alle', 'alles',
-  'rund', 'etc', 'usw', 'sowie', 'sonstige', 'sonstiges', 'mail', 'mails',
-  'email', 'emails', 'newsletter', 'info', 'service', 'kontakt', 'noreply',
-  'no-reply', 'com', 'net', 'org', 'www',
-]);
-
-// Text in vergleichbare Wörter zerlegen — Umlaute auflösen, alles andere trennt.
-// Dieselbe Zerlegung für Stichworte, Absender und Betreff, damit „Gaming-News"
-// und „gaming news" auf dasselbe hinauslaufen.
-function zerlegen(text) {
-  return String(text || '')
-    .toLowerCase()
-    .replace(/ä/g, 'a').replace(/ö/g, 'o').replace(/ü/g, 'u').replace(/ß/g, 'ss')
-    .split(/[^a-z0-9]+/)
-    .filter(Boolean);
-}
+// (STOPWORTE und zerlegen weiter oben definiert)
 
 function stichworte(eintrag) {
   // Das Gelernte zählt mit: Was die KI einmal hierher sortiert hat, muss beim
@@ -671,6 +744,18 @@ function inKatalog(kontoId, pfad, quelle, beschreibung = null) {
 // Legt einen Vorschlag an oder zählt den passenden hoch.
 // @returns {{ordner: string, status: string}} unter welchem Namen gezählt wurde
 function vorschlagMerken(kontoId, name, begruendung) {
+  // Wenn der Name zu einem Kategorie- oder Katalogordner passt, keinen Vorschlag anlegen
+  try {
+    const konto = db.prepare('SELECT * FROM accounts WHERE id = ?').get(kontoId);
+    const katOrdner = konto ? kategorieOrdner(konto).filter(Boolean) : [];
+    const katalogOrdner = katalog(kontoId, { auchGesperrte: true }).map((o) => o.ordner);
+    const alleExistierenden = [...new Set([...katOrdner, ...katalogOrdner])];
+    const existierend = alleExistierenden.find((ex) => aehnlich(ex, name));
+    if (existierend) {
+      return { ordner: existierend, status: 'vorhanden' };
+    }
+  } catch {}
+
   // Gibt es schon einen Vorschlag, der dasselbe meint? Dann den hochzählen —
   // sonst stehen „Games" und „Gaming" als zwei Zeilen nebeneinander. Bereits
   // freigegebene bleiben außen vor: Deren Ordner gibt es, der gehört in den
@@ -716,6 +801,26 @@ function vorschlaegeAufraeumen(kontoId = null) {
   const behalten = [];
   let zusammengefuehrt = 0;
   for (const v of alle) {
+    // Prüfen, ob der Vorschlag eigentlich einem bestehenden Kategorieordner oder Katalogordner entspricht
+    let konto = null;
+    try {
+      konto = db.prepare('SELECT * FROM accounts WHERE id = ?').get(v.konto_id);
+    } catch {}
+
+    const katOrdner = konto ? kategorieOrdner(konto).filter(Boolean) : [];
+    const katalogOrdner = katalog(v.konto_id, { auchGesperrte: true }).map((o) => o.ordner);
+    const alleExistierenden = [...new Set([...katOrdner, ...katalogOrdner])];
+
+    const existierendesZiel = alleExistierenden.find((ex) => aehnlich(ex, v.ordner));
+    if (existierendesZiel) {
+      // Dieser Vorschlag ist kein neuer Ordner, sondern entspricht einem bereits existierenden Ordner!
+      db.prepare('UPDATE sort_inbox SET ki_ordner = ? WHERE konto_id = ? AND ki_ordner = ?')
+        .run(existierendesZiel, v.konto_id, v.ordner);
+      db.prepare('DELETE FROM ordner_vorschlaege WHERE id = ?').run(v.id);
+      zusammengefuehrt += 1;
+      continue;
+    }
+
     // Nur innerhalb desselben Status zusammenführen: Ein abgelehnter Vorschlag
     // darf keinen offenen verschlucken und umgekehrt.
     const sieger = behalten.find((b) => b.konto_id === v.konto_id
@@ -895,6 +1000,7 @@ module.exports = {
   gelerntVergessen,
   gelerntLeeren,
   aehnlich,
+  levenshtein,
   stamm,
   zugang,
   ANLEGEN_MODI,
