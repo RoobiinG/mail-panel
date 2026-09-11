@@ -351,7 +351,7 @@ router.post('/korrigieren', async (req, res) => {
       const neu = await imap.ordnerErstellen({ ...konto, ...themen.zugang(konto) }, ziel);
       if (neu) loggen('info', 'sortierung', `Ordner "${ziel}" für ${konto.name} angelegt (Korrektur).`);
     } catch (err) {
-      return res.status(502).json({ error: `Zielordner nicht nutzbar: ${err.message}` });
+      return res.status(400).json({ error: `Zielordner nicht nutzbar: ${err.message}` });
     }
 
     // 2. Die Mail selbst umziehen.
@@ -454,7 +454,7 @@ router.post('/korrigieren', async (req, res) => {
 
     res.json({ ok: true, verschoben, hinweis, regel, nachsortiert });
   } catch (err) {
-    res.status(502).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
 
@@ -565,7 +565,7 @@ router.post('/sammel-zuordnen', async (req, res) => {
       const neu = await imap.ordnerErstellen({ ...konto, ...themen.zugang(konto) }, regel.zielordner);
       if (neu) loggen('info', 'sortierung', `Ordner "${regel.zielordner}" für ${konto.name} angelegt.`);
     } catch (err) {
-      return res.status(502).json({ error: `Zielordner nicht nutzbar: ${err.message}` });
+      return res.status(400).json({ error: `Zielordner nicht nutzbar: ${err.message}` });
     }
 
     // 2. Regel merken, damit künftige Mails gar nicht erst hier landen
@@ -590,7 +590,7 @@ router.post('/sammel-zuordnen', async (req, res) => {
 
     res.json({ ok: true, regel_id: regelId, ...ergebnis });
   } catch (err) {
-    res.status(502).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
 
@@ -646,7 +646,7 @@ router.post('/katalog', async (req, res) => {
     loggen('info', 'sortierung', `Themen-Ordner "${pfad}" für Konto ${konto.name} aufgenommen.`);
     res.json({ ok: true, eintrag });
   } catch (err) {
-    res.status(502).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
 
@@ -695,7 +695,7 @@ router.post('/katalog/einlesen', async (req, res) => {
     const gesperrt = await themen.systemordnerSperren(konto);
     res.json({ ...ergebnis, gesperrt });
   } catch (err) {
-    res.status(502).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
 
@@ -776,7 +776,7 @@ router.post('/vorschlaege/:id/freigeben', async (req, res) => {
     loggen('info', 'sortierung', `Ordner "${pfad}" freigegeben, ${verschoben} wartende Mail(s) nachsortiert.`);
     res.json({ ok: true, ordner: pfad, verschoben, wartend: wartend.length });
   } catch (err) {
-    res.status(502).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
 
@@ -858,7 +858,7 @@ router.post('/vorschlaege/zusammenfassen', async (req, res) => {
       + `${verschoben} von ${wartend} Mail(s) verschoben.`);
     res.json({ ok: true, ordner: pfad, verschoben, wartend, zusammengefasst: namen.length });
   } catch (err) {
-    res.status(502).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
 
@@ -939,7 +939,7 @@ router.post('/vorschlaege/:id/umleiten', async (req, res) => {
       + (nurEinzelne ? ' (Einzelauswahl, Vorschlag bleibt offen).' : ', Name dauerhaft umgeleitet.'));
     res.json({ ok: true, ordner: ziel, verschoben, wartend: wartend.length, umgeleitet: !nurEinzelne });
   } catch (err) {
-    res.status(502).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
 
@@ -955,7 +955,7 @@ router.post('/stichworte-anwenden', async (req, res) => {
   try {
     res.json(await sortierung.stichworteNachtragen(konto, { vorschau: Boolean(req.body?.vorschau) }));
   } catch (err) {
-    res.status(502).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
 
@@ -1001,10 +1001,10 @@ router.post('/katalog/:id/beschreibung-vorschlagen', async (req, res) => {
     + '- Keine Anrede, kein Satzanfang wie "Dieser Ordner", einfach die Stichworte.';
 
   const antwort = await kiText.frageJson(prompt, { quelle: 'backend:sortierung' });
-  if (!antwort.ok) return res.status(502).json({ error: antwort.fehler });
+  if (!antwort.ok) return res.status(400).json({ error: antwort.fehler });
 
   const text = String(antwort.daten?.beschreibung || '').trim().slice(0, 200);
-  if (!text) return res.status(502).json({ error: 'Die KI hat nichts geliefert.' });
+  if (!text) return res.status(400).json({ error: 'Die KI hat nichts geliefert.' });
   res.json({ ok: true, beschreibung: text, absender: absender.length });
 });
 
@@ -1032,7 +1032,7 @@ router.get('/postfach-ordner', async (req, res) => {
       .sort((a, b) => a.localeCompare(b, 'de'));
     res.json(ordner);
   } catch (err) {
-    res.status(502).json({ error: `Postfach nicht erreichbar: ${err.message}` });
+    res.status(400).json({ error: `Postfach nicht erreichbar: ${err.message}` });
   }
 });
 
@@ -1069,7 +1069,7 @@ router.post('/absender-zaehlen', async (req, res) => {
       `${konto.name}: ${gesamt} Mails im Posteingang gezählt, ${absender.length} verschiedene Absender.`);
     res.json({ ok: true, gesamt, ohneAbsender, absender: merken.length });
   } catch (err) {
-    res.status(502).json({ error: `Posteingang nicht lesbar: ${err.message}` });
+    res.status(400).json({ error: `Posteingang nicht lesbar: ${err.message}` });
   }
 });
 
@@ -1160,7 +1160,7 @@ router.post('/absender/einsortieren', async (req, res) => {
       + 'Posteingang verschoben (ohne KI).');
     res.json({ ok: true, domain, ziel, gefunden: uids.length, verschoben, fehler });
   } catch (err) {
-    res.status(502).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
 
@@ -1201,7 +1201,7 @@ router.post('/absender/kategorien', async (req, res) => {
     + '- Jede Domain hoechstens einmal. Domains, die zu nichts passen, laesst du weg.';
 
   const antwort = await kiText.frageJson(prompt, { quelle: 'backend:sortierung', zeitlimit: 45000 });
-  if (!antwort.ok) return res.status(502).json({ error: antwort.fehler });
+  if (!antwort.ok) return res.status(400).json({ error: antwort.fehler });
 
   const zahlen = new Map(zeilen.map((z) => [z.domain, z.anzahl]));
   const gruppen = (Array.isArray(antwort.daten?.gruppen) ? antwort.daten.gruppen : [])
@@ -1286,7 +1286,7 @@ router.post('/absender/kategorie-anwenden', async (req, res) => {
       `Kategorie "${ziel}": ${domains.length} Absender-Regeln, ${verschoben} von ${gefunden} Mail(s) verschoben.`);
     res.json({ ok: true, ordner: ziel, regeln: domains.length, gefunden, verschoben });
   } catch (err) {
-    res.status(502).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
 
@@ -1360,7 +1360,7 @@ router.post('/katalog/:id/aufgehen-in', async (req, res) => {
       + 'verschoben, Name als Umleitung hinterlegt. Der leere Ordner bleibt im Postfach stehen.');
     res.json({ ok: true, ordner: quelle.ordner, ziel, verschoben, gesamt: uids.length, fehler: fehler.slice(0, 5) });
   } catch (err) {
-    res.status(502).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
 

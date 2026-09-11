@@ -234,6 +234,11 @@ export default function Konten() {
                   viele Server die Anmeldung, weil n8n dort kein STARTTLS anbietet.
                 </p>
               )}
+              {/web\.de|gmx/i.test(formular.host || '') && (
+                <div className="card !py-2.5 !px-3 bg-panel-blue/10 border-panel-blue/30 text-xs text-panel-blue">
+                  <strong>Wichtiger Hinweis zu Web.de & GMX:</strong> Der Abruf über IMAP muss in den Postfach-Einstellungen im Webbrowser unter <em>„Sicherheit → POP3/IMAP Zugriff erlauben“</em> freigeschaltet sein, sonst wird die Anmeldung vom Server abgewiesen.
+                </div>
+              )}
               <label className="text-sm space-y-1">
                 <span className="text-panel-muted">Benutzername / E-Mail-Adresse</span>
                 <input value={formular.username} onChange={(e) => setFormular({ ...formular, username: e.target.value })} autoComplete="off" />

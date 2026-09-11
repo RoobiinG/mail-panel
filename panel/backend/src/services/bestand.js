@@ -73,7 +73,7 @@ function erledigteUids(kontoId, ordner) {
   } catch { /* Tabelle fehlt noch — dann eben nichts */ }
   if (ordner === 'INBOX') {
     try {
-      for (const z of db.prepare('SELECT uid FROM sort_inbox WHERE konto_id = ?').all(kontoId)) {
+      for (const z of db.prepare("SELECT uid FROM sort_inbox WHERE konto_id = ? AND status != 'offen'").all(kontoId)) {
         const n = zahlOderNull(z.uid);
         if (n !== null) raus.add(n);
       }

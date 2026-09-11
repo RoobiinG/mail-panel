@@ -86,7 +86,7 @@ async function frageJson(prompt, opt = {}) {
     const ollamaUrl = (settings.hole('ollama_url') || 'http://ollama:11434').replace(/\/$/, '') + '/api/generate';
     const ollamaModell = settings.hole('ollama_modell') || 'llama3.1';
     const zeitlimit = opt.zeitlimit || 120000;
-    const antwortTokens = opt.maxAntwort || 1500;
+    const antwortTokens = opt.maxAntwort || (kiAnbieter === 'ollama' ? 450 : 1500);
     const kontext = kontextFenster();
 
     // Was nicht ins Fenster passt, wirft Ollama weg — schweigend.
@@ -122,35 +122,11 @@ async function frageJson(prompt, opt = {}) {
           model: ollamaModell,
           prompt: gekuerzt,
           stream: false,
-          // Ein Schema statt nur „irgendein JSON".
-          //
-          // `format: 'json'` erzwingt GUELTIGES JSON, aber nicht die richtige
-          // FORM. Ein grosses Modell haelt sich trotzdem an das Beispiel im
-          // Prompt; ein kleines antwortet, was ihm einfaellt — mal
-          // {"emails": […]}, mal {"1": {…}}, mal ein einzelnes Objekt. Das ist
-          // alles gueltiges JSON und trotzdem unbrauchbar, und genau so sah es
-          // im Betrieb aus: dreizehn Antworten hintereinander, „0 von 19 Mails
-          // klassifiziert".
-          //
-          // Mit einem Schema baut Ollama daraus eine Grammatik und laesst das
-          // Modell gar nichts anderes mehr erzeugen. Aus „bitte halte dich an
-          // das Format" wird „du kannst nicht anders". Fuer kleine Modelle ist
-          // das der Unterschied zwischen unbrauchbar und brauchbar.
           format: opt.schema || 'json',
           options: {
             temperature: 0.2,
-            // Ohne diese Angabe nimmt Ollama sein eigenes Fenster (je nach
-            // Fassung 2048 oder 4096 Token) und schneidet alles Längere
-            // kommentarlos ab. Ein Bündel aus fünf Mails mit Themenliste ist
-            // schnell doppelt so lang — das Modell sah dann nur den Schwanz
-            // des Prompts ohne die Anweisung und antwortete entsprechend:
-            // „Kein Thema erkannt", Konfidenz 0, bei jeder einzelnen Mail.
+            repeat_penalty: 1.1,
             num_ctx: kontext,
-            // Deutlich weniger als bei Gemini. Dort kostet ein grosszuegiges
-            // Budget nichts, solange die Antwort kurz ausfaellt — hier rechnet
-            // die eigene Maschine jedes einzelne Token. 8192 Token sind auf
-            // einer CPU eine Viertelstunde; die Antwort auf ein Buendel von
-            // fuenf Mails braucht keine 1500.
             num_predict: antwortTokens,
           },
         }),
@@ -160,7 +136,15 @@ async function frageJson(prompt, opt = {}) {
       if (!res.ok) {
         const text = (await res.text()).slice(0, 400);
         loggen('warn', quelle, `Ollama antwortete mit ${res.status}: ${text}`);
-        return { ok: false, fehler: `Ollama antwortete mit ${res.status}. Läuft der Container?` };
+        const istGateway = res.status === 504 || res.status === 502;
+        return {
+          ok: false,
+          gatewayTimeout: istGateway,
+          status: res.status,
+          fehler: istGateway
+            ? `Ollama antwortete mit ${res.status} (Gateway Timeout/Proxy — Anfrage dauerte zu lange).`
+            : `Ollama antwortete mit ${res.status}. Läuft der Container?`,
+        };
       }
 
       const daten = await res.json();

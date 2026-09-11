@@ -2,6 +2,45 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.7.0.0] - 2026-09-11 (Build 183) — *Sortierungs- & Ollama-Stabilität*
+
+### Features & Verbesserungen
+- **Ollama Timeout- & Bündel-Resilienz:**
+  - Bündelgröße bei Verwendung von Ollama auf maximal 3 E-Mails gedrosselt und `num_predict` dynamisch an die Bündelgröße angepasst (250–600 Token statt pauschal 1500), um langsame CPU-Inferenz drastisch zu beschleunigen.
+  - Gateway-Timeout-Erkennung (504/502) für Reverse-Proxies vor Ollama (z. B. Nginx/OpenResty mit 60s Frist).
+  - Automatischer Fallback: Lief ein Mehrfach-Bündel in einen Gateway-Timeout, wird der Durchlauf nicht mehr abgebrochen, sondern die E-Mails des Bündels werden einzeln klassifiziert.
+  - `repeat_penalty: 1.1` verhindert Endlos-Wiederholungen bei kleinen Modellen.
+- **Themen- & Kategorie-Kollisionsbehebung:**
+  - `ordnerExistiert` prüft nun case-insensitiv und trenner-agnostisch (`INBOX.Rechnungen` vs. `INBOX/Rechnungen`).
+  - Wenn ein lokales LLM als Thema den Namen einer Kontokategorie vorschlägt (z. B. „Rechnungen“, „Rechnungen und Zahlungsaufträge“, „Bestellungen“), wird dieser Vorschlag direkt in den konfigurierten Kategorieordner aufgelöst, statt als „Ordnername abgelehnt“ blockiert oder in `ordner_vorschlaege` geparkt zu werden.
+  - In `/api/internal/einsortieren` wird ein noch nicht existierender Zielordner auf dem IMAP-Server bei Bedarf automatisch via `imap.ordnerErstellen` angelegt und abonniert.
+- **Bestand-Triage & Reset-Entstörung:**
+  - `bestand.js`: In `erledigteUids` werden UIDs aus `sort_inbox` nur noch ausgeschlossen, wenn `status != 'offen'`. Unvollendete oder offene Zuordnungen werden nicht mehr dauerhaft vom Bestandsscanner übersprungen.
+  - `bestand-reset`: Leert nun auch hängengebliebene, offene Einträge aus `sort_inbox` (`WHERE status = 'offen'`) und setzt den `bestand_letzter_start`-Zeitstempel sowie alle Zeiger zurück.
+  - Alle `502`-Fehlerstatus in `workflows.js`, `konten.js` und `sortierung.js` wurden durch `400` ersetzt, damit nachgelagerte Proxies (wie Nginx Proxy Manager) JSON-Fehler nicht durch HTML-Fehlerseiten überschreiben.
+- **IMAP-Stabilität & UI-Hinweise:**
+  - Buffer-Handling in `imap.js` (`mailLaden`) gefixt (`TypeError [ERR_INVALID_ARG_TYPE]`).
+  - Explizites `{ uid: true }` beim Laden gezielter UIDs in `ordnerInhaltLaden`.
+  - Hilfestellung und Warnhinweis für Web.de/GMX Postfächer bei IMAP-Sicherheitssperren im Login-Dialog.
+  - Dashboard: Verbesserte visuelle Statusanzeige (Spinner, Tooltips) für Bestands-Start und Reset.
+  - Einstellungen: Auswahl für das Ausführungsintervall der Bestands-Triage (`bestand_intervall`) ergänzt.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine Schema-Änderung erforderlich.
+- **n8n-Workflow-Kompatibilität:** Keine Anpassungen an den Workflows 01/04 nötig; volle Abwärtskompatibilität.
+- **Neustart-/Session-Verhalten:** Nach dem Update im Dashboard einmal „Gesamten Posteingang neu bewerten (Reset)“ anklicken, um hängengebliebene offene Posteingangs-Mails sauber neu verarbeiten zu lassen.
+
+---
+
+## [4.6.2.4] - 2026-09-11 (Build 182) — *Nginx Error-Intercept & Ollama-Meldungen*
+- **Fix:** Nginx Proxy Manager Error-Intercept für API-Routen verhindert und Fehlermeldungen bei fehlgeschlagener Ollama-Verbindung im Einstellungen-Dialog präzisiert.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis)**
+- **Datenbank:** Keine Änderungen am Schema.
+- **n8n:** Keine Änderungen an den Workflows erforderlich.
+
+---
+
 ## [4.6.2.3] - 2026-09-11 (Build 181) — *Ollama Auth-Fix (Node.js)*
 - **Fix:** Echter `Authorization`-Header für Ollama: Da Node.js `fetch()` Credentials innerhalb der URL (z. B. `http://user:pass@host`) grundsätzlich mit einer Exception ablehnt (`Request cannot be constructed from a URL that includes credentials`), werden Basic-Auth-Credentials nun aus der URL extrahiert und sauber als `Authorization: Basic ...` Header mitgesendet.
 

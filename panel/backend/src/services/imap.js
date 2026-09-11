@@ -48,6 +48,11 @@ async function testVerbindung(konto) {
       ordner: vorhanden,
       fehlendeOrdner: zielordner(konto).filter((soll) => !vorhanden.includes(soll)),
     };
+  } catch (err) {
+    if (/auth|login/i.test(err.message) && /web\.de|gmx/i.test(konto.host || '')) {
+      err.message += ' (Hinweis: Bei Web.de/GMX muss der IMAP-Zugriff im Webmail unter „Sicherheit → POP3/IMAP Zugriff erlauben“ aktiviert sein)';
+    }
+    throw err;
   } finally {
     try { await client.logout(); } catch { /* Verbindung war schon zu */ }
   }
@@ -496,7 +501,12 @@ async function mailLaden({ ordner = 'INBOX', uid, ...konto }) {
 
       let text = '';
       if (nachricht.bodyParts && nachricht.bodyParts.has('text')) {
-         text = (await stromLesen(nachricht.bodyParts.get('text'), MAX_GROESSE)).toString('utf-8');
+        const teil = nachricht.bodyParts.get('text');
+        if (Buffer.isBuffer(teil)) {
+          text = teil.toString('utf-8');
+        } else if (teil) {
+          text = (await stromLesen(teil, MAX_GROESSE)).toString('utf-8');
+        }
       }
 
       let unsubscribe = null;
@@ -561,7 +571,7 @@ async function ordnerInhaltLaden({ ordner, suche, limit = 100, seite = 1, ...kon
       }
       
       const liste = [];
-      for await (const m of client.fetch(fetchMuster, { uid: true, envelope: true })) {
+      for await (const m of client.fetch(fetchMuster, { uid: true, envelope: true }, { uid: Boolean(zielUids) })) {
         liste.push({
           uid: String(m.uid), // Explizit als String für einheitliche Handhabung
           von: m.envelope.from?.[0]?.address || m.envelope.from?.[0]?.name || '',

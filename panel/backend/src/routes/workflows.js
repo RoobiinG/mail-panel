@@ -12,7 +12,7 @@ const router = express.Router();
 // Fehler aus der n8n-Anbindung einheitlich beantworten
 function fehlerAntwort(res, err, was) {
   loggen('error', 'backend:workflows', `${was}: ${err.message}`);
-  res.status(502).json({ error: err.message });
+  res.status(400).json({ error: err.message });
 }
 
 // POST /api/workflows/bestand-starten — die Bestands-Triage jetzt laufen lassen.
@@ -34,12 +34,12 @@ router.post('/bestand-starten', async (req, res) => {
         error: 'Der Start-Haken fehlt in Workflow 04. Einmal auf „Synchronisieren" drücken — und Workflow 04 muss aktiv sein.',
       });
     }
-    if (!antwort.ok) return res.status(502).json({ error: `n8n antwortete mit ${antwort.status}.` });
+    if (!antwort.ok) return res.status(400).json({ error: `n8n antwortete mit ${antwort.status}.` });
     loggen('info', 'workflows', 'Bestands-Triage über das Panel gestartet.');
     settings.setze('bestand_letzter_start', new Date().toISOString());
     res.json({ ok: true });
   } catch (err) {
-    res.status(502).json({ error: `n8n nicht erreichbar: ${err.message}` });
+    res.status(400).json({ error: `n8n nicht erreichbar: ${err.message}` });
   }
 });
 
@@ -49,7 +49,9 @@ router.post('/bestand-reset', async (req, res) => {
   try {
     db.prepare('DELETE FROM bestand_erledigt').run();
     db.prepare("DELETE FROM settings WHERE key LIKE 'bestand_zeiger_%' OR key LIKE 'bestand_fenster_%'").run();
-    loggen('info', 'workflows', 'Bestand-Speicher geleert. Der nächste Lauf prüft alle Mails neu.');
+    db.prepare("DELETE FROM sort_inbox WHERE status = 'offen'").run();
+    settings.setze('bestand_letzter_start', '');
+    loggen('info', 'workflows', 'Bestand-Speicher und offene Zuordnungen geleert. Der nächste Lauf prüft alle Mails neu.');
     res.json({ ok: true });
   } catch (err) {
     fehlerAntwort(res, err, 'Fehler beim Zurücksetzen des Bestands-Speichers');

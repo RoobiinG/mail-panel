@@ -77,7 +77,7 @@ router.post('/test', async (req, res) => {
   try {
     res.json(await imap.testVerbindung(daten));
   } catch (err) {
-    res.status(502).json({ ok: false, error: err.message });
+    res.status(400).json({ ok: false, error: err.message });
   }
 });
 
@@ -90,7 +90,7 @@ router.post('/ordner-anlegen', async (req, res) => {
   try {
     res.json(await imap.ordnerAnlegen(daten));
   } catch (err) {
-    res.status(502).json({ ok: false, error: err.message });
+    res.status(400).json({ ok: false, error: err.message });
   }
 });
 
@@ -127,7 +127,7 @@ router.post('/', async (req, res) => {
       db.prepare('DELETE FROM accounts WHERE n8n_credential_id = ?').run(credentialId);
       try { await n8n.credentialLoeschen(credentialId); } catch { /* best effort */ }
     }
-    res.status(502).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
 
@@ -172,7 +172,7 @@ router.put('/:id', async (req, res) => {
     try { await n8n.credentialLoeschen(konto.n8n_credential_id); } catch { /* best effort */ }
     res.json({ ok: true, sync });
   } catch (err) {
-    res.status(502).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
 
@@ -185,7 +185,7 @@ router.delete('/:id', async (req, res) => {
     await n8n.credentialLoeschen(konto.n8n_credential_id);
     res.json({ ok: true, sync });
   } catch (err) {
-    res.status(502).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
 
@@ -194,7 +194,7 @@ router.post('/sync', async (req, res) => {
   try {
     res.json({ ok: true, sync: await patcher.alleSynchronisieren(alleAktiven()) });
   } catch (err) {
-    res.status(502).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
 

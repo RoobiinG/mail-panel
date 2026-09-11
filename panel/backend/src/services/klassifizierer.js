@@ -62,7 +62,7 @@ const buendelGroesse = () => {
   const gewuenscht = zahl('gemini_buendel', 20, 1, 60);
   try {
     if ((settings.hole('ki_anbieter') || 'gemini') === 'ollama') {
-      return Math.min(gewuenscht, zahl('ollama_buendel', OLLAMA_BUENDEL_STANDARD, 1, 10));
+      return Math.min(gewuenscht, Math.min(3, zahl('ollama_buendel', OLLAMA_BUENDEL_STANDARD, 1, 10)));
     }
   } catch { /* dann eben der eingestellte Wert */ }
   return gewuenscht;
@@ -483,11 +483,13 @@ function antwortSchema() {
 }
 
 function fragen(teil, konto, bekannt, zeitlimit = 180000) {
+  const maxAntwort = Math.min(600, Math.max(250, teil.length * 150));
   return kiText.frageJson(promptBauen(teil, konto, bekannt), {
     quelle: 'backend:klassifizierer',
     zeitlimit,
     maxZeichen: 200000,
     schema: antwortSchema(),
+    maxAntwort,
   });
 }
 
@@ -498,7 +500,7 @@ function fragen(teil, konto, bekannt, zeitlimit = 180000) {
 // wird das nächste Bündel nicht schneller — im Gegenteil, es stellt sich nur
 // hinten an und verbrennt den Rest der Frist.
 const istZeitueberschreitung = (antwort) =>
-  !antwort.ok && /timeout|aborted|abgebrochen|ETIMEDOUT|beschäftigt/i.test(String(antwort.fehler || ''));
+  !antwort.ok && (/timeout|aborted|abgebrochen|ETIMEDOUT|beschäftigt/i.test(String(antwort.fehler || '')) || Boolean(antwort.gatewayTimeout));
 
 /**
  * @param {Array<object>} mails Mails eines Laufs, in der Reihenfolge des Workflows.
@@ -556,6 +558,32 @@ async function klassifizieren(mails) {
 
       let antwort = await fragen(teil, konto, bekannt, anfrageZeitlimit(verbleibend));
       anfragen += 1;
+
+      // Antwortet die KI gar nicht oder lief ein Mehrfach-Bündel ins Zeitlimit (z. B. 504 Gateway Timeout):
+      // Falls das Bündel mehr als 1 Gruppe hatte, versuchen wir die Mails einzeln, bevor wir abbrechen.
+      if (istZeitueberschreitung(antwort) && teil.length > 1) {
+        loggen('info', 'klassifizierer',
+          `Bündel mit ${teil.length} Mails lief ins Zeitlimit (504/Timeout) — versuche die Mails einzeln.`);
+        let gerettet = false;
+        for (const einzelGruppe of teil) {
+          const restFrist = frist() - (Date.now() - begonnen);
+          if (restFrist < ANFRAGE_MIN_MS) break;
+          const einzelAntwort = await fragen([einzelGruppe], konto, bekannt, anfrageZeitlimit(restFrist));
+          anfragen += 1;
+          if (einzelAntwort.ok) {
+            gerettet = true;
+            const einzelTreffer = antwortZuordnen(einzelAntwort.daten, [einzelGruppe]);
+            const ki = einzelTreffer.get(1);
+            if (ki) {
+              for (const mitglied of einzelGruppe.mitglieder) {
+                ergebnisse[mitglied.__i] = ki;
+                klassifiziert += 1;
+              }
+            }
+          }
+        }
+        if (gerettet) continue; // Weiter mit dem nächsten Bündel
+      }
 
       // Antwortet die KI gar nicht, wird die nächste Anfrage nicht schneller.
       // Weiterzufragen kostet nur die Frist des Laufs — und am Ende steht

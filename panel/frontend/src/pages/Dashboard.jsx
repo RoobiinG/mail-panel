@@ -82,6 +82,7 @@ export default function Dashboard() {
   const [aufsicht, setAufsicht] = useState(null);
   const [uebersicht, setUebersicht] = useState(null);
   const [startet, setStartet] = useState(false);
+  const [resettet, setResettet] = useState(false);
   const [startMeldung, setStartMeldung] = useState('');
   const [budgetLaeuft, setBudgetLaeuft] = useState(false);
   const [statsKonto, setStatsKonto] = useState('');
@@ -291,25 +292,30 @@ export default function Dashboard() {
                     </p>
                     <div className="flex flex-col gap-2 pt-1">
                       <div className="flex items-center gap-3">
-                        <button onClick={bestandStarten} disabled={startet}
+                        <button onClick={bestandStarten} disabled={startet || resettet}
                           className="btn !py-1.5 !px-3 text-sm flex items-center gap-1 disabled:opacity-50">
-                          <Workflow size={14} /> {startet ? 'Wird gestartet …' : 'Bestand jetzt sortieren'}
+                          <Workflow size={14} className={startet ? 'animate-spin' : ''} /> {startet ? 'Wird gestartet …' : 'Bestand jetzt sortieren'}
                         </button>
                         {startMeldung && <span className="text-xs text-panel-muted">{startMeldung}</span>}
                       </div>
                       <div className="flex items-center gap-3 pt-2 mt-2 border-t border-white/5">
-                        <button onClick={async () => {
-                            if (!confirm('Willst du wirklich das Gedächtnis des Bestands-Scanners löschen? Er wird danach deinen gesamten Posteingang erneut prüfen.')) return;
+                        <button disabled={startet || resettet} onClick={async () => {
+                            if (!confirm('Willst du wirklich das Gedächtnis des Bestands-Scanners und offene Zuordnungen löschen? Er wird danach deinen gesamten Posteingang erneut prüfen.')) return;
+                            setResettet(true);
+                            setStartMeldung('Gedächtnis wird geleert …');
                             try {
                               await api.post('/workflows/bestand-reset');
+                              setStartMeldung('Gedächtnis geleert. Starte Bestands-Triage …');
                               await bestandStarten();
                             } catch (err) {
-                              setStartMeldung('Fehler beim Reset.');
+                              setStartMeldung(err.response?.data?.error || 'Fehler beim Reset.');
+                            } finally {
+                              setResettet(false);
                             }
                           }}
-                          className="btn btn-ghost !py-1 !px-3 text-[11px] flex items-center gap-1 text-panel-muted hover:text-white"
+                          className="btn btn-ghost !py-1 !px-3 text-[11px] flex items-center gap-1 text-panel-muted hover:text-white disabled:opacity-50"
                         >
-                          <RefreshCw size={12} /> Gesamten Posteingang neu bewerten (Reset)
+                          <RefreshCw size={12} className={resettet ? 'animate-spin' : ''} /> {resettet ? 'Wird zurückgesetzt …' : 'Gesamten Posteingang neu bewerten (Reset)'}
                         </button>
                       </div>
                     </div>

@@ -538,8 +538,15 @@ router.post('/einsortieren', async (req, res) => {
     // sind die Kategorie-Ordner aus der Konto-Konfiguration.
     if (ordner && konto && !ausThema) {
       if (!(await themen.ordnerExistiert(konto, ordner))) {
-        grund = `Zielordner "${ordner}" existiert im Postfach nicht — bitte im Konto anlegen lassen`;
-        ordner = null;
+        try {
+          await imap.ordnerErstellen(themen.zugang(konto), ordner);
+          themen.cacheVerwerfen(konto.id);
+          loggen('info', 'themen', `${konto.name}: Fehlender Zielordner "${ordner}" wurde im Postfach angelegt und abonniert.`);
+        } catch (createErr) {
+          loggen('warn', 'themen', `${konto.name}: Zielordner "${ordner}" konnte nicht im Postfach angelegt werden: ${createErr.message}`);
+          grund = `Zielordner "${ordner}" existiert im Postfach nicht — bitte im Konto anlegen lassen`;
+          ordner = null;
+        }
       }
     }
 

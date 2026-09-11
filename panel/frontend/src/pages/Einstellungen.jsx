@@ -920,6 +920,27 @@ export default function Einstellungen() {
               nicht an.
             </p>
 
+            <div className="pt-3 border-t border-panel-border/30 space-y-1">
+              <label className="block text-xs text-panel-muted">Bestands-Triage im Hintergrund (Zeitplan)</label>
+              <p className="text-[10px] text-panel-muted/60">
+                Wie oft Workflow 04 im Hintergrund automatisch nach älteren, noch nicht sortierten Mails suchen soll. 0 = nur manuell per Knopfdruck.
+              </p>
+              <select
+                value={settings.bestand_intervall || '0'}
+                disabled={settings.bestand_intervall_per_env}
+                onChange={e => set('bestand_intervall', e.target.value)}
+                className={inputCls}
+              >
+                <option value="0">Deaktiviert (nur manuell)</option>
+                <option value="1">Stündlich</option>
+                <option value="2">Alle 2 Stunden</option>
+                <option value="4">Alle 4 Stunden</option>
+                <option value="6">Alle 6 Stunden</option>
+                <option value="12">Alle 12 Stunden</option>
+                <option value="24">Einmal täglich</option>
+              </select>
+            </div>
+
             <SpeichernBtn onSpeichern={() => speichern('post')} meldung={meldung.post} />
           </Card>
 

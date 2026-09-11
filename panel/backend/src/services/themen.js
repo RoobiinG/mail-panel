@@ -627,7 +627,16 @@ function cacheVerwerfen(kontoId) {
 async function ordnerExistiert(konto, pfad) {
   if (!pfad) return false;
   try {
-    return (await ordnerListe(konto)).includes(pfad);
+    const liste = await ordnerListe(konto);
+    const gesucht = String(pfad).trim().toLowerCase();
+    // 1. Exakter Treffer (case-insensitive)
+    if (liste.some((o) => o.toLowerCase() === gesucht)) return true;
+    // 2. Pfadtrenner-Treffer: "INBOX.Rechnungen" oder "INBOX/Rechnungen" trifft "Rechnungen"
+    if (liste.some((o) => {
+      const letztes = o.split(/[/.]/).pop().toLowerCase();
+      return letztes === gesucht;
+    })) return true;
+    return false;
   } catch (err) {
     loggen('warn', 'themen', `Ordnerliste für ${konto.name} nicht abrufbar: ${err.message}`);
     return true;
@@ -775,6 +784,26 @@ async function aufloesen({ konto, vorschlag, konfidenz, von, betreff }) {
       { id: stich.id, ordner: stich.ordner },
       `Stichwort „${stich.wort}" aus der Ordner-Beschreibung (${stich.wo === 'absender' ? 'Absender' : 'Betreff'})`,
     );
+  }
+
+  // 3. Passt der Vorschlag zu einem der Kategorie-Ordner des Kontos?
+  // (z. B. KI schlägt "Rechnungen", "Rechnungen und Zahlungsaufträge", "Bestellungen" vor).
+  // Kleine LLMs schlagen oft das Wort der Kategorie als Thema vor.
+  // Das darf nicht als "Ordnername abgelehnt" abgewiesen werden, sondern gehört
+  // direkt in den konfigurierten Kategorie-Ordner.
+  const vSchlicht = schlicht(vorschlag);
+  if (vSchlicht) {
+    const regelnKat = [
+      { feld: 'folder_invoices', standard: 'Rechnungen', muster: /rechnung|zahlung|kontoauszug|vertrag/i },
+      { feld: 'folder_orders', standard: 'Bestellungen', muster: /bestell|versand|liefer/i },
+      { feld: 'folder_newsletter', standard: 'Newsletter', muster: /newsletter|werbung/i },
+    ];
+    for (const r of regelnKat) {
+      const ziel = konto[r.feld] || r.standard;
+      if (ziel && (aehnlich(ziel, vorschlag) || r.muster.test(vorschlag) || schlicht(ziel) === vSchlicht)) {
+        return { ordner: ziel, neu_angelegt: false, grund: `Kategorie-Zielordner "${ziel}"` };
+      }
+    }
   }
 
   if (!vorschlag) return { ordner: null, neu_angelegt: false, grund: 'Kein Thema erkannt' };
