@@ -198,26 +198,21 @@ async function kandidaten(grenze = 0) {
       raus.offen[konto.name] = offen.length;
       if (offen.length === 0) continue;
 
+      const zeiger = Number(settings.hole(zeigerSchluessel(konto.id, aktuellerOrdner))) || 0;
       const offenSet = new Set(offen);
       const vorherige = letztesFenster(konto.id, aktuellerOrdner);
       const davor = letztesFenster(konto.id, aktuellerOrdner, true);
 
-      // Dauerblockierer: War eine Mail in den letzten beiden Läufen im Fenster
-      // und liegt immer noch unentschieden in offen, wird sie zurückgestellt ('unklar'),
-      // damit sie den weiteren Bestand nicht dauerhaft blockiert.
-      const dauerBlockierer = vorherige.filter((u) => davor.includes(u) && offenSet.has(u));
-      for (const u of dauerBlockierer) {
-        erledigtMerken(konto.id, aktuellerOrdner, u, 'unklar');
-        offenSet.delete(u);
-      }
-
-      // Was im vorherigen Fenster liegen geblieben ist (z. B. Timeout),
-      // wird prioritär erneut angeboten.
+      // Was im letzten Lauf liegen geblieben ist (z.B. wegen KI-Timeout),
+      // wird im nächsten Lauf als erstes wieder angeboten.
       const haengen = vorherige.filter((u) => offenSet.has(u));
-      const frisch = offen.filter((u) => !haengen.includes(u));
-      let fenster = [...haengen, ...frisch].slice(0, proKonto);
 
-      // Nichts mehr da: neue Runde beginnen
+      const nachzuegler = haengen.filter((u) => offenSet.has(u));
+      const frisch = offen.filter((u) => u > zeiger && !vorherige.includes(u));
+      let fenster = [...nachzuegler, ...frisch].slice(0, proKonto);
+      // Nichts mehr über dem Zeiger: neue Runde. Dann bekommen auch die
+      // geparkten Mails wieder eine Chance — „unklar" heisst zurückgestellt,
+      // nicht aufgegeben.
       if (fenster.length === 0) {
         unklarVergessen(konto.id);
         const neueRunde = erledigteUids(konto.id, aktuellerOrdner);
