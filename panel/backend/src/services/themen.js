@@ -576,19 +576,20 @@ function regelLernen(kontoId, von, ordner) {
   `).all(konto.name, ordner);
 
   const ausDomain = zeilen.filter((z) => sortierung.domain(z.von) === domain);
-  const absender = new Set(ausDomain.map((z) => sortierung.adresse(z.von)));
 
   let typ = null;
-  if (absender.size >= DOMAIN_SCHWELLE) typ = 'domain';
-  else if (ausDomain.length >= LERNSCHWELLE) typ = 'absender';
+  // Automatische Domain-Regeln abgeschaltet (zu fehleranfaellig bei Diensten
+  // wie Amazon, die Bestellungen und Newsletter ueber dieselbe Domain schicken).
+  // Es wird nur noch auf exakten Absender gelernt.
+  if (ausDomain.length >= LERNSCHWELLE) typ = 'absender';
   if (!typ) return false;
 
-  const muster = typ === 'domain' ? domain : adresse;
+  const muster = adresse;
   db.prepare(
     'INSERT INTO sort_rules (konto_id, typ, muster, zielordner) VALUES (?, ?, ?, ?)',
   ).run(kontoId, typ, muster, ordner);
   loggen('info', 'themen',
-    `Regel gelernt [${typ}]: ${muster} → ${ordner} (Konto ${konto.name}, ${absender.size} Absender / ${ausDomain.length} Mails)`);
+    `Regel gelernt [${typ}]: ${muster} → ${ordner} (Konto ${konto.name}, ${ausDomain.length} Mails)`);
   return { typ, muster, zielordner: ordner };
 }
 

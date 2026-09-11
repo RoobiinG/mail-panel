@@ -2,6 +2,16 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.6.2.2] - 2026-09-11 (Build 179) — *Intelligente Sortierung (Domain-Regel Bugfix)*
+
+### Bugfixes & Verbesserungen
+- **Intelligentes Regel-Lernen:** Bisher hat das System automatisch Regeln für ganze Domains gelernt (z.B. `amazon.de -> Bestellungen`), sobald zwei unterschiedliche Absender derselben Domain im selben Ordner landeten. Das führte dazu, dass Newsletter von z.B. Amazon ebenfalls blind in "Bestellungen" einsortiert wurden, weil die Domain-Regel die KI-Bewertung für den Betreff blockierte.
+- **Fix:** Automatische Domain-Regeln wurden vollständig abgeschafft. Das System lernt nun ausschließlich exakte Absender (`absender`). Amazon-Bestellungen (`bestellung@amazon.de`) gehen somit in Bestellungen und Newsletter (`news@amazon.de`) werden ordnungsgemäß von der KI analysiert und einsortiert.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- *n8n-Workflow-Kompatibilität*: Keine Anpassungen nötig.
+- *Neustart-/Session-Verhalten*: Alte, automatisch erstellte Domain-Regeln müssen per Datenbankbefehl bereinigt werden, damit das System die betroffenen Domains wieder durch die KI laufen lässt.
+
 ## [4.6.2.1] - 2026-09-11 (Build 178) — *Bestand-Timeout & IMAP-Suche*
 
 ### Bugfixes & Verbesserungen
