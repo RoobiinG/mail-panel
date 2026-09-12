@@ -222,11 +222,16 @@ function bestandslaufMerken(durch, gesamt) {
 // Mails, die wegen einer "In Ruhe lassen"-Regel uebersprungen wurden, sind
 // entschieden — sie bleiben liegen. Ohne Vermerk wuerde das Panel sie bei jedem
 // Lauf erneut anbieten und damit Plaetze im Auswahlfenster verbrauchen.
+//
+// Der Ordner kommt aus der Mail, wenn sie einen mitbringt — sonst aus dem, was
+// die Auswahl für dieses Konto zuletzt ausgesucht hat. Der Sammel-Knoten in n8n
+// schickt nur konto, von, betreff und uid (workflowPatcher.js, budgetInSammeln);
+// den Ordner weiß nur das Panel selbst (services/bestand.js).
 function ruheVermerken(mails) {
   for (const m of mails || []) {
     if (!m || m.uid == null) continue;
     const konto = kontoZeile(m.konto);
-    if (konto) bestand.erledigtMerken(konto.id, m.uid, 'ruhe');
+    if (konto) bestand.erledigtMerken(konto.id, m.ordner || bestand.letzterOrdner(konto.id), m.uid, 'ruhe');
   }
 }
 
@@ -492,7 +497,9 @@ router.post('/einsortieren', async (req, res) => {
   try {
     if (!b.konto || !b.von) {
       const k = kontoZeile(b.konto);
-      if (k && b.uid != null) bestand.erledigtMerken(k.id, b.uid, 'unklar');
+      if (k && b.uid != null) {
+        bestand.erledigtMerken(k.id, b.ordner || bestand.letzterOrdner(k.id), b.uid, 'unklar');
+      }
       return res.status(400).json({ ...rueckfall, error: 'konto und von sind Pflicht' });
     }
 
@@ -525,7 +532,7 @@ router.post('/einsortieren', async (req, res) => {
       ordner = null;
       grund = 'Eigene Regel: bleibt unangetastet im Posteingang';
       // Diese Mail ist entschieden und bleibt liegen: nicht wieder anbieten.
-      bestand.erledigtMerken(konto.id, b.uid, 'ruhe');
+      bestand.erledigtMerken(konto.id, b.ordner || bestand.letzterOrdner(konto.id), b.uid, 'ruhe');
     } else if (konto) {
       const t = await themen.aufloesen({
         konto, vorschlag: b.thema, konfidenz: b.konfidenz, von: b.von, betreff: b.betreff,

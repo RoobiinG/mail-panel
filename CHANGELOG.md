@@ -2,6 +2,88 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.7.3.0] - 2026-09-12 (Build 187) — *Der Bestandslauf kommt wieder vom Fleck*
+
+Der Lauf vom 12.09., 00:31 Uhr: 172 Sekunden, zwölf geholte Mails, **null einsortiert** —
+und dieselben Zahlen beim Lauf davor. Vier Stellen arbeiteten gegeneinander, keine davon
+war im Betrieb zu sehen, weil jeder Lauf Erfolg meldete. Drei waren Programmfehler.
+
+### Bugfixes
+- **Wiederholte Betreffe blockierten ihren Platz für immer (`budget.js`):**
+  `schonGesehen()` verglich `konto + von + betreff` — das ist die Kennung einer Mail*sorte*,
+  nicht einer Mail. Lag EINE Mail mit diesem Betreff in der Sortier-Inbox (dort lagen 897),
+  galt jede weitere als erledigt und wurde vor der KI verworfen, **ohne Vermerk**. Die
+  Auswahl in `bestand.js` bot sie daraufhin im nächsten Lauf wieder an — eine Schleife, die
+  bei jedem Durchgang einen Platz im Auswahlfenster kostete. Im Lauf vom 12.09. fielen so
+  10 von 12 Mails heraus. Gefragt wird jetzt nach `konto + uid`; ohne UID bleibt es beim
+  alten Vergleich.
+- **Es wurde nie ein Vermerk gespeichert (`routes/internal.js`):**
+  `erledigtMerken()` erwartet seit der Ordner-Erweiterung `(kontoId, ordner, uid, grund)`.
+  Alle drei Aufrufe im Betrieb übergaben weiter drei Werte — `'ruhe'` landete an der Stelle
+  der UID, `zahlOderNull()` gab `null`, die Funktion stieg mit `return false` aus. Weder
+  „in Ruhe lassen" noch „unklar" wurde je vermerkt; deshalb stand im Diagnose-Bericht
+  `unklar: 0` bei 897 liegengebliebenen Mails. Aufgefallen war es nicht, weil die Testsuite
+  die richtige Signatur benutzte. Der Ordner kommt jetzt aus der Mail oder aus
+  `bestand.letzterOrdner()`.
+- **Der Prompt wurde am falschen Ende gekürzt (`kiText.js`):**
+  Passte er nicht ins Kontextfenster, schnitt ein blankes `slice(0, platz)` hinten ab —
+  dort stehen die E-Mails. Das Modell bekam vollständige Anweisungen zu Mails, die nicht
+  mehr dastanden, und antwortete mit erfundenen Nummern (`nr: [12345, 67890]`, `nr: [0]`).
+  Neu: `promptKuerzen()` trennt an der Marke `--- E-Mails ---`, lässt die Anweisung
+  unangetastet und entfernt ganze Mailblöcke. Was wegfällt, bleibt unklassifiziert und
+  kommt im nächsten Lauf wieder — nur eben ohne falsche Antworten. Passt nicht einmal eine
+  Mail hinter die Anweisung, sagt das Log das jetzt ausdrücklich.
+
+### Verbesserungen
+- **Antwort-Schema begrenzt die Länge (`klassifizierer.js`):** Das `mails`-Array hatte kein
+  `maxItems` — die Grammatik erlaubte beliebig viele Einträge, und `llama3.2:1b` schrieb die
+  erzwungenen 800 Token voll (62 Sekunden für zwei Mails, am Ende kein gültiges JSON:
+  *„Die Antwort war abgeschnitten (length)"*). Jetzt `maxItems: teil.length`. Bewusst kein
+  `minItems`: Fällt beim Kürzen eine Mail weg, stünde sonst eine Antwort zu einer Mail in
+  der Grammatik, die gar nicht im Prompt steht.
+- **`num_predict` folgt der Bündelgröße (`kiText.js`, `klassifizierer.js`):** Statt
+  `Math.max(800, …)` genau so viel, wie der Aufrufer anfordert — 140 Token je Mail statt
+  300 bei mindestens 800. Die Untergrenze war doppelt teuer: `promptPlatz()` zieht sie vom
+  Platz für die Mails ab (bei 4096 Token Kontext rund 2.000 Zeichen) und gab dem Modell
+  zugleich den Raum, ins Leere weiterzuschreiben.
+- **Auswahlfenster von der Bündelgröße entkoppelt (`bestand.js`):** Es hing an
+  `max(4, floor(ollama_buendel * 6 / Konten))` und landete mit dem Standardwert 2 und drei
+  Konten auf der Untergrenze: vier Mails je Konto, zwölf je Lauf, alle vier Stunden. Wie
+  viele Mails die KI in einem Zug beantwortet, sagt aber nichts darüber, wie viele der Lauf
+  *ansehen* soll — der größte Teil wird von eigenen Regeln, Stichwörtern oder als Dublette
+  einsortiert und kostet gar keine KI. Neuer Standard: 40 je Konto, über
+  **Einstellungen → Umgang mit neuer Post → „Mails je Lauf und Konto"** (`bestand_fenster`, auch als
+  `BESTAND_FENSTER`) einstellbar, Obergrenze 250.
+
+### Sicherheit
+- **Ollama-Zugangsdaten standen im Klartext im Diagnose-Bericht (`diagnose.js`):**
+  Steht die lokale KI hinter einem Reverse Proxy mit Basic-Auth, trägt `ollama_url`
+  Benutzer und Passwort (`https://nutzer:geheim@host`). Der Schlüssel stand in der offenen
+  Wertliste statt bei den Geheimnissen — entgegen der Zusage im Dateikopf („keine
+  Passwörter, Schlüssel oder Token"), und ein zweites Mal in der Workflow-Übersicht, weil
+  Workflow 02 die Adresse als Knoten-URL führt. Beide Stellen maskieren jetzt zu
+  `https://•••@host`. **Wer bereits einen Bericht weitergegeben hat, sollte das Passwort
+  wechseln** — das Update holt es nicht zurück.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine Schema-Änderung. `bestand_erledigt` füllt sich ab jetzt
+  erstmals wirklich — die Tabelle war durch den Signaturfehler dauerhaft leer.
+- **n8n-Workflow-Kompatibilität:** **Kein Neu-Import nötig.** Das Auswahlfenster reist im
+  bestehenden Feld `fenster` der Antwort von `/api/internal/bestand-kandidaten`, das der
+  IMAP-Knoten schon als `limit` liest; der Ordner für die Vermerke kommt aus dem Panel
+  selbst, damit der Sammel-Knoten unverändert bleiben kann.
+- **Neustart-/Session-Verhalten:** Reines Code-Update, keine Sitzungen betroffen. Der
+  erste Lauf nach dem Update holt spürbar mehr Mails (40 statt 4 je Konto) und läuft
+  entsprechend länger; was die KI in ihrer Frist nicht schafft, bleibt offen und kommt im
+  nächsten Lauf zuerst wieder dran.
+- **Offen:** `ollama_kontext` steht auf 4096. Selbst mit dem kleineren `num_predict` ist das
+  für Anweisung plus zwei Mails knapp — 8192 (der Standard) gäbe dem Prompt rund das
+  Doppelte an Platz. Ebenso bleibt `llama3.2:1b` mit 1 Mrd. Parametern der begrenzende
+  Faktor, erkennbar an erfundenen Nummern und abgeschnittenen Antworten.
+
+---
+
+
 ## [4.7.2.1] - 2026-09-12 (Build 186) — *Fix Index-Zuordnung & Testsuite-Konformität*
 
 ### Bugfixes

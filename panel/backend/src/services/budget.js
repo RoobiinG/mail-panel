@@ -172,13 +172,41 @@ function heuteVerbraucht() {
   return ausgegebenHeute();
 }
 
-// Kennt das Panel diese Mail schon? von + betreff + konto, gegen die
-// Sortier-Inbox (jeder Status) und das Quarantäne-Log der letzten 26 Stunden.
-// 26 statt 24, damit ein Lauf um Mitternacht nicht durch die Ritze fällt.
-function schonGesehen(konto, von, betreff) {
+// Kennt das Panel diese Mail schon? Gegen die Sortier-Inbox (jeder Status) und
+// das Quarantäne-Log der letzten 26 Stunden. 26 statt 24, damit ein Lauf um
+// Mitternacht nicht durch die Ritze fällt.
+//
+// Gefragt wird nach der UID, wo es eine gibt — nicht nach dem Betreff.
+//
+// Vorher entschied `konto + von + betreff`, und das ist keine Kennung einer
+// Mail, sondern die einer ganzen Sorte: „Login von einem neuen Endgerät",
+// „Du hast Nachrichten verpasst", jede Newsletter-Ausgabe mit gleichbleibendem
+// Titel. Lag EINE davon in der Sortier-Inbox — dort lagen 897 —, galten alle
+// weiteren als gesehen und wurden vor der KI verworfen. Und zwar folgenlos: Der
+// Bestandslauf vermerkt nur, was er entschieden hat, also wurde dieselbe Mail
+// im nächsten Lauf wieder angeboten, wieder geholt, wieder verworfen. Sie kam
+// nie durch und belegte dauerhaft einen Platz im Auswahlfenster. Im Lauf vom
+// 12. September fielen so 10 von 12 Mails heraus.
+//
+// Konto und UID zusammen sind innerhalb eines Postfachs eindeutig — genau die
+// Frage, die hier gemeint war. Ohne UID bleibt es beim alten Vergleich: Für
+// Aufrufer, die keine mitliefern, ist eine grobe Prüfung besser als keine.
+function schonGesehen(konto, von, betreff, uid = null) {
   const v = String(von || '');
   const b = String(betreff || '');
+  const u = (uid === null || uid === undefined || uid === '') ? null : String(uid);
   try {
+    if (u !== null) {
+      const inInbox = db.prepare(
+        'SELECT 1 FROM sort_inbox WHERE konto = ? AND uid = ? LIMIT 1',
+      ).get(konto, u);
+      if (inInbox) return true;
+      const imLog = db.prepare(
+        "SELECT 1 FROM quarantine_log WHERE konto = ? AND uid = ?"
+        + " AND created_at >= datetime('now','-26 hours') LIMIT 1",
+      ).get(konto, u);
+      return Boolean(imLog);
+    }
     const inInbox = db.prepare(
       'SELECT 1 FROM sort_inbox WHERE konto = ? AND von = ? AND IFNULL(betreff,\'\') = ? LIMIT 1',
     ).get(konto, v, b);
@@ -235,7 +263,7 @@ function entscheiden(kandidaten) {
     if (regel && (regel.aktion || 'verschieben') === 'behalten') {
       uebersprungenRuhe++; ruheIndizes.push(i); continue;
     }
-    if (schonGesehen(k.konto, k.von, k.betreff)) { uebersprungenGesehen++; continue; }
+    if (schonGesehen(k.konto, k.von, k.betreff, k.uid)) { uebersprungenGesehen++; continue; }
     // Eine Regel sortiert im Workflow vor der KI-Abfrage ("Gleich sortieren?").
     // Solche Mails laufen an Gemini vorbei und kosten deshalb kein Budget —
     // sonst bremst der Deckel genau das aus, was gar nichts kostet.
@@ -277,7 +305,9 @@ module.exports = {
 function filtern(mails) {
   const liste = Array.isArray(mails) ? mails : [];
   const { erlaubt, ruheIndizes, budget, uebersprungen, kiMails } = entscheiden(
-    liste.map((m) => ({ konto: m && m.konto, von: m && m.von, betreff: m && m.betreff })),
+    // uid gehört dazu: Ohne sie fällt schonGesehen() auf den Betreff-Vergleich
+    // zurück und verwirft jede Mail, deren Betreff sich wiederholt.
+    liste.map((m) => ({ konto: m && m.konto, von: m && m.von, betreff: m && m.betreff, uid: m && m.uid })),
   );
   return {
     mails: erlaubt.map((i) => liste[i]),

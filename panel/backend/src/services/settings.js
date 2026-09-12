@@ -151,6 +151,14 @@ const FELDER = {
   // Ungefaehrlich fuer die KI: der Budget-Deckel im Sammel-Knoten begrenzt die
   // Klassifizierungen pro Tag, schon Sortiertes kostet nichts.
   bestand_intervall:      { env: 'BESTAND_INTERVALL', geheim: false, standard: '0' },
+  // Wie viele Mails ein Bestandslauf je Konto holt. Leer = Standard aus
+  // services/bestand.js (FENSTER_LOKAL).
+  //
+  // Der Wert hing bis Build 186 an der Buendelgroesse der lokalen KI und landete
+  // damit bei vier Mails je Konto — der Lauf kam nicht vom Fleck. Wie viele Mails
+  // angesehen werden, hat mit der Buendelgroesse aber nichts zu tun: Regeln,
+  // Stichwoerter und Dubletten kosten gar keine KI.
+  bestand_fenster:        { env: 'BESTAND_FENSTER', geheim: false, standard: '' },
   // Wann lief die Bestands-Triage (Workflow 04) zuletzt und wie viel kam durch?
   // Gesetzt beim Aufruf von /api/internal/budget — den ruft nur der Sammel-Knoten
   // von WF04, jeder Aufruf ist also ein Bestandslauf. Reine Anzeige fuers Dashboard.

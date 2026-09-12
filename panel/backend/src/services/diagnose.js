@@ -153,6 +153,25 @@ async function dienste() {
   return Promise.all(auftraege);
 }
 
+// Zugangsdaten aus einer URL entfernen.
+//
+// Steht eine lokale KI hinter einem Reverse Proxy mit Basic-Auth, trägt
+// `ollama_url` Benutzer und Passwort im Klartext: `https://nutzer:geheim@host`.
+// Der Schlüssel steht in der offenen Liste unten — er sagt ja auch etwas
+// Nützliches über die Einrichtung aus —, und damit stand das Passwort in jedem
+// erzeugten Bericht. Das widerspricht der Zusage im Dateikopf („keine
+// Passwörter, Schlüssel oder Token") und wiegt schwer, weil ein Diagnose-Bericht
+// genau dafür gedacht ist, weitergegeben zu werden.
+//
+// Bewusst kein `new URL()`: Der Parser scheitert an Sonderzeichen im Passwort —
+// derselbe Absturz, der in Build 180 behoben wurde. Hier fällt er zusätzlich
+// unangenehm aus, denn ein Fehler beim Maskieren dürfte nie dazu führen, dass
+// stattdessen der ungekürzte Wert erscheint.
+function urlOhneZugang(wert) {
+  const s = String(wert ?? '');
+  return s.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/@\s]*@/i, '$1•••@');
+}
+
 // Einstellungen ohne Geheimnisse. Was verschlüsselt in der Datenbank liegt,
 // erscheint hier nur als „gesetzt" — genau wie auf der Einstellungsseite.
 function konfiguration() {
@@ -173,7 +192,7 @@ function konfiguration() {
   const werte = {};
   for (const k of offen) {
     const v = settings.hole(k);
-    werte[k] = (v === '' || v === undefined) ? '(nicht gesetzt)' : v;
+    werte[k] = (v === '' || v === undefined) ? '(nicht gesetzt)' : urlOhneZugang(v);
   }
   const schluessel = {};
   for (const k of geheim) schluessel[k] = settings.hole(k) ? 'gesetzt' : 'nicht gesetzt';
@@ -278,7 +297,10 @@ async function workflows() {
 
         const zeile = { name: k.name, typ, ...(k.disabled ? { deaktiviert: true } : {}) };
         if (url) {
-          zeile.url = url;
+          // Dieselbe Maskierung wie bei den Einstellungen: Der KI-Knoten trägt
+          // die Ollama-Adresse samt Basic-Auth, sonst stünde das Passwort hier
+          // ein zweites Mal im Bericht.
+          zeile.url = urlOhneZugang(url);
           if (p.options?.timeout) zeile.zeitlimitMs = p.options.timeout;
           // Nur das Modell aus dem Rumpf, nicht der ganze Prompt — der enthält
           // Platzhalter auf Mailinhalte.

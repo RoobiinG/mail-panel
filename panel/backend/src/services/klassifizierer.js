@@ -480,12 +480,27 @@ function anfrageZeitlimit(verbleibend) {
 //
 // `kategorie` als enum ist dabei mehr als Kosmetik: Genau hier hat ein Modell
 // schon einmal die Auswahlliste woertlich abgeschrieben.
+//
+// `maxItems` wiederum ist die Bremse.
+//
+// Eine Grammatik ohne Obergrenze erlaubt ein beliebig langes Array — und ein
+// kleines Modell hört von sich aus nicht auf. Es schrieb weiter, bis
+// `num_predict` griff, und dann war die Antwort kein gültiges JSON mehr:
+// „Die Antwort war abgeschnitten (length)". Im Log standen dafür 800 erzeugte
+// Token für zwei Mails, 62 Sekunden lang, Ergebnis null. Mit der Grenze KANN
+// das Modell nicht mehr über das Bündel hinausschreiben.
+//
+// Bewusst nur `maxItems`, kein `minItems`: Fällt eine Mail beim Kürzen weg
+// (kiText.promptKuerzen), stünde sonst eine Antwort zu einer Mail in der
+// Grammatik, die gar nicht im Prompt steht — das erzwänge genau das Raten, das
+// antwortZuordnen() verhindern soll.
 function antwortSchema(anzahl = 20) {
   return {
     type: 'object',
     properties: {
       mails: {
         type: 'array',
+        maxItems: Math.max(1, anzahl),
         items: {
           type: 'object',
           properties: {
@@ -506,8 +521,16 @@ function antwortSchema(anzahl = 20) {
 
 function fragen(teil, konto, bekannt, zeitlimit = 180000) {
   const istOllama = (settings.hole('ki_anbieter') || 'gemini') === 'ollama';
+  // Wie lang die Antwort werden darf. Ein Eintrag — nr, Kategorie, Spam-Wert,
+  // eine Kurzfassung aus fünf bis zehn Wörtern, Ordner, Konfidenz — sind rund
+  // 60 Token; 140 je Mail ist also reichlich.
+  //
+  // Bei Ollama standen hier 300 je Mail bei mindestens 800. Das war nach beiden
+  // Seiten teuer: Der Betrag geht in kiText.promptPlatz() direkt vom Platz für
+  // die Mails ab (bei 4096 Token Kontext rund 2.000 Zeichen), und er gab dem
+  // Modell zugleich den Raum, ins Leere weiterzuschreiben.
   const maxAntwort = istOllama
-    ? Math.max(800, teil.length * 300)
+    ? Math.max(200, teil.length * 140)
     : Math.min(600, Math.max(250, teil.length * 150));
   return kiText.frageJson(promptBauen(teil, konto, bekannt), {
     quelle: 'backend:klassifizierer',

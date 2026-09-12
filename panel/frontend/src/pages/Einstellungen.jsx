@@ -954,6 +954,22 @@ export default function Einstellungen() {
               </select>
             </div>
 
+            <div className="pt-3 border-t border-panel-border/30 space-y-1">
+              <label className="block text-xs text-panel-muted">Mails je Lauf und Konto</label>
+              <p className="text-[10px] text-panel-muted/60">
+                Wie viele ältere Mails ein Bestandslauf pro Postfach ansieht. Leer = Standard (40).
+                Das ist nicht die Bündelgröße der KI: Der größte Teil dieser Mails wird von eigenen
+                Regeln, Stichwörtern oder als Dublette einsortiert und kostet gar keine KI-Zeit.
+                Was die KI in ihrer Frist nicht schafft, bleibt offen und kommt im nächsten Lauf
+                zuerst wieder dran.
+              </p>
+              <input type="number" min="1" max="250" placeholder="40"
+                value={settings.bestand_fenster ?? ''}
+                disabled={settings.bestand_fenster_per_env}
+                onChange={e => set('bestand_fenster', e.target.value)}
+                className={inputCls} />
+            </div>
+
             <SpeichernBtn onSpeichern={() => speichern('post')} meldung={meldung.post} />
           </Card>
 

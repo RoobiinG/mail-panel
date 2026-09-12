@@ -92,6 +92,24 @@ function ruheVergessen(kontoId) {
 
 const zeigerSchluessel = (kontoId, ordner) => `bestand_zeiger_${kontoId}_${Buffer.from(ordner).toString('base64')}`;
 
+// Welchen Ordner der letzte Lauf für dieses Konto ausgesucht hat.
+//
+// Gebraucht wird das beim Vermerken: erledigtMerken() will den Ordner wissen, der
+// Sammel-Knoten in n8n schickt aber nur konto, von, betreff und uid mit
+// (workflowPatcher.js, budgetInSammeln). Statt den Workflow zu erweitern — was
+// jeden bestehenden Lauf bis zum nächsten Sync ins Leere laufen ließe — merkt
+// sich das Panel, was es selbst gerade ausgewählt hat. Es ist die einzige
+// Stelle, die es ohnehin weiß.
+const ordnerSchluessel = (kontoId) => `bestand_ordner_${kontoId}`;
+
+function ordnerMerken(kontoId, ordner) {
+  try { settings.setze(ordnerSchluessel(kontoId), String(ordner || 'INBOX')); } catch { /* nicht kritisch */ }
+}
+
+function letzterOrdner(kontoId) {
+  try { return String(settings.hole(ordnerSchluessel(kontoId)) || '') || 'INBOX'; } catch { return 'INBOX'; }
+}
+
 // Welche UIDs die letzten beiden Läufe angeboten bekommen haben.
 //
 // Zwei, nicht eines: Erst der Vergleich sagt, ob eine Mail schon zweimal
@@ -135,12 +153,32 @@ function unklareAnzahl(kontoId = null) {
   } catch { return 0; }
 }
 
+// Wie viele Mails ein Lauf bei lokaler KI je Konto holt.
+//
+// Stand bis Build 186 an der Bündelgröße: `max(4, floor(ollama_buendel * 6 / Konten))`.
+// Mit dem Standardwert 2 und drei Konten ergab das die Untergrenze — vier Mails
+// je Konto, zwölf je Lauf, alle vier Stunden. Bei 39.000 Mails im Bestand wären
+// das anderthalb Jahre, wenn jede durchkäme; sie kam nicht, weil die Nachzügler
+// aus dem letzten Lauf (weiter unten: vor den frischen) so ein Fenster allein
+// füllen. Der Lauf war grün und bewegte nichts.
+//
+// Die Kopplung war ohnehin ein Denkfehler: Wie viele Mails die KI in einem Zug
+// beantwortet, sagt nichts darüber, wie viele der Lauf ANSEHEN soll. Der weitaus
+// größte Teil kostet nämlich gar keine KI — eigene Regeln und Stichwörter greifen
+// vor dem Aufruf (services/klassifizierer.js), und Dubletten fasst der
+// Klassifizierer zusammen. Was die KI in ihrer Frist nicht schafft, bleibt offen
+// und kommt im nächsten Lauf zuerst wieder dran; das ist der Normalfall, kein
+// Fehler.
+const FENSTER_LOKAL = 40;
+
 function fensterGroesse(anzahlKonten) {
   const anbieter = settings.hole('ki_anbieter');
   if (anbieter === 'ollama') {
-    const buendelGroesse = Number(settings.hole('ollama_buendel')) || 2;
-    // Bei lokaler KI: z. B. 6 Bündel pro Lauf, verteilt auf die Konten, aber mindestens 4 pro Konto
-    return Math.max(4, Math.floor((buendelGroesse * 6) / Math.max(1, anzahlKonten)));
+    const eigenes = Number(settings.hole('bestand_fenster'));
+    if (Number.isFinite(eigenes) && eigenes > 0) {
+      return Math.min(FENSTER, Math.round(eigenes));
+    }
+    return Math.min(FENSTER, Math.max(FENSTER_LOKAL, Math.floor(FENSTER / Math.max(1, anzahlKonten))));
   }
 
   const grenze = budget.tagesbudget();
@@ -223,6 +261,7 @@ async function kandidaten(grenze = 0) {
       raus.konten[konto.name] = { ordner: aktuellerOrdner, uids: fenster.join(',') };
       settings.setze(zeigerSchluessel(konto.id, aktuellerOrdner), String(Math.max(...fenster)));
       fensterMerken(konto.id, aktuellerOrdner, fenster);
+      ordnerMerken(konto.id, aktuellerOrdner);
     } catch (err) {
       // Ein nicht erreichbares Postfach darf den Lauf der anderen nicht kippen.
       loggen('warn', 'backend:bestand', `Bestand von ${konto.name} nicht lesbar: ${err.message}`);
@@ -233,5 +272,6 @@ async function kandidaten(grenze = 0) {
 
 module.exports = {
   kandidaten, erledigtMerken, erledigteUids, ruheVergessen, unklarVergessen, unklareAnzahl,
-  KEINE, FENSTER,
+  letzterOrdner, ordnerMerken,
+  KEINE, FENSTER, FENSTER_LOKAL,
 };

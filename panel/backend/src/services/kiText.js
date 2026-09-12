@@ -70,6 +70,72 @@ function promptPlatz(kontext = kontextFenster(), antwortTokens = 1500) {
   return frei * ZEICHEN_JE_TOKEN;
 }
 
+// ─── Kürzen, ohne die Frage zu verlieren ─────────────────────────────────────
+//
+// Ein Klassifizier-Prompt besteht aus zwei sehr ungleichen Teilen: vorn die
+// Anweisung — Aufgabe, Antwortformat, erlaubte Kategorien, Themen-Ordner —, und
+// hinter der Marke das Material, ein nummerierter Block je Mail.
+//
+// Bis Build 186 kürzte hier ein blankes `slice(0, platz)`. Das schneidet hinten
+// ab, also genau die Mails weg. Der Kommentar daneben begründete das mit dem
+// Gegenteil ("Ollama würde am Anfang abschneiden, wo die Anweisung steht") — und
+// das Ergebnis war der schlechteste denkbare Prompt: vollständige Anweisungen zu
+// Mails, die nicht mehr dastehen, oder zu einer, die mitten im Satz endet. Das
+// Modell beantwortete daraufhin Mails, die es nie gesehen hatte; im Log standen
+// erfundene Nummern wie `nr: [12345, 67890]`.
+//
+// Richtig ist die andere Richtung: Die Anweisung bleibt vollständig, und es
+// fallen ganze Mails weg. Was wegfällt, bleibt unklassifiziert und kommt im
+// nächsten Lauf wieder — das ist der eingebaute Weg (services/bestand.js), nur
+// diesmal ohne falsche Antworten.
+const MAIL_MARKE = '--- E-Mails ---';
+const BLOCK_TRENNER = /\n(?=\[\d+\]\n)/;
+
+function promptKuerzen(ganz, platz) {
+  if (ganz.length <= platz) {
+    return { text: ganz, weggefallen: 0, gesamt: 0, kopfZuGross: false };
+  }
+
+  const marke = ganz.indexOf(MAIL_MARKE);
+  if (marke < 0) {
+    // Kein bekannter Aufbau (Beleg-Leser, Aktions-Entwurf): Da lässt sich nicht
+    // sagen, was vorn und was hinten steht — dann bleibt es beim harten Schnitt.
+    return { text: ganz.slice(0, platz), weggefallen: 0, gesamt: 0, kopfZuGross: false };
+  }
+
+  const trenn = marke + MAIL_MARKE.length;
+  const kopf = ganz.slice(0, trenn);
+  const bloecke = ganz.slice(trenn).split(BLOCK_TRENNER).filter((b) => b.trim() !== '');
+
+  let text = kopf;
+  let genommen = 0;
+  for (const block of bloecke) {
+    const kandidat = `${text}\n${block}`;
+    if (kandidat.length > platz) break;
+    text = kandidat;
+    genommen += 1;
+  }
+
+  // Nicht einmal die erste Mail passt hinter die Anweisung. Dann ist das
+  // Kontextfenster für diese Aufgabe zu klein — eine angeschnittene Mail ist
+  // hier immer noch besser als gar keine, aber es gehört gesagt.
+  if (genommen === 0) {
+    return {
+      text: `${kopf}\n${bloecke[0] || ''}`.slice(0, platz),
+      weggefallen: Math.max(0, bloecke.length - 1),
+      gesamt: bloecke.length,
+      kopfZuGross: true,
+    };
+  }
+
+  return {
+    text,
+    weggefallen: bloecke.length - genommen,
+    gesamt: bloecke.length,
+    kopfZuGross: false,
+  };
+}
+
 /**
  * @param {string} prompt
  * @param {{zeitlimit?: number, quelle?: string}} opt
@@ -89,16 +155,27 @@ async function frageJson(prompt, opt = {}) {
     const antwortTokens = opt.maxAntwort || 1500;
     const kontext = kontextFenster();
 
-    // Was nicht ins Fenster passt, wirft Ollama weg — schweigend.
-    const platz = promptPlatz(kontext, antwortTokens);
+    // Was nicht ins Fenster passt, wirft Ollama weg — schweigend, und zwar vorn,
+    // wo die Anweisung steht. Also kürzt das Panel selbst: siehe promptKuerzen().
+    const platz = Math.min(promptPlatz(kontext, antwortTokens), opt.maxZeichen || Infinity);
     const ganz = String(prompt);
-    const gekuerzt = ganz.slice(0, Math.min(platz, opt.maxZeichen || platz));
+    const schnitt = promptKuerzen(ganz, platz);
+    const gekuerzt = schnitt.text;
     if (ganz.length > gekuerzt.length) {
+      const was = schnitt.gesamt > 0
+        ? `${schnitt.weggefallen} von ${schnitt.gesamt} Mails fielen weg — die Anweisung bleibt vollständig`
+        : 'der Text wurde hinten abgeschnitten';
       loggen('warn', quelle,
         `Der Prompt war ${ganz.length} Zeichen lang und musste auf ${gekuerzt.length} gekürzt werden `
-        + `(Kontextfenster ${kontext} Token). Ollama würde den Rest sonst selbst abschneiden, ohne es `
-        + 'zu sagen — und zwar am Anfang, wo die Anweisung steht. Kleinere Bündel oder ein größeres '
-        + 'Kontextfenster (Einstellungen → KI) helfen.');
+        + `(Kontextfenster ${kontext} Token): ${was}. Was wegfiel, bleibt unklassifiziert und kommt `
+        + 'im nächsten Lauf wieder. Kleinere Bündel oder ein größeres Kontextfenster '
+        + '(Einstellungen → KI) helfen.');
+      if (schnitt.kopfZuGross) {
+        loggen('warn', quelle,
+          'Schon die Anweisung allein füllt das Kontextfenster — für eine einzelne Mail bleibt kaum '
+          + `Platz. Bei ${kontext} Token hilft nur ein größeres Fenster oder weniger Themen-Ordner `
+          + 'im Prompt.');
+      }
     }
 
     // Wann die Anfrage wirklich losging — nicht, wann sie sich angestellt hat.
@@ -127,7 +204,13 @@ async function frageJson(prompt, opt = {}) {
             temperature: 0.2,
             repeat_penalty: 1.1,
             num_ctx: kontext,
-            num_predict: Math.max(800, antwortTokens),
+            // Genau so viel, wie der Aufrufer angefordert hat. Vorher stand hier
+            // `Math.max(800, …)` — eine Untergrenze, die niemand brauchte: Zwei
+            // Mails ergeben rund 80 Token Antwort. Die 800 waren doppelt teuer,
+            // weil promptPlatz() sie oben vom Prompt abzieht: Sie kosteten rund
+            // 2.000 Zeichen Material und gaben dem Modell zugleich den Raum,
+            // sinnlos weiterzuschreiben, bis die Antwort als „length" abbrach.
+            num_predict: antwortTokens,
             num_thread: Number(settings.hole('ollama_threads') || 6),
           },
         }),
@@ -238,4 +321,6 @@ async function frageJson(prompt, opt = {}) {
   }
 }
 
-module.exports = { frageJson, kontextFenster, promptPlatz, KONTEXT_STANDARD };
+module.exports = {
+  frageJson, kontextFenster, promptPlatz, promptKuerzen, KONTEXT_STANDARD, MAIL_MARKE,
+};

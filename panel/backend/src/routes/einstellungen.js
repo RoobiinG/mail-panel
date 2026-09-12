@@ -88,6 +88,12 @@ router.put('/', (req, res) => {
       && (!Number.isInteger(Number(value)) || Number(value) < 1 || Number(value) > 32)) {
       return res.status(400).json({ error: 'ollama_threads: ganze Zahl zwischen 1 und 32' });
     }
+    // Leer ist erlaubt und heisst „Standard" (services/bestand.js). Die Obergrenze
+    // ist dieselbe wie dort: Darueber wird das Abholen ueber IMAP zum Engpass.
+    if (key === 'bestand_fenster' && String(value).trim()
+      && (!Number.isInteger(Number(value)) || Number(value) < 1 || Number(value) > 250)) {
+      return res.status(400).json({ error: 'bestand_fenster: ganze Zahl zwischen 1 und 250' });
+    }
     // Leer ist erlaubt und heisst 240000 (siehe klassifizierer.frist()).
     if (key === 'ki_lauf_frist_ms' && String(value).trim()
       && (!Number.isInteger(Number(value)) || Number(value) < 30000 || Number(value) > 3600000)) {
