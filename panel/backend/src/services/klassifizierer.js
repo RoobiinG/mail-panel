@@ -413,25 +413,15 @@ function antwortZuordnen(daten, gruppen) {
   const treffer = new Map();
   if (roh.length === 0) return treffer;
 
-  // Spezialfall: Genau eine Gruppe angefragt. Wenn genau 1 (oder der erste) Eintrag vorliegt,
-  // gehört er unstrittig zu dieser Mail — egal ob nr=0, nr=1 oder ein ID-Feld!
-  if (gruppen.length === 1 && roh.length >= 1) {
-    const eintrag = roh[0];
-    treffer.set(1, {
-      kategorie: kategoriePruefen(eintrag?.kategorie),
-      spam_score: Number(eintrag?.spam_score) || 0,
-      kurzfassung: String(eintrag?.kurzfassung || ''),
-      ordner: eintrag?.ordner ? String(eintrag.ordner) : null,
-      konfidenz: Number(eintrag?.konfidenz) || 0,
-    });
-    return treffer;
-  }
+  // Erkennung für 0-basierten Index (z.B. kleines Modell wie llama3.2:1b liefert 0 .. gruppen.length - 1):
+  const rawNrs = roh
+    .map((e) => (e?.nr !== undefined && e?.nr !== null ? Number(e.nr) : null))
+    .filter((n) => n !== null && Number.isInteger(n));
 
-  // Erkennung für 0-basierten Index (z.B. kleines Modell liefert 0 .. gruppen.length - 1):
-  const rawNrs = roh.map((e, idx) => (e?.nr !== undefined && e?.nr !== null ? Number(e.nr) : idx));
-  const minNr = Math.min(...rawNrs);
-  const maxNr = Math.max(...rawNrs);
-  const istZeroBased = minNr === 0 && maxNr === gruppen.length - 1 && rawNrs.length === gruppen.length;
+  const istZeroBased = rawNrs.length === roh.length
+    && rawNrs.length === gruppen.length
+    && Math.min(...rawNrs) === 0
+    && Math.max(...rawNrs) === gruppen.length - 1;
 
   for (const [platz, eintrag] of roh.entries()) {
     let nr;
@@ -441,11 +431,6 @@ function antwortZuordnen(daten, gruppen) {
       nr = platz + 1;
     } else {
       nr = Number(eintrag.nr);
-    }
-
-    // Wenn nr außerhalb 1..gruppen.length liegt, aber wir genau so viele Einträge wie Gruppen haben:
-    if ((!Number.isInteger(nr) || nr < 1 || nr > gruppen.length) && roh.length === gruppen.length) {
-      nr = platz + 1;
     }
 
     if (!Number.isInteger(nr) || nr < 1 || nr > gruppen.length) continue;

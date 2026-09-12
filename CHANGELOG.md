@@ -2,6 +2,20 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.7.2.1] - 2026-09-12 (Build 186) — *Fix Index-Zuordnung & Testsuite-Konformität*
+
+### Bugfixes
+- **Klassifizierer-Zuordnung (`antwortZuordnen`):**
+  - Präzise 0-Index-Erkennung: Stellt sicher, dass 0-basierte Indizes kleiner Modelle (wie Ollama `llama3.2:1b`) sauber auf 1-basierte Indizes korrigiert werden, während erfundene/ungültige Nummern außerhalb des Bereichs (z. B. `nr: 99`) vorschriftsmäßig verworfen werden (`klassifizierer.test.js: erfundene Nummern werden verworfen`).
+  - Testsuite in GitHub Actions läuft wieder mit 100 % Erfolgsquote durch.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine Schema-Änderung.
+- **n8n-Workflow-Kompatibilität:** Keine Änderungen an den Workflows 01/04 nötig; volle Abwärtskompatibilität.
+- **Neustart-/Session-Verhalten:** Reines Code-Update.
+
+---
+
 ## [4.7.2.0] - 2026-09-12 (Build 185) — *Resilienz, Deduplizierung & Absender-Drilldown*
 
 ### Features & Verbesserungen

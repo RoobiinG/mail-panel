@@ -23,19 +23,6 @@ describe('Fehlertolerante Antwortzuordnung (Ollama / kleine Modelle)', () => {
     assert.equal(mail1.konfidenz, 0.9);
   });
 
-  test('Einzel-Mail-Garantie: Modell liefert erfundene ID statt nr', () => {
-    const gruppen = [{ vertreter: { von: 'b@test.de', betreff: 'Rechnung' } }];
-    const antwortDaten = {
-      mails: [
-        { nr: 89765, kategorie: 'rechnung', spam_score: 0, kurzfassung: 'Rechnung', ordner: 'Rechnungen', konfidenz: 0.95 },
-      ],
-    };
-
-    const treffer = k.antwortZuordnen(antwortDaten, gruppen);
-    assert.equal(treffer.size, 1);
-    assert.equal(treffer.get(1).kategorie, 'rechnung');
-  });
-
   test('0-basierte Indizierung bei mehreren Mails wird automatisch korrigiert', () => {
     const gruppen = [
       { vertreter: { von: 'a@test.de' } },
@@ -52,15 +39,15 @@ describe('Fehlertolerante Antwortzuordnung (Ollama / kleine Modelle)', () => {
     assert.equal(treffer.get(2).kategorie, 'rechnung');
   });
 
-  test('Positions-Fallback, wenn nr ganz fehlt oder außerhalb liegt', () => {
+  test('Positions-Fallback, wenn nr im Objekt ganz fehlt', () => {
     const gruppen = [
       { vertreter: { von: 'x@test.de' } },
       { vertreter: { von: 'y@test.de' } },
     ];
     const antwortDaten = {
       mails: [
-        { kategorie: 'bestellung', spam_score: 0.05 }, // ohne nr
-        { nr: 999, kategorie: 'persoenlich', spam_score: 0.0 }, // ungültige nr
+        { kategorie: 'bestellung', spam_score: 0.05 },
+        { kategorie: 'persoenlich', spam_score: 0.0 },
       ],
     };
 
@@ -68,6 +55,20 @@ describe('Fehlertolerante Antwortzuordnung (Ollama / kleine Modelle)', () => {
     assert.equal(treffer.size, 2);
     assert.equal(treffer.get(1).kategorie, 'bestellung');
     assert.equal(treffer.get(2).kategorie, 'persoenlich');
+  });
+
+  test('Erfundene Nummern außerhalb des gültigen Bereichs werden verworfen', () => {
+    const gruppen = [
+      { vertreter: { von: 'x@test.de' } },
+    ];
+    const antwortDaten = {
+      mails: [
+        { nr: 99, kategorie: 'spam', spam_score: 1.0 },
+      ],
+    };
+
+    const treffer = k.antwortZuordnen(antwortDaten, gruppen);
+    assert.equal(treffer.size, 0);
   });
 
   test('antwortSchema bindet Ollama auf minimum 1', () => {
