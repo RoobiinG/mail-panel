@@ -550,11 +550,28 @@ router.post('/einsortieren', async (req, res) => {
     // unbearbeitet liegen, ohne dass im Panel etwas davon zu sehen waere.
     // Themen-Ordner sind eben erst geprueft oder angelegt worden — zu pruefen
     // sind die Kategorie-Ordner aus der Konto-Konfiguration.
-    if (ordner && konto && !ausThema) {
-      if (!(await themen.ordnerExistiert(konto, ordner))) {
+    //
+    // Geprüft wird jetzt AUCH bei Themen-Ordnern. Sie sind zwar eben erst
+    // angelegt worden, aber der Name, unter dem der Server sie führt, muss
+    // deshalb nicht derselbe sein: Wo alles unter dem Posteingang liegt, heißt
+    // der Ordner `INBOX.Rechnungen`. Genau daran scheiterte am 12.09. ein Lauf
+    // mit 120 Mails — die Prüfung sagte „existiert" (der Suffix passte), als
+    // Ziel ging aber der kurze Name hinaus, und der IMAP-Knoten antwortete
+    // „Unable to move email".
+    //
+    // themen.ordnerPfad() gibt deshalb den Pfad in der Schreibweise des Servers
+    // zurück, und genau der wird weitergereicht.
+    if (ordner && konto) {
+      const echt = await themen.ordnerPfad(konto, ordner);
+      if (echt) {
+        ordner = echt;
+      } else {
         try {
           await imap.ordnerErstellen(themen.zugang(konto), ordner);
           themen.cacheVerwerfen(konto.id);
+          // Unter welchem Pfad der Server den Ordner nun führt, weiß nur er —
+          // also noch einmal nachsehen, jetzt mit frischer Liste.
+          ordner = (await themen.ordnerPfad(konto, ordner)) || ordner;
           loggen('info', 'themen', `${konto.name}: Fehlender Zielordner "${ordner}" wurde im Postfach angelegt und abonniert.`);
         } catch (createErr) {
           loggen('warn', 'themen', `${konto.name}: Zielordner "${ordner}" konnte nicht im Postfach angelegt werden: ${createErr.message}`);

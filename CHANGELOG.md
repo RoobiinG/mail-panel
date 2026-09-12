@@ -2,6 +2,56 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.7.4.1] - 2026-09-12 (Build 189) — *Eine Mail reißt nicht mehr 119 mit*
+
+Die Fehleranzeige aus Build 188 hat gleich beim ersten Einsatz geliefert — und die
+Vermutung widerlegt, es habe an der Menge gelegen:
+
+```
+"fehler": "Unable to move email"
+"fehlerKnoten": "Verschieben: g.robin.2002"
+```
+
+Das Fenster war korrekt (120 Mails, alle durchgelassen). Der Lauf scheiterte am
+IMAP-Verschieben — und nahm alles mit.
+
+### Bugfixes
+- **Der Verschiebe-Knoten hatte als einziger kein `onError` (`workflowPatcher.js`):**
+  Jeder andere Panel-Knoten trägt seit jeher `onError: 'continueRegularOutput'` und
+  `alwaysOutputData: true` — der Verschiebe-Knoten nicht. Eine einzige Mail, die sich nicht
+  verschieben ließ, beendete damit den ganzen Lauf als Fehler; alles, was hinter ihr in der
+  Warteschlange stand, war verloren, obwohl es nichts damit zu tun hatte. Bei vier Mails je
+  Konto fiel das nie auf, bei 120 sofort. Die gescheiterte Mail bleibt jetzt einfach liegen
+  und kommt im nächsten Lauf wieder — `bestand.js` vermerkt eine Mail mit Zielordner
+  ausdrücklich **nicht** als erledigt, genau für diesen Fall.
+- **Der Zielordner ging im falschen Namen hinaus (`themen.js`, `internal.js`):**
+  `ordnerExistiert()` ließ „INBOX.Rechnungen" als Treffer für „Rechnungen" gelten — richtig,
+  denn manche Server legen alles unter den Posteingang. Als Ziel ging danach aber trotzdem
+  der kurze Name an den IMAP-Knoten, und den gibt es dort nicht: „Unable to move email".
+  Neu gibt `themen.ordnerPfad()` den Pfad in der Schreibweise des Servers zurück, und genau
+  der wird verschoben. `ordnerExistiert()` ist jetzt die Ja-Nein-Frage darüber und verhält
+  sich unverändert.
+- **Themen-Ordner wurden von der Prüfung ausgenommen (`internal.js`):** Die Begründung war,
+  sie seien eben erst angelegt worden — das sagt aber nichts darüber, unter welchem Pfad der
+  Server sie führt. Jetzt wird jeder Zielordner geprüft und auf die Schreibweise des Servers
+  gebracht. Wird ein Ordner neu angelegt, sieht das Panel danach noch einmal nach, welchen
+  Pfad der Server wirklich vergeben hat.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine.
+- **n8n-Workflow-Kompatibilität:** **Der Verschiebe-Knoten ändert sich.** Kein Neu-Import
+  nötig — der automatische Abgleich zieht ihn beim Containerstart nach (`auto_sync`), und
+  im Log steht dann „Workflows abgeglichen (Containerstart)". Wer `auto_sync` abgeschaltet
+  hat, drückt auf der Seite *Workflows* einmal **Synchronisieren**; sonst bleibt der alte
+  Knoten ohne `onError` stehen und ein Fehler reißt den Lauf weiter ab.
+- **Neustart-/Session-Verhalten:** Reines Code-Update. Mails, die vorher an einem falsch
+  geschriebenen Zielordner scheiterten, werden ab dem nächsten Lauf normal einsortiert.
+- **Offen:** `ollama_kontext` steht weiterhin auf 4096 (Standard wäre 8192), und
+  `llama3.2:1b` bleibt für die Klassifizierung knapp. Beides sind Einstellungen, kein Code.
+
+---
+
+
 ## [4.7.4.0] - 2026-09-12 (Build 188) — *Fenster auf Maß, und n8n sagt endlich warum*
 
 Build 187 hat den Stau gelöst — der erste Lauf danach ließ **245 von 249** Mails durch

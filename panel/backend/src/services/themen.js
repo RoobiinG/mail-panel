@@ -693,27 +693,50 @@ function cacheVerwerfen(kontoId) {
 }
 
 /**
+ * Wie heisst dieser Ordner auf dem Server wirklich?
+ *
+ * Die Frage ist nicht dieselbe wie „gibt es ihn". Manche Server legen alles
+ * unter den Posteingang: Der Ordner heisst dann `INBOX.Rechnungen`, nicht
+ * `Rechnungen`. Die Pruefung liess das schon immer als Treffer gelten — und
+ * genau das wurde der Mail zum Verhaengnis, denn als Ziel ging danach trotzdem
+ * der kurze Name an den IMAP-Knoten. Der antwortete „Unable to move email" und
+ * riss am 12.09. um 02:11 Uhr einen Lauf mit 120 Mails ab.
+ *
+ * Deshalb gibt diese Funktion den gefundenen Pfad zurueck, nicht ein Ja.
+ *
+ * @returns {Promise<string|null>} der Pfad, wie der Server ihn schreibt, oder
+ * null. Laesst sich das Postfach nicht erreichen, wird der gewuenschte Name
+ * unveraendert zurueckgegeben — eine gescheiterte Pruefung darf die Sortierung
+ * nicht blockieren.
+ */
+async function ordnerPfad(konto, pfad) {
+  if (!pfad) return null;
+  try {
+    const liste = await ordnerListe(konto);
+    const gesucht = String(pfad).trim().toLowerCase();
+    // 1. Exakter Treffer (case-insensitive) — dann gilt die Schreibweise des Servers.
+    const genau = liste.find((o) => o.toLowerCase() === gesucht);
+    if (genau) return genau;
+    // 2. Pfadtrenner-Treffer: "INBOX.Rechnungen" oder "INBOX/Rechnungen" trifft
+    //    "Rechnungen". Zurueck geht der VOLLE Pfad — er ist es, den der
+    //    Verschiebe-Knoten braucht.
+    const unter = liste.find((o) => o.split(/[/.]/).pop().toLowerCase() === gesucht);
+    if (unter) return unter;
+    return null;
+  } catch (err) {
+    loggen('warn', 'themen', `Ordnerliste für ${konto.name} nicht abrufbar: ${err.message}`);
+    return String(pfad);
+  }
+}
+
+/**
  * @returns {Promise<boolean>} true, wenn der Ordner im Postfach existiert.
  * Laesst sich das Postfach nicht erreichen, wird true angenommen — eine
  * gescheiterte Pruefung darf die Sortierung nicht blockieren.
  */
 async function ordnerExistiert(konto, pfad) {
   if (!pfad) return false;
-  try {
-    const liste = await ordnerListe(konto);
-    const gesucht = String(pfad).trim().toLowerCase();
-    // 1. Exakter Treffer (case-insensitive)
-    if (liste.some((o) => o.toLowerCase() === gesucht)) return true;
-    // 2. Pfadtrenner-Treffer: "INBOX.Rechnungen" oder "INBOX/Rechnungen" trifft "Rechnungen"
-    if (liste.some((o) => {
-      const letztes = o.split(/[/.]/).pop().toLowerCase();
-      return letztes === gesucht;
-    })) return true;
-    return false;
-  } catch (err) {
-    loggen('warn', 'themen', `Ordnerliste für ${konto.name} nicht abrufbar: ${err.message}`);
-    return true;
-  }
+  return Boolean(await ordnerPfad(konto, pfad));
 }
 
 // ─── Bausteine, die auch die Panel-Routen brauchen ───────────────────────────
@@ -986,6 +1009,7 @@ module.exports = {
   regelLernen,
   aufloesen,
   ordnerExistiert,
+  ordnerPfad,
   cacheVerwerfen,
   ordnerAnlegen,
   inKatalog,

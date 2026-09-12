@@ -145,6 +145,21 @@ function verschiebeKnoten(konto, position) {
     type: 'n8n-nodes-imap.imap',
     typeVersion: 1,
     position,
+    // Eine Mail, die sich nicht verschieben lässt, darf nicht die anderen
+    // mitnehmen.
+    //
+    // Dies war der einzige Panel-Knoten ohne diese beiden Zeilen — jeder andere
+    // hat sie seit jeher. Aufgefallen ist es erst, als das Auswahlfenster groß
+    // genug wurde, dass es weh tat: Am 12.09. um 02:11 Uhr scheiterte eine
+    // einzige Mail von g.robin.2002 mit „Unable to move email", und der ganze
+    // Lauf mit 120 Mails endete als Fehler. Alles, was hinter dieser Mail in der
+    // Warteschlange stand, war verloren — obwohl es nichts damit zu tun hatte.
+    //
+    // Die gescheiterte Mail bleibt liegen, wo sie ist. Genau dafür vermerkt
+    // services/bestand.js eine Mail mit Zielordner NICHT als erledigt: Sie kommt
+    // im nächsten Lauf wieder dran.
+    alwaysOutputData: true,
+    onError: 'continueRegularOutput',
     credentials: imapCredential(konto),
   };
 }
@@ -1990,6 +2005,7 @@ module.exports = {
   alleSynchronisieren, triageSynchronisieren, bestandSynchronisieren, newsletterSynchronisieren, basisSetup,
   // für Tests
   panelKnotenEntfernen, quellenEintragen, budgetInSammeln, triggerKnoten, setKnoten, bestandKnoten,
+  verschiebeKnoten,
   themenKetteEinbauen, einsortierenKnoten, bestandZeitplanKnoten,
   bestandWebhookKnoten, BESTAND_WEBHOOK_PFAD,
   geminiRequestReparieren, credentialErneuern, bestandAuswahlKnoten, AUSWAHL_KNOTEN,
