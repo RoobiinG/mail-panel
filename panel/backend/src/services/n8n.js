@@ -238,6 +238,42 @@ async function executionsAuflisten(limit = 20) {
   }
 }
 
+// Warum ein Lauf gescheitert ist — die Frage, die die Liste nicht beantwortet.
+//
+// `/executions` liefert Status und Zeiten, aber keine Fehlermeldung; die steht in
+// `data.resultData` und kommt nur mit `includeData=true`. Für die ganze Liste
+// wäre das keine gute Idee: Darin stecken die kompletten Item-Daten aller Knoten,
+// bei einem Bestandslauf also hunderte Mails mit vollem Text. Deshalb einzeln und
+// nur für die Läufe, bei denen es etwas zu erklären gibt.
+//
+// Der Anlass: Der erste Lauf nach Build 187 brach nach 23 Sekunden ab, und im
+// Diagnose-Bericht stand dazu nichts als `"status": "error"`. Die Auswertung in
+// services/diagnose.js liest `resultData` längst aus — sie bekam nur nie welche.
+const EXECUTION_MAX_BYTES = 32 * 1024 * 1024;
+
+async function executionFehler(id, zeitlimit = 15000) {
+  try {
+    const c = client(zeitlimit);
+    const { data } = await c.get(`/executions/${id}`, {
+      params: { includeData: true },
+      // Ein einzelner Lauf kann sehr groß sein. Lieber ohne Meldung dastehen als
+      // dem Panel beim Fehlersuchen den Speicher nehmen.
+      maxContentLength: EXECUTION_MAX_BYTES,
+      maxBodyLength: EXECUTION_MAX_BYTES,
+    });
+    const r = data?.data?.resultData;
+    if (!r) return null;
+    return {
+      letzterKnoten: r.lastNodeExecuted || null,
+      meldung: r.error?.message || null,
+      knoten: r.error?.node?.name || null,
+    };
+  } catch {
+    // Kein Grund, den ganzen Bericht scheitern zu lassen.
+    return null;
+  }
+}
+
 async function executionLoeschen(id) {
   try {
     const { data } = await client().delete(`/executions/${id}`);
@@ -252,5 +288,5 @@ module.exports = {
   client, testVerbindung, workflowsAuflisten, workflowHolen, workflowErstellen, workflowSpeichern,
   workflowAktivieren, credentialAnlegen, headerCredentialAnlegen, telegramCredentialAnlegen,
   smtpCredentialAnlegen, credentialLoeschen,
-  executionsAuflisten, executionLoeschen,
+  executionsAuflisten, executionLoeschen, executionFehler,
 };

@@ -169,6 +169,18 @@ function unklareAnzahl(kontoId = null) {
 // Klassifizierer zusammen. Was die KI in ihrer Frist nicht schafft, bleibt offen
 // und kommt im nächsten Lauf zuerst wieder dran; das ist der Normalfall, kein
 // Fehler.
+// Ein fester Wert je Konto, keine Rechnung.
+//
+// In Build 187 stand hier `Math.max(FENSTER_LOKAL, Math.floor(FENSTER / Konten))`
+// — gedacht als „mindestens 40", tatsächlich aber das Gegenteil: Bei drei Konten
+// gewinnt der zweite Term mit 83, macht 249 Mails je Lauf. Der erste Lauf danach
+// brach nach 23 Sekunden ab, bevor die KI auch nur einmal gefragt wurde. 249
+// Items mit vollem Mailtext durch zweiunddreißig n8n-Knoten sind zu viel, und
+// der Engpass ist dabei nicht das Panel, sondern was n8n zwischen den Knoten
+// durchreicht.
+//
+// Also fest und vorhersagbar. Wer mehr will, stellt es ein — wer weniger
+// braucht, weil n8n knapp bei Speicher ist, ebenso.
 const FENSTER_LOKAL = 40;
 
 function fensterGroesse(anzahlKonten) {
@@ -178,7 +190,7 @@ function fensterGroesse(anzahlKonten) {
     if (Number.isFinite(eigenes) && eigenes > 0) {
       return Math.min(FENSTER, Math.round(eigenes));
     }
-    return Math.min(FENSTER, Math.max(FENSTER_LOKAL, Math.floor(FENSTER / Math.max(1, anzahlKonten))));
+    return FENSTER_LOKAL;
   }
 
   const grenze = budget.tagesbudget();

@@ -2,6 +2,53 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.7.4.0] - 2026-09-12 (Build 188) — *Fenster auf Maß, und n8n sagt endlich warum*
+
+Build 187 hat den Stau gelöst — der erste Lauf danach ließ **245 von 249** Mails durch
+(vorher 2 von 12). Er brach dann aber nach 23 Sekunden ab, bevor die KI ein einziges Mal
+gefragt wurde. Beides hat dieselbe Wurzel: Das Fenster war viel größer als angekündigt.
+
+### Bugfixes
+- **Auswahlfenster war 83 statt 40 je Konto (`bestand.js`):**
+  Die neue Formel lautete `Math.max(FENSTER_LOKAL, Math.floor(FENSTER / Konten))` und war als
+  „mindestens 40" gedacht — sie tut das Gegenteil. Bei drei Konten gewinnt der zweite Term
+  mit `floor(250/3) = 83`, macht **249 Mails je Lauf**. So viele Items mit vollem Mailtext
+  durch zweiunddreißig n8n-Knoten zu reichen, hat den Lauf gekippt. Jetzt ein fester Wert:
+  `FENSTER_LOKAL` (40) je Konto, unabhängig von der Zahl der Konten, weiter übersteuerbar
+  per `bestand_fenster`. Ein Test hält fest, dass die Kontenzahl die Menge je Konto nicht
+  mehr nach oben treibt.
+
+### Verbesserungen
+- **Gescheiterte Läufe nennen ihren Grund (`n8n.js`, `diagnose.js`):**
+  Der Bericht schrieb zu einem abgebrochenen Lauf nur `"status": "error"` — kein Knoten,
+  keine Meldung. Die Auswertung in `diagnose.laeufe()` liest `resultData` längst aus, sie
+  bekam nur nie welche: `/executions` liefert die Daten erst mit `includeData=true`, und
+  für die ganze Liste wäre das zu teuer (darin stecken die Item-Daten aller Knoten, bei
+  einem Bestandslauf also hunderte Mails mit vollem Text). Neu fragt `executionFehler()`
+  **nur die gescheiterten Läufe einzeln** nach, höchstens drei, mit eigenem Zeitlimit und
+  einer Größengrenze von 32 MB. Der Bericht nennt jetzt `fehler`, `fehlerKnoten` und
+  `letzterKnoten`.
+- **Maskierung der Zugangsdaten ist getestet (`diagnose.js`):** `urlOhneZugang()` ist
+  exportiert und durch sechs Fälle abgesichert — Pfade dahinter, Sonderzeichen im Passwort,
+  ein `@` im Pfad, URLs ganz ohne Zugangsdaten. Eine Sicherheitsmaskierung ohne Test kann
+  still kaputtgehen.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine.
+- **n8n-Workflow-Kompatibilität:** Kein Neu-Import nötig. Das Fenster reist wie bisher im
+  Feld `fenster` der Antwort von `/api/internal/bestand-kandidaten`.
+- **Neustart-/Session-Verhalten:** Reines Code-Update. Der nächste Lauf holt 120 Mails
+  statt 249 (bei drei Konten).
+- **Offen — der Abbruch ist noch nicht bewiesen:** Dass die Menge ihn ausgelöst hat, ist
+  die naheliegende Erklärung (245 durchgelassene Mails, Abbruch nach 23 s, kein einziger
+  KI-Aufruf, keine Zeile vom Klassifizierer im Panel-Log), aber n8n hat den Grund nie
+  genannt. Genau dafür ist die Fehleranzeige oben da. Bricht auch der Lauf mit 120 Mails
+  ab, steht die Meldung im nächsten Bericht — dann hilft `bestand_fenster` auf 20 oder 10,
+  und die Ursache liegt woanders.
+
+---
+
+
 ## [4.7.3.0] - 2026-09-12 (Build 187) — *Der Bestandslauf kommt wieder vom Fleck*
 
 Der Lauf vom 12.09., 00:31 Uhr: 172 Sekunden, zwölf geholte Mails, **null einsortiert** —

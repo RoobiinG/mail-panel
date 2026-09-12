@@ -344,8 +344,32 @@ async function laeufe(anzahl = 15) {
     const daten = e.data?.resultData;
     if (daten?.lastNodeExecuted) zeile.letzterKnoten = daten.lastNodeExecuted;
     if (daten?.error?.message) zeile.fehler = adressenTilgen(daten.error.message).slice(0, 300);
+    // Für den Nachschlag unten: Ohne die id lässt sich der Lauf nicht noch
+    // einmal fragen. Sie fliegt gleich wieder raus, sie gehört nicht in den
+    // Bericht.
+    if (!zeile.fehler && e.id != null) zeile.__id = e.id;
     return zeile;
   });
+
+  // Gescheiterte Läufe einzeln nachfragen.
+  //
+  // `/executions` liefert nur „error" und schweigt darüber, woran. Genau das
+  // fehlte beim Lauf vom 12.09., 01:34 Uhr: 23 Sekunden, Abbruch, keine Spur.
+  // Die volle Liste mit Daten zu holen wäre zu teuer — ein Bestandslauf trägt
+  // hunderte Mails mit sich —, also nur die wenigen, die etwas zu erklären
+  // haben, und höchstens drei davon.
+  const FEHLER_MAX = 3;
+  const nachzufragen = liste
+    .filter((z) => z.__id != null && z.status !== 'success' && z.status !== 'running')
+    .slice(0, FEHLER_MAX);
+  for (const zeile of nachzufragen) {
+    const detail = await n8n.executionFehler(zeile.__id);
+    if (!detail) continue;
+    if (detail.meldung) zeile.fehler = adressenTilgen(detail.meldung).slice(0, 300);
+    if (detail.knoten) zeile.fehlerKnoten = detail.knoten;
+    if (detail.letzterKnoten && !zeile.letzterKnoten) zeile.letzterKnoten = detail.letzterKnoten;
+  }
+  for (const zeile of liste) delete zeile.__id;
   const hoechste = gleichzeitigkeit(liste);
   // Bei lokaler KI rechnen gleichzeitige Läufe auf derselben CPU gegeneinander.
   // Steht hier etwas über 1, ist N8N_CONCURRENCY_PRODUCTION_LIMIT nicht
@@ -622,4 +646,4 @@ function alsText(b) {
   return z.join('\n');
 }
 
-module.exports = { erstellen, alsText, adressenTilgen, gleichzeitigkeit };
+module.exports = { erstellen, alsText, adressenTilgen, gleichzeitigkeit, urlOhneZugang };

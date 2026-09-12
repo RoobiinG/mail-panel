@@ -197,6 +197,51 @@ describe('Das Schema begrenzt die Antwortlänge', () => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+describe('Der Diagnose-Bericht trägt keine Zugangsdaten', () => {
+  // `ollama_url` steht bewusst in der offenen Wertliste — die Adresse sagt etwas
+  // über die Einrichtung. Steht die lokale KI hinter einem Proxy mit Basic-Auth,
+  // trägt sie aber auch das Passwort, und der Bericht ist zum Weitergeben da.
+  const diagnose = require('../src/services/diagnose');
+
+  test('Benutzer und Passwort fallen weg, der Host bleibt', () => {
+    assert.equal(
+      diagnose.urlOhneZugang('https://nutzer:geheim@ollama.example.de'),
+      'https://•••@ollama.example.de',
+    );
+  });
+
+  test('auch mit Pfad dahinter', () => {
+    assert.equal(
+      diagnose.urlOhneZugang('https://nutzer:geheim@ollama.example.de/api/generate'),
+      'https://•••@ollama.example.de/api/generate',
+    );
+  });
+
+  test('Sonderzeichen im Passwort ändern nichts', () => {
+    const roh = 'https://mv:a%2Fb%3Ac%40d@ollama.example.de';
+    assert.equal(diagnose.urlOhneZugang(roh), 'https://•••@ollama.example.de');
+    assert.ok(!diagnose.urlOhneZugang(roh).includes('a%2Fb'));
+  });
+
+  test('eine URL ohne Zugangsdaten bleibt unangetastet', () => {
+    assert.equal(diagnose.urlOhneZugang('http://n8n:5678'), 'http://n8n:5678');
+    assert.equal(diagnose.urlOhneZugang('http://panel:3002/api/internal/check'),
+      'http://panel:3002/api/internal/check');
+  });
+
+  test('ein @ im Pfad ist kein Zugangsdatum', () => {
+    assert.equal(diagnose.urlOhneZugang('https://host.de/pfad/@etwas'),
+      'https://host.de/pfad/@etwas');
+  });
+
+  test('leer bleibt leer', () => {
+    assert.equal(diagnose.urlOhneZugang(''), '');
+    assert.equal(diagnose.urlOhneZugang(null), '');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 describe('Das Auswahlfenster hängt nicht mehr an der Bündelgröße', () => {
   // Vorher: max(4, floor(ollama_buendel * 6 / Konten)). Mit dem Standardwert 2
   // und drei Konten waren das vier Mails je Konto — zwölf je Lauf, alle vier
@@ -218,8 +263,21 @@ describe('Das Auswahlfenster hängt nicht mehr an der Bündelgröße', () => {
     settings.setze('ollama_buendel', '2');
     kontoAnlegen('A'); kontoAnlegen('B'); kontoAnlegen('C');
     const fenster = await fensterVon();
-    assert.ok(fenster >= bestand.FENSTER_LOKAL,
+    assert.equal(fenster, bestand.FENSTER_LOKAL,
       `${fenster} Mails je Konto — vorher waren es vier, und der Lauf kam nie vom Fleck`);
+  });
+
+  // Build 187 rechnete `max(FENSTER_LOKAL, floor(FENSTER / Konten))` und landete
+  // bei drei Konten auf 83 je Konto — 249 Mails je Lauf. Der erste Lauf danach
+  // brach nach 23 Sekunden ab, bevor die KI einmal gefragt wurde. Wie viele
+  // Konten es gibt, darf die Menge je Konto nicht nach oben treiben.
+  test('die Zahl der Konten ändert das Fenster je Konto nicht', async () => {
+    settings.setze('ki_anbieter', 'ollama');
+    kontoAnlegen('A');
+    const eins = await fensterVon();
+    kontoAnlegen('B'); kontoAnlegen('C'); kontoAnlegen('D');
+    assert.equal(await fensterVon(), eins,
+      'sonst holt ein Lauf bei wenigen Konten unbemerkt ein Vielfaches');
   });
 
   test('ein eigener Wert sticht den Standard', async () => {
