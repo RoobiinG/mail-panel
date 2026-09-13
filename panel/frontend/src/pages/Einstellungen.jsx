@@ -684,10 +684,12 @@ export default function Einstellungen() {
                       zurück, was fertig ist; der Rest kommt beim nächsten Lauf zuerst dran.
                       Leer bedeutet 240000 (4 Minuten).
                       {' '}
-                      <strong className="text-panel-text">Über 300000 wirkt nur</strong>, wenn in
-                      der <code className="text-panel-text">.env</code> auch
-                      {' '}<code className="text-panel-text">N8N_TASK_TIMEOUT</code> hochgesetzt ist —
-                      sonst schneidet n8n den Knoten vorher ab.
+                      <strong className="text-panel-text">Bis 860000 wirkt es ohne weiteres</strong> —
+                      die mitgelieferte Compose gibt n8n 900 Sekunden je Knoten. Bei einer lokalen
+                      KI ist das der wirksamste Hebel für den Durchsatz: Die Frist entscheidet
+                      unmittelbar, wie viele Mails ein Lauf schafft. Erst darüber muss in der
+                      {' '}<code className="text-panel-text">.env</code> auch
+                      {' '}<code className="text-panel-text">N8N_TASK_TIMEOUT</code> steigen.
                     </p>
                     <input type="number" min="30000" max="3600000" step="30000"
                       value={settings.ki_lauf_frist_ms ?? ''}

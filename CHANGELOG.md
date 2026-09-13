@@ -2,6 +2,35 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.7.5.1] - 2026-09-13 (Build 192) — *Der Hinweis, der vom Gaspedal abhielt*
+
+### Bugfixes
+- **Falscher Hinweis zur Lauf-Frist (`klassifizierer.js`, `Einstellungen.jsx`):**
+  An beiden Stellen stand, eine Frist über 300000 ms wirke nur, wenn in der `.env`
+  zusätzlich `N8N_TASK_TIMEOUT` hochgesetzt sei — sonst schneide n8n den Knoten vorher
+  ab. Das stimmt seit Längerem nicht: Die mitgelieferte Compose setzt
+  `N8N_RUNNERS_TASK_TIMEOUT=${N8N_TASK_TIMEOUT:-900}`, also 900 Sekunden. Weil der
+  Patcher das Zeitlimit des Bündel-Knotens als `frist() + 40 s` setzt, wirkt jede Frist
+  bis rund **860000 ms** ohne jede weitere Änderung.
+
+  Das war kein kosmetischer Fehler: Bei einer lokalen KI ist die Frist der wirksamste
+  Hebel für den Durchsatz überhaupt. Bei 14 s je Bündel schafft ein Lauf mit 240 s rund
+  30 Mails und mit 600 s rund 80 — der Hinweis hielt genau davon ab. Im Betrieb stand
+  deshalb Lauf für Lauf „Zeitbudget des Laufs erreicht — 27 von 49 Mails klassifiziert".
+
+  Der Standard bleibt bei 240000: Er muss auch auf einer kleinen Maschine vernünftig
+  sein. Mehr ist eine bewusste Entscheidung des Betreibers.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine.
+- **n8n-Workflow-Kompatibilität:** Keine Änderung. Wird die Frist erhöht, zieht der
+  Patcher das Zeitlimit des Bündel-Knotens beim nächsten Abgleich von selbst nach.
+- **Neustart-/Session-Verhalten:** Reine Text- und Kommentaränderung, kein verändertes
+  Verhalten.
+
+---
+
+
 ## [4.7.5.0] - 2026-09-13 (Build 191) — *Workflow 07 lädt endlich hoch*
 
 Seit es die eigenen Aktionen gibt, ist nie eine Datei auf der Nextcloud angekommen —

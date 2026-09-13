@@ -137,9 +137,22 @@ function istBeschaeftigt() {
 // war irreführend), mit Rückfall auf den alten Schlüssel — ein von Hand
 // gesetzter Wert soll nicht stumm verfallen.
 //
-// Wer über ~240 s hinausgeht, braucht zusätzlich N8N_RUNNERS_TASK_TIMEOUT in
-// der docker-compose.yml; das Zeitlimit im Bündel-Knoten zieht der Patcher von
-// selbst nach.
+// Wie weit darf die Frist hoch?
+//
+// Hier stand, wer über ~240 s hinausgehe, brauche zusätzlich
+// N8N_RUNNERS_TASK_TIMEOUT in der docker-compose.yml. Das stimmt seit Längerem
+// nicht mehr: Die Compose setzt es selbst auf 900 s
+// (`N8N_RUNNERS_TASK_TIMEOUT=${N8N_TASK_TIMEOUT:-900}`). Der Hinweis hielt vom
+// wirksamsten Hebel ab, den eine lokale KI hat — bei 14 s je Bündel entscheidet
+// die Frist unmittelbar darüber, wie viele Mails ein Lauf schafft.
+//
+// Die Obergrenze ergibt sich aus dem Zeitlimit des Bündel-Knotens, das der
+// Patcher als `frist() + 40 s` setzt: Alles bis rund 860 s bleibt innerhalb der
+// 900 s. Wer darüber will, hebt N8N_TASK_TIMEOUT in der .env an.
+//
+// Der Standard bleibt bewusst bei 240 s — er muss auch auf einer kleinen
+// Maschine vernünftig sein. Mehr ist eine bewusste Entscheidung des Betreibers
+// (Einstellungen → KI).
 const FRIST_STANDARD = 240000;
 const frist = () => {
   const neu = zahl('ki_lauf_frist_ms', 0, 30000, 3600000);
