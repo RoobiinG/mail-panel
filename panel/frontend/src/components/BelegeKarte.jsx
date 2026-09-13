@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   Archive, FileText, ScanLine, FolderTree, ChevronDown, ChevronRight,
-  CheckCircle2, MinusCircle, AlertTriangle, Loader2,
+  CheckCircle2, MinusCircle, AlertTriangle, Loader2, CloudUpload,
 } from 'lucide-react';
 import api from '../api';
 import { useMelden } from './ui/Meldungen';
@@ -58,8 +58,12 @@ export default function BelegeKarte() {
     }
   };
 
-  const automatikUmschalten = () => rufen('automatik', { an: !automatik.an, auslesen: automatik.auslesen });
-  const auslesenUmschalten = () => rufen('auslesen', { an: true, auslesen: !automatik.auslesen });
+  const automatikUmschalten = () => rufen('automatik',
+    { an: !automatik.an, auslesen: automatik.auslesen, freigabe: automatik.freigabe });
+  const auslesenUmschalten = () => rufen('auslesen',
+    { an: true, auslesen: !automatik.auslesen, freigabe: automatik.freigabe });
+  const freigabeUmschalten = () => rufen('freigabe',
+    { an: true, auslesen: automatik.auslesen, freigabe: !automatik.freigabe });
 
   return (
     <div className="card !p-0 overflow-hidden">
@@ -105,6 +109,22 @@ export default function BelegeKarte() {
             </div>
           </div>
           <Schalter an={automatik.auslesen} onClick={auslesenUmschalten} disabled={!automatik.an} laedt={busy === 'auslesen'} />
+        </div>
+
+        {/* Freigabe-Schalter */}
+        <div className={`flex items-start justify-between gap-4 ${automatik.an ? '' : 'opacity-50'}`}>
+          <div>
+            <div className="font-medium text-sm flex items-center gap-1.5">
+              <CloudUpload size={15} className="text-panel-accent" /> Vor dem Hochladen fragen
+            </div>
+            <div className="text-xs text-panel-muted mt-0.5">
+              Belege gehen nicht mehr von selbst hoch, sondern warten unter{' '}
+              <span className="text-panel-text">Freigaben</span>. Dort lässt sich jede Datei ansehen,
+              Ordner und Name ändern — oder verwerfen. Sinnvoll, solange die KI beim Benennen
+              noch danebenliegt.
+            </div>
+          </div>
+          <Schalter an={automatik.freigabe} onClick={freigabeUmschalten} disabled={!automatik.an} laedt={busy === 'freigabe'} />
         </div>
 
         {/* Zahlen des Tages */}

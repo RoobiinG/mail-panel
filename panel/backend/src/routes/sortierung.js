@@ -1473,7 +1473,12 @@ router.get('/belege', (req, res) => {
   try {
     const preset = db.prepare("SELECT aktiv, konfig FROM aktionen WHERE schluessel = 'belege_auto'").get();
     let auslesen = false;
-    try { auslesen = Boolean(JSON.parse(preset?.konfig || '{}').auslesen); } catch { /* egal */ }
+    let freigabe = false;
+    try {
+      const k = JSON.parse(preset?.konfig || '{}');
+      auslesen = Boolean(k.auslesen);
+      freigabe = Boolean(k.freigabe);
+    } catch { /* egal */ }
 
     const zahl = (sql) => { try { return db.prepare(sql).get().n; } catch { return 0; } };
     const heuteWo = "created_at >= date('now','localtime')";
@@ -1489,7 +1494,7 @@ router.get('/belege', (req, res) => {
     `).all().map((r) => ({ ...r, gespeichert: Boolean(r.gespeichert) }));
 
     res.json({
-      automatik: { an: Boolean(preset?.aktiv), auslesen, eingerichtet: Boolean(preset) },
+      automatik: { an: Boolean(preset?.aktiv), auslesen, freigabe, eingerichtet: Boolean(preset) },
       nextcloud_bereit: nextcloudBereit,
       lesen: {
         grenze,                                   // 0 = kein Deckel

@@ -86,6 +86,7 @@ const EIGENER_PARSER = new Set([
   '/api/internal/budget',         // eigene, engere Grenze (512 kB)
   '/api/internal/scan-anhaenge',  // eigene, engere Grenze (16 kB)
   '/api/internal/anhaenge',       // eigene, engere Grenze (16 kB) — nur konto/uid/ordner
+  '/api/internal/upload-freigabe', // Anhang als base64 fuer die Warteschlange (25 MB)
 ]);
 const globalJson = express.json({ limit: '1mb' });
 app.use((req, res, next) => {
@@ -119,6 +120,10 @@ app.use('/api/dashboard', auth, rechtErforderlich('dashboard'), require('./route
 app.use('/api/benutzer', auth, rechtErforderlich('benutzer'), require('./routes/benutzer'));
 app.use('/api/rollen', auth, rechtErforderlich('benutzer'), require('./routes/rollen'));
 app.use('/api/sortierung', auth, rechtErforderlich('sortierung'), require('./routes/sortierung'));
+// Die Upload-Warteschlange hängt am Sortier-Recht: Sie zeigt dieselben Daten
+// (Absender, Betreff, Anhang) und ist die Fortsetzung derselben Arbeit. Wer sie
+// bedienen darf, schreibt damit allerdings auch in die Nextcloud.
+app.use('/api/uploads', auth, rechtErforderlich('sortierung'), require('./routes/uploads'));
 // Die Postfach-Sicherung hängt am Einstellungs-Recht: Wer den FTP-Zugang und
 // das Archiv-Passwort setzen darf, verwaltet ohnehin die Zugänge des Panels.
 app.use('/api/sicherung', auth, rechtErforderlich('einstellungen'), require('./routes/sicherung'));
@@ -195,6 +200,10 @@ tls.starten(app, PORT, (art) => {
   // niemand, wenn n8n einen abgeschaltet hat — es kracht nicht, es passiert
   // nur nichts mehr.
   require('./services/aufsicht').zeitplanStarten();
+  // Upload-Warteschlange: alle sechs Stunden Überfälliges verwerfen und Dateien
+  // einsammeln, zu denen es keinen Datensatz mehr gibt. Workflow 07 liefert
+  // unbeaufsichtigt ein — ohne das wächst das Zwischenlager unbegrenzt.
+  require('./services/uploadFreigabe').zeitplanStarten();
   // Workflows selbsttätig auf Stand bringen. Bis hierher musste man nach jeder
   // Änderung „Workflows → Synchronisieren" drücken — und wer es vergaß, betrieb
   // eine Konfiguration, die nur im Panel stand. Siehe services/autoSync.js.

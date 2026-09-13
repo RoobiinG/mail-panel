@@ -119,6 +119,10 @@ const FELDER = {
   nextcloud_passwort:   { env: 'NEXTCLOUD_PASSWORT', geheim: true },
   nextcloud_kalender:   { env: 'NEXTCLOUD_KALENDER', geheim: false, standard: 'personal' },
   nextcloud_beleg_pfad: { env: 'NEXTCLOUD_BELEG_PFAD', geheim: false, standard: 'Belege' },
+  // Wie lange eine Datei auf ihre Freigabe wartet, bevor sie verworfen wird.
+  // Ohne Frist sammelt das Zwischenlager alles an, was niemand angesehen hat —
+  // und Workflow 07 liefert unbeaufsichtigt weiter ein.
+  upload_freigabe_frist_tage: { env: 'UPLOAD_FREIGABE_FRIST_TAGE', geheim: false, standard: '30' },
   google_client_id:     { env: 'GOOGLE_CLIENT_ID', geheim: false },
   google_client_secret: { env: 'GOOGLE_CLIENT_SECRET', geheim: true },
   google_refresh_token: { geheim: true },

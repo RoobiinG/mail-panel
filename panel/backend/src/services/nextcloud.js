@@ -79,4 +79,118 @@ async function credentialsAnlegen() {
   return { webdav: dav.id, basic: basic.id };
 }
 
-module.exports = { testVerbindung, credentialsAnlegen, webDavUrl };
+// ─── Hochladen ───────────────────────────────────────────────────────────────
+//
+// Bis Build 192 lud ausschließlich n8n hoch (der Nextcloud-Knoten in Workflow
+// 07), und dieses Modul legte dafür nur die Zugangsdaten an. Mit der Freigabe
+// vor dem Upload geht das nicht mehr: n8n kann nicht auf einen Menschen warten,
+// also liefert es die Datei ab und das Panel trägt sie später selbst hinüber —
+// genauso, wie es beim Freigeben eines Ordners selbst per IMAP verschiebt.
+
+const kopfAuth = (user, passwort) => ({
+  Authorization: 'Basic ' + Buffer.from(`${user}:${passwort}`).toString('base64'),
+});
+
+// Jedes Pfadsegment einzeln kodieren, den Schrägstrich nicht — sonst wird aus
+// "Belege/A & B" entweder ein kaputter Pfad oder ein einziger Ordnername.
+const pfadUrl = (basis, pfad) =>
+  `${basis}/${String(pfad).split('/').filter(Boolean).map(encodeURIComponent).join('/')}`;
+
+const TYPEN = {
+  '.pdf': 'application/pdf',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.txt': 'text/plain',
+  '.csv': 'text/csv',
+  '.xml': 'application/xml',
+  '.zip': 'application/zip',
+};
+const typAus = (name) => TYPEN[(String(name).match(/\.[A-Za-z0-9]+$/) || [''])[0].toLowerCase()]
+  || 'application/octet-stream';
+
+function fehlerAus(status, was) {
+  if (status === 401) return new Error('Nextcloud hat die Anmeldung abgelehnt — stimmt das App-Passwort?');
+  return new Error(`Nextcloud antwortete beim ${was} mit ${status}.`);
+}
+
+/**
+ * Legt den Ordnerpfad an — Ebene für Ebene von oben nach unten.
+ * Nextcloud erzeugt fehlende Zwischenordner beim Hochladen NICHT; wer direkt
+ * nach "Belege/2026/acme" schreibt, bekommt 409 statt eines Ordners.
+ */
+async function ordnerAnlegen(pfad) {
+  const { url, user, passwort } = zugangsdaten();
+  const basis = webDavUrl(url, user);
+  const teile = String(pfad).split('/').filter(Boolean);
+
+  let bisher = '';
+  for (const teil of teile) {
+    bisher = bisher ? `${bisher}/${teil}` : teil;
+    const res = await fetch(pfadUrl(basis, bisher), {
+      method: 'MKCOL',
+      headers: kopfAuth(user, passwort),
+      signal: AbortSignal.timeout(20000),
+    });
+    // 405 heißt "gibt es schon" — der Normalfall ab dem zweiten Beleg.
+    if (res.ok || res.status === 405) continue;
+    throw fehlerAus(res.status, `Anlegen von "${bisher}"`);
+  }
+  return teile.join('/');
+}
+
+/** Gibt es dort schon etwas? */
+async function existiert(pfad) {
+  const { url, user, passwort } = zugangsdaten();
+  const res = await fetch(pfadUrl(webDavUrl(url, user), pfad), {
+    method: 'HEAD',
+    headers: kopfAuth(user, passwort),
+    signal: AbortSignal.timeout(15000),
+  });
+  if (res.status === 401) throw fehlerAus(401, 'Nachsehen');
+  return res.ok;
+}
+
+async function dateiHochladen(pfad, inhalt, mimeType) {
+  const { url, user, passwort } = zugangsdaten();
+  const res = await fetch(pfadUrl(webDavUrl(url, user), pfad), {
+    method: 'PUT',
+    headers: { ...kopfAuth(user, passwort), 'Content-Type': mimeType || 'application/octet-stream' },
+    body: inhalt,
+    // 15 Sekunden wie beim Verbindungstest reichen für 15 MB nicht.
+    signal: AbortSignal.timeout(120000),
+  });
+  if (!res.ok) throw fehlerAus(res.status, 'Hochladen');
+  return true;
+}
+
+/**
+ * Eine Datei ablegen: Ordner anlegen, freien Namen suchen, hochladen.
+ *
+ * Ein PUT überschreibt stillschweigend, und `Overwrite: F` gilt nur für COPY und
+ * MOVE. Deshalb wird vorher nachgesehen und bei Bedarf " (2)" angehängt — das
+ * Panel löscht und überschreibt grundsätzlich nichts.
+ *
+ * @returns {Promise<{ok: true, pfad: string, dateiname: string}>}
+ */
+async function ablegen({ zielpfad, dateiname, inhalt }) {
+  const ordner = await ordnerAnlegen(zielpfad);
+  const endung = (String(dateiname).match(/\.[A-Za-z0-9]{1,8}$/) || [''])[0];
+  const rumpf = String(dateiname).slice(0, String(dateiname).length - endung.length);
+
+  let name = dateiname;
+  for (let n = 2; n <= 50; n += 1) {
+    const voll = ordner ? `${ordner}/${name}` : name;
+    if (!(await existiert(voll))) break;
+    name = `${rumpf} (${n})${endung}`;
+  }
+
+  const ziel = ordner ? `${ordner}/${name}` : name;
+  await dateiHochladen(ziel, inhalt, typAus(name));
+  return { ok: true, pfad: ordner, dateiname: name };
+}
+
+module.exports = {
+  testVerbindung, credentialsAnlegen, webDavUrl,
+  ordnerAnlegen, dateiHochladen, existiert, ablegen, pfadUrl,
+};

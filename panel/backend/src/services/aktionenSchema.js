@@ -33,6 +33,12 @@ const TYPEN = {
       dateiname: { label: 'Dateiname (leer = Originalname)', platzhalter: '{{datum}} {{firma}} {{betreff}}' },
       nur_anhaenge: { label: 'Nur Anhänge (nicht die Mail selbst)', typ: 'boolean', standard: true },
       auslesen: { label: 'Inhalt lesen & prüfen (Aktenzeichen, Datum, Firma — nur echte Belege)', typ: 'boolean', standard: false },
+      // Aus: die Datei geht sofort hoch (wie bisher). An: Sie wartet im Panel,
+      // bis jemand sie ansieht und Pfad und Namen bestätigt — siehe
+      // services/uploadFreigabe.js. Was einmal in der Nextcloud liegt, holt
+      // niemand zurück; bei einem kleinen Modell, das Ordnernamen erfindet, ist
+      // das der Unterschied zwischen Ablage und Unordnung.
+      freigabe: { label: 'Vor dem Hochladen fragen (Warteschlange statt Automatik)', typ: 'boolean', standard: false },
     },
   },
   nextcloud_kalender: {

@@ -144,7 +144,7 @@ router.post('/sync', async (req, res) => {
 // gesteuert. Ordner „Belege/Firma/Aktenzeichen" bzw. „Belege/Jahr/Firma" bauen
 // die {{beleg_t*}}-Bausteine im Beleg-Knoten. Kein hat_anhang nötig: Mails ohne
 // (PDF-)Anhang erzeugen im Beleg-Knoten schlicht nichts.
-const BELEG_PRESET = (auslesen) => ({
+const BELEG_PRESET = (auslesen, freigabe) => ({
   name: 'Belege automatisch in Nextcloud',
   beschreibung: 'Legt Rechnungen und Bestellungen als Beleg in Nextcloud ab.',
   typ: 'nextcloud_datei',
@@ -160,6 +160,7 @@ const BELEG_PRESET = (auslesen) => ({
     dateiname: '{{datum}} {{firma}} {{betreff}}',
     nur_anhaenge: true,
     auslesen: Boolean(auslesen),
+    freigabe: Boolean(freigabe),
   },
 });
 
@@ -167,6 +168,8 @@ const BELEG_PRESET = (auslesen) => ({
 router.post('/beleg-automatik', async (req, res) => {
   const an = req.body?.an !== false; // Vorgabe: einschalten
   const auslesen = req.body?.auslesen !== false; // Vorgabe: mit Auslesen
+  // Vorgabe: OHNE Nachfrage — wer nichts sagt, bekommt das bisherige Verhalten.
+  const freigabe = req.body?.freigabe === true;
   try {
     const vorhanden = db.prepare("SELECT id FROM aktionen WHERE schluessel = 'belege_auto'").get();
 
@@ -177,7 +180,7 @@ router.post('/beleg-automatik', async (req, res) => {
       return res.json({ ok: true, an: false, sync: await patcher.synchronisieren() });
     }
 
-    const geprueft = schema.pruefe(BELEG_PRESET(auslesen));
+    const geprueft = schema.pruefe(BELEG_PRESET(auslesen, freigabe));
     if (!geprueft.ok) return res.status(500).json({ fehler: geprueft.fehler });
     const a = geprueft.aktion;
 
@@ -193,7 +196,7 @@ router.post('/beleg-automatik', async (req, res) => {
       `).run(a.name, a.beschreibung, JSON.stringify(a.bedingung), a.typ, JSON.stringify(a.konfig), req.user?.id ?? null);
     }
 
-    res.json({ ok: true, an: true, auslesen, sync: await patcher.synchronisieren() });
+    res.json({ ok: true, an: true, auslesen, freigabe, sync: await patcher.synchronisieren() });
   } catch (err) {
     loggen('error', 'backend:aktionen', `Beleg-Automatik fehlgeschlagen: ${err.message}`);
     res.status(502).json({ fehler: [err.message] });

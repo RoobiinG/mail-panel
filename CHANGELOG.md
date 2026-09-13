@@ -2,6 +2,69 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.8.0.0] - 2026-09-13 (Build 193) — *Erst ansehen, dann hochladen*
+
+Seit Build 191 legt Workflow 07 Belege tatsächlich in der Nextcloud ab — vorher lief die
+Kette nie an. Damit wurde das nächste Problem sichtbar: Jede erkannte Datei ging sofort hoch,
+in einen Pfad, den ein 1-Milliarden-Modell aus Firma, Datum und Aktenzeichen zusammensetzt.
+Dasselbe Modell schreibt nachweislich Prompt-Fragmente als Ordnernamen ab, und was einmal in
+der Nextcloud liegt, holt niemand zurück.
+
+### Features
+- **Freigabe vor dem Hochladen (neuer Tab *Sortierung → Freigaben*):**
+  Ist bei einer Nextcloud-Aktion **„Vor dem Hochladen fragen"** eingeschaltet, wandert der
+  Anhang nicht mehr direkt in die Cloud, sondern wartet im Panel. Dort lässt sich die Datei
+  **ansehen** (PDF öffnet sich im neuen Tab), **Zielordner und Dateiname ändern** und dann
+  **hochladen oder verwerfen** — einzeln oder als Stapel. Der Zähler am Tab zeigt auch ohne
+  Öffnen, dass etwas wartet.
+  Der Schalter steht bei jeder Aktion (*Workflows → Eigene Aktionen*) und zusätzlich bei der
+  Belege-Automatik (*Sortierung → Belege*). **Aus bedeutet: alles wie bisher.**
+- **Das Panel kann jetzt selbst in die Nextcloud schreiben (`nextcloud.js`):**
+  Bisher konnte es nur die Verbindung testen und n8n die Zugangsdaten hinterlegen; hochgeladen
+  hat ausschließlich n8n. Das geht mit einer Freigabe nicht — n8n kann nicht auf einen Menschen
+  warten. Neu sind `ordnerAnlegen()` (MKCOL je Ebene, weil Nextcloud fehlende Zwischenordner
+  nicht anlegt), `dateiHochladen()` (PUT) und `ablegen()`. Eine vorhandene Zieldatei wird
+  **nicht überschrieben**, sondern als „Rechnung (2).pdf" abgelegt — ein PUT überschreibt
+  stillschweigend, und `Overwrite: F` gilt nur für COPY und MOVE.
+- **Neue Warteschlange (`upload_freigaben`, `services/uploadFreigabe.js`):**
+  Die Datei wird beim Einliefern unter `DATA_DIR/upload-warteschlange/` zwischengelagert, nicht
+  als BLOB. Der sparsamere Weg („nur Konto und UID merken und später neu aus dem Postfach
+  ziehen") scheidet aus: Workflow 07 läuft als Parallelzweig zum Einsortieren, ein IMAP-MOVE
+  vergibt im Zielordner eine neue UID, und zwischen Einlieferung und Freigabe liegen Stunden
+  bis Tage.
+  Grenzen, weil ein unbeaufsichtigter Workflow einliefert: höchstens 500 offene Einträge und
+  1 GB im Zwischenlager. Ein Aufräumer verwirft alle sechs Stunden Überfälliges
+  (`upload_freigabe_frist_tage`, Standard 30) und sammelt Dateien ein, zu denen es keinen
+  Datensatz mehr gibt.
+- **Neue Endpunkte:** `POST /api/internal/upload-freigabe` (Einlieferung aus n8n, 25 MB) sowie
+  `GET/POST /api/uploads/…` für Liste, Vorschau, Freigeben, Verwerfen und Sammelaktionen.
+
+### Bugfixes
+- **`jsPlatzhalter()` kannte die Beleg-Bausteine nicht (`aktionenPatcher.js`):**
+  `{{beleg_t1..3}}` standen nur in `ausdruck()`, nicht in der JS-Variante. Das fiel bisher nicht
+  auf, weil über `jsPlatzhalter` nur der Dateiname lief, der Ordner aber über `ausdruck()`.
+  Sobald ein Pfad hindurchmuss — und genau das tut der neue Freigabe-Knoten —, hätte
+  `entschaerfen()` aus `{{beleg_t1}}/{{beleg_t2}}` wörtlich `(beleg_t1)/(beleg_t2)` gemacht:
+  gültiger Code, korrekter Knoten, und jede Datei unter einem Ordner namens „(beleg_t1)".
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Neue Tabelle `upload_freigaben` samt Indizes — entsteht beim Start von
+  selbst (`CREATE TABLE IF NOT EXISTS`), keine Änderung an bestehenden Tabellen.
+- **n8n-Workflow-Kompatibilität:** Workflow 07 ändert sich **nur für Aktionen mit
+  eingeschalteter Freigabe** — dort ersetzt ein Knoten „Zur Freigabe: …" die Ordner- und
+  Upload-Knoten. Kein Neuimport nötig: Der automatische Abgleich baut Workflow 07 beim
+  Containerstart neu (seit Build 191 zieht er ihn mit). Ohne Freigabe bleibt die Kette
+  unverändert.
+- **Neustart-/Session-Verhalten:** Reines Code-Update. Der Aufräumer startet mit dem Backend.
+- **Rechte:** Die Warteschlange hängt am Recht `sortierung`. Wer es hat, darf ab jetzt auch in
+  die Nextcloud schreiben — bewusst so, weil es dieselben Daten und dieselbe Arbeit sind.
+- **Zu beachten:** Bei aktiver Freigabe lädt das **Panel** hoch, nicht n8n. Die Zugangsdaten
+  müssen also unter *Einstellungen → Nextcloud* stehen, auch wenn das n8n-Credential dann gar
+  nicht mehr gebraucht wird. Fehlen sie, weist die Karte darauf hin und die Knöpfe bleiben aus.
+
+---
+
+
 ## [4.7.5.1] - 2026-09-13 (Build 192) — *Der Hinweis, der vom Gaspedal abhielt*
 
 ### Bugfixes

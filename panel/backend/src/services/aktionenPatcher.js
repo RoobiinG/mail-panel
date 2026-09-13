@@ -80,6 +80,16 @@ function jsPlatzhalter(text, quelle) {
     '{{firma}}':        `\${${quelle}.firma}`,
     '{{datum}}':        `\${${quelle}.datum}`,
     '{{aktenzeichen}}': `\${${quelle}.aktenzeichen}`,
+    // Die internen Bausteine des Beleg-Presets. In ausdruck() stehen sie seit
+    // jeher (siehe PLATZHALTER oben), hier fehlten sie — und das fiel nicht auf,
+    // weil bisher nur der DATEINAME über diese Funktion lief, der Ordner aber
+    // über ausdruck(). Sobald ein Pfad hier hindurchmuss (Freigabe-Knoten),
+    // hätte entschaerfen() aus "{{beleg_t1}}/{{beleg_t2}}" wörtlich
+    // "(beleg_t1)/(beleg_t2)" gemacht: gültiger Code, korrekter Knoten, und
+    // jede Datei unter einem Ordner namens "(beleg_t1)".
+    '{{beleg_t1}}': `\${${quelle}.beleg_t1}`,
+    '{{beleg_t2}}': `\${${quelle}.beleg_t2}`,
+    '{{beleg_t3}}': `\${${quelle}.beleg_t3}`,
   };
   // Rückwärts-Anführungszeichen würden das Template beenden, ${…} beliebigen
   // Code einschleusen — beides wird entfernt, bevor die Platzhalter kommen.
@@ -354,6 +364,68 @@ function nextcloudDateiKnoten(aktion, konfig, position, credentialId) {
   };
 }
 
+// Statt hochzuladen: die Datei im Panel zur Freigabe abgeben.
+//
+// n8n kann nicht auf einen Menschen warten. Dieser Knoten liefert deshalb nur
+// ab und ist fertig; entschieden und hochgeladen wird später im Panel
+// (services/uploadFreigabe.js). Er ersetzt die ganze rechte Hälfte der Kette —
+// Ordner-Knoten, Bereitstellen und Upload entfallen, und die Aktion braucht
+// dann nicht einmal ein Nextcloud-Credential in n8n.
+//
+// Der Zielpfad wird hier schon ausgerechnet, damit in der Warteschlange ein
+// fertiger Vorschlag steht, den man ansehen und ändern kann.
+function freigabeKnoten(aktion, konfig, belegDatenName, position) {
+  const geheim = process.env.PANEL_SECRET || '';
+  const pfadAusdruck = jsPlatzhalter(pfadSaeubern((konfig || {}).ordner), 'j');
+
+  const jsCode = String.raw`// Vom Mail-Panel gepflegt, bitte nicht von Hand ändern.
+// Legt jeden Anhang zur Freigabe ins Panel, statt ihn hochzuladen.
+const __geheim = ${JSON.stringify(geheim)};
+let __ein = 0;
+let __ab = 0;
+for (const item of $(${JSON.stringify(belegDatenName)}).all()) {
+  const j = item.json || {};
+  const datei = (item.binary || {}).data;
+  if (!datei || !datei.data) { __ab++; continue; }
+  try {
+    const __r = await this.helpers.httpRequest({
+      method: 'POST', url: 'http://panel:3002/api/internal/upload-freigabe',
+      headers: { 'X-Panel-Secret': __geheim, 'Content-Type': 'application/json' },
+      body: {
+        aktion_id: ${Number(aktion.id) || 'null'},
+        aktion_name: ${JSON.stringify(String(aktion.name || ''))},
+        konto: j.konto, von: j.von, betreff: j.betreff, uid: j.uid,
+        ordner: j.ordner || 'INBOX',
+        dateiname: j.dateiname || datei.fileName,
+        zielpfad: ${pfadAusdruck},
+        groesse: datei.fileSize || 0,
+        firma: j.firma || null, aktenzeichen: j.aktenzeichen || null, datum: j.datum || null,
+        base64: datei.data,
+      },
+      json: true,
+    });
+    if (__r && __r.ok) __ein++;
+    else { __ab++; console.log('Nicht angenommen (' + ((__r && __r.grund) || 'unbekannt') + '): ' + (j.dateiname || '')); }
+  } catch (__e) {
+    __ab++;
+    console.log('Freigabe nicht möglich: ' + (__e.message || __e));
+  }
+}
+console.log(__ein + ' Datei(en) warten jetzt im Panel auf Freigabe, ' + __ab + ' nicht angenommen.');
+// Bewusst ohne Binärdaten: Der Lauf trüge die Dateien sonst ein zweites Mal mit
+// sich herum, obwohl sie längst im Panel liegen.
+return [{ json: { eingeliefert: __ein, abgewiesen: __ab } }];`;
+
+  return {
+    parameters: { mode: 'runOnceForAllItems', jsCode },
+    id: `${PRAEFIX}aktion-${aktion.id}-freigabe`,
+    name: `Zur Freigabe: ${aktion.name}`,
+    type: 'n8n-nodes-base.code',
+    typeVersion: 2,
+    position,
+  };
+}
+
 // Kalendereintrag per CalDAV — dafür genügt ein HTTP-Knoten mit Basic-Auth
 function nextcloudKalenderKnoten(aktion, konfig, position, credentialId) {
   const basis = String(settings.hole('nextcloud_url') || '').replace(/\/$/, '');
@@ -526,6 +598,16 @@ async function synchronisieren() {
       workflow.nodes.push(beleg);
       workflow.connections[wenn.name] = { main: [[{ node: beleg.name, type: 'main', index: 0 }], []] };
 
+      // Mit Freigabe endet die Kette hier: Die Datei geht ins Panel und wartet
+      // dort auf eine Entscheidung. Ordner anlegen und hochladen übernimmt dann
+      // das Panel — n8n kann nicht auf einen Menschen warten.
+      if (a.konfig.freigabe) {
+        const freigabe = freigabeKnoten(a, a.konfig, beleg.name, [700, y]);
+        workflow.nodes.push(freigabe);
+        workflow.connections[beleg.name] = { main: [[{ node: freigabe.name, type: 'main', index: 0 }]] };
+        return;
+      }
+
       const teile = pfadSaeubern(a.konfig.ordner).split('/').filter(Boolean);
       // Ist der Gesamtpfad dynamisch (Firma/Aktenzeichen …)? Dann darf kein
       // Ordner-Knoten der Kette den Item-Strom auf einen Anhang kürzen.
@@ -572,5 +654,6 @@ async function synchronisieren() {
 
 module.exports = {
   synchronisieren, veroeffentlichen, ausdruck, pfadSaeubern,
-  belegDatenKnoten, belegBereitstellenKnoten, ordnerKnoten, bedingungsKnoten,
+  belegDatenKnoten, belegBereitstellenKnoten, ordnerKnoten, bedingungsKnoten, freigabeKnoten,
+  jsPlatzhalter,
 };

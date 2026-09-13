@@ -245,6 +245,53 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_vorschlaege_status ON ordner_vorschlaege(status);
 
+  -- Anhaenge, die auf eine Freigabe warten, bevor sie in die Nextcloud gehen.
+  --
+  -- n8n kann nicht auf einen Menschen warten: Workflow 07 liefert die Datei ab
+  -- und laeuft weiter, hochgeladen wird spaeter hier im Panel — dasselbe Muster
+  -- wie bei ordner_vorschlaege, wo das Panel nach der Freigabe selbst per IMAP
+  -- verschiebt.
+  --
+  -- Vorschlag und Entscheidung stehen getrennt (wie ki_ordner/vorschlag in
+  -- sort_inbox): Nur so laesst sich hinterher sehen, was die Automatik wollte
+  -- und was der Mensch daraus gemacht hat.
+  --
+  -- Die Datei selbst liegt im Zwischenlager unter DATA_DIR, nicht als BLOB:
+  -- 15 MB je Zeile blaehen die WAL-Datei und jedes SELECT * auf. In "ablage"
+  -- steht nur der Dateiname, nie ein Pfad — DATA_DIR unterscheidet sich
+  -- zwischen Docker und Entwicklung.
+  CREATE TABLE IF NOT EXISTS upload_freigaben (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- Kein FOREIGN KEY: Wird die Aktion geloescht, bleibt die wartende Datei
+    -- trotzdem gueltig — sie ist ja schon da.
+    aktion_id INTEGER,
+    aktion_name TEXT,
+    konto TEXT,
+    von TEXT,
+    betreff TEXT,
+    uid TEXT,
+    ordner TEXT,
+    dateiname TEXT NOT NULL,
+    dateiname_final TEXT,
+    zielpfad TEXT NOT NULL,
+    zielpfad_final TEXT,
+    groesse INTEGER NOT NULL DEFAULT 0,
+    ablage TEXT NOT NULL,
+    firma TEXT,
+    aktenzeichen TEXT,
+    datum TEXT,
+    status TEXT NOT NULL DEFAULT 'offen' CHECK(status IN ('offen','hochgeladen','verworfen')),
+    fehler TEXT,
+    erledigt_am DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_upload_freigaben_status ON upload_freigaben(status);
+  -- Ein Wiederhollauf der Bestands-Triage liefert dieselbe Datei erneut ein.
+  -- Der Index verhindert die Dublette in der Warteschlange, laesst eine spaetere
+  -- Einlieferung nach dem Erledigen aber wieder zu.
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_upload_freigaben_offen
+    ON upload_freigaben(konto, uid, dateiname) WHERE status = 'offen';
+
   -- Umgeleitete Vorschlaege: "Das gehoert nicht in einen neuen Ordner, das
   -- gehoert nach X." Schlaegt die KI denselben Namen wieder vor, wird er direkt
   -- aufgeloest — es entsteht kein zweiter Ordner und keine neue Nachfrage.

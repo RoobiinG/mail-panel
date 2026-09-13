@@ -11,6 +11,7 @@ const budget  = require('../services/budget');
 const bestand = require('../services/bestand');
 const klassifizierer = require('../services/klassifizierer');
 const belegLeser = require('../services/belegLeser');
+const uploadFreigabe = require('../services/uploadFreigabe');
 const settings = require('../services/settings');
 const themen  = require('../services/themen');
 const imap    = require('../services/imap');
@@ -768,6 +769,31 @@ router.post('/anhaenge', express.json({ limit: '16kb' }), async (req, res) => {
     loggen('warn', 'aktionen',
       `Anhänge von ${konto}/${uid} konnten nicht geholt werden: ${err.message}`);
     res.json({ anhaenge: [], fehler: err.message });
+  }
+});
+
+// Eine Datei in die Freigabe-Warteschlange legen, statt sie sofort hochzuladen.
+//
+// Ruft der Freigabe-Knoten in Workflow 07 auf, wenn bei der Aktion „Vor dem
+// Hochladen fragen" eingeschaltet ist. Das Panel lädt danach selbst hoch —
+// n8n kann nicht auf eine menschliche Entscheidung warten.
+//
+// 25 MB, weil eine Datei bis 15 MB als base64 rund 20 MB wiegt. Der Pfad MUSS
+// in EIGENER_PARSER (index.js) stehen, sonst greift der globale 1-MB-Parser
+// davor und die Einlieferung stirbt mit 413, während der Lauf Erfolg meldet.
+router.post('/upload-freigabe', express.json({ limit: '25mb' }), async (req, res) => {
+  try {
+    const ergebnis = await uploadFreigabe.einliefern(req.body || {});
+    if (!ergebnis.ok) {
+      loggen('info', 'uploads',
+        `Datei nicht in die Warteschlange genommen (${ergebnis.grund}): `
+        + `${(req.body || {}).dateiname || 'ohne Namen'}`);
+    }
+    res.json(ergebnis);
+  } catch (err) {
+    // Niemals 5xx: Ein volles Volume darf den n8n-Lauf nicht rot färben.
+    loggen('warn', 'uploads', `Einlieferung fehlgeschlagen: ${err.message}`);
+    res.json({ ok: false, grund: 'fehler', fehler: err.message });
   }
 });
 

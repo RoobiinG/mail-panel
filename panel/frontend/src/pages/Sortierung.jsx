@@ -2,11 +2,13 @@ import React, { useState, useEffect } from 'react';
 import {
   Plus, Trash2, CheckCircle2, XCircle, AlertCircle, Inbox, Tag, ArrowRight,
   FolderTree, Sparkles, Lock, Unlock, RefreshCw, Check, Wand2,
-  ChevronRight, ChevronLeft, ChevronDown, Layers, AtSign, History, Undo2, Search
+  ChevronRight, ChevronLeft, ChevronDown, Layers, AtSign, History, Undo2, Search,
+  CloudUpload
 } from 'lucide-react';
 import api from '../api';
 import { useMelden } from '../components/ui/Meldungen';
 import BelegeKarte from '../components/BelegeKarte';
+import UploadFreigabenKarte from '../components/UploadFreigabenKarte';
 
 // "Name <a@b.de>" -> "a@b.de" bzw. "b.de"
 const adresse = (von) => {
@@ -96,7 +98,11 @@ export default function Sortierung() {
   const [konten, setKonten] = useState([]);
   const [aktivesKonto, setAktivesKonto] = useState('');
   const [tab, setTab] = useState('sortieren');
-  
+  // Wie viele Dateien auf eine Freigabe warten. Steht am Tab-Knopf, damit man es
+  // auch sieht, ohne den Tab zu öffnen — sonst wartet dort etwas und niemand
+  // erfährt davon.
+  const [offeneUploads, setOffeneUploads] = useState(0);
+
   const [regeln, setRegeln] = useState([]);
   const [inbox, setInbox] = useState([]);
   const [laedt, setLaedt] = useState(false);
@@ -249,6 +255,14 @@ export default function Sortierung() {
   };
 
   useEffect(() => { ladenInit(); }, []);
+
+  // Einmal beim Öffnen der Seite den Zähler für wartende Dateien holen. Die
+  // Karte meldet ihn später selbst nach jeder Aktion.
+  useEffect(() => {
+    api.get('/uploads')
+      .then((r) => setOffeneUploads(r.data.dateien?.length || 0))
+      .catch(() => { /* kein Grund, die Seite aufzuhalten */ });
+  }, []);
 
   const regelnLaden = async (kontoId) => {
     if (!kontoId) return;
@@ -1105,6 +1119,10 @@ export default function Sortierung() {
         <TabKnopf aktiv={tab === 'belege'} onClick={() => setTab('belege')} icon={Layers}>
           Belege
         </TabKnopf>
+        <TabKnopf aktiv={tab === 'freigaben'} onClick={() => setTab('freigaben')} icon={CloudUpload}
+          zahl={offeneUploads}>
+          Freigaben
+        </TabKnopf>
 
         <div className="ml-auto flex items-center gap-2 pr-1">
           <span className="text-xs text-panel-muted hidden sm:inline">Postfach</span>
@@ -1121,6 +1139,9 @@ export default function Sortierung() {
 
       {/* ══ Belege automatisch in Nextcloud ablegen ══ */}
       {tab === 'belege' && <BelegeKarte />}
+
+      {/* ══ Dateien, die vor dem Hochladen auf eine Entscheidung warten ══ */}
+      {tab === 'freigaben' && <UploadFreigabenKarte onAnzahl={setOffeneUploads} />}
 
       {/* ══ Die größten Absender — Aufräumen ohne KI ══ */}
       {tab === 'absender' && (
