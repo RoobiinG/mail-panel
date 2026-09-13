@@ -411,34 +411,64 @@ async function mailsSuchen({ ordner, von, betreff, ...konto }) {
 //
 // @param {Array<{uid: string|number, id?: any}>} mails
 // @returns {Promise<{verschoben: Array, fehler: Array<{uid, grund}>}>}
+// Wie viele UIDs in einem Rutsch. IMAP nimmt ganze Mengen entgegen
+// ("UID MOVE 1,5,9:20"), und genau das ist der Unterschied zwischen Sekunden
+// und Minuten: Eine Absender-Regel raeumt gern mehrere tausend Mails auf einmal
+// ab, und einzeln waeren das ebenso viele Rundreisen zum Server — die HTTP-
+// Anfrage dahinter laeuft vorher in ihr Zeitlimit.
+//
+// 200 ist ein Kompromiss: gross genug, dass die Rundreisen nicht ins Gewicht
+// fallen, klein genug fuer die Zeilenlaenge, die ein IMAP-Server annimmt.
+const VERSCHIEBE_BUENDEL = 200;
+
 async function mailsVerschieben({ mails, von = 'INBOX', nach, ...konto }) {
   if (!nach) throw new Error('Kein Zielordner angegeben.');
   const verschoben = [];
   const fehler = [];
   if (!mails?.length) return { verschoben, fehler };
 
+  // Unbrauchbare UIDs vorab aussortieren — sie wuerden sonst ein ganzes Buendel
+  // verderben.
+  const gueltig = [];
+  for (const mail of mails) {
+    const nummer = Number(mail.uid);
+    if (!Number.isInteger(nummer) || nummer <= 0) fehler.push({ uid: mail.uid, grund: 'ungültige UID' });
+    else gueltig.push({ mail, uid: nummer });
+  }
+  if (gueltig.length === 0) return { verschoben, fehler };
+
   const client = verbindung(konto);
   try {
     await client.connect();
     const schloss = await client.getMailboxLock(String(von));
     try {
-      for (const mail of mails) {
-        const nummer = Number(mail.uid);
-        if (!Number.isInteger(nummer) || nummer <= 0) {
-          fehler.push({ uid: mail.uid, grund: 'ungültige UID' });
-          continue;
-        }
+      for (let i = 0; i < gueltig.length; i += VERSCHIEBE_BUENDEL) {
+        const teil = gueltig.slice(i, i + VERSCHIEBE_BUENDEL);
         try {
-          const ergebnis = await client.messageMove(String(nummer), String(nach), { uid: true });
-          // Auch hier gilt: Eine nicht vorhandene UID ergibt keinen Fehler,
-          // sondern schlicht keine Bewegung. Das darf nicht als Erfolg zaehlen.
-          const bewegt = ergebnis?.uidMap instanceof Map
-            ? ergebnis.uidMap.size
-            : Object.keys(ergebnis?.uidMap || {}).length;
-          if (bewegt) verschoben.push(mail);
-          else fehler.push({ uid: mail.uid, grund: `nicht in "${von}" gefunden` });
+          const ergebnis = await client.messageMove(
+            teil.map((t) => t.uid).join(','), String(nach), { uid: true },
+          );
+          // Die uidMap bildet Quell- auf Ziel-UID ab (IMAP-Erweiterung UIDPLUS)
+          // und sagt damit genau, welche Mail wirklich bewegt wurde. Eine nicht
+          // vorhandene UID ergibt naemlich keinen Fehler, sondern schlicht keine
+          // Bewegung — das darf nicht als Erfolg zaehlen.
+          const map = ergebnis?.uidMap;
+          const bewegt = map instanceof Map
+            ? new Set([...map.keys()].map(Number))
+            : (map && typeof map === 'object' ? new Set(Object.keys(map).map(Number)) : null);
+
+          if (bewegt) {
+            for (const t of teil) {
+              if (bewegt.has(t.uid)) verschoben.push(t.mail);
+              else fehler.push({ uid: t.uid, grund: `nicht in "${von}" gefunden` });
+            }
+          } else {
+            // Server ohne UIDPLUS sagen nicht, welche Mails sie bewegt haben.
+            // Dann gilt: Der Befehl kam ohne Fehler zurueck, also hat er gewirkt.
+            for (const t of teil) verschoben.push(t.mail);
+          }
         } catch (err) {
-          fehler.push({ uid: mail.uid, grund: err.message });
+          for (const t of teil) fehler.push({ uid: t.uid, grund: err.message });
         }
       }
     } finally {
@@ -599,6 +629,7 @@ module.exports = {
   ordnerDetails,
   mailVerschieben,
   mailsVerschieben,
+  VERSCHIEBE_BUENDEL,
   mailsSuchen,
   anhaengeHolen,
   mailLaden,

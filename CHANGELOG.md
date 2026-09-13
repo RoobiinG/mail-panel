@@ -2,6 +2,43 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.8.1.0] - 2026-09-14 (Build 194) — *Tausende Mails in Sekunden statt Minuten*
+
+Anlass: Zwei Posteingänge mit zusammen rund 20.000 Mails. Die KI ist dafür das falsche
+Werkzeug — bei 25 bis 50 Einordnungen je Lauf dauert das Wochen. Der Absender-Weg
+(*Sortierung → Absender*) ist dafür gebaut: eine Regel für den größten Absender räumt
+Tausende auf einmal ab, ohne KI und ohne Budget. Nur hielt das Verschieben nicht mit.
+
+### Verbesserungen
+- **`imap.mailsVerschieben()` schickt jetzt Mengen (`services/imap.js`):**
+  Bisher ging jede Mail einzeln über die Leitung — ein `UID MOVE` je Mail. Für die paar
+  Mails aus der Sortier-Inbox reichte das; wer aber alle 3.000 Mails eines Newsletter-
+  Absenders abräumt, bekam ebenso viele Rundreisen zum Server, und die HTTP-Anfrage
+  dahinter lief vorher in ihr Zeitlimit. IMAP nimmt Mengen entgegen (`UID MOVE 1,5,9:20`),
+  und genau das nutzt die Funktion jetzt: **200 UIDs je Befehl**, aus 3.000 Einzelaufrufen
+  werden 15.
+
+  Die Genauigkeit bleibt: Ausgewertet wird die `uidMap` (IMAP-Erweiterung UIDPLUS), die
+  Quell- auf Ziel-UID abbildet und damit sagt, welche Mail wirklich bewegt wurde — eine
+  nicht mehr vorhandene UID wirft nämlich keinen Fehler, sie bewegt sich nur nicht. Kann
+  ein Server kein UIDPLUS, zählt wie bisher der ausgebliebene Fehler. Unbrauchbare UIDs
+  werden vorab aussortiert, damit sie kein ganzes Bündel verderben, und ein gescheitertes
+  Bündel reißt die folgenden nicht mit.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine.
+- **n8n-Workflow-Kompatibilität:** Keine Änderung — die Funktion läuft ausschließlich im
+  Panel (Sortier-Inbox, Absender-Regeln, Ordner-Freigabe, Newsletter-Cleanup).
+- **Neustart-/Session-Verhalten:** Reines Code-Update.
+- **Hinweis zur Bedienung, keine Codeänderung:** Welcher Ordner ein erkannter Newsletter
+  wird, steht je Konto unter *Konten → Kategorie-Ordner*. Bei einem web.de-Konto ist dort
+  oft „Werbung" eingetragen, weil web.de diesen Ordner mitbringt — erkannte Newsletter
+  landen dann dort und nicht in einem Ordner namens „Newsletter". Das ist die Einstellung,
+  nicht die Erkennung.
+
+---
+
+
 ## [4.8.0.0] - 2026-09-13 (Build 193) — *Erst ansehen, dann hochladen*
 
 Seit Build 191 legt Workflow 07 Belege tatsächlich in der Nextcloud ab — vorher lief die
