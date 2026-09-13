@@ -2,6 +2,47 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.7.4.2] - 2026-09-13 (Build 190) — *Eine Regel braucht eigene Belege*
+
+Der Bestandslauf läuft seit Build 189 durch (zwei Läufe, 270 s und 290 s, beide erfolgreich,
+120 von 120 Mails durchgelassen). Damit wird sichtbar, was vorher nie so weit kam: das
+automatische Regel-Lernen.
+
+### Bugfixes
+- **Gelernt wurde aus den Mails anderer Absender (`themen.js`):**
+  `regelLernen()` zählte, wie viele Mails dieser **Domain** schon in diesem Ordner gelandet
+  sind — legte die Regel dann aber auf den **exakten Absender** an. Damit stützte die
+  Erfahrung mit Absender A eine Dauerregel für Absender B; genau die Fehleranfälligkeit,
+  wegen der die Domain-Regeln seinerzeit abgeschaltet wurden, nur eine Ebene tiefer. Im Log
+  vom 13.09. stand das nebeneinander:
+
+  ```
+  Regel gelernt [absender]: suche@portal.example    → Newsletter (3 Mails)
+  Regel gelernt [absender]: konto@portal.example → Rechnungen (3 Mails)
+  ```
+
+  Beide „3 Mails" waren dieselbe Domain-Zählung, nicht drei Mails je Absender. Gezählt wird
+  jetzt nach der Absenderadresse; die Log-Zeile sagt das auch ausdrücklich („3 Mails von
+  diesem Absender"). Eine solche Regel sortiert neunzig Tage lang ohne KI und ohne Rückfrage
+  — sie ist das Folgenreichste, was das Panel von allein tut, und eine falsche fällt
+  niemandem auf, weil danach genau nichts mehr passiert.
+- **Das Regel-Lernen war ungetestet.** Neu hält `test/regel-lernen.test.js` fest, woraus eine
+  Dauerregel entstehen darf: eigene Belege, derselbe Zielordner, unabhängig von der
+  Schreibweise der Adresse — und nie, wenn schon eine Regel des Nutzers greift.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine.
+- **n8n-Workflow-Kompatibilität:** Keine Änderung an den Workflows.
+- **Neustart-/Session-Verhalten:** Reines Code-Update.
+- **Achtung — bestehende Regeln werden nicht bereinigt:** Was unter der alten Zählung
+  entstanden ist, bleibt in `sort_rules` stehen und sortiert weiter. Der Bestand ist seit
+  dem 12.09. von 110 auf 135 Regeln gewachsen; die neueren davon lohnen einen Blick unter
+  *Sortierung → Regeln*. Automatisch löschen wäre falsch — darunter sind auch die
+  richtigen, und welche das sind, weiß nur der Nutzer.
+
+---
+
+
 ## [4.7.4.1] - 2026-09-12 (Build 189) — *Eine Mail reißt nicht mehr 119 mit*
 
 Die Fehleranzeige aus Build 188 hat gleich beim ersten Einsatz geliefert — und die

@@ -641,20 +641,34 @@ function regelLernen(kontoId, von, ordner) {
 
   if (schonDa('domain', domain) || schonDa('absender', adresse)) return false;
 
-  // Wer ist aus dieser Domain schon in diesem Ordner gelandet? Gezaehlt wird im
-  // Triage-Log — eine eigene Tabelle braucht es dafuer nicht.
+  // Wie oft ist DIESER Absender schon in diesem Ordner gelandet? Gezaehlt wird
+  // im Triage-Log — eine eigene Tabelle braucht es dafuer nicht.
+  //
+  // Gezaehlt wurde bis Build 189 nach der DOMAIN, waehrend die Regel auf den
+  // exakten Absender ging. Damit stuetzte die Erfahrung mit Absender A eine
+  // Dauerregel fuer Absender B — genau die Fehleranfaelligkeit, wegen der die
+  // Domain-Regeln abgeschaltet wurden, nur eine Ebene tiefer. Im Betrieb sah das
+  // am 13.09. so aus:
+  //
+  //     Regel gelernt [absender]: suche@portal.example   → Newsletter (3 Mails)
+  //     Regel gelernt [absender]: konto@portal.example → Rechnungen (3 Mails)
+  //
+  // Beide „3 Mails" waren dieselbe Domain-Zaehlung, nicht drei Mails je
+  // Absender. Eine Regel, die aus Fremdbelegen entsteht, faellt niemandem auf
+  // und bleibt neunzig Tage bestehen.
   const zeilen = db.prepare(`
     SELECT von FROM quarantine_log
     WHERE konto = ? AND zielordner = ? AND created_at >= datetime('now', '-90 day')
   `).all(konto.name, ordner);
 
-  const ausDomain = zeilen.filter((z) => sortierung.domain(z.von) === domain);
+  const vomAbsender = zeilen.filter((z) => sortierung.adresse(z.von) === adresse);
 
   let typ = null;
   // Automatische Domain-Regeln abgeschaltet (zu fehleranfaellig bei Diensten
   // wie Amazon, die Bestellungen und Newsletter ueber dieselbe Domain schicken).
-  // Es wird nur noch auf exakten Absender gelernt.
-  if (ausDomain.length >= LERNSCHWELLE) typ = 'absender';
+  // Es wird nur noch auf exakten Absender gelernt — und auch nur aus dem, was
+  // dieser Absender selbst belegt.
+  if (vomAbsender.length >= LERNSCHWELLE) typ = 'absender';
   if (!typ) return false;
 
   const muster = adresse;
@@ -662,7 +676,7 @@ function regelLernen(kontoId, von, ordner) {
     'INSERT INTO sort_rules (konto_id, typ, muster, zielordner) VALUES (?, ?, ?, ?)',
   ).run(kontoId, typ, muster, ordner);
   loggen('info', 'themen',
-    `Regel gelernt [${typ}]: ${muster} → ${ordner} (Konto ${konto.name}, ${ausDomain.length} Mails)`);
+    `Regel gelernt [${typ}]: ${muster} → ${ordner} (Konto ${konto.name}, ${vomAbsender.length} Mails von diesem Absender)`);
   return { typ, muster, zielordner: ordner };
 }
 
