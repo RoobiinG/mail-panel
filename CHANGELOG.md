@@ -2,6 +2,51 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.7.5.0] - 2026-09-13 (Build 191) — *Workflow 07 lädt endlich hoch*
+
+Seit es die eigenen Aktionen gibt, ist nie eine Datei auf der Nextcloud angekommen —
+und zwar lautlos: Der Workflow meldete jedes Mal „erfolgreich", nach null Sekunden.
+Drei Stellen zusammen sorgten dafür.
+
+### Bugfixes
+- **Die Anhang-Bedingung war dauerhaft falsch (`aktionenPatcher.js`):**
+  „Hat Anhang" prüfte `$binary`. Das löst in einem IF-Knoten gar nicht auf — derselbe
+  Stolperstein, der in Workflow 01/04 längst ausgebaut ist (`anhangKetteReparieren`,
+  Punkt 3), in Workflow 07 aber stehen blieb. Die Kette lief damit nie an. Geprüft wird
+  jetzt `$json.hat_anhang`, das der Normalisierer beider Workflows ohnehin setzt.
+- **Die Dateien waren nie da, wo der Beleg-Knoten sie suchte (`aktionenPatcher.js`):**
+  Er las `item.binary` — die Abruf-Knoten holen aber nur `attachmentsInfo`, also Namen
+  und Größen. Das ist Absicht: Bei 120 Mails je Lauf wären die Dateien eine erhebliche
+  Last, und gebraucht werden sie nur hier. Der Beleg-Knoten holt sie jetzt über die UID
+  vom Panel — derselbe Weg, den der Virenscan seit jeher geht.
+- **Workflow 07 wurde beim Update nie neu geschrieben (`autoSync.js`):**
+  Er entstand ausschließlich neu, wenn jemand eine Aktion anlegte oder änderte. Ändert
+  sich der erzeugte Code, blieb in n8n der alte Knoten stehen — und nichts deutete darauf
+  hin. Genau so hätte auch dieser Fix wirkungslos bleiben können. Der automatische
+  Abgleich zieht Workflow 07 jetzt mit; ohne angelegte Aktionen kostet das nichts.
+
+### Neu
+- **`POST /api/internal/anhaenge`** liefert die Anhänge einer Mail als base64, adressiert
+  über Konto, UID und Ordner. Grenzen, weil eine Mail kein vertrauenswürdiger Absender
+  ist: höchstens zehn Dateien, zusammen 15 MB. Was darüber liegt, kommt mit Namen und
+  Größe, aber ohne Inhalt zurück — dann steht wenigstens im Lauf, warum nichts kam.
+  Ist die Mail inzwischen verschoben (Workflow 07 läuft parallel zum Einsortieren),
+  antwortet der Endpunkt mit einer leeren Liste statt mit einem Fehler.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine.
+- **n8n-Workflow-Kompatibilität:** **Workflow 07 ändert sich** (Bedingung und Beleg-Knoten).
+  Kein Neu-Import nötig: Der automatische Abgleich schreibt ihn beim Containerstart neu —
+  das ist der Punkt oben. Wer `auto_sync` abgeschaltet hat, speichert einmal eine Aktion
+  oder drückt *Workflows → Synchronisieren*.
+- **Neustart-/Session-Verhalten:** Reines Code-Update.
+- **Zu beachten:** Hochgeladen wird weiterhin nur, was die Vorfilter passiert — PDFs, nicht
+  kleiner als 5 kB, und keine AGB/Widerrufsbelehrungen. Wer Belege erwartet und keine
+  bekommt, findet die übersprungenen Dateien jetzt namentlich im Lauf-Log von n8n.
+
+---
+
+
 ## [4.7.4.2] - 2026-09-13 (Build 190) — *Eine Regel braucht eigene Belege*
 
 Der Bestandslauf läuft seit Build 189 durch (zwei Läufe, 270 s und 290 s, beide erfolgreich,

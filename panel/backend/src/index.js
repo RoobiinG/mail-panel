@@ -85,6 +85,7 @@ const EIGENER_PARSER = new Set([
   '/api/internal/klassifizieren', // der ganze Lauf auf einmal (25 MB)
   '/api/internal/budget',         // eigene, engere Grenze (512 kB)
   '/api/internal/scan-anhaenge',  // eigene, engere Grenze (16 kB)
+  '/api/internal/anhaenge',       // eigene, engere Grenze (16 kB) — nur konto/uid/ordner
 ]);
 const globalJson = express.json({ limit: '1mb' });
 app.use((req, res, next) => {

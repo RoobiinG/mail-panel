@@ -52,6 +52,24 @@ async function jetzt(grund) {
     await patcher.basisSetup();
     const liste = konten();
     const ergebnis = liste.length > 0 ? await patcher.alleSynchronisieren(liste) : [];
+
+    // Workflow 07 gehört dazu.
+    //
+    // Bis Build 190 wurde er ausschließlich neu geschrieben, wenn jemand eine
+    // Aktion anlegte oder änderte (routes/aktionen.js). Ändert sich der Code,
+    // den der Patcher erzeugt, blieb in n8n also der alte Knoten stehen — und
+    // niemand konnte wissen, dass er alt ist. Genau so überlebte der
+    // Anhang-Fehler jedes Update: Die Kette lief nie an, der Lauf meldete
+    // trotzdem „erfolgreich".
+    //
+    // Bewusst in einem eigenen try: Wer gar keine Aktionen angelegt hat, soll
+    // deswegen keinen fehlgeschlagenen Abgleich im Log stehen haben.
+    try {
+      await require('./aktionenPatcher').synchronisieren();
+    } catch (err) {
+      loggen('warn', 'backend:autosync', `Eigene Aktionen nicht abgeglichen: ${err.message}`);
+    }
+
     letzterLauf = { zeitpunkt: new Date().toISOString(), ok: true, grund };
     loggen('info', 'backend:autosync', `Workflows abgeglichen (${grund}).`);
     return { ok: true, ergebnis };

@@ -705,6 +705,72 @@ router.post('/scan', express.raw({ type: '*/*', limit: '50mb' }), async (req, re
 // Bestands-Triage liefert überhaupt keine Dateiinhalte (nur Namen und Größen), und
 // über den Umweg mit den Binärdaten wurde immer nur der erste Anhang geprüft.
 // Zugangsdaten kommen ausschließlich aus der Datenbank, nie aus der Anfrage.
+// Die Anhänge einer Mail als base64 — für die eigenen Aktionen in Workflow 07.
+//
+// Warum das nötig ist: Die Abruf-Knoten holen `attachmentsInfo`, also nur Namen
+// und Größen, nicht die Dateien (siehe workflowPatcher.js). Das ist Absicht —
+// bei 120 Mails je Lauf wären die Dateien eine erhebliche Last, und gebraucht
+// werden sie nur in Ausnahmefällen. Der Virenscan holt sie deshalb seit jeher
+// über die UID hier ab, und Workflow 07 tut das ab jetzt genauso.
+//
+// Ohne diesen Weg lief die Upload-Kette ins Leere: Der Beleg-Knoten suchte die
+// Anhänge in `item.binary`, das in beiden Workflows leer ist. Der Lauf meldete
+// „erfolgreich" nach null Sekunden, und es wurde nie eine Datei hochgeladen.
+//
+// Grenzen, weil eine Mail kein vertrauenswürdiger Absender ist: höchstens zehn
+// Dateien und zusammen 15 MB. Was darüber liegt, kommt mit Namen und Größe,
+// aber ohne Inhalt zurück — dann steht wenigstens im Lauf, warum nichts kam.
+const ANHANG_MAX_ANZAHL = 10;
+const ANHANG_MAX_GESAMT = 15 * 1024 * 1024;
+
+router.post('/anhaenge', express.json({ limit: '16kb' }), async (req, res) => {
+  const { konto, uid, ordner } = req.body || {};
+  try {
+    if (!konto) return res.status(400).json({ anhaenge: [], fehler: 'Kein Konto angegeben.' });
+
+    const zeile = db.prepare('SELECT * FROM accounts WHERE name = ? AND aktiv = 1').get(String(konto));
+    if (!zeile) return res.status(404).json({ anhaenge: [], fehler: `Unbekanntes Konto: ${konto}` });
+
+    const { anhaenge } = await imap.anhaengeHolen({
+      host: zeile.host,
+      port: zeile.port,
+      username: zeile.username,
+      passwort: entschluesseln(zeile.password_enc),
+      tlsUnsicher: Boolean(zeile.tls_unsicher),
+      ordner: ordner || 'INBOX',
+      uid,
+    });
+
+    const raus = [];
+    let gesamt = 0;
+    for (const anhang of anhaenge) {
+      if (raus.length >= ANHANG_MAX_ANZAHL) break;
+      if (anhang.fehler || !anhang.inhalt) {
+        raus.push({ name: anhang.name, fehler: anhang.fehler || 'kein Inhalt' });
+        continue;
+      }
+      if (gesamt + anhang.inhalt.length > ANHANG_MAX_GESAMT) {
+        raus.push({ name: anhang.name, groesse: anhang.inhalt.length, fehler: 'zusammen zu groß' });
+        continue;
+      }
+      gesamt += anhang.inhalt.length;
+      raus.push({
+        name: anhang.name,
+        groesse: anhang.inhalt.length,
+        base64: anhang.inhalt.toString('base64'),
+      });
+    }
+    res.json({ anhaenge: raus });
+  } catch (err) {
+    // Die Mail kann inzwischen verschoben worden sein — Workflow 07 läuft
+    // parallel zum Einsortieren. Dann ist die UID im alten Ordner weg, und das
+    // ist kein Grund, den Lauf scheitern zu lassen.
+    loggen('warn', 'aktionen',
+      `Anhänge von ${konto}/${uid} konnten nicht geholt werden: ${err.message}`);
+    res.json({ anhaenge: [], fehler: err.message });
+  }
+});
+
 router.post('/scan-anhaenge', express.json({ limit: '16kb' }), async (req, res) => {
   const { konto, uid, ordner } = req.body || {};
   try {

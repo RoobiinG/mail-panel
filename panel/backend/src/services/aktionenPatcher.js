@@ -106,8 +106,18 @@ function bedingungsKnoten(aktion, bedingung, position) {
   const regeln = (bedingung.regeln || []).map((r, i) => ({
     id: `regel-${aktion.id}-${i}`,
     leftValue: r.feld === 'hat_anhang'
-      // Anhänge stecken nicht im JSON, sondern in den Binärdaten des Items
-      ? '={{ $binary ? Object.keys($binary).length > 0 : false }}'
+      // Das gewöhnliche Feld, nicht $binary.
+      //
+      // `$binary` löst in einem IF-Knoten gar nicht auf — derselbe Stolperstein,
+      // der in Workflow 01/04 längst ausgebaut ist (workflowPatcher.js,
+      // anhangKetteReparieren, Punkt 3). Hier blieb er stehen, und damit war
+      // jede Anhang-Bedingung in Workflow 07 dauerhaft falsch: Die Kette lief
+      // nie an, der Lauf meldete nach null Sekunden „erfolgreich", und es wurde
+      // nie eine Datei hochgeladen.
+      //
+      // `hat_anhang` setzt der Normalisierer beider Workflows ins JSON und
+      // reicht es über die `...mail`-Kopien bis hierher durch.
+      ? '={{ $json.hat_anhang }}'
       : `={{ $json.${r.feld} }}`,
     rightValue: r.vergleich === 'ist_wahr' ? '' : r.wert,
     operator: OPERATOR[r.vergleich],
@@ -236,13 +246,48 @@ const BLOCK = /agb|widerruf|datenschutz|teilnahmebedingung|nutzungsbedingung|hin
 const __geheim = ${JSON.stringify(geheim)};
 const out = [];
 for (const mail of $('${quellKnotenName}').all()) {
-  const bin = mail.binary || {};
-  for (const prop of Object.keys(bin)) {
-    const datei = bin[prop];
-    const fn = String((datei && datei.fileName) || prop || 'anhang');
+  // Die Dateien holt das Panel über die UID.
+  //
+  // Bis Build 190 stand hier "mail.binary" — und das ist leer: Die Abruf-Knoten
+  // holen nur "attachmentsInfo" (Namen und Größen), nicht die Dateien. Bei 120
+  // Mails je Lauf wäre alles andere eine erhebliche Last, und gebraucht werden
+  // sie nur hier. Die Folge war, dass diese Schleife nie einen Durchlauf hatte:
+  // Der Workflow meldete nach null Sekunden „erfolgreich", ohne je etwas
+  // hochzuladen. Der Virenscan geht denselben Weg über die UID.
+  let __dateien = [];
+  try {
+    const __r = await this.helpers.httpRequest({
+      method: 'POST', url: 'http://panel:3002/api/internal/anhaenge',
+      headers: { 'X-Panel-Secret': __geheim, 'Content-Type': 'application/json' },
+      body: {
+        konto: mail.json.konto,
+        uid: mail.json.uid,
+        ordner: mail.json.ordner || 'INBOX',
+      },
+      json: true,
+    });
+    __dateien = (__r && __r.anhaenge) || [];
+  } catch (__e) {
+    console.log('Anhänge nicht abrufbar: ' + (__e.message || __e));
+    continue;
+  }
+  for (const __a of __dateien) {
+    // Ohne Inhalt kam die Datei nicht durch (zu groß, oder die Mail war schon
+    // verschoben). Der Name steht trotzdem im Lauf — das ist der Hinweis.
+    if (!__a || !__a.base64) {
+      if (__a && __a.fehler) console.log('Anhang "' + __a.name + '" übersprungen: ' + __a.fehler);
+      continue;
+    }
+    const fn = String(__a.name || 'anhang');
+    const groesse = Number(__a.groesse || 0);
+    const datei = {
+      data: __a.base64,
+      fileName: fn,
+      fileSize: groesse,
+      mimeType: /\.pdf$/i.test(fn) ? 'application/pdf' : 'application/octet-stream',
+    };
     if (!istPdf(datei, fn)) continue;
     if (BLOCK.test(fn)) continue;
-    const groesse = Number((datei && datei.fileSize) || 0);
     if (groesse && groesse < 5000) continue;
     let firma = firmaAus(mail.json.von);
     let datum = heute();
@@ -527,5 +572,5 @@ async function synchronisieren() {
 
 module.exports = {
   synchronisieren, veroeffentlichen, ausdruck, pfadSaeubern,
-  belegDatenKnoten, belegBereitstellenKnoten, ordnerKnoten,
+  belegDatenKnoten, belegBereitstellenKnoten, ordnerKnoten, bedingungsKnoten,
 };
