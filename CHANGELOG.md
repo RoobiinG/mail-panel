@@ -2,6 +2,23 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [5.1.2.1] - 2026-09-14 (Build 204) — *Nachtrag zu Build 203*
+
+Build 203 hatte beim Umbau ein `</div>` zu viel stehen — der Frontend-Build brach deshalb mit
+„Unterminated regular expression" ab (eine irreführende Fehlermeldung von esbuild; Ursache war
+die unausgeglichene Verschachtelung, nicht ein Regex). Der Testlauf lief noch grün, weil er nur
+das Backend prüft — den Docker-Build selbst, der das Frontend übersetzt, gibt es zu Build 203
+nicht. Jetzt entfernt.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine.
+- **n8n-Workflow-Kompatibilität:** Keine.
+- **Neustart-/Session-Verhalten:** Keine Verhaltensänderung gegenüber Build 203 — nur der Build
+  selbst. Wer Build 203 sucht: Es gibt kein Image dazu, die Funktionen stecken in diesem hier.
+
+---
+
+
 ## [5.1.2.0] - 2026-09-14 (Build 203) — *Ein eigener Platz für die Nachsortierung*
 
 Die Nachsortierung stand als Anhängsel unter der Sortier-Inbox — auf Bildschirmen unter der

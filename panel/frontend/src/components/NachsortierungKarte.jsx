@@ -372,6 +372,5 @@ export default function NachsortierungKarte({ ordner = [] }) {
           </div>
         </div>
       </div>
-    </div>
   );
 }
