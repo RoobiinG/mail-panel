@@ -288,8 +288,25 @@ const MAX_IM_PROMPT = 40;
 // Höchstens so viele wartende Vorschläge wandern zusätzlich in den Prompt.
 const MAX_VORSCHLAEGE_IM_PROMPT = 15;
 
-function fuerPrompt(kontoId) {
-  const liste = katalog(kontoId).slice(0, MAX_IM_PROMPT).map((o) => {
+/**
+ * Die Ordnerliste für den Prompt.
+ *
+ * Ausgewählt wird nach Treffern (der meistgenutzte Ordner ist der wichtigste),
+ * ausgegeben wird alphabetisch — und das ist kein Schönheitsentscheid.
+ *
+ * Vorher stand der meistgenutzte Ordner ganz oben in der Liste. Ein kleines
+ * Modell, das nicht wirklich entscheidet, nimmt den ersten Eintrag. Der bekam
+ * dadurch noch mehr Treffer und stand beim nächsten Lauf noch sicherer oben.
+ * Am 14.09. waren das 42 Mails in „Anbieter, Vertraege und co.", darunter Bestell-
+ * und Versandbestätigungen eines Versandhändlers. Wer die Position als Signal
+ * benutzt, darf sie nicht aus dem Ergebnis ableiten.
+ *
+ * @param {number} kontoId
+ * @param {number} [max] Wie viele Einträge insgesamt in den Prompt dürfen.
+ */
+function fuerPrompt(kontoId, max = MAX_IM_PROMPT) {
+  const grenze = Math.max(1, Number(max) || MAX_IM_PROMPT);
+  const liste = katalog(kontoId).slice(0, grenze).map((o) => {
     const gelernt = gelernteListe(o);
     return {
       name: o.ordner,
@@ -315,10 +332,11 @@ function fuerPrompt(kontoId) {
   } catch { offen = []; }
 
   for (const v of offen.slice(0, MAX_VORSCHLAEGE_IM_PROMPT)) {
+    if (liste.length >= grenze) break;
     if (liste.some((o) => aehnlich(o.name, v.ordner))) continue;
     liste.push({ name: v.ordner, beschreibung: 'vorgeschlagen, noch nicht angelegt' });
   }
-  return liste;
+  return liste.sort((a, b) => String(a.name).localeCompare(String(b.name), 'de'));
 }
 
 // ─── Stichworte aus der Ordner-Beschreibung ──────────────────────────────────
@@ -476,17 +494,62 @@ function aliasVergessen(id) {
   return db.prepare('DELETE FROM ordner_alias WHERE id = ?').run(Number(id)).changes > 0;
 }
 
+// ─── Wenn das Modell die Prompt-Zeile zurückschickt ──────────────────────────
+//
+// Im Prompt steht jeder Ordner als eine Zeile aus Name und Erklärung. Ein
+// kleines Modell gibt diese Zeile gern komplett zurück, statt nur den Namen
+// herauszulösen. Am 14.09. sah das im Protokoll so aus:
+//
+//     thema: "Anbieter, Vertraege und co. — E-Mails von Unternehmen und Dienstleistern, die mi"
+//
+// Genau 50 Zeichen Beschreibung, mitten im Wort abgeschnitten — die Länge, auf
+// die klassifizierer.js sie für die lokale KI kappt. Das ist keine Einordnung,
+// das ist ein Echo.
+//
+// Schlimmer als der hässliche Eintrag ist, was daraus folgte: aehnlich() hält
+// den kürzeren Begriff, der vollständig im längeren steckt, für dasselbe. Der
+// Name steht ja am Anfang der Zeile — also traf das Echo immer, und jede Mail
+// landete im erstbesten Ordner der Liste.
+//
+// Die Trenner sind genau die, die das Panel selbst erzeugt (": ", " — ", " · ").
+// Ein Doppelpunkt ohne Leerzeichen bleibt unangetastet, sonst würde aus
+// "NEU:Games" ein "NEU".
+const BESCHREIBUNG_TRENNER = /\s*[:·]\s+|\s+[—–]\s+|\s+-\s+/;
+
+function vorschlagSaeubern(roh) {
+  let s = String(roh ?? '').trim();
+  if (!s) return '';
+  s = s.replace(/^[-*•]\s+/, '');                  // Listenzeichen der Prompt-Zeile
+  s = s.replace(/^NEU\s*:\s*/i, '').trim();        // die vereinbarte Vorschlagsform
+  s = s.replace(/^["'`]+|["'`]+$/g, '').trim();    // Anführungszeichen um den Namen
+  const treffer = s.match(BESCHREIBUNG_TRENNER);
+  if (treffer && treffer.index > 0) s = s.slice(0, treffer.index).trim();
+  return s.replace(/^["'`]+|["'`]+$/g, '').trim();
+}
+
 // Findet einen Katalogeintrag zum Vorschlag der KI. Sie antwortet mal mit dem
-// vollen Pfad ("Themen/Games"), mal nur mit dem letzten Stueck ("Games").
+// vollen Pfad ("Themen/Games"), mal nur mit dem letzten Stueck ("Games") — und
+// mal mit der ganzen Prompt-Zeile, siehe oben.
 function imKatalog(kontoId, vorschlag) {
-  const gesucht = String(vorschlag || '').replace(/^NEU\s*:\s*/i, '').trim().toLowerCase();
-  if (!gesucht) return null;
+  const roh = String(vorschlag || '').replace(/^NEU\s*:\s*/i, '').trim().toLowerCase();
+  const sauber = vorschlagSaeubern(vorschlag).toLowerCase();
+  const kandidaten = [...new Set([roh, sauber].filter(Boolean))];
+  if (!kandidaten.length) return null;
   const liste = katalog(kontoId);
-  for (const eintrag of liste) {
-    const pfad = String(eintrag.ordner).toLowerCase();
-    const letztes = pfad.split(/[/.]/).pop();
-    if (pfad === gesucht || letztes === gesucht) return eintrag;
+
+  // Exakt zuerst, und zwar mit dem Rohwert vor dem gesäuberten: Ein Ordner, der
+  // selbst einen Gedankenstrich im Namen trägt, darf nicht am Säubern scheitern.
+  for (const gesucht of kandidaten) {
+    for (const eintrag of liste) {
+      const pfad = String(eintrag.ordner).toLowerCase();
+      const letztes = pfad.split(/[/.]/).pop();
+      if (pfad === gesucht || letztes === gesucht) return eintrag;
+    }
   }
+
+  // Alles Unscharfe läuft nur noch auf dem gesäuberten Namen. Sonst zieht die
+  // angehängte Beschreibung wieder irgendeinen Ordner heran.
+  const gesucht = sauber || roh;
 
   // Hat der Nutzer diesen Namen einmal umgeleitet, gilt seine Entscheidung —
   // und zwar vor jeder Ähnlichkeitsrechnerei.
@@ -657,26 +720,52 @@ function regelLernen(kontoId, von, ordner) {
   // Absender. Eine Regel, die aus Fremdbelegen entsteht, faellt niemandem auf
   // und bleibt neunzig Tage bestehen.
   const zeilen = db.prepare(`
-    SELECT von FROM quarantine_log
-    WHERE konto = ? AND zielordner = ? AND created_at >= datetime('now', '-90 day')
-  `).all(konto.name, ordner);
+    SELECT von, zielordner FROM quarantine_log
+    WHERE konto = ? AND zielordner IS NOT NULL AND zielordner != ''
+      AND created_at >= datetime('now', '-90 day')
+  `).all(konto.name);
 
+  // Abgefragt werden jetzt ALLE Ordner, nicht nur der eine. Nur so ist zu sehen,
+  // ob die drei Mails ein Muster sind oder bloss drei von fuenf.
   const vomAbsender = zeilen.filter((z) => sortierung.adresse(z.von) === adresse);
+  const hierher = vomAbsender.filter((z) => z.zielordner === ordner);
 
-  let typ = null;
   // Automatische Domain-Regeln abgeschaltet (zu fehleranfaellig bei Diensten
   // wie Amazon, die Bestellungen und Newsletter ueber dieselbe Domain schicken).
   // Es wird nur noch auf exakten Absender gelernt — und auch nur aus dem, was
   // dieser Absender selbst belegt.
-  if (vomAbsender.length >= LERNSCHWELLE) typ = 'absender';
-  if (!typ) return false;
+  if (hierher.length < LERNSCHWELLE) return false;
+  const typ = 'absender';
+
+  // Eine Dauerregel aus widerspruechlichen Belegen ist schlimmer als keine.
+  //
+  // Am 14.09. stufte das Modell dieselbe Mail innerhalb eines Laufs dreimal
+  // verschieden ein. Aus solchen Laeufen entstanden Regeln wie
+  // „security@netzwerk.example → Games": neunzig Tage lang wandert dann jede weitere
+  // Mail dieses Absenders dorthin — ohne KI, ohne dass es noch auffaellt.
+  //
+  // Gelernt wird deshalb nur, wenn dieser Absender bisher IMMER im selben Ordner
+  // gelandet ist. Wer wirklich zweierlei verschickt (ein Versandhaendler mit
+  // Bestellbestaetigungen und Werbung), bekommt gar keine Regel — richtig so,
+  // denn genau dafuer wurden die Domain-Regeln schon einmal abgeschaltet.
+  //
+  // Die Pruefung steht bewusst NACH der Schwelle: Sonst schriebe sie bei jeder
+  // einzelnen Mail eines uneinheitlichen Absenders eine Logzeile. Gemeldet wird
+  // nur, was ohne sie tatsaechlich gelernt worden waere.
+  const ziele = new Set(vomAbsender.map((z) => z.zielordner));
+  if (ziele.size > 1) {
+    loggen('info', 'themen',
+      `Keine Regel für ${adresse} gelernt: Mails dieses Absenders gingen nach `
+      + `${[...ziele].slice(0, 4).join(', ')}. Solange das uneinheitlich ist, entscheidet die KI weiter.`);
+    return false;
+  }
 
   const muster = adresse;
   db.prepare(
     'INSERT INTO sort_rules (konto_id, typ, muster, zielordner) VALUES (?, ?, ?, ?)',
   ).run(kontoId, typ, muster, ordner);
   loggen('info', 'themen',
-    `Regel gelernt [${typ}]: ${muster} → ${ordner} (Konto ${konto.name}, ${vomAbsender.length} Mails von diesem Absender)`);
+    `Regel gelernt [${typ}]: ${muster} → ${ordner} (Konto ${konto.name}, ${hierher.length} Mails von diesem Absender, alle in denselben Ordner)`);
   return { typ, muster, zielordner: ordner };
 }
 
@@ -1018,6 +1107,7 @@ module.exports = {
   katalog,
   fuerPrompt,
   imKatalog,
+  vorschlagSaeubern,
   ausPostfachEinlesen,
   systemordnerSperren,
   regelLernen,

@@ -250,19 +250,39 @@ function buendeln(gruppen, bekannt) {
 
 // ─── Der Prompt ──────────────────────────────────────────────────────────────
 
+// An der Wortgrenze kappen statt mitten im Wort.
+//
+// Aus „…und Dienstleistern, die mi" wird sonst ein Satzfragment, das kein
+// Modell mehr einordnen kann — und das genau so im Protokoll auftauchte, weil
+// es als Ordnername zurueckkam.
+function kurzGekappt(text, grenze) {
+  const s = String(text || '').trim();
+  if (s.length <= grenze) return s;
+  const teil = s.slice(0, grenze);
+  const luecke = teil.lastIndexOf(' ');
+  return (luecke > grenze * 0.6 ? teil.slice(0, luecke) : teil).replace(/[\s,;:.-]+$/, '');
+}
+
 function themenBlock(konto) {
   const e = themen.einstellungen();
   if (!e.aktiv) return '';
   const istOllama = (settings.hole('ki_anbieter') || 'gemini') === 'ollama';
 
-  const alleThemen = themen.fuerPrompt(konto && konto.id);
-  const liste = (istOllama ? alleThemen.slice(0, 15) : alleThemen)
+  // Der Name in Anfuehrungszeichen, die Erklaerung hinter dem Doppelpunkt.
+  //
+  // Vorher stand hier `- Name — Beschreibung`. Ein kleines Modell gab diese
+  // Zeile komplett zurueck, und weil der Name vorne steht, fand die
+  // Ordnersuche trotzdem einen Treffer — irgendeinen. Anfuehrungszeichen
+  // markieren, was genau uebernommen werden soll; themen.vorschlagSaeubern()
+  // faengt den Rest ab.
+  //
+  // Die Obergrenze fuer die lokale KI gehoert in die Auswahl, nicht dahinter:
+  // fuerPrompt() gibt alphabetisch zurueck, ein Abschneiden danach wuerde nach
+  // Anfangsbuchstabe aussieben statt nach Bedeutung.
+  const liste = themen.fuerPrompt(konto && konto.id, istOllama ? 15 : undefined)
     .map((o) => {
-      if (istOllama) {
-        const kurzDesc = o.beschreibung ? ` — ${o.beschreibung.slice(0, 50)}` : '';
-        return `- ${o.name}${kurzDesc}`;
-      }
-      return `- ${o.name}${o.beschreibung ? ` — ${o.beschreibung}` : ''}`;
+      const desc = istOllama ? kurzGekappt(o.beschreibung, 50) : o.beschreibung;
+      return `- "${o.name}"${desc ? `: ${desc}` : ''}`;
     })
     .join('\n') || '(noch keiner angelegt)';
 
@@ -278,10 +298,11 @@ function themenBlock(konto) {
       + '- Bevor du einen neuen Namen erfindest: Geh die Liste oben noch einmal durch. Steht dort schon etwas, das dasselbe meint — auch in Einzahl statt Mehrzahl, anderer Schreibweise oder auf Englisch —, nimm diesen Namen unveraendert.'
     : '- Passt keiner davon, lass das Feld leer (""). Neue Ordner sind nicht erlaubt.';
 
-  return `\n\nVorhandene Themen-Ordner:\n${liste}\n\n`
+  return `\n\nVorhandene Themen-Ordner — in Anfuehrungszeichen der Name, dahinter wofuer er da ist:\n${liste}\n\n`
     + 'Bestimme fuer jede Mail zusaetzlich das Feld "ordner" — den Themen-Ordner, in den sie gehoert:\n'
-    + '- Passt einer der vorhandenen Ordner inhaltlich, nimm ihn genau so, wie er oben steht.\n'
-    + '- Hinter dem Gedankenstrich stehen BEISPIELE, keine vollstaendige Liste. Erkenne daran, WOFUER der Ordner da ist, und ordne auch Absender ein, die dazu passen, aber nicht genannt sind. Steht dort "Vodafone, Sky, Netflix", gehoert auch eine Mail von o2, 1&1 oder Disney+ dorthin.\n'
+    + '- Als Wert kommt NUR der Name aus den Anfuehrungszeichen infrage, Zeichen fuer Zeichen. Niemals der Text hinter dem Doppelpunkt, niemals die ganze Zeile, niemals ein Teil dieser Anweisung.\n'
+    + '- Der Text hinter dem Doppelpunkt sagt, WOFUER der Ordner da ist. Er nennt Beispiele, keine vollstaendige Liste — ordne auch Absender ein, die dazu passen, aber dort nicht stehen.\n'
+    + '- Passt kein Ordner deutlich besser als die anderen, lass das Feld leer (""). Der erste Ordner der Liste ist nicht der Standard.\n'
     + `${neuRegel}\n`
     + '- Lass das Feld leer ("") nur, wenn die Mail kein erkennbares Sachthema hat: reine Werbung ohne Bezug, Systemmeldungen, kurze persoenliche Nachrichten.\n'
     + '- Das Sachthema zaehlt, nicht die Form. Ein Newsletter ueber Spiele gehoert nach "Games", nicht in einen Ordner namens "Newsletter".\n'
@@ -453,7 +474,12 @@ function antwortZuordnen(daten, gruppen) {
       kategorie: kategoriePruefen(eintrag.kategorie),
       spam_score: Number(eintrag.spam_score) || 0,
       kurzfassung: String(eintrag.kurzfassung || ''),
-      ordner: eintrag.ordner ? String(eintrag.ordner) : null,
+      // Hier und nicht spaeter: Was das Modell als Ordner zurueckgibt, ist oft
+      // die ganze Prompt-Zeile samt Erklaerung ("Games — Steam, Epic, Konsolen").
+      // Gesaeubert wird deshalb an der Stelle, an der die Antwort entsteht —
+      // danach steht der saubere Name in jeder Datenbankzeile, in der
+      // Sortier-Inbox und in der Chronik, nicht nur in der Entscheidung.
+      ordner: eintrag.ordner ? (themen.vorschlagSaeubern(eintrag.ordner) || null) : null,
       konfidenz: Number(eintrag.konfidenz) || 0,
     });
   }

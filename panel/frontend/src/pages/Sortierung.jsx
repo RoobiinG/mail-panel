@@ -104,10 +104,16 @@ export default function Sortierung() {
   const [offeneUploads, setOffeneUploads] = useState(0);
 
   const [regeln, setRegeln] = useState([]);
+  // Die Suche läuft im Backend, nicht hier. Bei 159 Regeln wäre beides gleich
+  // schnell — aber sie werden gelernt, und zwar schneller, als man sie ansieht.
+  const [regelSuche, setRegelSuche] = useState('');
+  const [regelZahlen, setRegelZahlen] = useState({ gesamt: 0, gefiltert: 0 });
   const [inbox, setInbox] = useState([]);
   const [laedt, setLaedt] = useState(false);
 
-  // Modal: Neue Regel
+  // Modal: Regel anlegen ODER ändern. Mit `id` wird daraus eine Änderung —
+  // sonst müsste man zum Korrigieren löschen und neu tippen und verlöre dabei
+  // den Trefferzähler.
   const [regelModal, setRegelModal] = useState({
     offen: false, typ: 'absender', muster: '', zielordner: ''
   });
@@ -264,20 +270,37 @@ export default function Sortierung() {
       .catch(() => { /* kein Grund, die Seite aufzuhalten */ });
   }, []);
 
-  const regelnLaden = async (kontoId) => {
+  const regelnLaden = async (kontoId, suche = regelSuche) => {
     if (!kontoId) return;
     setLaedt(true);
     try {
+      const frage = `/sortierung/regeln?konto_id=${kontoId}`
+        + (suche ? `&suche=${encodeURIComponent(suche)}` : '');
       const [{ data }, zus] = await Promise.all([
-        api.get(`/sortierung/regeln?konto_id=${kontoId}`),
+        api.get(frage),
         api.get(`/sortierung/regeln/zusammenfassbar?konto_id=${kontoId}`).catch(() => ({ data: [] })),
       ]);
-      setRegeln(data || []);
+      // Die Route gab früher das blanke Array zurück. Beides annehmen, damit ein
+      // Browser mit altem Cache nicht auf eine leere Liste sieht.
+      const liste = Array.isArray(data) ? data : (data?.regeln || []);
+      setRegeln(liste);
+      setRegelZahlen(Array.isArray(data)
+        ? { gesamt: liste.length, gefiltert: liste.length }
+        : { gesamt: data?.gesamt || 0, gefiltert: data?.gefiltert || 0 });
       setZusammenfassbar(zus.data || []);
     } catch { /* leer */ } finally {
       setLaedt(false);
     }
   };
+
+  // Getippt wird schneller, als das Backend antworten kann — deshalb erst eine
+  // kurze Pause abwarten, sonst läuft je Buchstabe eine Abfrage.
+  useEffect(() => {
+    if (!aktivesKonto) return undefined;
+    const timer = setTimeout(() => regelnLaden(aktivesKonto, regelSuche), 250);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [regelSuche]);
 
   const regelnZusammenfassen = async (gruppe) => {
     const text = `${gruppe.regeln.length} Einzelregeln durch eine Regel für @${gruppe.domain} ersetzen?\n\n`
@@ -923,20 +946,39 @@ export default function Sortierung() {
 
   const regelSpeichern = async (e) => {
     e.preventDefault();
+    const rumpf = {
+      typ: regelModal.typ,
+      muster: regelModal.muster,
+      zielordner: regelModal.zielordner,
+      aktion: regelModal.behalten ? 'behalten' : 'verschieben',
+    };
     try {
-      await api.post('/sortierung/regeln', {
-        konto_id: aktivesKonto,
-        typ: regelModal.typ,
-        muster: regelModal.muster,
-        zielordner: regelModal.zielordner,
-        aktion: regelModal.behalten ? 'behalten' : 'verschieben',
-      });
+      if (regelModal.id) {
+        // Ändern verschiebt bewusst nichts nach: Was schon falsch einsortiert
+        // wurde, liegt nicht mehr im Posteingang, sondern im falschen Ordner —
+        // dort greift keine Sortier-Regel mehr.
+        const { data } = await api.put(`/sortierung/regeln/${regelModal.id}`, rumpf);
+        melden(data.ordnerAngelegt
+          ? `Regel geändert. Der Ordner „${regelModal.zielordner}" wurde neu angelegt.`
+          : 'Regel geändert.');
+      } else {
+        await api.post('/sortierung/regeln', { konto_id: aktivesKonto, ...rumpf });
+      }
       setRegelModal({ offen: false, typ: 'absender', muster: '', zielordner: '', behalten: false });
       regelnLaden(aktivesKonto);
     } catch (err) {
       melden(err.response?.data?.error || 'Fehler beim Speichern', 'fehler');
     }
   };
+
+  const regelBearbeiten = (r) => setRegelModal({
+    offen: true,
+    id: r.id,
+    typ: r.typ,
+    muster: r.muster,
+    zielordner: r.zielordner || '',
+    behalten: (r.aktion || 'verschieben') === 'behalten',
+  });
 
   // "In Ruhe lassen": eine Regel, die nichts verschiebt. Die Mails bleiben im
   // Posteingang und werden nicht mehr zur Zuordnung vorgelegt — für alles, was
@@ -2108,10 +2150,28 @@ export default function Sortierung() {
           <div className="p-4 border-b border-panel-border bg-panel-card/50 flex flex-wrap gap-4 justify-between items-center">
             <h2 className="font-medium flex items-center gap-2">
               <Tag size={18} className="text-panel-accent" /> Sortier-Regeln
+              {regelZahlen.gesamt > 0 && (
+                <span className="text-xs font-normal text-panel-muted">
+                  {regelSuche
+                    ? `${regelZahlen.gefiltert} von ${regelZahlen.gesamt}`
+                    : `${regelZahlen.gesamt}`}
+                </span>
+              )}
             </h2>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-panel-muted pointer-events-none" />
+                <input
+                  type="search"
+                  value={regelSuche}
+                  onChange={e => setRegelSuche(e.target.value)}
+                  placeholder="Absender oder Ordner…"
+                  className="!py-1.5 !pl-7 !pr-2 text-sm w-44 sm:w-56"
+                  disabled={!aktivesKonto}
+                />
+              </div>
               <button
-                onClick={() => setRegelModal(p => ({ ...p, offen: true }))}
+                onClick={() => setRegelModal({ offen: true, typ: 'absender', muster: '', zielordner: '', behalten: false })}
                 className="btn !py-1.5 !px-3 text-sm flex items-center gap-1"
                 disabled={!aktivesKonto}
               >
@@ -2140,8 +2200,12 @@ export default function Sortierung() {
           <div className="flex-1 overflow-auto max-h-[500px]">
             {regeln.length === 0 ? (
               <p className="p-6 text-center text-panel-muted text-sm">
-                Keine Regeln für dieses Konto hinterlegt.<br/>
-                Mails dieses Kontos, die nicht manuell sortiert werden, landen in der Inbox.
+                {regelSuche ? (
+                  <>Keine Regel enthält „{regelSuche}".<br/>Gesucht wird in Muster und Zielordner.</>
+                ) : (
+                  <>Keine Regeln für dieses Konto hinterlegt.<br/>
+                  Mails dieses Kontos, die nicht manuell sortiert werden, landen in der Inbox.</>
+                )}
               </p>
             ) : (
               <table className="w-full text-sm">
@@ -2166,7 +2230,10 @@ export default function Sortierung() {
                           : <span className="text-panel-accent">{r.zielordner}</span>}
                       </td>
                       <td className="py-3 px-4 text-center text-xs text-panel-muted">{r.treffer}</td>
-                      <td className="py-3 px-4 text-right">
+                      <td className="py-3 px-4 text-right whitespace-nowrap">
+                        <button onClick={() => regelBearbeiten(r)} className="btn-ghost !px-2" title="Bearbeiten">
+                          <Wand2 size={16} />
+                        </button>
                         <button onClick={() => regelLoeschen(r.id)} className="btn-ghost !px-2 text-panel-red" title="Löschen">
                           <Trash2 size={16} />
                         </button>
@@ -2483,8 +2550,16 @@ export default function Sortierung() {
       {regelModal.offen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <form onSubmit={regelSpeichern} className="card w-full max-w-md space-y-4 shadow-2xl">
-            <h2 className="text-xl font-semibold">Neue Sortier-Regel</h2>
-            
+            <h2 className="text-xl font-semibold">
+              {regelModal.id ? 'Sortier-Regel ändern' : 'Neue Sortier-Regel'}
+            </h2>
+            {regelModal.id && (
+              <p className="text-xs text-panel-muted -mt-2">
+                Gilt ab sofort für neue Mails. Bereits falsch einsortierte Mails liegen nicht mehr im
+                Posteingang — die holt man über „Chronik" oder von Hand zurück.
+              </p>
+            )}
+
             <label className="block space-y-1">
               <span className="text-sm font-medium">Bedingungstyp</span>
               <select

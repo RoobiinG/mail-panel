@@ -269,7 +269,18 @@ describe('Der Prompt', () => {
     await k.klassifizieren([mail(1), mail(2), mail(3)]);
     const treffer = (gefragt[0].match(/Vorhandene Themen-Ordner/g) || []).length;
     assert.equal(treffer, 1, 'genau darin liegt die Tokenersparnis');
-    assert.match(gefragt[0], /- Games — Steam, Epic/);
+    // Der Name in Anführungszeichen, die Erklärung dahinter. Vorher stand hier
+    // „- Games — Steam, Epic"; ein kleines Modell gab diese Zeile komplett
+    // zurück, und weil der Name vorne steht, fand die Ordnersuche trotzdem
+    // einen Treffer — irgendeinen (siehe themen-echo.test.js).
+    assert.match(gefragt[0], /- "Games": Steam, Epic/);
+  });
+
+  test('das Modell wird auf den Namen in Anführungszeichen festgelegt', async () => {
+    settings.setze('themen_sortierung_aktiv', '1');
+    antwortenMit(brav);
+    await k.klassifizieren([mail(1)]);
+    assert.match(gefragt[0], /NUR der Name aus den Anfuehrungszeichen/);
   });
 });
 

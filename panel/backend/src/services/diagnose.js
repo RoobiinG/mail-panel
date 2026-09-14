@@ -19,6 +19,7 @@ const net = require('net');
 const path = require('path');
 const db = require('../db');
 const settings = require('./settings');
+const telegram = require('./telegram');
 
 const MB = 1024 * 1024;
 
@@ -188,6 +189,11 @@ function konfiguration() {
   const geheim = [
     'gemini_api_key', 'n8n_api_key', 'mailcow_api_key', 'safebrowsing_api_key',
     'telegram_token', 'nextcloud_passwort', 'smtp_passwort', 'sicherung_passwort',
+    // Kein Geheimnis, steht aber trotzdem nur als „gesetzt" hier: Eine Chat-ID
+    // zeigt auf einen realen Menschen, und ein Diagnose-Bericht ist zum
+    // Weitergeben gedacht. Für die Fehlersuche zählt ohnehin nur, OB sie da ist —
+    // ohne sie kann Workflow 02 nichts zustellen.
+    'telegram_chat_id',
   ];
   const werte = {};
   for (const k of offen) {
@@ -291,11 +297,28 @@ async function workflows() {
         const p = k.parameters || {};
         const js = String(p.jsCode || '');
         const url = String(p.url || '');
-        const interessant = url || js.includes('candidates[0]') || js.includes('PANEL:')
+        // Telegram und der Postausgang gehören dazu, obwohl sie weder Adresse
+        // noch Code haben. Genau das war die Lücke: Ein stillgelegter
+        // Telegram-Knoten tauchte im Bericht nirgends auf, der Lauf war grün,
+        // und die Frage „warum kommt keine Nachricht?" liess sich aus dem
+        // Bericht nicht beantworten.
+        const meldeTyp = typ === 'telegram' || typ === 'telegramTrigger' || typ === 'emailSend';
+        const interessant = url || meldeTyp || js.includes('candidates[0]') || js.includes('PANEL:')
           || typ === 'emailReadImap' || typ.includes('Trigger') || typ === 'scheduleTrigger';
         if (!interessant) continue;
 
         const zeile = { name: k.name, typ, ...(k.disabled ? { deaktiviert: true } : {}) };
+        if (meldeTyp) {
+          // Ohne Zugangsdaten legt der Patcher den Knoten still; n8n überspringt
+          // ihn dann wortlos.
+          zeile.zugangsdaten = k.credentials && Object.keys(k.credentials).length
+            ? 'hinterlegt' : 'FEHLEN';
+        }
+        if (typ === 'telegram') {
+          // Die Chat-ID selbst gehört nicht in einen Bericht, der weitergegeben
+          // wird — nur, ob dort noch der Platzhalter aus der Vorlage steht.
+          zeile.chatId = telegram.istPlatzhalter(p.chatId) ? 'PLATZHALTER (nie eingetragen)' : 'gesetzt';
+        }
         if (url) {
           // Dieselbe Maskierung wie bei den Einstellungen: Der KI-Knoten trägt
           // die Ollama-Adresse samt Basic-Auth, sonst stünde das Passwort hier

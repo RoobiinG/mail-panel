@@ -2,6 +2,102 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.9.0.0] - 2026-09-14 (Build 196) — *Das Echo im Prompt*
+
+Drei Beobachtungen aus dem Betrieb, die sich als dasselbe Muster erwiesen: Etwas tut nichts,
+und niemand erfährt davon. Der Telegram-Digest lief grün und verschickte nichts; das Modell
+schrieb die Prompt-Zeile ab, statt einzuordnen; und aus solchen Läufen entstanden Dauerregeln,
+die neunzig Tage lang ohne Rückfrage weitersortieren.
+
+### Features
+- **Regeln lassen sich durchsuchen (`routes/sortierung.js`, `pages/Sortierung.jsx`):**
+  `GET /api/sortierung/regeln` nimmt jetzt `suche`, `limit` und `offset` und sucht in Muster
+  **und** Zielordner — „wohin geht dieser Absender?" und „was landet alles in Rechnungen?"
+  sind dieselbe Frage an dieselbe Liste. Sortiert wird nach Treffern: Die Regel, die am
+  meisten bewegt, steht oben. Die Antwort ist jetzt ein Objekt (`{regeln, gesamt, gefiltert}`)
+  statt eines blanken Arrays — ohne die Trefferzahl weiß die Oberfläche nicht, ob sie alles
+  zeigt. In der Oberfläche steht ein Suchfeld über der Liste.
+- **Regeln lassen sich ändern (`PUT /api/sortierung/regeln/:id`):**
+  Bisher gab es nur Anlegen und Löschen. Wer eine falsch gelernte Regel geradeziehen wollte,
+  musste sie löschen und neu tippen — und verlor dabei den Trefferzähler, also die einzige
+  Zahl, die sagt, wie viel diese Regel schon bewegt hat. Geändert werden können Typ, Muster,
+  Zielordner und „in Ruhe lassen"; ein neuer Zielordner wird im Postfach angelegt, doppelte
+  Muster werden abgewiesen.
+- **Telegram-Testnachricht (`services/telegram.js`, Einstellungen → Telegram):**
+  Das Panel kann jetzt selbst eine Nachricht schicken und sagt, woran es liegt, wenn sie nicht
+  ankommt. Als einziger der Verbindungstests verschickt dieser wirklich etwas — anders lässt
+  sich nicht feststellen, ob der Bot senden *darf*. Die drei Fälle, die von außen gleich
+  aussehen, sind jetzt unterscheidbar: falscher Token (401), falsche Chat-ID („chat not
+  found", mit dem Weg zur eigenen ID) und der häufigste — der Bot darf niemanden von sich aus
+  anschreiben, im Chat muss einmal „Start" gedrückt worden sein.
+
+### Bugfixes
+- **Das Modell gab die Prompt-Zeile als Ordner zurück (`services/themen.js`,
+  `services/klassifizierer.js`):** Im Protokoll stand als Thema
+  `"<Ordnername> — E-Mails von Unternehmen und Dienstleistern, die mi"` — genau 50 Zeichen
+  Beschreibung, mitten im Wort abgeschnitten, also die Länge, auf die der Prompt sie für die
+  lokale KI kappt. Das ist keine Einordnung, sondern ein Echo. Und es *traf* trotzdem:
+  `aehnlich()` hält den kürzeren Begriff, der vollständig im längeren steckt, für dasselbe,
+  und der Name steht ja am Anfang der Zeile. Neu: `themen.vorschlagSaeubern()` schneidet die
+  Erklärung ab, sobald die Antwort entsteht; `imKatalog()` sucht exakt mit dem Rohwert und
+  unscharf nur noch mit dem gesäuberten Namen; im Prompt steht der Name jetzt in
+  Anführungszeichen, die Erklärung hinter einem Doppelpunkt, und die Anweisung sagt
+  ausdrücklich, dass nur der Name aus den Anführungszeichen als Wert infrage kommt.
+- **Die Reihenfolge im Prompt war ein Signal, das sich selbst verstärkte
+  (`themen.fuerPrompt`):** Ausgegeben wurde nach Treffern absteigend — der meistgenutzte
+  Ordner stand ganz oben. Ein kleines Modell, das nicht wirklich entscheidet, nimmt den ersten
+  Eintrag; der bekam dadurch noch mehr Treffer und stand beim nächsten Lauf noch sicherer
+  oben. So sammelten sich 42 Mails in einem Ordner für Telefon- und Streaming-Verträge,
+  darunter Versand- und Bestellbestätigungen. Ausgewählt wird weiter nach Treffern (bei
+  lokaler KI passen nur 15 Ordner in den Prompt), ausgegeben wird jetzt alphabetisch.
+- **Beschreibungen werden an der Wortgrenze gekappt**, nicht mitten im Wort. Ein Satzfragment
+  wie „…und Dienstleistern, die mi" kann kein Modell einordnen.
+- **Dauerregeln aus widersprüchlichen Belegen (`themen.regelLernen`):** Das Modell stufte
+  dieselbe Mail innerhalb eines Laufs dreimal verschieden ein. Daraus entstanden Regeln wie
+  „security@netzwerk.example → Games", die dann neunzig Tage lang jede weitere Mail dieses Absenders
+  dorthin schoben — ohne KI, ohne dass es noch auffiel. Gelernt wird jetzt nur noch, wenn
+  dieser Absender bisher **immer** im selben Ordner gelandet ist. Wer wirklich zweierlei
+  verschickt (Bestellbestätigungen und Werbung über dieselbe Adresse), bekommt gar keine
+  Regel — genau dafür wurden die Domain-Regeln schon einmal abgeschaltet.
+- **Telegram-Knoten wurden über ihren Namen gefunden, stillgelegt aber über ihren Typ
+  (`services/workflowPatcher.js`):** Wer einen Knoten in n8n umbenannte oder einen Workflow
+  aus einer älteren Vorlage verwendete, bekam nie Zugangsdaten angeheftet — stillgelegt wurde
+  er trotzdem. Das ergibt den Fehler, der am schwersten zu finden ist: Ein stillgelegter
+  Knoten wird übersprungen, ohne einen Fehler zu erzeugen, der Lauf meldet Erfolg, und die
+  Nachricht kommt trotzdem nie an. Zugeordnet wird jetzt über den Knotentyp.
+- **Ein abgelehntes Credential riss den ganzen Workflow-Abgleich mit (`workflowPatcher.js`):**
+  Die drei `credentialErneuern`-Aufrufe lagen ungesichert vor dem großen `try`. Scheiterte
+  einer, flog die Ausnahme aus der Funktion und **kein** Workflow wurde mehr angepasst — aus
+  einem abgelehnten Telegram-Token wurde ein stehengebliebener Abgleich, den niemand mit
+  Telegram in Verbindung bringt. Jetzt ist jedes Credential einzeln abgesichert und schreibt
+  im Fehlerfall eine Zeile ins Panel-Log.
+- **Der stille Ausfall bekommt eine Stimme:** Ist ein Bot-Token hinterlegt und trotzdem ein
+  Telegram-Knoten stillgelegt — oder steht im Knoten noch der Platzhalter `DEINE_CHAT_ID` —,
+  schreibt der Abgleich eine Warnung ins Panel-Log. Ohne Token bleibt es still: Wer Telegram
+  nicht nutzt, hat stillgelegte Knoten mit Absicht.
+- **Diagnose-Bericht (`services/diagnose.js`):** Telegram- und Postausgang-Knoten erscheinen
+  jetzt im Bericht, mit `deaktiviert`, `zugangsdaten` und — bei Telegram — ob die Chat-ID
+  gesetzt ist oder noch der Platzhalter dort steht. Vorher wurden nur Knoten mit Adresse oder
+  Code aufgeführt; die Frage „warum kommt keine Nachricht?" ließ sich aus dem Bericht nicht
+  beantworten. Die Chat-ID selbst steht nur als „gesetzt" dort: Sie zeigt auf einen realen
+  Menschen, und ein Diagnose-Bericht ist zum Weitergeben gedacht.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine. `sort_rules` bleibt unverändert.
+- **n8n-Workflow-Kompatibilität:** Kein Neuimport nötig. Beim nächsten Abgleich bekommen
+  Telegram-Knoten ihre Zugangsdaten über den Typ zugeordnet; ein wegen fehlender Zugangsdaten
+  stillgelegter Knoten wird dabei wieder eingeschaltet.
+- **Schnittstelle:** `GET /api/sortierung/regeln` liefert ein Objekt statt eines Arrays. Die
+  Oberfläche nimmt weiterhin beides an, damit ein Browser mit altem Stand nicht auf eine leere
+  Liste sieht.
+- **Neustart-/Session-Verhalten:** Reines Code-Update.
+- **Zu beachten:** Schon gelernte Fehlregeln bleiben bestehen — die neue Prüfung greift erst
+  beim nächsten Lernen. Sie lassen sich jetzt über das Suchfeld finden und ändern, statt sie
+  löschen und neu anlegen zu müssen. Und: Der Telegram-Test verschickt eine echte Nachricht.
+
+---
+
+
 ## [4.8.1.1] - 2026-09-14 (Build 195) — *Der Abbrechen-Knopf, der nie etwas abbrach*
 
 Im Panel stand „läuft seit 5 Std. 57 Min." neben einem Bestandslauf, der längst vorbei war —

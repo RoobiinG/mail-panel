@@ -981,6 +981,13 @@ export default function Einstellungen() {
             <Feld label="Chat-ID" value={settings.telegram_chat_id} placeholder="123456789"
               disabled={settings.telegram_chat_id_per_env} onChange={v => set('telegram_chat_id', v)} />
             <SpeichernBtn onSpeichern={() => speichern('telegram')} meldung={meldung.telegram} />
+            <div className="pt-2 border-t border-panel-border/50">
+              <p className="text-[10px] text-panel-muted/80 mb-1">
+                Der Test verschickt wirklich eine Nachricht — nur so zeigt sich, ob der Bot senden darf.
+                Ein Bot darf niemanden zuerst anschreiben: Im Chat muss einmal „Start" gedrückt worden sein.
+              </p>
+              <TestZeile id="telegram" label="Testnachricht senden" onTest={testen} tests={tests} />
+            </div>
           </Card>
 
           <Card title={<><Server size={13} /> Spam-Prüfung</>}>

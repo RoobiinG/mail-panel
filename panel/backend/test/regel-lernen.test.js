@@ -88,6 +88,57 @@ describe('Gelernt wird nur aus dem, was der Absender selbst belegt', () => {
   });
 });
 
+// Der zweite Fall, aus dem Betrieb am 14.09.: Das Modell stufte dieselbe Mail
+// innerhalb eines Laufs dreimal verschieden ein — einmal „newsletter", zweimal
+// „rechnung", mit drei verschiedenen Themen. Aus solchen Läufen entstand
+//
+//     Regel gelernt [absender]: marktplatz@versand.example → Anbieter, Vertraege und co.
+//
+// und damit wanderte neunzig Tage lang jede Versandbestätigung dieses Absenders
+// in einen Ordner für Telefon- und Streaming-Verträge. Ohne KI, ohne Rückfrage,
+// ohne dass es noch auffiel.
+describe('Widersprüchliche Belege ergeben keine Regel', () => {
+  test('derselbe Absender in zwei Ordnern: nichts wird gelernt', () => {
+    for (let i = 0; i < 3; i++) log('marktplatz@versand.example', 'Bestellungen');
+    log('marktplatz@versand.example', 'Werbung');
+
+    assert.equal(
+      themen.regelLernen(kontoId(), 'marktplatz@versand.example', 'Bestellungen'),
+      false,
+      'drei Treffer reichen nicht, wenn derselbe Absender auch anderswo landet',
+    );
+    assert.equal(regeln().length, 0);
+  });
+
+  test('erst wenn es eindeutig ist, wird gelernt', () => {
+    for (let i = 0; i < 3; i++) log('marktplatz@versand.example', 'Bestellungen');
+    const gelernt = themen.regelLernen(kontoId(), 'marktplatz@versand.example', 'Bestellungen');
+    assert.ok(gelernt);
+    assert.equal(gelernt.zielordner, 'Bestellungen');
+  });
+
+  // Ein Versandhändler, der Bestellbestätigungen UND Werbung schickt, bekommt
+  // gar keine Regel. Richtig so: Genau dafür wurden die Domain-Regeln schon
+  // einmal abgeschaltet.
+  test('wer zweierlei verschickt, bekommt keine Dauerregel', () => {
+    for (let i = 0; i < 5; i++) log('info@versand.example', 'Bestellungen');
+    for (let i = 0; i < 5; i++) log('info@versand.example', 'Newsletter');
+    assert.equal(themen.regelLernen(kontoId(), 'info@versand.example', 'Bestellungen'), false);
+    assert.equal(themen.regelLernen(kontoId(), 'info@versand.example', 'Newsletter'), false);
+  });
+
+  // Ein anderer Absender darf weiter lernen, auch wenn der Nachbar uneindeutig
+  // ist — gezählt wird ja je Absender.
+  test('der Widerspruch eines anderen Absenders stört nicht', () => {
+    log('durcheinander@versand.example', 'Bestellungen');
+    log('durcheinander@versand.example', 'Newsletter');
+    for (let i = 0; i < 3; i++) log('klar@versand.example', 'Bestellungen');
+
+    const gelernt = themen.regelLernen(kontoId(), 'klar@versand.example', 'Bestellungen');
+    assert.ok(gelernt, 'die Belege dieses Absenders sind eindeutig');
+  });
+});
+
 describe('Was schon geregelt ist, wird nicht neu gelernt', () => {
   test('eine vorhandene Absender-Regel genügt', () => {
     db.prepare("INSERT INTO sort_rules (konto_id, typ, muster, zielordner) VALUES (?, 'absender', 'a@shop.de', 'X')")

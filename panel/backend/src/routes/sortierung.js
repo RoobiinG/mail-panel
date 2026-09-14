@@ -16,13 +16,123 @@ const { entschluesseln } = require('../services/crypto');
 
 const router = express.Router();
 
-// GET /api/sortierung/regeln?konto_id=1 — Regeln fuer ein Konto
+// Für LIKE: Prozent, Unterstrich und der Escape selbst dürfen nicht als
+// Platzhalter wirken. Ohne das findet die Suche nach "_" jede Regel.
+const likeSicher = (text) => String(text).replace(/[\\%_]/g, (z) => `\\${z}`);
+
+// Wie viele Regeln ohne ausdrückliche Angabe zurückkommen.
+//
+// Aus 136 Regeln wurden binnen einer Woche 159, fast alle gelernt. Die Liste
+// vollständig auszuliefern und im Browser zu filtern hätte eine Weile noch
+// funktioniert — aber die Frage, die man vor dieser Liste hat, lautet nie „zeig
+// mir alle", sondern „was ist für diesen Absender hinterlegt?".
+const REGELN_PRO_SEITE = 200;
+
+// GET /api/sortierung/regeln?konto_id=1&suche=otto&limit=50&offset=0
+//
+// Antwortet mit einem Objekt, nicht mehr mit dem blanken Array: Ohne die Zahl
+// der Treffer neben der Seite weiss die Oberflaeche nicht, ob sie alles zeigt.
 router.get('/regeln', (req, res) => {
   const konto_id = Number(req.query.konto_id);
   if (!konto_id) return res.status(400).json({ error: 'konto_id fehlt' });
+  const suche = String(req.query.suche || '').trim();
+  const limit = Math.min(1000, Math.max(1, Number(req.query.limit) || REGELN_PRO_SEITE));
+  const offset = Math.max(0, Number(req.query.offset) || 0);
   try {
-    const regeln = db.prepare('SELECT * FROM sort_rules WHERE konto_id = ? ORDER BY created_at DESC').all(konto_id);
-    res.json(regeln);
+    // Gesucht wird über Muster UND Zielordner: „Wohin geht Otto?" und „Was
+    // landet alles in Rechnungen?" sind dieselbe Frage an dieselbe Liste.
+    const wo = ['konto_id = ?'];
+    const werte = [konto_id];
+    if (suche) {
+      wo.push("(muster LIKE ? ESCAPE '\\' OR zielordner LIKE ? ESCAPE '\\')");
+      werte.push(`%${likeSicher(suche)}%`, `%${likeSicher(suche)}%`);
+    }
+    const bedingung = wo.join(' AND ');
+
+    const gefiltert = db.prepare(`SELECT COUNT(*) AS n FROM sort_rules WHERE ${bedingung}`)
+      .get(...werte).n;
+    const gesamt = suche
+      ? db.prepare('SELECT COUNT(*) AS n FROM sort_rules WHERE konto_id = ?').get(konto_id).n
+      : gefiltert;
+    // Treffer zuerst: Eine Regel, die oft greift, ist die, die man sucht — und
+    // die, deren Fehler am meisten anrichtet.
+    const regeln = db.prepare(
+      `SELECT * FROM sort_rules WHERE ${bedingung} ORDER BY treffer DESC, created_at DESC LIMIT ? OFFSET ?`,
+    ).all(...werte, limit, offset);
+
+    res.json({ regeln, gesamt, gefiltert, offset, limit });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/sortierung/regeln/:id — eine Regel ändern
+//
+// Bisher gab es nur Anlegen und Löschen. Wer eine gelernte Regel korrigieren
+// wollte („der Absender gehört nach Bestellungen, nicht nach Rechnungen"),
+// musste sie löschen und neu tippen — und verlor dabei den Trefferzähler, also
+// genau die Information, wie viel diese Regel schon bewegt hat.
+router.put('/regeln/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  const alt = db.prepare('SELECT * FROM sort_rules WHERE id = ?').get(id);
+  if (!alt) return res.status(404).json({ error: 'Regel nicht gefunden.' });
+
+  const typ = String(req.body?.typ || alt.typ);
+  const muster = String(req.body?.muster ?? alt.muster).trim();
+  const aktion = req.body?.aktion === 'behalten' ? 'behalten'
+    : (req.body?.aktion === 'verschieben' ? 'verschieben' : (alt.aktion || 'verschieben'));
+  const ziel = aktion === 'behalten' ? '' : String(req.body?.zielordner ?? alt.zielordner).trim();
+
+  if (!['absender', 'betreff', 'domain'].includes(typ)) {
+    return res.status(400).json({ error: 'Ungültiger Typ.' });
+  }
+  if (!muster) return res.status(400).json({ error: 'Das Muster darf nicht leer sein.' });
+  if (aktion === 'verschieben' && !ziel) {
+    return res.status(400).json({ error: 'Ohne Zielordner wüsste die Regel nicht, wohin.' });
+  }
+
+  // Zwei Regeln mit demselben Muster widersprechen sich zwangsläufig — welche
+  // zuerst greift, entscheidet dann die Reihenfolge in der Datenbank.
+  const doppelt = db.prepare(
+    'SELECT id FROM sort_rules WHERE konto_id = ? AND typ = ? AND muster = ? AND id != ?',
+  ).get(alt.konto_id, typ, muster, id);
+  if (doppelt) {
+    return res.status(400).json({ error: 'Für dieses Muster gibt es bereits eine Regel.' });
+  }
+
+  try {
+    db.prepare('UPDATE sort_rules SET typ = ?, muster = ?, zielordner = ?, aktion = ? WHERE id = ?')
+      .run(typ, muster, ziel, aktion, id);
+
+    // Neuer Zielordner: Gibt es ihn im Postfach nicht, scheitert jedes
+    // Verschieben — und zwar erst beim nächsten Lauf, in n8n. Lieber jetzt
+    // anlegen (Best Effort, wie beim Anlegen einer Regel).
+    let ordnerAngelegt = false;
+    if (aktion === 'verschieben' && ziel && ziel !== alt.zielordner) {
+      try {
+        const konto = db.prepare('SELECT * FROM accounts WHERE id = ?').get(alt.konto_id);
+        if (konto) {
+          konto.passwort = entschluesseln(konto.password_enc);
+          ordnerAngelegt = Boolean(await imap.ordnerErstellen(konto, ziel));
+          if (ordnerAngelegt) {
+            loggen('info', 'sortierung', `Neuer Ordner "${ziel}" beim Ändern einer Regel angelegt.`);
+          }
+        }
+      } catch (err) {
+        loggen('warn', 'sortierung', `Ordner "${ziel}" konnte nicht angelegt werden: ${err.message}`);
+      }
+    }
+
+    // War es eine Ruhe-Regel und ist es keine mehr, sollen die übersprungenen
+    // Mails wieder zur Sortierung anstehen — dieselbe Überlegung wie beim
+    // Löschen einer Ruhe-Regel.
+    if ((alt.aktion || 'verschieben') === 'behalten' && aktion !== 'behalten') {
+      bestand.ruheVergessen(alt.konto_id);
+    }
+
+    loggen('info', 'sortierung',
+      `Regel geändert [${typ}] ${muster} → ${aktion === 'behalten' ? '(bleibt liegen)' : ziel}`);
+    res.json({ ok: true, ordnerAngelegt });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

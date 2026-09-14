@@ -8,6 +8,7 @@ const dnsbl    = require('../services/dnsbl');
 const nextcloud = require('../services/nextcloud');
 const smtp      = require('../services/smtp');
 const google    = require('../services/google');
+const telegram  = require('../services/telegram');
 const themen    = require('../services/themen');
 const kiModell  = require('../services/kiModell');
 const fetchMitAuth = require('../services/fetchAuth');
@@ -211,6 +212,12 @@ router.post('/test/:dienst', async (req, res) => {
       const body = await r.json();
       if (!r.ok) throw new Error(`Ollama antwortete mit HTTP ${r.status}`);
       ergebnis = { ok: true, hinweis: `Verbunden — ${(body.models?.length ?? 0)} Modell(e) geladen` };
+    }
+    else if (dienst === 'telegram') {
+      // Als einziger Test verschickt dieser wirklich etwas. Das ist Absicht:
+      // Ob der Bot senden DARF, sagt allein eine echte Nachricht — ein
+      // erreichbarer Server und ein gültiger Token sagen es nicht.
+      ergebnis = await telegram.testVerbindung();
     }
     else if (dienst === 'google') {
       // Frischen Access-Token holen: beweist, dass Refresh-Token gültig ist

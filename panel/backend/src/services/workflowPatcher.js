@@ -11,7 +11,12 @@ const crypto = require('crypto');
 const settings = require('./settings');
 const code = require('./workflowCode');
 const kiText = require('./kiText');
+const telegram = require('./telegram');
 const { loggen } = require('./panelLog');
+
+// Alle Knoten, die Telegram-Zugangsdaten brauchen — nach Typ, damit ein
+// umbenannter Knoten nicht durchs Raster fällt.
+const TELEGRAM_TYPEN = ['n8n-nodes-base.telegram', 'n8n-nodes-base.telegramTrigger'];
 
 const PRAEFIX = 'panel-';
 // Ankerpunkte in den Workflow-Vorlagen, an die das Panel andockt
@@ -1690,20 +1695,36 @@ async function kiUndBenachrichtigungenSynchronisieren() {
   // das es nicht mehr gab — und n8n brach ab da jeden Lauf ab.
   const aufzuraeumen = [];
 
+  // Jedes Credential für sich absichern.
+  //
+  // Bisher lagen die drei Aufrufe nackt vor dem grossen try — scheiterte einer
+  // (n8n antwortet nicht, Token abgelehnt), flog die Ausnahme aus der ganzen
+  // Funktion und KEIN Workflow wurde mehr angefasst. Aus einem kaputten
+  // Telegram-Token wurde so ein stehengebliebener Abgleich, den niemand mit
+  // Telegram in Verbindung bringt.
+  const credentialVersuch = async (was, dbSchluessel, abdruck, anlegen) => {
+    try {
+      const c = await credentialErneuern(dbSchluessel, abdruck, anlegen);
+      if (c.alt) aufzuraeumen.push(c.alt);
+      return c.id;
+    } catch (err) {
+      loggen('warn', 'workflows',
+        `Zugangsdaten für ${was} konnten in n8n nicht hinterlegt werden: ${err.message}. `
+        + 'Die betroffenen Knoten bleiben stillgelegt.');
+      return null;
+    }
+  };
+
   if (geminiKey) {
-    const c = await credentialErneuern('n8n_gemini_credential_id',
+    geminiCredId = await credentialVersuch('Gemini', 'n8n_gemini_credential_id',
       fingerabdruck('gemini', geminiKey),
       () => n8n.headerCredentialAnlegen('Gemini API', 'x-goog-api-key', geminiKey));
-    geminiCredId = c.id;
-    if (c.alt) aufzuraeumen.push(c.alt);
   }
 
   if (telegramToken) {
-    const c = await credentialErneuern('n8n_telegram_credential_id',
+    telegramCredId = await credentialVersuch('Telegram', 'n8n_telegram_credential_id',
       fingerabdruck('telegram', telegramToken),
       () => n8n.telegramCredentialAnlegen('Telegram Bot', telegramToken));
-    telegramCredId = c.id;
-    if (c.alt) aufzuraeumen.push(c.alt);
   }
 
   if (smtpHost) {
@@ -1714,12 +1735,10 @@ async function kiUndBenachrichtigungenSynchronisieren() {
       passwort: settings.hole('smtp_passwort'),
       tlsUnsicher: settings.hole('smtp_tls_unsicher') === '1',
     };
-    const c = await credentialErneuern('n8n_smtp_credential_id',
+    smtpCredId = await credentialVersuch('Postausgang (SMTP)', 'n8n_smtp_credential_id',
       fingerabdruck('smtp', smtpDaten.host, smtpDaten.port, smtpDaten.user,
         smtpDaten.passwort, smtpDaten.tlsUnsicher),
       () => n8n.smtpCredentialAnlegen('Mail-Panel: Postausgang', smtpDaten));
-    smtpCredId = c.id;
-    if (c.alt) aufzuraeumen.push(c.alt);
   }
 
   // Das Panel-Credential brauchen auch Workflows, die der Konten-Sync nicht anfasst
@@ -1729,6 +1748,10 @@ async function kiUndBenachrichtigungenSynchronisieren() {
 
   // Alle Workflows durchsuchen und anpassen
   let allesGepatcht = true;
+  // Was dem Nutzer sonst niemand sagt: Knoten, die zwar dastehen, aber nichts
+  // tun können. Beides endet in einem grünen Lauf ohne Wirkung.
+  const ohneChatId = [];
+  const stillgelegt = [];
   try {
     const alle = await n8n.workflowsAuflisten();
     for (const wfInfo of alle) {
@@ -1786,7 +1809,16 @@ async function kiUndBenachrichtigungenSynchronisieren() {
             geaendert = true;
           }
         }
-        if (['Telegram senden', 'Virus Warnung (Telegram)', 'Telegram Trigger'].includes(knoten.name)) {
+        // Über den Typ, nicht über den Namen.
+        //
+        // Bis Build 195 stand hier eine Liste mit drei Knotennamen. Wer den
+        // Knoten in n8n umbenannte — oder wessen Workflow aus einer älteren
+        // Vorlage stammte —, bekam nie ein Credential angeheftet. Stillgelegt
+        // wurde er trotzdem, denn knotenStilllegen() geht nach dem Typ. Das
+        // Ergebnis ist der Fehler, den man am schwersten findet: Der Lauf ist
+        // grün, weil ein stillgelegter Knoten übersprungen wird, und die
+        // Nachricht kommt trotzdem nie an.
+        if (TELEGRAM_TYPEN.includes(knoten.type)) {
           if (telegramCredId) {
             knoten.credentials = { telegramApi: { id: String(telegramCredId), name: 'Telegram Bot' } };
             geaendert = true;
@@ -1794,10 +1826,18 @@ async function kiUndBenachrichtigungenSynchronisieren() {
             delete knoten.credentials.telegramApi;
             geaendert = true;
           }
-          if (telegramChatId && knoten.type === 'n8n-nodes-base.telegram') {
+          if (knoten.type === 'n8n-nodes-base.telegram') {
             knoten.parameters = knoten.parameters || {};
-            knoten.parameters.chatId = telegramChatId;
-            geaendert = true;
+            if (telegramChatId) {
+              knoten.parameters.chatId = telegramChatId;
+              geaendert = true;
+            } else if (telegram.istPlatzhalter(knoten.parameters.chatId)) {
+              // Der Platzhalter aus der Vorlage steht noch drin. Das kann das
+              // Panel nicht reparieren, aber es kann es sagen — sonst scheitert
+              // jede Nachricht mit „chat not found", und zwar in n8n, wo
+              // niemand nachsieht.
+              ohneChatId.push(`${wfInfo.name || wfInfo.id} → ${knoten.name}`);
+            }
           }
         }
       }
@@ -1807,6 +1847,12 @@ async function kiUndBenachrichtigungenSynchronisieren() {
       // wer kein Gmail und kein Telegram nutzt, könnte die Triage sonst gar
       // nicht einschalten. Sobald Zugangsdaten da sind, laufen sie wieder mit.
       if (knotenStilllegen(workflow)) geaendert = true;
+
+      for (const knoten of workflow.nodes) {
+        if (knoten.disabled && TELEGRAM_TYPEN.includes(knoten.type)) {
+          stillgelegt.push(`${wfInfo.name || wfInfo.id} → ${knoten.name}`);
+        }
+      }
 
       if (geaendert) {
         await n8n.workflowSpeichern(wfInfo.id, workflow);
@@ -1821,6 +1867,25 @@ async function kiUndBenachrichtigungenSynchronisieren() {
   } catch (err) {
     allesGepatcht = false;
     console.warn('Fehler beim Patchen der Workflows (KI/Telegram):', err.message);
+  }
+
+  // Der stille Ausfall bekommt eine Stimme. Beide Meldungen landen im Panel-Log
+  // und damit im Diagnose-Bericht — dort, wo man nachsieht, wenn nichts ankommt.
+  //
+  // Nur bei hinterlegtem Token: Wer Telegram gar nicht nutzt, hat stillgelegte
+  // Telegram-Knoten mit Absicht und braucht dazu keine Warnung bei jedem
+  // Abgleich. Gemeldet wird der Widerspruch — Token da, Knoten trotzdem tot.
+  if (stillgelegt.length && telegramToken) {
+    loggen('warn', 'workflows',
+      `Telegram ist stillgelegt (${stillgelegt.join(', ')}): kein Bot-Token hinterlegt oder n8n hat `
+      + 'die Zugangsdaten nicht angenommen. Stillgelegte Knoten werden übersprungen — der Lauf ist '
+      + 'grün, die Nachricht kommt nie an.');
+  }
+  if (ohneChatId.length && telegramToken) {
+    loggen('warn', 'workflows',
+      `Telegram ohne Chat-ID (${ohneChatId.join(', ')}): In den Einstellungen steht keine Chat-ID, `
+      + 'im Knoten deshalb noch der Platzhalter aus der Vorlage. Telegram antwortet darauf mit '
+      + '„chat not found".');
   }
 
   // Jetzt erst die abgelösten Credentials wegräumen — und nur, wenn wirklich
