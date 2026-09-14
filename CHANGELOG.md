@@ -2,6 +2,30 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [5.1.2.0] - 2026-09-14 (Build 203) — *Ein eigener Platz für die Nachsortierung*
+
+Die Nachsortierung stand als Anhängsel unter der Sortier-Inbox — auf Bildschirmen unter der
+Regelliste zusammengequetscht auf Höhe von zwei Spalten, obwohl sie inhaltlich nichts mit dem
+Zweispalter darüber zu tun hat.
+
+### Änderungen
+- **Eigener Reiter „Nachsortierung"** (`Sortierung.jsx`) neben „Sortieren" statt eines Anhängsels
+  am Ende der Sortieren-Ansicht — direkt erreichbar, ohne erst zu scrollen.
+- **Layout in `NachsortierungKarte.jsx` neu aufgeteilt:** links Erklärung, Schalter und Knöpfe in
+  einer schmalen Spalte, rechts die Vorschlagsliste in voller verfügbarer Breite — dieselbe
+  Aufteilung wie „Sortieren" (Regeln links, Sortier-Inbox rechts), damit sich beide Reiter gleich
+  bedienen. Die Liste ist jetzt standardmäßig aufgeklappt (wer den Reiter öffnet, will sie sehen)
+  und zeigt bei leerem Ergebnis eine Erklärung statt einer leeren Fläche.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine.
+- **n8n-Workflow-Kompatibilität:** Keine Änderung an den Workflows.
+- **Neustart-/Session-Verhalten:** Reines Frontend — harter Neuladen (Strg+F5) nach dem
+  Deployment genügt.
+
+---
+
+
 ## [5.1.1.0] - 2026-09-14 (Build 202) — *Die Ordnerliste, die zur Umgebung passt*
 
 Die Ordner-Auswahl stand im Bereich Sortierung an rund einem Dutzend Stellen — Regeln, Vorschläge,

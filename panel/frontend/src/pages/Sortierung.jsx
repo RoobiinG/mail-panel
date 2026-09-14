@@ -3,7 +3,7 @@ import {
   Plus, Trash2, CheckCircle2, XCircle, AlertCircle, Inbox, Tag, ArrowRight,
   FolderTree, Sparkles, Lock, Unlock, RefreshCw, Check, Wand2,
   ChevronRight, ChevronLeft, ChevronDown, Layers, AtSign, History, Undo2, Search,
-  CloudUpload
+  CloudUpload, Repeat
 } from 'lucide-react';
 import api from '../api';
 import { useMelden } from '../components/ui/Meldungen';
@@ -1179,6 +1179,9 @@ export default function Sortierung() {
       <div className="card !p-2 flex flex-wrap items-center gap-1">
         <TabKnopf aktiv={tab === 'sortieren'} onClick={() => setTab('sortieren')} icon={Inbox} zahl={gefilterteInbox.length}>
           Sortieren
+        </TabKnopf>
+        <TabKnopf aktiv={tab === 'nachsortierung'} onClick={() => setTab('nachsortierung')} icon={Repeat}>
+          Nachsortierung
         </TabKnopf>
         <TabKnopf aktiv={tab === 'ordner'} onClick={() => setTab('ordner')} icon={FolderTree}>
           Ordner
@@ -2550,12 +2553,9 @@ export default function Sortierung() {
           </div>
         </div>
       </div>
-
-      {/* Der nächtliche Durchgang durchs ganze Postfach. Steht hier, weil die
-          Regeln direkt darüber stehen — er wendet ja nichts anderes an. */}
-      <NachsortierungKarte ordner={alleOrdner} />
       </div>
       )}
+      {tab === 'nachsortierung' && <NachsortierungKarte ordner={alleOrdner} />}
       {tab === 'ordner' && (
       <div className="card !p-0 overflow-hidden flex flex-col">
         <div className="p-4 border-b border-panel-border bg-panel-card/50 flex flex-wrap gap-4 justify-between items-center">

@@ -36,7 +36,9 @@ export default function NachsortierungKarte({ ordner = [] }) {
   const [daten, setDaten] = useState(null);
   const [fehler, setFehler] = useState('');
   const [busy, setBusy] = useState('');
-  const [listeOffen, setListeOffen] = useState(false);
+  // Eigener Reiter statt Anhängsel unter den Regeln — wer hier hinklickt,
+  // will die Liste sehen, also standardmäßig aufgeklappt.
+  const [listeOffen, setListeOffen] = useState(true);
   // Je Zeile der Vorschlagsliste: der eingetippte Zielordner, welche Zeile
   // gerade arbeitet, und welche ausgeblendet ist.
   const [zielWahl, setZielWahl] = useState({});
@@ -180,89 +182,126 @@ export default function NachsortierungKarte({ ordner = [] }) {
   };
 
   return (
-    <div className="card !p-0 overflow-hidden">
-      <div className="p-4 border-b border-panel-border bg-panel-card/50 flex flex-wrap items-center gap-2">
-        <Repeat size={18} className="text-panel-accent" />
-        <h2 className="font-medium">Nachsortierung</h2>
-        <span className={`text-xs px-2 py-0.5 rounded-full border ${
-          daten.aktiv ? 'border-emerald-500/60 text-emerald-500' : 'border-panel-border text-panel-muted'
-        }`}>
-          {daten.aktiv ? `alle ${daten.taktStunden} Std.` : 'aus'}
-        </span>
-        {daten.laeuft && (
-          <span className="text-xs text-panel-accent flex items-center gap-1">
-            <Loader2 size={12} className="animate-spin" /> läuft gerade
+    <div className="space-y-6">
+      <div className="card !p-0 overflow-hidden">
+        <div className="p-4 flex flex-wrap items-center gap-2">
+          <Repeat size={18} className="text-panel-accent" />
+          <h2 className="font-medium">Nachsortierung</h2>
+          <span className={`text-xs px-2 py-0.5 rounded-full border ${
+            daten.aktiv ? 'border-emerald-500/60 text-emerald-500' : 'border-panel-border text-panel-muted'
+          }`}>
+            {daten.aktiv ? `alle ${daten.taktStunden} Std.` : 'aus'}
           </span>
-        )}
+          {daten.laeuft && (
+            <span className="text-xs text-panel-accent flex items-center gap-1">
+              <Loader2 size={12} className="animate-spin" /> läuft gerade
+            </span>
+          )}
+          <span className="text-xs text-panel-muted ml-auto hidden lg:inline">
+            Geht durch alle Ordner des Postfachs und verschiebt, wofür inzwischen eine Regel etwas
+            anderes sagt — ohne KI, nur nach deinen Regeln.
+          </span>
+        </div>
       </div>
 
-      <div className="p-4 space-y-4">
-        <p className="text-xs text-panel-muted">
-          Geht durch <span className="text-panel-text">alle Ordner des Postfachs</span> und verschiebt, wofür
-          inzwischen eine Regel etwas anderes sagt. Ohne KI — es zählen nur deine Regeln. Papierkorb,
-          Entwürfe, Gesendet und der Spam-Ordner bleiben unangetastet.
-        </p>
+      <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6 items-start">
+        {/* LINKE SEITE: Einstellungen und Aktionen */}
+        <div className="card space-y-4">
+          <p className="text-xs text-panel-muted lg:hidden">
+            Geht durch <span className="text-panel-text">alle Ordner des Postfachs</span> und verschiebt, wofür
+            inzwischen eine Regel etwas anderes sagt. Ohne KI — es zählen nur deine Regeln.
+          </p>
+          <p className="text-xs text-panel-muted">
+            Papierkorb, Entwürfe, Gesendet und der Spam-Ordner bleiben unangetastet.
+          </p>
 
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <div className="font-medium text-sm">Nachts automatisch nachsortieren</div>
-            <div className="text-xs text-panel-muted mt-0.5">
-              Prüft alle {daten.taktStunden} Stunden, höchstens {daten.max} Verschiebungen je Lauf.
-            </div>
-          </div>
-          <Schalter an={daten.aktiv} onClick={() => setzen('aktiv', !daten.aktiv)} laedt={busy === 'aktiv'} />
-        </div>
-
-        <div className={`flex items-start justify-between gap-4 ${daten.aktiv ? '' : 'opacity-50'}`}>
-          <div>
-            <div className="font-medium text-sm">Nur anzeigen, nicht verschieben</div>
-            <div className="text-xs text-panel-muted mt-0.5">
-              Trockenlauf: Der Lauf schreibt auf, was er täte, und rührt nichts an.
-              Lass das an, bis die Vorschläge unten stimmen.
-            </div>
-          </div>
-          <Schalter an={daten.trockenlauf} onClick={() => setzen('trockenlauf', !daten.trockenlauf)}
-            disabled={!daten.aktiv} laedt={busy === 'trockenlauf'} />
-        </div>
-
-        <div className="flex flex-wrap gap-2 pt-1">
-          <button onClick={() => starten(true)} disabled={busy === 'start' || daten.laeuft}
-            className="btn !py-1.5 !px-3 text-sm flex items-center gap-1">
-            <Play size={14} /> Jetzt prüfen
-          </button>
-          <button onClick={() => starten(false)} disabled={busy === 'start' || daten.laeuft}
-            className="btn-ghost !py-1.5 !px-3 text-sm">
-            Prüfen und verschieben
-          </button>
-        </div>
-
-        {letzter && (
-          <div className="pt-2 border-t border-panel-border/50 space-y-2">
-            <div className="text-xs text-panel-muted">
-              Zuletzt {zeit(letzter.zeitpunkt)} · {letzter.geprueft} Mail(s) geprüft ·{' '}
-              {letzter.trockenlauf
-                ? <span className="text-panel-accent">{letzter.treffer} würden verschoben (nichts bewegt)</span>
-                : <span className="text-emerald-500">{letzter.verschoben} von {letzter.treffer} verschoben</span>}
-              {letzter.sekunden ? ` · ${letzter.sekunden} s` : ''}
-            </div>
-
-            {letzter.fehler?.length > 0 && (
-              <div className="flex items-start gap-2 text-xs text-panel-orange bg-panel-orange/10 rounded-lg p-2">
-                <AlertTriangle size={14} className="shrink-0 mt-0.5" />
-                <span>{letzter.fehler[0]}{letzter.fehler.length > 1 ? ` (und ${letzter.fehler.length - 1} weitere)` : ''}</span>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="font-medium text-sm">Nachts automatisch nachsortieren</div>
+              <div className="text-xs text-panel-muted mt-0.5">
+                Prüft alle {daten.taktStunden} Stunden, höchstens {daten.max} Verschiebungen je Lauf.
               </div>
-            )}
+            </div>
+            <Schalter an={daten.aktiv} onClick={() => setzen('aktiv', !daten.aktiv)} laedt={busy === 'aktiv'} />
+          </div>
 
-            {letzter.beispiele?.length > 0 && (
-              <>
-                <button onClick={() => setListeOffen((o) => !o)}
-                  className="text-xs text-panel-muted hover:text-panel-text flex items-center gap-1">
-                  {listeOffen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                  {letzter.trockenlauf ? 'Vorschläge' : 'Verschoben'} ({letzter.beispiele.length}
-                  {letzter.treffer > letzter.beispiele.length ? ` von ${letzter.treffer}` : ''})
-                </button>
-                {listeOffen && (
-                  <div className="max-h-96 overflow-auto rounded-lg border border-panel-border">
+          <div className={`flex items-start justify-between gap-4 ${daten.aktiv ? '' : 'opacity-50'}`}>
+            <div>
+              <div className="font-medium text-sm">Nur anzeigen, nicht verschieben</div>
+              <div className="text-xs text-panel-muted mt-0.5">
+                Trockenlauf: Der Lauf schreibt auf, was er täte, und rührt nichts an.
+                Lass das an, bis die Vorschläge rechts stimmen.
+              </div>
+            </div>
+            <Schalter an={daten.trockenlauf} onClick={() => setzen('trockenlauf', !daten.trockenlauf)}
+              disabled={!daten.aktiv} laedt={busy === 'trockenlauf'} />
+          </div>
+
+          <div className="flex flex-wrap gap-2 pt-1">
+            <button onClick={() => starten(true)} disabled={busy === 'start' || daten.laeuft}
+              className="btn !py-1.5 !px-3 text-sm flex items-center gap-1">
+              <Play size={14} /> Jetzt prüfen
+            </button>
+            <button onClick={() => starten(false)} disabled={busy === 'start' || daten.laeuft}
+              className="btn-ghost !py-1.5 !px-3 text-sm">
+              Prüfen und verschieben
+            </button>
+          </div>
+
+          {letzter && (
+            <div className="pt-3 border-t border-panel-border/50 space-y-2">
+              <div className="text-xs text-panel-muted">
+                Zuletzt {zeit(letzter.zeitpunkt)}<br />
+                {letzter.geprueft} Mail(s) geprüft ·{' '}
+                {letzter.trockenlauf
+                  ? <span className="text-panel-accent">{letzter.treffer} würden verschoben</span>
+                  : <span className="text-emerald-500">{letzter.verschoben} von {letzter.treffer} verschoben</span>}
+                {letzter.sekunden ? ` · ${letzter.sekunden} s` : ''}
+              </div>
+
+              {letzter.fehler?.length > 0 && (
+                <div className="flex items-start gap-2 text-xs text-panel-orange bg-panel-orange/10 rounded-lg p-2">
+                  <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+                  <span>{letzter.fehler[0]}{letzter.fehler.length > 1 ? ` (und ${letzter.fehler.length - 1} weitere)` : ''}</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* RECHTE SEITE: Vorschlagsliste */}
+        <div className="card !p-0 overflow-hidden flex flex-col">
+          <button
+            onClick={() => setListeOffen((o) => !o)}
+            disabled={!letzter?.beispiele?.length}
+            className="p-4 border-b border-panel-border bg-panel-card/50 flex items-center gap-2
+                       text-left w-full disabled:cursor-default"
+          >
+            {letzter?.beispiele?.length > 0 && (
+              listeOffen ? <ChevronDown size={16} className="text-panel-muted shrink-0" />
+                : <ChevronRight size={16} className="text-panel-muted shrink-0" />
+            )}
+            <h2 className="font-medium">
+              {letzter?.trockenlauf === false ? 'Verschoben' : 'Vorschläge'}
+            </h2>
+            {letzter?.beispiele?.length > 0 && (
+              <span className="bg-panel-border/60 text-xs px-1.5 py-0.5 rounded whitespace-nowrap">
+                {letzter.beispiele.length}
+                {letzter.treffer > letzter.beispiele.length ? ` von ${letzter.treffer}` : ''}
+              </span>
+            )}
+          </button>
+
+          {!letzter?.beispiele?.length ? (
+            <div className="p-8 text-center text-panel-muted flex flex-col items-center gap-2">
+              <Repeat size={28} className="text-panel-muted/40" />
+              <p className="text-sm">
+                {letzter ? 'Nichts zu tun — alle Mails liegen da, wo deine Regeln sie hinlegen.'
+                  : 'Noch kein Lauf. „Jetzt prüfen" zeigt, was sich ändern würde, ohne etwas zu verschieben.'}
+              </p>
+            </div>
+          ) : listeOffen && (
+                  <div className="flex-1 overflow-auto max-h-[600px]">
                     {letzter.beispiele.map((b, i) => {
                       if (versteckt[i]) return null;
                       const ziel = zielWahl[i] ?? b.nachOrdner;
@@ -330,10 +369,8 @@ export default function NachsortierungKarte({ ordner = [] }) {
                     })}
                   </div>
                 )}
-              </>
-            )}
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
