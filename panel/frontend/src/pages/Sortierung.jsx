@@ -10,6 +10,7 @@ import { useMelden } from '../components/ui/Meldungen';
 import BelegeKarte from '../components/BelegeKarte';
 import UploadFreigabenKarte from '../components/UploadFreigabenKarte';
 import NachsortierungKarte from '../components/NachsortierungKarte';
+import OrdnerFeld from '../components/ui/OrdnerFeld';
 
 // "Name <a@b.de>" -> "a@b.de" bzw. "b.de"
 const adresse = (von) => {
@@ -1170,9 +1171,6 @@ export default function Sortierung() {
 
   return (
     <div className="space-y-6">
-      <datalist id="ordner-vorschlaege">
-        {alleOrdner.map(o => <option key={o} value={o} />)}
-      </datalist>
       {/* ══ Registerkarten und Postfach-Auswahl ══
           Die Auswahl steht hier oben, weil sie für die ganze Seite gilt: Regeln,
           wartende Mails, Vorschläge und Ordner gehören immer zu genau einem
@@ -1321,11 +1319,10 @@ export default function Sortierung() {
                                   Regel vorhanden → <span className="font-mono">{a.regel}</span>
                                 </span>
                               ) : (
-                                <input
-                                  type="text"
+                                <OrdnerFeld
                                   value={absenderZiel[a.domain] || ''}
-                                  onChange={e => setAbsenderZiel(z => ({ ...z, [a.domain]: e.target.value }))}
-                                  list="ordner-vorschlaege"
+                                  onChange={v => setAbsenderZiel(z => ({ ...z, [a.domain]: v }))}
+                                  optionen={alleOrdner}
                                   placeholder="Ganze Domain in Ordner …"
                                   className="w-full bg-transparent text-sm border-b border-transparent hover:border-panel-border focus:border-panel-accent focus:outline-none"
                                 />
@@ -1403,11 +1400,10 @@ export default function Sortierung() {
                                                       Regel → <span className="font-mono text-panel-accent">{item.regel}</span>
                                                     </span>
                                                   ) : (
-                                                    <input
-                                                      type="text"
+                                                    <OrdnerFeld
                                                       value={ziel}
-                                                      onChange={e => setEinzelAbsenderZiel(z => ({ ...z, [item.adresse]: e.target.value }))}
-                                                      list="ordner-vorschlaege"
+                                                      onChange={v => setEinzelAbsenderZiel(z => ({ ...z, [item.adresse]: v }))}
+                                                      optionen={alleOrdner}
                                                       placeholder={absenderZiel[a.domain] || 'Ordner …'}
                                                       className="bg-panel-bg border border-panel-border/60 rounded px-2 py-0.5 text-xs w-full max-w-[180px]"
                                                     />
@@ -1514,12 +1510,11 @@ export default function Sortierung() {
               <span className="text-sm">
                 <span className="font-medium">{vorschlagAuswahl.length} Vorschläge</span> zusammenfassen zu
               </span>
-              <input
-                type="text"
+              <OrdnerFeld
                 value={sammelName}
-                onChange={e => setSammelName(e.target.value)}
+                onChange={v => setSammelName(v)}
+                optionen={alleOrdner}
                 placeholder={vorschlaege.find(v => v.id === vorschlagAuswahl[0])?.ordner || 'Ordnername'}
-                list="ordner-vorschlaege"
                 className="input-field !py-1 !text-sm max-w-[220px]"
               />
               <button onClick={vorschlaegeZusammenfassen} className="btn !py-1 !px-3 text-sm flex items-center gap-1">
@@ -1759,12 +1754,11 @@ export default function Sortierung() {
               <span className="font-medium text-panel-accent whitespace-nowrap">
                 {auswahlChronik.length} markiert
               </span>
-              <input
-                type="text"
+              <OrdnerFeld
                 placeholder="Neuer Ordner..."
                 value={korrekturOrdner}
-                onChange={ev => setKorrekturOrdner(ev.target.value)}
-                list="ordner-vorschlaege"
+                onChange={v => setKorrekturOrdner(v)}
+                optionen={alleOrdner}
                 className="flex-1 min-w-[150px] !py-1 !px-2 text-sm bg-panel-bg border border-panel-border rounded"
               />
               <select
@@ -1944,13 +1938,12 @@ export default function Sortierung() {
 
                         {!e.korrigiert_zu && e.zielordner && (
                           <div className="mt-3 pt-3 border-t border-panel-border flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
-                            <input
-                              type="text"
+                            <OrdnerFeld
                               autoFocus
                               placeholder={`Richtiger Ordner statt „${e.zielordner}“`}
                               value={korrekturOrdner}
-                              onChange={ev => setKorrekturOrdner(ev.target.value)}
-                              list="ordner-vorschlaege"
+                              onChange={v => setKorrekturOrdner(v)}
+                              optionen={alleOrdner}
                               className="flex-1 text-sm"
                             />
                             <select
@@ -2094,11 +2087,10 @@ export default function Sortierung() {
                           „Fritzbox" auf. Hier bewegen sich echte Mails, deshalb
                           steht die Zahl vorher in der Rückfrage. */}
                       <div className="mt-1 flex items-center gap-1">
-                        <input
-                          type="text"
+                        <OrdnerFeld
                           value={aufgehenZiel[o.id] || ''}
-                          onChange={e => setAufgehenZiel(z => ({ ...z, [o.id]: e.target.value }))}
-                          list="ordner-vorschlaege"
+                          onChange={v => setAufgehenZiel(z => ({ ...z, [o.id]: v }))}
+                          optionen={alleOrdner}
                           placeholder="aufgehen lassen in …"
                           className="text-[11px] bg-transparent border-b border-transparent hover:border-panel-border focus:border-panel-accent focus:outline-none w-40"
                         />
@@ -2324,17 +2316,16 @@ export default function Sortierung() {
                                         {r.aktion === 'behalten' ? (
                                           <span className="text-panel-muted italic">bleibt liegen</span>
                                         ) : inlineRegel === r.id ? (
-                                          <input
-                                            type="text"
+                                          <OrdnerFeld
                                             autoFocus
                                             value={inlineZiel}
-                                            onChange={e => setInlineZiel(e.target.value)}
+                                            onChange={v => setInlineZiel(v)}
+                                            optionen={alleOrdner}
                                             onBlur={() => inlineSpeichern(r)}
                                             onKeyDown={e => {
                                               if (e.key === 'Enter') e.currentTarget.blur();
                                               if (e.key === 'Escape') { inlineAbbruch.current = true; e.currentTarget.blur(); }
                                             }}
-                                            list="ordner-vorschlaege"
                                             className="!py-0.5 !px-1 text-xs font-mono w-36"
                                           />
                                         ) : (
@@ -2443,12 +2434,11 @@ export default function Sortierung() {
 
                       {/* Ein Handgriff für den ganzen Stapel */}
                       <div className="px-3 pb-3 flex flex-col sm:flex-row gap-2 items-stretch sm:items-center bg-panel-bg/40">
-                        <input
-                          type="text"
+                        <OrdnerFeld
                           placeholder={`Alle ${gruppe.mails.length} nach … (z.B. Google)`}
                           value={gruppenOrdner[gruppe.domain] || ''}
-                          onChange={e => setGruppenOrdner(p => ({ ...p, [gruppe.domain]: e.target.value }))}
-                          list="ordner-vorschlaege"
+                          onChange={v => setGruppenOrdner(p => ({ ...p, [gruppe.domain]: v }))}
+                          optionen={alleOrdner}
                           className="flex-1 min-w-0 sm:min-w-[10rem] text-sm"
                         />
                         {/* Formularelemente sind global auf w-full gestellt. Nimmt
@@ -2514,12 +2504,11 @@ export default function Sortierung() {
                     
                     <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center bg-panel-bg/50 p-3 rounded-lg border border-panel-border">
                       <div className="flex-1 w-full">
-                        <input
-                          type="text"
+                        <OrdnerFeld
                           placeholder="Zielordner (z.B. Rechnungen)"
                           value={ordnerWahl[mail.id] ?? ''}
-                          onChange={e => setOrdnerWahl(p => ({ ...p, [mail.id]: e.target.value }))}
-                          list="ordner-vorschlaege"
+                          onChange={v => setOrdnerWahl(p => ({ ...p, [mail.id]: v }))}
+                          optionen={alleOrdner}
                           className="w-full text-sm"
                         />
                         {mail.ki_ordner && !ordnerWahl[mail.id] && (
@@ -2564,7 +2553,7 @@ export default function Sortierung() {
 
       {/* Der nächtliche Durchgang durchs ganze Postfach. Steht hier, weil die
           Regeln direkt darüber stehen — er wendet ja nichts anderes an. */}
-      <NachsortierungKarte />
+      <NachsortierungKarte ordner={alleOrdner} />
       </div>
       )}
       {tab === 'ordner' && (
@@ -2584,12 +2573,11 @@ export default function Sortierung() {
             </select>
           </div>
           <div className="flex items-center gap-3">
-            <input
-              type="text"
+            <OrdnerFeld
               placeholder="Verschieben nach …"
               value={ordnerAnsichtZiel}
-              onChange={e => setOrdnerAnsichtZiel(e.target.value)}
-              list="ordner-vorschlaege"
+              onChange={v => setOrdnerAnsichtZiel(v)}
+              optionen={alleOrdner}
               className="text-sm w-48"
               disabled={ordnerAuswahl.length === 0}
             />
@@ -2762,11 +2750,11 @@ export default function Sortierung() {
             {!regelModal.behalten && (
               <label className="block space-y-1">
                 <span className="text-sm font-medium">Zielordner (IMAP)</span>
-                <input
-                  type="text" required
+                <OrdnerFeld
+                  required
                   value={regelModal.zielordner}
-                  onChange={e => setRegelModal(p => ({ ...p, zielordner: e.target.value }))}
-                  list="ordner-vorschlaege"
+                  onChange={v => setRegelModal(p => ({ ...p, zielordner: v }))}
+                  optionen={alleOrdner}
                   className="w-full font-mono"
                   placeholder="z.B. Rechnungen"
                 />

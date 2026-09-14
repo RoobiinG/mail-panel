@@ -4,6 +4,7 @@ import {
 } from 'lucide-react';
 import api from '../api';
 import { useMelden } from './ui/Meldungen';
+import OrdnerFeld from './ui/OrdnerFeld';
 
 // Derselbe Schalter wie in der Belege-Karte — bewusst kopiert statt geteilt:
 // Die beiden Karten sollen sich unabhängig ändern lassen.
@@ -30,7 +31,7 @@ const zeit = (iso) => {
   return Number.isNaN(d.getTime()) ? null : d.toLocaleString('de-DE');
 };
 
-export default function NachsortierungKarte() {
+export default function NachsortierungKarte({ ordner = [] }) {
   const { melden, nachfragen } = useMelden();
   const [daten, setDaten] = useState(null);
   const [fehler, setFehler] = useState('');
@@ -261,31 +262,34 @@ export default function NachsortierungKarte() {
                   {letzter.treffer > letzter.beispiele.length ? ` von ${letzter.treffer}` : ''})
                 </button>
                 {listeOffen && (
-                  <div className="max-h-96 overflow-auto rounded-lg border border-panel-border divide-y divide-panel-border">
+                  <div className="max-h-96 overflow-auto rounded-lg border border-panel-border">
                     {letzter.beispiele.map((b, i) => {
                       if (versteckt[i]) return null;
                       const ziel = zielWahl[i] ?? b.nachOrdner;
                       const geaendert = ziel.trim() && ziel.trim() !== b.nachOrdner;
                       return (
-                        <div key={i} className="p-2 text-xs space-y-1">
+                        <div key={i} className="list-row p-3 text-xs space-y-2">
                           <div className="truncate" title={`${b.von} — ${b.betreff}`}>
-                            <span className="font-mono text-panel-muted">{b.von}</span>
-                            {b.betreff ? <> · {b.betreff}</> : null}
+                            <span className="font-mono text-panel-text">{b.von}</span>
+                            {b.betreff ? <span className="text-panel-muted"> · {b.betreff}</span> : null}
                           </div>
-                          <div className="flex flex-wrap items-center gap-1.5 text-panel-muted">
-                            <span className="font-mono">{b.vonOrdner}</span>
-                            <ArrowRight size={11} className="text-panel-accent" />
-                            <input
-                              type="text"
+                          <div className="flex flex-wrap items-center gap-2 text-panel-muted">
+                            <span className="font-mono bg-panel-bg/60 border border-panel-border/60 rounded px-1.5 py-0.5 text-[11px]">
+                              {b.vonOrdner}
+                            </span>
+                            <ArrowRight size={12} className="text-panel-accent shrink-0" />
+                            <OrdnerFeld
                               value={ziel}
-                              onChange={(e) => setZielWahl((p) => ({ ...p, [i]: e.target.value }))}
-                              list="ordner-vorschlaege"
+                              onChange={(v) => setZielWahl((p) => ({ ...p, [i]: v }))}
+                              optionen={ordner}
                               className="!py-0.5 !px-1.5 text-xs font-mono w-40"
                               title="Zielordner ändern"
                             />
-                            <span className="truncate max-w-[220px]" title={b.regel}>({b.regel})</span>
+                            <span className="truncate max-w-[220px] text-[11px] text-panel-muted/70" title={b.regel}>
+                              ({b.regel})
+                            </span>
                           </div>
-                          <div className="flex flex-wrap items-center gap-1">
+                          <div className="flex flex-wrap items-center gap-1.5">
                             {/* Die Regel umbiegen wirkt auf ALLE Mails dieses Absenders —
                                 das ist der Knopf, der ein Problem wirklich erledigt. */}
                             <button

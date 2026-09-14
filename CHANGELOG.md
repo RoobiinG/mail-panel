@@ -2,6 +2,35 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [5.1.1.0] - 2026-09-14 (Build 202) — *Die Ordnerliste, die zur Umgebung passt*
+
+Die Ordner-Auswahl stand im Bereich Sortierung an rund einem Dutzend Stellen — Regeln, Vorschläge,
+Nachsortierung — immer als natives `<input list="…">` mit `<datalist>`. Der Browser zeichnet diese
+Vorschlagsliste selbst, außerhalb der eigentlichen Seite: hell statt dunkel, und in scrollenden
+Listen (Sortier-Inbox, Nachsortierungs-Vorschläge) teils vom Rand abgeschnitten.
+
+### Änderungen
+- **Neuer Baustein `components/ui/OrdnerFeld.jsx`** ersetzt die native Kombination überall im
+  Bereich Sortierung (11 Stellen in `Sortierung.jsx`, dazu `NachsortierungKarte.jsx`). Die
+  Vorschlagsliste ist jetzt selbst gestaltet (dunkel, passend zum restlichen Panel), hängt per
+  Portal direkt am `<body>` und positioniert sich an der tatsächlichen Bildschirmstelle des
+  Feldes — dadurch schneidet kein scrollendes Elternelement mehr etwas ab. Pfeiltasten,
+  Mausklick und Enter wählen einen Vorschlag; freier Text bleibt jederzeit gültig, ein noch
+  nicht vorhandener Ordner ist kein Fehler, sondern ein neuer Ordner.
+- **Vorschlagsliste der Nachsortierung** (`NachsortierungKarte.jsx`): Zeilen jetzt mit mehr
+  Abstand, Hover-Hervorhebung (`.list-row`, dieselbe Klasse wie in anderen Listen des Panels)
+  und der Herkunftsordner als kleine Kennzeichnung statt Fließtext — auf denselben Blick sofort
+  lesbar wie in der Sortier-Inbox.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine.
+- **n8n-Workflow-Kompatibilität:** Keine Änderung an den Workflows.
+- **Neustart-/Session-Verhalten:** Reines Frontend — ein harter Neuladen (Strg+F5) nach dem
+  Deployment genügt, keine Migration, kein Neustart des Backends nötig.
+
+---
+
+
 ## [5.1.0.1] - 2026-09-14 (Build 201) — *Nachtrag zu Build 200*
 
 Build 200 lief mit roter Testsuite durch und ergab deshalb kein Image. Zwei Tests in
