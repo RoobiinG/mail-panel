@@ -18,6 +18,17 @@ function fehlerAntwort(res, err, was) {
 // POST /api/workflows/bestand-starten — die Bestands-Triage jetzt laufen lassen.
 // n8ns öffentliche API kann keinen Workflow starten; deshalb hängt in Workflow 04
 // ein Webhook, den nur das Panel auslösen kann (Header-Auth mit dem Panel-Secret).
+// Wie lange ein Bestandslauf höchstens unterwegs sein kann.
+//
+// Die Frist des Klassifizierers ist die Hauptzeit; dazu kommen das Abrufen über
+// IMAP, die Prüfdienste und das Verschieben. Zehn Minuten Zuschlag sind dafür
+// reichlich. Was darüber liegt, läuft nicht mehr — es wurde nur nie abgemeldet.
+function laufGrenzeMs() {
+  let frist = 240000;
+  try { frist = require('../services/klassifizierer').frist(); } catch { /* Standard */ }
+  return frist + 10 * 60 * 1000;
+}
+
 router.post('/bestand-starten', async (req, res) => {
   const basis = String(settings.hole('n8n_url') || 'http://n8n:5678').replace(/\/$/, '');
   try {
@@ -40,6 +51,46 @@ router.post('/bestand-starten', async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     res.status(400).json({ error: `n8n nicht erreichbar: ${err.message}` });
+  }
+});
+
+// DELETE /api/workflows/stop/:id — einen laufenden Lauf beenden.
+//
+// Die Route fehlte, obwohl der Knopf dafür seit jeher im Panel steht: Das
+// Frontend rief sie auf, Express antwortete 404, und im Panel stand
+// „Abbrechen fehlgeschlagen." — ohne dass irgendwo zu sehen war, dass es die
+// Route gar nicht gibt. `n8n.executionLoeschen()` war ebenso lange vorhanden
+// und wurde von niemandem aufgerufen.
+//
+// Zwei Fälle, die hier zusammenkommen:
+//
+//   * „aktiv" ist keine n8n-Kennung, sondern der Platzhalter aus dem Fallback
+//     oben — ein Lauf, von dem nur das Panel weiß. Dann ist der Abbruch schlicht
+//     das Vergessen des Startzeitpunkts. n8n danach zu fragen wäre sinnlos.
+//   * Eine echte Kennung geht an n8n. Die öffentliche API kennt kein Stoppen,
+//     nur Löschen; bei einem Lauf, der nach einem Neustart als „läuft" hängen
+//     geblieben ist, ist genau das richtig. Ein wirklich noch arbeitender Lauf
+//     verschwindet damit aus der Liste, läuft im Hintergrund aber zu Ende —
+//     das sagt die Antwort auch.
+router.delete('/stop/:id', async (req, res) => {
+  const id = String(req.params.id || '');
+  if (!id) return res.status(400).json({ error: 'Keine Ausführung angegeben.' });
+
+  if (id === 'aktiv') {
+    settings.setze('bestand_letzter_start', '');
+    loggen('info', 'workflows', 'Angezeigter Bestandslauf abgemeldet (nur im Panel vermerkt).');
+    return res.json({ ok: true, hinweis: 'Der Lauf war nur im Panel vermerkt und ist jetzt abgemeldet.' });
+  }
+
+  try {
+    await n8n.executionLoeschen(id);
+    // Hat der Lauf zur Bestands-Triage gehört, darf der Merker nicht
+    // zurückbleiben — sonst zeigt das Panel weiter „läuft".
+    settings.setze('bestand_letzter_start', '');
+    loggen('info', 'workflows', `Lauf ${id} in n8n entfernt.`);
+    res.json({ ok: true, hinweis: 'Der Lauf wurde aus n8n entfernt.' });
+  } catch (err) {
+    fehlerAntwort(res, err, `Lauf ${id} konnte nicht beendet werden`);
   }
 });
 
@@ -90,14 +141,25 @@ router.get('/', async (req, res) => {
       let jetzt = laufend.get(idStr);
       
       // Fallback für Bestands-Triage (Name beginnt mit '04 -')
+      //
+      // Die öffentliche n8n-API meldet keine laufenden Ausführungen, deshalb
+      // merkt sich das Panel den Start selbst. Das Ende merkt es sich aber
+      // nicht — also muss die Anzeige von allein wieder aufhören.
+      //
+      // Sechs Stunden waren dafür viel zu lang. Ein Bestandslauf ist nach der
+      // Frist des Klassifizierers plus Abrufen und Verschieben vorbei; im
+      // Betrieb sind das gut fünf Minuten. Verschwindet die Lauf-Historie in
+      // n8n (Neustart, Aufräumen, oder schlicht mehr als hundert Läufe seither),
+      // findet die Schleife oben keinen abgeschlossenen Lauf mehr — und dann
+      // stand im Panel stundenlang „läuft seit 5 Std. 57 Min.", obwohl längst
+      // nichts mehr lief. Der Abbrechen-Knopf daneben konnte nichts ausrichten:
+      // Dieser Lauf existiert in n8n gar nicht.
       if (!jetzt && aktivStart && w.name.startsWith('04 -')) {
         const startZeit = new Date(aktivStart).getTime();
         const letzterEnde = lauf?.startedAt ? new Date(lauf.startedAt).getTime() : 0;
-        // Wenn der letzte Lauf IN n8n älter ist als unser gemerkter Startpunkt,
-        // und der Start nicht älter als 6 Stunden ist, läuft er noch.
-        // (Wir erlauben 30 Sekunden Puffer wegen Server-Uhr-Abweichungen).
-        if (startZeit > letzterEnde + 30000 && (Date.now() - startZeit) < 6 * 3600 * 1000) {
-           jetzt = { startedAt: aktivStart, id: 'aktiv', mode: 'webhook' };
+        // 30 Sekunden Puffer wegen möglicher Uhrabweichung zwischen den Containern.
+        if (startZeit > letzterEnde + 30000 && (Date.now() - startZeit) < laufGrenzeMs()) {
+          jetzt = { startedAt: aktivStart, id: 'aktiv', mode: 'webhook' };
         }
       }
 

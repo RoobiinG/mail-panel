@@ -2,6 +2,49 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.8.1.1] - 2026-09-14 (Build 195) — *Der Abbrechen-Knopf, der nie etwas abbrach*
+
+Im Panel stand „läuft seit 5 Std. 57 Min." neben einem Bestandslauf, der längst vorbei war —
+und der Knopf daneben antwortete nur „Abbrechen fehlgeschlagen." Drei Dinge kamen dafür
+zusammen, jedes für sich unauffällig.
+
+### Bugfixes
+- **Die Route `DELETE /api/workflows/stop/:id` gab es nicht (`routes/workflows.js`):**
+  Das Frontend rief sie seit jeher auf (`Workflows.jsx`, `laufAbbrechen`), Express antwortete
+  404, und das Panel zeigte die allgemeine Fehlermeldung — ohne dass irgendwo zu sehen war,
+  dass die Route schlicht fehlt. `n8n.executionLoeschen()` war ebenso lange implementiert und
+  exportiert und wurde **von niemandem** aufgerufen. Beides ist jetzt verbunden.
+- **Die Laufanzeige hörte erst nach sechs Stunden auf (`routes/workflows.js`):**
+  Weil n8ns öffentliche API keine laufenden Ausführungen meldet, merkt sich das Panel den
+  Start der Bestands-Triage selbst. Ein Ende merkt es sich nicht — die Anzeige musste also von
+  allein aufhören, und die Grenze stand bei sechs Stunden. Verschwindet die Lauf-Historie in
+  n8n (Neustart, Aufräumen, oder mehr als hundert Läufe seither), findet das Panel keinen
+  abgeschlossenen Lauf mehr und zeigte den alten Startzeitpunkt stundenlang als „läuft".
+  Die Grenze richtet sich jetzt nach der Frist des Klassifizierers plus zehn Minuten — ein
+  Bestandslauf dauert im Betrieb gut fünf.
+- **Abbrechen eines nur lokal vermerkten Laufs:** Der so angezeigte Lauf trägt die Kennung
+  `aktiv` — ein Platzhalter, den n8n nicht kennt. Ihn dort zu suchen wäre sinnlos; der Abbruch
+  ist in diesem Fall schlicht das Vergessen des Startzeitpunkts. Eine echte Kennung geht
+  weiterhin an n8n.
+- **Unsinnige Laufzeiten im Diagnose-Bericht (`services/diagnose.js`):**
+  Ein abgebrochener Lauf kommt ohne `startedAt` zurück. `new Date(null)` ist aber nicht
+  ungültig, sondern der 1. Januar 1970 — im Bericht standen daraufhin `"dauerSekunden":
+  1788920178`, also siebenundfünfzig Jahre. Gerechnet wird jetzt nur noch, wenn beide Zeiten
+  gültig sind.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine.
+- **n8n-Workflow-Kompatibilität:** Keine Änderung an den Workflows.
+- **Neustart-/Session-Verhalten:** Reines Code-Update. Eine bereits festhängende Anzeige
+  verschwindet nach dem Update von selbst, sobald die neue Zeitgrenze greift — oder sofort
+  über den Abbrechen-Knopf, der jetzt funktioniert.
+- **Zu beachten:** n8ns öffentliche API kennt kein Stoppen, nur Löschen. Ein Lauf, der nach
+  einem Neustart als „läuft" hängen geblieben ist, verschwindet damit aus der Liste; ein
+  wirklich noch arbeitender Lauf läuft im Hintergrund zu Ende. Die Antwort sagt das auch.
+
+---
+
+
 ## [4.8.1.0] - 2026-09-14 (Build 194) — *Tausende Mails in Sekunden statt Minuten*
 
 Anlass: Zwei Posteingänge mit zusammen rund 20.000 Mails. Die KI ist dafür das falsche

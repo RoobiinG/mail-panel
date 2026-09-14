@@ -337,8 +337,15 @@ async function laeufe(anzahl = 15) {
     const zeile = {
       start: e.startedAt,
       status: e.status || (e.finished ? 'success' : 'unbekannt'),
-      dauerSekunden: e.stoppedAt
-        ? Math.round((new Date(e.stoppedAt) - new Date(e.startedAt)) / 1000) : null,
+      // Beide Zeiten müssen stimmen. Ein abgebrochener Lauf kommt ohne
+      // startedAt zurück, und `new Date(null)` ist nicht ungültig, sondern der
+      // 1. Januar 1970 — im Bericht stand dann eine Dauer von 1788920178
+      // Sekunden, also siebenundfünfzig Jahren.
+      dauerSekunden: (() => {
+        const a = Date.parse(e.startedAt || '');
+        const b = Date.parse(e.stoppedAt || '');
+        return Number.isFinite(a) && Number.isFinite(b) ? Math.round((b - a) / 1000) : null;
+      })(),
       workflow: namen[String(e.workflowId)] || e.workflowId,
     };
     const daten = e.data?.resultData;
