@@ -2,6 +2,40 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [4.9.0.1] - 2026-09-14 (Build 197) — *Eine Mail je Anfrage*
+
+### Bugfixes
+- **Bei lokaler KI passte nur eine Mail in ein Bündel aus dreien
+  (`services/klassifizierer.js`):** Im Lauf vom 14.09. standen rund zwanzig
+  Ollama-Anfragen à zehn Sekunden im Log und darunter „Zeitbudget des Laufs erreicht — 20 von
+  482 Mails klassifiziert". Zwanzig Anfragen für zwanzig Mails, bei eingestellter Bündelgröße
+  drei.
+
+  Der Grund steht in `buendeln()`: Ein Verdachtsfall kostete drei Plätze und füllte damit
+  allein das ganze Bündel. Der Aufschlag hat einen guten Grund — aber nur bei Gemini: Dort
+  bekommt ein Verdachtsfall die lange Textform (1.500 statt 600 Zeichen), und ohne die
+  Rechnung würde die Anfrage zu lang. Bei der lokalen KI gibt es diese lange Form nicht:
+  `mailBlock()` kappt dort auf 500 Zeichen, verdächtig oder nicht. Der Aufschlag bezahlte
+  also nichts und kostete zwei Drittel des Durchsatzes.
+
+  Erschwerend: „verdächtig" heißt hier vor allem „Absender, mit dem dieses Konto noch nie zu
+  tun hatte" — im Bestand ist das der Normalfall, nicht die Ausnahme. Deshalb traf es fast
+  jede Mail. Mit Ollama kostet ein Verdachtsfall jetzt einen Platz; bei Gemini bleibt es beim
+  Aufschlag.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine.
+- **n8n-Workflow-Kompatibilität:** Keine Änderung an den Workflows.
+- **Neustart-/Session-Verhalten:** Reines Code-Update, wirkt ab dem nächsten Bestandslauf.
+- **Zu beachten:** Ein Bündel trägt jetzt bis zu `ollama_buendel` Mails statt einer. Die
+  einzelne Anfrage wird dadurch länger (mehr Prompt-Token), der Durchsatz je Lauf aber
+  deutlich höher. Wer die Bündelgröße bisher hochgesetzt hatte, weil „ohnehin nichts
+  passiert", sollte sie im Blick behalten: Bei lokaler KI wächst die Antwortzeit mit der
+  Bündelgröße, und eine Anfrage, die über das Ende des Laufs hinausreicht, ist verlorene Zeit.
+
+---
+
+
 ## [4.9.0.0] - 2026-09-14 (Build 196) — *Das Echo im Prompt*
 
 Drei Beobachtungen aus dem Betrieb, die sich als dasselbe Muster erwiesen: Etwas tut nichts,

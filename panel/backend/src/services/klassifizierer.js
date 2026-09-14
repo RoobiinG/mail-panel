@@ -228,6 +228,30 @@ function gruppieren(mails, bekannt) {
 
 // ─── Bündel bilden ───────────────────────────────────────────────────────────
 
+// Was ein Verdachtsfall im Bündel kostet.
+//
+// Der Aufschlag bezahlt den längeren Mailtext — so steht es bei
+// PLAETZE_VERDACHT, und für Gemini stimmt es: 1.500 statt 600 Zeichen.
+//
+// Bei der lokalen KI gibt es diesen längeren Text nicht. mailBlock() kappt dort
+// auf 500 Zeichen, ob verdächtig oder nicht — ein Verdachtsfall ist also exakt
+// so teuer wie jede andere Mail. Der Aufschlag bezahlte damit nichts und kostete
+// zwei Drittel des Durchsatzes: Bei `ollama_buendel` = 3 füllt ein einziger
+// Verdachtsfall das ganze Bündel. Und „verdächtig" heißt hier vor allem
+// „Absender, mit dem dieses Konto noch nie zu tun hatte" — im Bestand ist das
+// der Normalfall, nicht die Ausnahme.
+//
+// Im Lauf vom 14.09. sah man genau das: rund zwanzig Anfragen à zehn Sekunden,
+// darunter im Log „Zeitbudget des Laufs erreicht — 20 von 482 Mails
+// klassifiziert". Eine Mail je Anfrage, bei eingestellter Bündelgröße drei.
+function plaetzeFuer(gruppe, bekannt) {
+  if (!verdaechtig(gruppe.vertreter, bekannt)) return 1;
+  try {
+    if ((settings.hole('ki_anbieter') || 'gemini') === 'ollama') return 1;
+  } catch { /* im Zweifel der Aufschlag */ }
+  return PLAETZE_VERDACHT;
+}
+
 function buendeln(gruppen, bekannt) {
   const grenze = buendelGroesse();
   const buendel = [];
@@ -235,7 +259,7 @@ function buendeln(gruppen, bekannt) {
   let plaetze = 0;
 
   for (const g of gruppen) {
-    const kosten = verdaechtig(g.vertreter, bekannt) ? PLAETZE_VERDACHT : 1;
+    const kosten = plaetzeFuer(g, bekannt);
     if (aktuell.length > 0 && plaetze + kosten > grenze) {
       buendel.push(aktuell);
       aktuell = [];
@@ -826,5 +850,6 @@ module.exports = {
   kategoriePruefen,
   KATEGORIEN,
   PLAETZE_VERDACHT,
+  plaetzeFuer,
   istBeschaeftigt,
 };
