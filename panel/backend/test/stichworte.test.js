@@ -27,7 +27,8 @@ const ordner = (kontoId, name, beschreibung = null, gesperrt = 0) => db.prepare(
 
 let konto;
 beforeEach(() => {
-  db.exec('DELETE FROM konto_ordner; DELETE FROM sort_inbox; DELETE FROM accounts;');
+  db.exec('DELETE FROM konto_ordner; DELETE FROM sort_inbox; DELETE FROM accounts;'
+    + ' DELETE FROM quarantine_log;');
   db.prepare("DELETE FROM settings WHERE key LIKE 'themen_%'").run();
   konto = kontoAnlegen();
 });
@@ -236,8 +237,21 @@ describe('Gelerntes aus der KI-Zuordnung', () => {
     assert.match(t.grund, /neuen Ordner zu unsicher/);
   });
 
+  // Seit Build 200 genügt dafür nicht mehr EINE Einordnung: Was am Ordner
+  // steht, wirkt beim nächsten Mal ohne KI, und dafür ist eine einzelne
+  // Vermutung eines kleinen Modells zu wenig (siehe „Gelernt wird erst, wenn es
+  // belegt ist" weiter unten). Die Absicht bleibt dieselbe — nur der Beleg
+  // muss jetzt da sein.
+  const belege = (von, ordnerName, anzahl = 2) => {
+    for (let i = 0; i < anzahl; i += 1) {
+      db.prepare("INSERT INTO quarantine_log (konto, von, zielordner) VALUES ('K', ?, ?)")
+        .run(von, ordnerName);
+    }
+  };
+
   test('der erkannte Absender wird vermerkt', async () => {
     ordner(konto, 'Anbieter', 'Vodafone, Sky');
+    belege('info@o2.de', 'Anbieter');
     await themen.aufloesen({
       konto: kontoZeile(), vorschlag: 'Anbieter', konfidenz: 0.8, von: 'info@o2.de', betreff: 'x',
     });
@@ -246,6 +260,7 @@ describe('Gelerntes aus der KI-Zuordnung', () => {
 
   test('und trifft danach ohne KI', async () => {
     ordner(konto, 'Anbieter', 'Vodafone, Sky');
+    belege('info@o2.de', 'Anbieter');
     await themen.aufloesen({
       konto: kontoZeile(), vorschlag: 'Anbieter', konfidenz: 0.8, von: 'info@o2.de', betreff: 'x',
     });

@@ -2,6 +2,27 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [5.1.0.1] - 2026-09-14 (Build 201) — *Nachtrag zu Build 200*
+
+Build 200 lief mit roter Testsuite durch und ergab deshalb kein Image. Zwei Tests in
+`test/stichworte.test.js` hielten genau das Verhalten fest, das in Build 200 absichtlich
+geändert wurde: dass **eine einzelne** KI-Einordnung einen Absender dauerhaft an einem Ordner
+festschreibt.
+
+Sie sind jetzt nachgezogen — die Absicht bleibt dieselbe („die zweite Mail desselben Absenders
+kostet kein Budget mehr"), nur muss der Beleg dafür vorhanden sein. Außerdem räumt die Suite
+`quarantine_log` zwischen den Tests mit auf; ohne das hätten sich Belege von Test zu Test
+weitergeschleppt.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine.
+- **n8n-Workflow-Kompatibilität:** Keine Änderung an den Workflows.
+- **Neustart-/Session-Verhalten:** Keine Verhaltensänderung gegenüber Build 200 — nur Tests.
+  Wer Build 200 sucht: Es gibt kein Image dazu, die Funktionen stecken in diesem hier.
+
+---
+
+
 ## [5.1.0.0] - 2026-09-14 (Build 200) — *Der Zielordner ist da anzufassen, wo er falsch ist*
 
 Der erste Trockenlauf der Nachsortierung hat getan, wozu er da ist: Er zeigte 500 Vorschläge, und
