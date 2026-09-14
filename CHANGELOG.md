@@ -2,6 +2,37 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [5.2.0.0] - 2026-09-14 (Build 206) — *Der Ordner-Tab sieht jetzt auch, was er zeigt*
+
+Anlass: ein Newsletter (`mein-dm-newsletter@mail.dm.de`, „Ihre Neuheiten im Mai") lag im Ordner
+„Einkauf" — die Nachsortierung half hier nicht, weil sie nur verschiebt, wo eine **Regel**
+widerspricht, und für diese Adresse gab es nie eine. Die KI hatte sie beim Empfang einfach
+falsch einsortiert.
+
+### Features
+- **Newsletter-Erkennung im Ordner-Tab:** `imap.ordnerInhaltLaden()` holt jetzt optional den
+  List-Unsubscribe-Header mit (`BODY.PEEK[HEADER.FIELDS]`, derselbe FETCH-Aufruf, kein
+  Volltext) — dasselbe Signal, das die Klassifizierung selbst nutzt, statt einer neuen,
+  wackligen Text-Heuristik auf Betreff-Wörtern. Mails mit Abmelde-Link außerhalb des
+  Newsletter-Ordners bekommen einen Hinweis „sieht nach Newsletter aus" mit einem
+  Merken-Schalter — **standardmäßig „nur diese Mail"**. Erst ein bewusster Klick auf „alles von
+  @domain"/"nur diese Adresse" legt zusätzlich eine `sort_rules`-Regel an: Ein einzelner
+  Abmelde-Link beweist nicht, dass jede Mail dieses Absenders Newsletter ist — manche Firmen
+  versenden Transaktionales und Newsletter über dieselbe Adresse.
+- **E-Mail-Ansicht im Ordner-Tab:** Betreff ist jetzt klickbar und öffnet dieselbe Ansicht, die
+  Entscheidungen/Vorschläge schon nutzen. Neue Route `GET /sortierung/ordner-mail` (Konto,
+  Ordner, UID direkt aus der Query statt über eine `sort_inbox`-Zeile) ruft dieselbe
+  `imap.mailLaden()` wie die bestehende Route auf.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine.
+- **n8n-Workflow-Kompatibilität:** Keine.
+- **Neustart-/Session-Verhalten:** Reines Panel-Backend/-Frontend — harter Neuladen (Strg+F5)
+  nach dem Deployment genügt.
+
+---
+
+
 ## [5.1.3.0] - 2026-09-14 (Build 205) — *Zeilen, die nicht mehr aussehen wie ein Log*
 
 ### Änderungen

@@ -379,10 +379,37 @@ router.get('/ordner-inhalt', async (req, res) => {
   
   try {
     konto.passwort = entschluesseln(konto.password_enc);
-    const inhalt = await imap.ordnerInhaltLaden({ ...konto, ordner, limit: 100 });
+    const inhalt = await imap.ordnerInhaltLaden({ ...konto, ordner, limit: 100, mitUnsubscribe: true });
     res.json(inhalt.eintraege || []);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Wie GET /mail/:id, nur ohne sort_inbox-Zeile dahinter: der Ordner-Tab zeigt
+// Mails direkt aus dem IMAP-Ordner, kennt Konto/Ordner/UID also schon selbst.
+router.get('/ordner-mail', async (req, res) => {
+  const { konto_id, ordner, uid } = req.query;
+  if (!konto_id || !ordner || !uid) return res.status(400).json({ error: 'konto_id, ordner und uid fehlen' });
+  try {
+    const konto = db.prepare('SELECT * FROM accounts WHERE id = ?').get(konto_id);
+    if (!konto) return res.status(404).json({ error: 'Konto nicht gefunden.' });
+
+    konto.passwort = entschluesseln(konto.password_enc);
+
+    const { text, unsubscribe } = await imap.mailLaden({
+      host: konto.host,
+      port: konto.port,
+      username: konto.username,
+      passwort: konto.passwort,
+      uid: Number(uid),
+      ordner,
+    });
+
+    res.json({ text, unsubscribe });
+  } catch (err) {
+    loggen('error', 'sortierung', `Konnte E-Mail ${uid} aus „${ordner}" nicht laden: ${err.message}`);
+    res.status(500).json({ error: 'Konnte E-Mail nicht vom Server laden.' });
   }
 });
 

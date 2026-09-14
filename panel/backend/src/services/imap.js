@@ -598,7 +598,7 @@ async function briefkoepfe({ ordner, grenze = 20000, ...konto }) {
 }
 
 // Holt eine Liste der Mails (Kopfzeilen) aus einem Ordner, mit Paginierung
-async function ordnerInhaltLaden({ ordner, suche, limit = 100, seite = 1, ...konto }) {
+async function ordnerInhaltLaden({ ordner, suche, limit = 100, seite = 1, mitUnsubscribe = false, ...konto }) {
   const client = verbindung(konto);
   try {
     await client.connect();
@@ -641,14 +641,28 @@ async function ordnerInhaltLaden({ ordner, suche, limit = 100, seite = 1, ...kon
         fetchMuster = `${start}:${ende}`;
       }
       
+      // List-Unsubscribe kommt bei Bedarf im selben FETCH mit (BODY.PEEK[HEADER.FIELDS]) —
+      // kein zweiter Roundtrip, kein Volltext. Nur fuer den Ordner-Tab gebraucht: Ist das
+      // Konto/der Absender schon als Regel oder als korrekt einsortierter Newsletter bekannt,
+      // hilft die Kopfzeile nicht — das Feld verraet nur "hat ueberhaupt einen Abmelde-Link".
+      const fetchOptionen = { uid: true, envelope: true };
+      if (mitUnsubscribe) fetchOptionen.headers = ['list-unsubscribe'];
+
       const liste = [];
-      for await (const m of client.fetch(fetchMuster, { uid: true, envelope: true }, { uid: Boolean(zielUids) })) {
-        liste.push({
+      for await (const m of client.fetch(fetchMuster, fetchOptionen, { uid: Boolean(zielUids) })) {
+        const eintrag = {
           uid: String(m.uid), // Explizit als String für einheitliche Handhabung
           von: m.envelope.from?.[0]?.address || m.envelope.from?.[0]?.name || '',
           betreff: m.envelope.subject || '(kein Betreff)',
           datum: m.envelope.date || new Date().toISOString()
-        });
+        };
+        if (mitUnsubscribe) {
+          eintrag.hatUnsubscribe = Boolean(
+            m.headers && m.headers.toString().split('\n')
+              .some(l => l.toLowerCase().startsWith('list-unsubscribe:')),
+          );
+        }
+        liste.push(eintrag);
       }
       return { eintraege: liste.reverse(), gesamt, seiten }; // Neueste zuerst
     } finally {

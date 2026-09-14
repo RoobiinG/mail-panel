@@ -216,6 +216,11 @@ export default function Sortierung() {
   const [ordnerInhaltLaedt, setOrdnerInhaltLaedt] = useState(false);
   const [ordnerAuswahl, setOrdnerAuswahl] = useState([]);
   const [ordnerAnsichtZiel, setOrdnerAnsichtZiel] = useState('');
+  // Zeilen mit Abmelde-Link außerhalb des Newsletter-Ordners: je UID, ob die
+  // Merken-Auswahl gerade offen ist, welche Reichweite gewählt ist, welche Zeile arbeitet.
+  const [newsletterAktion, setNewsletterAktion] = useState({});
+  const [newsletterScope, setNewsletterScope] = useState({});
+  const [newsletterBusy, setNewsletterBusy] = useState(null);
 
   const ordnerInhaltLaden = async (kontoId = aktivesKonto, ordner = ordnerAnsichtOrdner) => {
     if (!kontoId || !ordner) return;
@@ -256,6 +261,51 @@ export default function Sortierung() {
       ordnerInhaltLaden();
     } catch (err) {
       melden(err.response?.data?.error || 'Verschieben fehlgeschlagen', 'fehler');
+    }
+  };
+
+  // Ein Klick verschiebt immer nur diese eine Mail. Nur wenn der Nutzer bewusst
+  // "alles von …" wählt, entsteht zusätzlich eine Regel — ein Abmelde-Link auf
+  // EINER Mail beweist nicht, dass jede Mail dieses Absenders Newsletter ist.
+  const alsNewsletterUebernehmen = async (mail) => {
+    const scope = newsletterScope[mail.uid] || 'keine';
+    const zielordner = konten.find(k => k.id === Number(aktivesKonto))?.folder_newsletter;
+    if (!zielordner) {
+      melden('Für dieses Konto ist kein Newsletter-Ordner eingestellt (Konten-Seite).', 'fehler');
+      return;
+    }
+    setNewsletterBusy(mail.uid);
+    try {
+      if (scope !== 'keine') {
+        await api.post('/sortierung/regeln', {
+          konto_id: aktivesKonto,
+          typ: scope,
+          muster: scope === 'domain' ? domainVon(mail.von) : adresse(mail.von),
+          zielordner,
+        });
+      }
+      await api.post('/sortierung/mails-verschieben', {
+        konto_id: aktivesKonto, von: ordnerAnsichtOrdner, nach: zielordner, uids: [mail.uid],
+      });
+      melden(`Nach „${zielordner}" verschoben${scope !== 'keine' ? ' — Regel angelegt.' : '.'}`);
+      setNewsletterAktion(p => ({ ...p, [mail.uid]: false }));
+      ordnerInhaltLaden();
+    } catch (err) {
+      melden(err.response?.data?.error || 'Verschieben fehlgeschlagen', 'fehler');
+    } finally {
+      setNewsletterBusy(null);
+    }
+  };
+
+  const ordnerMailAnsehen = async (mail) => {
+    setAnsicht({ offen: true, laedt: true, text: '', unsubscribe: null });
+    try {
+      const { data } = await api.get(
+        `/sortierung/ordner-mail?konto_id=${aktivesKonto}&ordner=${encodeURIComponent(ordnerAnsichtOrdner)}&uid=${mail.uid}`,
+      );
+      setAnsicht({ offen: true, laedt: false, text: data.text, unsubscribe: data.unsubscribe });
+    } catch {
+      setAnsicht({ offen: true, laedt: false, text: 'Fehler beim Laden der E-Mail.', unsubscribe: null });
     }
   };
 
@@ -2630,7 +2680,52 @@ export default function Sortierung() {
                   </td>
                   <td className="py-2 px-4 text-xs text-panel-muted whitespace-nowrap">{zeitpunkt(mail.datum)}</td>
                   <td className="py-2 px-4 max-w-[200px] truncate" title={mail.von}>{mail.von}</td>
-                  <td className="py-2 px-4 truncate max-w-[300px] text-panel-muted" title={mail.betreff}>{mail.betreff}</td>
+                  <td className="py-2 px-4 max-w-[300px] text-panel-muted">
+                    <button
+                      type="button"
+                      onClick={() => ordnerMailAnsehen(mail)}
+                      className="block max-w-full truncate text-left hover:text-panel-accent hover:underline decoration-dotted"
+                      title={`${mail.betreff || '(kein Betreff)'} — klicken für die Mail`}
+                    >
+                      {mail.betreff || '(kein Betreff)'}
+                    </button>
+                    {mail.hatUnsubscribe && ordnerAnsichtOrdner !== konten.find(k => k.id === Number(aktivesKonto))?.folder_newsletter && (
+                      newsletterAktion[mail.uid] ? (
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                          <select
+                            value={newsletterScope[mail.uid] || 'keine'}
+                            onChange={e => setNewsletterScope(p => ({ ...p, [mail.uid]: e.target.value }))}
+                            className="text-[11px] !py-0.5 bg-panel-bg w-full sm:!w-auto shrink-0"
+                          >
+                            <option value="domain">Merken: alles von @{domainVon(mail.von)}</option>
+                            <option value="absender">Merken: nur {adresse(mail.von)}</option>
+                            <option value="keine">Nur diese Mail, nichts merken</option>
+                          </select>
+                          <button
+                            onClick={() => alsNewsletterUebernehmen(mail)}
+                            disabled={newsletterBusy === mail.uid}
+                            className="btn-ghost !py-0.5 !px-2 text-[11px] disabled:opacity-40"
+                          >
+                            Übernehmen
+                          </button>
+                          <button
+                            onClick={() => setNewsletterAktion(p => ({ ...p, [mail.uid]: false }))}
+                            className="btn-ghost !py-0.5 !px-1.5 text-[11px]"
+                          >
+                            <XCircle size={12} />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setNewsletterAktion(p => ({ ...p, [mail.uid]: true }))}
+                          className="mt-1 flex items-center gap-1 text-[11px] text-panel-orange hover:underline"
+                          title="Diese Mail hat einen Abmelde-Link, liegt aber nicht im Newsletter-Ordner"
+                        >
+                          <AlertCircle size={11} /> sieht nach Newsletter aus
+                        </button>
+                      )
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
