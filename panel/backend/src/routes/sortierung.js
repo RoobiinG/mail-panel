@@ -8,6 +8,7 @@ const bestand = require('../services/bestand');
 const kiText = require('../services/kiText');
 const themen = require('../services/themen');
 const sortierung = require('../services/sortierung');
+const nachsortierung = require('../services/nachsortierung');
 const entscheidungen = require('../services/entscheidungen');
 const belegLeser = require('../services/belegLeser');
 const settings = require('../services/settings');
@@ -28,15 +29,72 @@ const likeSicher = (text) => String(text).replace(/[\\%_]/g, (z) => `\\${z}`);
 // mir alle", sondern „was ist für diesen Absender hinterlegt?".
 const REGELN_PRO_SEITE = 200;
 
-// GET /api/sortierung/regeln?konto_id=1&suche=otto&limit=50&offset=0
+// Ein Sammelbecken für alles, was keine Domain hat: Betreff-Regeln und
+// Absender-Bruchstücke wie "rechnung@". Steht immer zuletzt.
+const OHNE_DOMAIN = '(ohne Domain)';
+
+/**
+ * Regeln nach Absender-Domain bündeln.
+ *
+ * Eine flache Liste aus 159 Zeilen beantwortet die Frage nicht, die man vor ihr
+ * hat: Was ist für DIESEN Dienst hinterlegt? Erst nebeneinander sieht man, dass
+ * ein Anbieter mit vier Adressen in drei verschiedene Ordner sortiert wird —
+ * und das ist meistens keine Absicht, sondern ein Fehler, der sich über Wochen
+ * angesammelt hat.
+ *
+ * Deshalb trägt jede Gruppe ihre verschiedenen Zielordner im Kopf: Das ist der
+ * Befund, wegen dem man hier hinsieht.
+ */
+function nachDomain(regeln) {
+  const gruppen = new Map();
+  for (const r of regeln) {
+    const dom = r.typ === 'domain'
+      ? String(r.muster || '').toLowerCase().replace(/^@/, '')
+      : sortierung.domain(r.muster);
+    const schluessel = dom || OHNE_DOMAIN;
+    if (!gruppen.has(schluessel)) {
+      gruppen.set(schluessel, { domain: schluessel, anzahl: 0, treffer: 0, ziele: [], regeln: [] });
+    }
+    const g = gruppen.get(schluessel);
+    g.regeln.push(r);
+    g.anzahl += 1;
+    g.treffer += r.treffer || 0;
+    const ziel = (r.aktion || 'verschieben') === 'behalten' ? '(in Ruhe lassen)' : r.zielordner;
+    if (ziel && !g.ziele.includes(ziel)) g.ziele.push(ziel);
+  }
+
+  for (const g of gruppen.values()) {
+    // Innerhalb der Gruppe in der Reihenfolge, in der die Regeln auch gelten —
+    // sonst liest man oben eine Regel, die unten längst überstimmt wird.
+    g.regeln.sort((a, b) => {
+      const bedingung = (r) => (String(r.betreff_muster || '').trim() ? 0 : 1);
+      const rang = (r) => (r.typ === 'absender' ? 0 : (r.typ === 'domain' ? 1 : 2));
+      return bedingung(a) - bedingung(b) || rang(a) - rang(b) || (b.treffer || 0) - (a.treffer || 0);
+    });
+  }
+
+  return [...gruppen.values()].sort((a, b) => {
+    if (a.domain === OHNE_DOMAIN) return 1;
+    if (b.domain === OHNE_DOMAIN) return -1;
+    return b.treffer - a.treffer || a.domain.localeCompare(b.domain, 'de');
+  });
+}
+
+// GET /api/sortierung/regeln?konto_id=1&suche=otto&limit=50&offset=0&gruppiert=1
 //
 // Antwortet mit einem Objekt, nicht mehr mit dem blanken Array: Ohne die Zahl
 // der Treffer neben der Seite weiss die Oberflaeche nicht, ob sie alles zeigt.
+// Mit `gruppiert=1` kommen statt `regeln` die nach Domain gebuendelten `gruppen`.
 router.get('/regeln', (req, res) => {
   const konto_id = Number(req.query.konto_id);
   if (!konto_id) return res.status(400).json({ error: 'konto_id fehlt' });
   const suche = String(req.query.suche || '').trim();
-  const limit = Math.min(1000, Math.max(1, Number(req.query.limit) || REGELN_PRO_SEITE));
+  const gruppiert = String(req.query.gruppiert || '') === '1';
+  // Gruppiert wird über das, was auf der Seite steht. Eine Domain, deren Regeln
+  // über die Seitengrenze hinausreichen, ergäbe eine unvollständige Gruppe —
+  // und die Kopfzeile behauptete dann drei Zielordner, wo es vier sind.
+  const standardGrenze = gruppiert ? 1000 : REGELN_PRO_SEITE;
+  const limit = Math.min(1000, Math.max(1, Number(req.query.limit) || standardGrenze));
   const offset = Math.max(0, Number(req.query.offset) || 0);
   try {
     // Gesucht wird über Muster UND Zielordner: „Wohin geht Otto?" und „Was
@@ -60,6 +118,9 @@ router.get('/regeln', (req, res) => {
       `SELECT * FROM sort_rules WHERE ${bedingung} ORDER BY treffer DESC, created_at DESC LIMIT ? OFFSET ?`,
     ).all(...werte, limit, offset);
 
+    if (gruppiert) {
+      return res.json({ gruppen: nachDomain(regeln), gesamt, gefiltert, offset, limit });
+    }
     res.json({ regeln, gesamt, gefiltert, offset, limit });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -82,6 +143,10 @@ router.put('/regeln/:id', async (req, res) => {
   const aktion = req.body?.aktion === 'behalten' ? 'behalten'
     : (req.body?.aktion === 'verschieben' ? 'verschieben' : (alt.aktion || 'verschieben'));
   const ziel = aktion === 'behalten' ? '' : String(req.body?.zielordner ?? alt.zielordner).trim();
+  // Ein leerer String ist hier eine Ansage („Bedingung weg"), kein „nicht
+  // mitgeschickt" — deshalb ?? und nicht ||.
+  const betreffMuster = typ === 'betreff'
+    ? '' : String(req.body?.betreff_muster ?? alt.betreff_muster ?? '').trim();
 
   if (!['absender', 'betreff', 'domain'].includes(typ)) {
     return res.status(400).json({ error: 'Ungültiger Typ.' });
@@ -91,18 +156,26 @@ router.put('/regeln/:id', async (req, res) => {
     return res.status(400).json({ error: 'Ohne Zielordner wüsste die Regel nicht, wohin.' });
   }
 
-  // Zwei Regeln mit demselben Muster widersprechen sich zwangsläufig — welche
-  // zuerst greift, entscheidet dann die Reihenfolge in der Datenbank.
+  // Zwei Regeln mit derselben Bedingung widersprechen sich zwangsläufig — welche
+  // zuerst greift, entscheidet dann die Reihenfolge in der Datenbank. Der
+  // Betreff gehört zum Vergleich: Derselbe Absender DARF mehrfach geregelt
+  // sein, solange sich die Betreff-Bedingungen unterscheiden.
   const doppelt = db.prepare(
-    'SELECT id FROM sort_rules WHERE konto_id = ? AND typ = ? AND muster = ? AND id != ?',
-  ).get(alt.konto_id, typ, muster, id);
+    'SELECT id FROM sort_rules WHERE konto_id = ? AND typ = ? AND muster = ?'
+    + " AND IFNULL(betreff_muster, '') = ? AND id != ?",
+  ).get(alt.konto_id, typ, muster, betreffMuster, id);
   if (doppelt) {
-    return res.status(400).json({ error: 'Für dieses Muster gibt es bereits eine Regel.' });
+    return res.status(400).json({
+      error: betreffMuster
+        ? `Für dieses Muster mit Betreff „${betreffMuster}" gibt es bereits eine Regel.`
+        : 'Für dieses Muster gibt es bereits eine Regel.',
+    });
   }
 
   try {
-    db.prepare('UPDATE sort_rules SET typ = ?, muster = ?, zielordner = ?, aktion = ? WHERE id = ?')
-      .run(typ, muster, ziel, aktion, id);
+    db.prepare(
+      'UPDATE sort_rules SET typ = ?, muster = ?, zielordner = ?, aktion = ?, betreff_muster = ? WHERE id = ?',
+    ).run(typ, muster, ziel, aktion, betreffMuster || null, id);
 
     // Neuer Zielordner: Gibt es ihn im Postfach nicht, scheitert jedes
     // Verschieben — und zwar erst beim nächsten Lauf, in n8n. Lieber jetzt
@@ -145,6 +218,9 @@ router.post('/regeln', async (req, res) => {
   // unangetastet liegen und wird auch nicht mehr zur Zuordnung vorgelegt.
   const aktion = req.body?.aktion === 'behalten' ? 'behalten' : 'verschieben';
   const ziel = aktion === 'behalten' ? '' : String(zielordner || '').trim();
+  // Die freiwillige zweite Bedingung. Bei typ='betreff' waere sie doppelt
+  // gemoppelt — dort steht der Betreff schon im Muster.
+  const betreffMuster = typ === 'betreff' ? '' : String(req.body?.betreff_muster || '').trim();
   if (!konto_id || !typ || !muster || (aktion === 'verschieben' && !ziel)) {
     return res.status(400).json({ error: 'Alle Felder müssen ausgefüllt sein.' });
   }
@@ -155,11 +231,26 @@ router.post('/regeln', async (req, res) => {
   if (!konto) {
     return res.status(400).json({ error: 'Das Konto existiert nicht.' });
   }
+  // Dieselbe Bedingung zweimal ergibt zwei Regeln, die sich widersprechen
+  // koennen — welche zuerst greift, entschiede dann die Einfuegereihenfolge.
+  // Der Betreff gehoert zum Vergleich: Genau darum geht es ja, denselben
+  // Absender mit verschiedenen Betreffen mehrfach zu regeln.
+  const doppelt = db.prepare(
+    'SELECT id FROM sort_rules WHERE konto_id = ? AND typ = ? AND muster = ?'
+    + " AND IFNULL(betreff_muster, '') = ?",
+  ).get(Number(konto_id), typ, muster.trim(), betreffMuster);
+  if (doppelt) {
+    return res.status(400).json({
+      error: betreffMuster
+        ? `Für dieses Muster mit Betreff „${betreffMuster}" gibt es bereits eine Regel.`
+        : 'Für dieses Muster gibt es bereits eine Regel.',
+    });
+  }
   try {
     const info = db.prepare(`
-      INSERT INTO sort_rules (konto_id, typ, muster, zielordner, aktion, erstellt_von)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(konto_id, typ, muster.trim(), ziel, aktion, req.user.id);
+      INSERT INTO sort_rules (konto_id, typ, muster, zielordner, aktion, betreff_muster, erstellt_von)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(konto_id, typ, muster.trim(), ziel, aktion, betreffMuster || null, req.user.id);
 
     // "In Ruhe lassen": nichts anlegen, nichts verschieben. Was schon in der
     // Sortier-Inbox liegt und dazu passt, verschwindet aus der Liste — genau
@@ -170,7 +261,7 @@ router.post('/regeln', async (req, res) => {
         const offen = db.prepare("SELECT id, von, betreff FROM sort_inbox WHERE konto_id = ? AND status = 'offen'").all(konto_id);
         const setzen = db.prepare("UPDATE sort_inbox SET status = 'ignoriert' WHERE id = ?");
         for (const m of offen) {
-          if (!sortierung.passt({ typ, muster }, m.von, m.betreff)) continue;
+          if (!sortierung.passt({ typ, muster, betreff_muster: betreffMuster }, m.von, m.betreff)) continue;
           setzen.run(m.id);
           beruhigt++;
         }
@@ -197,6 +288,9 @@ router.post('/regeln', async (req, res) => {
       try {
         nachsortiert = await sortierung.bestandAnwenden(konto, {
           typ, muster: muster.trim().toLowerCase(), zielordner: zielordner.trim(),
+          // Ohne die Bedingung holte das Nachsortieren ALLES von diesem Absender
+          // in den Ordner — also genau das, was die Regel verhindern soll.
+          betreff_muster: betreffMuster,
         });
       } catch (err) {
         loggen('warn', 'sortierung', `Bestand konnte nicht nachsortiert werden: ${err.message}`);
@@ -577,8 +671,13 @@ router.post('/korrigieren', async (req, res) => {
 
 /** Gruppen von mindestens zwei Absender-Regeln mit gleicher Domain und gleichem Ziel. */
 function zusammenfassbar(kontoId) {
+  // Regeln mit Betreff-Bedingung bleiben außen vor. Sie zu einer Domain-Regel
+  // zu verschmelzen hieße, genau die Bedingung wegzuwerfen, wegen der es sie
+  // gibt — und aus „nur Bestellbestätigungen" würde stillschweigend „alles von
+  // dieser Firma".
   const regeln = db.prepare(
-    "SELECT id, typ, muster, zielordner, treffer FROM sort_rules WHERE konto_id = ? AND typ = 'absender'",
+    "SELECT id, typ, muster, zielordner, treffer FROM sort_rules WHERE konto_id = ? AND typ = 'absender'"
+    + " AND IFNULL(betreff_muster, '') = ''",
   ).all(kontoId);
   const domainRegeln = new Set(
     db.prepare("SELECT muster FROM sort_rules WHERE konto_id = ? AND typ = 'domain'")
@@ -1197,14 +1296,25 @@ router.get('/absender', (req, res) => {
     `).all(kontoId, Number(req.query.limit) || 50);
 
     // Wofür es schon eine Regel gibt, muss man nicht noch einmal anfassen.
-    const regeln = db.prepare('SELECT typ, muster, zielordner FROM sort_rules WHERE konto_id = ?')
+    const regeln = db.prepare('SELECT typ, muster, zielordner, betreff_muster FROM sort_rules WHERE konto_id = ?')
       .all(kontoId);
-    const mitRegel = (domain) => regeln.find((r) => (r.typ === 'domain' && r.muster === domain)
+    const fuerDomain = (domain) => regeln.filter((r) => (r.typ === 'domain' && r.muster === domain)
       || (r.typ === 'absender' && String(r.muster).endsWith(`@${domain}`)));
 
     res.json({
       aktualisiert: zeilen[0]?.aktualisiert || null,
-      absender: zeilen.map((z) => ({ ...z, regel: mitRegel(z.domain)?.zielordner || null })),
+      absender: zeilen.map((z) => {
+        const passende = fuerDomain(z.domain);
+        // Eine Regel MIT Betreff-Bedingung deckt nur einen Teil ab. Sie als
+        // „geregelt" zu zeigen wäre irreführend: Der Rest geht weiter an die KI,
+        // und genau darüber will man hier entscheiden können.
+        const ohneBedingung = passende.find((r) => !String(r.betreff_muster || '').trim());
+        return {
+          ...z,
+          regel: ohneBedingung?.zielordner || null,
+          teilweiseGeregelt: !ohneBedingung && passende.length > 0,
+        };
+      }),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1650,4 +1760,68 @@ router.get('/mail/:id', async (req, res) => {
   }
 });
 
+// ─── NACHSORTIERUNG ──────────────────────────────────────────────────────────
+//
+// Der nächtliche Lauf durch das ganze Postfach. Die Arbeit steckt in
+// services/nachsortierung.js; hier steht nur, wie man hineinsieht und ihn von
+// Hand anstößt.
+
+// GET /api/sortierung/nachsortierung — Einstellungen, Zustand, letztes Ergebnis
+router.get('/nachsortierung', (req, res) => {
+  try {
+    res.json({
+      ...nachsortierung.einstellungen(),
+      laeuft: nachsortierung.laeuftGerade(),
+      letzter: nachsortierung.letzterLauf(),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/sortierung/nachsortierung — Einstellungen ändern
+//
+// Eigene Route statt PUT /einstellungen: Die Karte steht auf der Sortierseite,
+// und wer dort arbeitet, hat das Recht „sortierung" — nicht zwingend das Recht
+// auf die Einstellungsseite.
+router.post('/nachsortierung', (req, res) => {
+  const b = req.body || {};
+  try {
+    if (b.aktiv !== undefined) settings.setze('nachsortierung_aktiv', b.aktiv ? '1' : '0');
+    if (b.trockenlauf !== undefined) settings.setze('nachsortierung_trockenlauf', b.trockenlauf ? '1' : '0');
+    if (b.takt !== undefined) {
+      const takt = Math.min(720, Math.max(1, Math.round(Number(b.takt) || 24)));
+      settings.setze('nachsortierung_takt', String(takt));
+    }
+    if (b.max !== undefined) {
+      const max = Math.min(20000, Math.max(1, Math.round(Number(b.max) || 500)));
+      settings.setze('nachsortierung_max', String(max));
+    }
+    loggen('info', 'nachsortierung', 'Einstellungen der Nachsortierung geändert.');
+    res.json({ ok: true, ...nachsortierung.einstellungen() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/sortierung/nachsortierung/start  { trockenlauf }
+//
+// Antwortet sofort und laesst den Lauf weiterarbeiten. Ein Postfach mit 20.000
+// Mails braucht Minuten — die Oberflaeche liefe sonst in ihr Zeitlimit, und der
+// Nutzer haette keine Ahnung, ob noch etwas passiert.
+router.post('/nachsortierung/start', (req, res) => {
+  if (nachsortierung.laeuftGerade()) {
+    return res.status(409).json({ error: 'Es läuft bereits eine Nachsortierung.' });
+  }
+  // Ohne ausdrückliche Angabe wird geprüft, nicht verschoben. Ein Knopf, der
+  // beim Verrutschen tausende Mails bewegt, hat die falsche Voreinstellung.
+  const trockenlauf = req.body?.trockenlauf !== false;
+  nachsortierung.lauf({ trockenlauf })
+    .catch((err) => loggen('error', 'nachsortierung', `Lauf gescheitert: ${err.message}`));
+  res.json({ ok: true, gestartet: true, trockenlauf });
+});
+
 module.exports = router;
+// Fuer die Tests: die Gruppierung laesst sich so ohne HTTP pruefen.
+module.exports.nachDomain = nachDomain;
+module.exports.OHNE_DOMAIN = OHNE_DOMAIN;

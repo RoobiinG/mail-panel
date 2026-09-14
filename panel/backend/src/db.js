@@ -358,6 +358,14 @@ const migrations = [
   // bisher) oder 'behalten' — die Mail bleibt unangetastet im Posteingang und
   // taucht auch nicht mehr in der Sortier-Inbox auf.
   "ALTER TABLE sort_rules ADD COLUMN aktion TEXT NOT NULL DEFAULT 'verschieben'",
+  // Eine zweite, freiwillige Bedingung: Der Betreff muss diesen Text enthalten.
+  //
+  // Unternehmen verschicken Bestellbestaetigung, Rechnung und Werbung ueber
+  // dieselbe Adresse. Eine Absender-Regel kennt aber nur einen Zielordner —
+  // entweder geht alles nach "Einkauf" oder alles nach "Bestellungen", und
+  // beides ist falsch. Mit dieser Spalte laesst sich derselbe Absender nach dem
+  // Betreff aufteilen. Leer/NULL = die Regel gilt wie bisher fuer alles.
+  'ALTER TABLE sort_rules ADD COLUMN betreff_muster TEXT',
   // Hat für diese Mail wirklich die KI gearbeitet? Eine Mail, die eine eigene
   // Sortier-Regel trifft, läuft im Workflow an Gemini vorbei — sie darf das
   // Tagesbudget nicht verbrauchen. Vorher zählte jede Zeile als KI-Aufruf.

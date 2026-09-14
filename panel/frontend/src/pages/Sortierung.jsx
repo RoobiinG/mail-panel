@@ -9,6 +9,7 @@ import api from '../api';
 import { useMelden } from '../components/ui/Meldungen';
 import BelegeKarte from '../components/BelegeKarte';
 import UploadFreigabenKarte from '../components/UploadFreigabenKarte';
+import NachsortierungKarte from '../components/NachsortierungKarte';
 
 // "Name <a@b.de>" -> "a@b.de" bzw. "b.de"
 const adresse = (von) => {
@@ -108,6 +109,10 @@ export default function Sortierung() {
   // schnell — aber sie werden gelernt, und zwar schneller, als man sie ansieht.
   const [regelSuche, setRegelSuche] = useState('');
   const [regelZahlen, setRegelZahlen] = useState({ gesamt: 0, gefiltert: 0 });
+  // Nach Domain gebündelt: Erst nebeneinander sieht man, dass ein Anbieter mit
+  // vier Adressen in drei verschiedene Ordner sortiert wird.
+  const [regelGruppen, setRegelGruppen] = useState([]);
+  const [offeneRegelGruppen, setOffeneRegelGruppen] = useState({});
   const [inbox, setInbox] = useState([]);
   const [laedt, setLaedt] = useState(false);
 
@@ -274,20 +279,30 @@ export default function Sortierung() {
     if (!kontoId) return;
     setLaedt(true);
     try {
-      const frage = `/sortierung/regeln?konto_id=${kontoId}`
+      const frage = `/sortierung/regeln?konto_id=${kontoId}&gruppiert=1`
         + (suche ? `&suche=${encodeURIComponent(suche)}` : '');
       const [{ data }, zus] = await Promise.all([
         api.get(frage),
         api.get(`/sortierung/regeln/zusammenfassbar?konto_id=${kontoId}`).catch(() => ({ data: [] })),
       ]);
-      // Die Route gab früher das blanke Array zurück. Beides annehmen, damit ein
-      // Browser mit altem Cache nicht auf eine leere Liste sieht.
-      const liste = Array.isArray(data) ? data : (data?.regeln || []);
+      // Die Route gab früher das blanke Array zurück, dann eine flache Liste.
+      // Alle drei Formen annehmen, damit ein Browser mit altem Bundle nicht auf
+      // eine leere Liste sieht.
+      const gruppen = Array.isArray(data?.gruppen) ? data.gruppen : null;
+      const liste = gruppen
+        ? gruppen.flatMap((g) => g.regeln)
+        : (Array.isArray(data) ? data : (data?.regeln || []));
+      setRegelGruppen(gruppen || []);
       setRegeln(liste);
       setRegelZahlen(Array.isArray(data)
         ? { gesamt: liste.length, gefiltert: liste.length }
         : { gesamt: data?.gesamt || 0, gefiltert: data?.gefiltert || 0 });
       setZusammenfassbar(zus.data || []);
+      // Bei einer Suche gleich aufklappen: Wer einen Anbieternamen tippt, will die Regeln
+      // sehen, nicht erst eine Kopfzeile anklicken.
+      if (suche && gruppen) {
+        setOffeneRegelGruppen(Object.fromEntries(gruppen.map((g) => [g.domain, true])));
+      }
     } catch { /* leer */ } finally {
       setLaedt(false);
     }
@@ -951,6 +966,7 @@ export default function Sortierung() {
       muster: regelModal.muster,
       zielordner: regelModal.zielordner,
       aktion: regelModal.behalten ? 'behalten' : 'verschieben',
+      betreff_muster: regelModal.betreff_muster || '',
     };
     try {
       if (regelModal.id) {
@@ -964,7 +980,7 @@ export default function Sortierung() {
       } else {
         await api.post('/sortierung/regeln', { konto_id: aktivesKonto, ...rumpf });
       }
-      setRegelModal({ offen: false, typ: 'absender', muster: '', zielordner: '', behalten: false });
+      setRegelModal({ offen: false, typ: 'absender', muster: '', zielordner: '', betreff_muster: '', behalten: false });
       regelnLaden(aktivesKonto);
     } catch (err) {
       melden(err.response?.data?.error || 'Fehler beim Speichern', 'fehler');
@@ -977,6 +993,7 @@ export default function Sortierung() {
     typ: r.typ,
     muster: r.muster,
     zielordner: r.zielordner || '',
+    betreff_muster: r.betreff_muster || '',
     behalten: (r.aktion || 'verschieben') === 'behalten',
   });
 
@@ -2144,6 +2161,7 @@ export default function Sortierung() {
       )}
 
       {tab === 'sortieren' && (
+      <div className="space-y-6">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* LINKE SEITE: Regeln */}
         <div className="card !p-0 overflow-hidden flex flex-col">
@@ -2171,7 +2189,7 @@ export default function Sortierung() {
                 />
               </div>
               <button
-                onClick={() => setRegelModal({ offen: true, typ: 'absender', muster: '', zielordner: '', behalten: false })}
+                onClick={() => setRegelModal({ offen: true, typ: 'absender', muster: '', zielordner: '', betreff_muster: '', behalten: false })}
                 className="btn !py-1.5 !px-3 text-sm flex items-center gap-1"
                 disabled={!aktivesKonto}
               >
@@ -2211,35 +2229,113 @@ export default function Sortierung() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-panel-border text-left text-panel-muted text-xs bg-panel-bg/30">
-                    <th className="py-2 px-4">Bedingung</th>
+                    <th className="py-2 px-4">Absender-Domain</th>
                     <th className="py-2 px-4">Zielordner</th>
                     <th className="py-2 px-4 text-center">Treffer</th>
                     <th className="py-2 px-4"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {regeln.map(r => (
-                    <tr key={r.id} className="border-b border-panel-border/50 hover:bg-panel-bg/30 transition-colors">
-                      <td className="py-3 px-4">
-                        <div className="text-xs text-panel-muted">{REGEL_TYPEN[r.typ]}</div>
-                        <div className="font-medium truncate max-w-[200px]" title={r.muster}>{r.muster}</div>
-                      </td>
-                      <td className="py-3 px-4 font-mono">
-                        {r.aktion === 'behalten'
-                          ? <span className="text-panel-muted italic">bleibt im Posteingang</span>
-                          : <span className="text-panel-accent">{r.zielordner}</span>}
-                      </td>
-                      <td className="py-3 px-4 text-center text-xs text-panel-muted">{r.treffer}</td>
-                      <td className="py-3 px-4 text-right whitespace-nowrap">
-                        <button onClick={() => regelBearbeiten(r)} className="btn-ghost !px-2" title="Bearbeiten">
-                          <Wand2 size={16} />
-                        </button>
-                        <button onClick={() => regelLoeschen(r.id)} className="btn-ghost !px-2 text-panel-red" title="Löschen">
-                          <Trash2 size={16} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {regelGruppen.map(gruppe => {
+                    const offen = offeneRegelGruppen[gruppe.domain];
+                    const umschalten = () => setOffeneRegelGruppen(p => ({ ...p, [gruppe.domain]: !p[gruppe.domain] }));
+                    return (
+                      <React.Fragment key={gruppe.domain}>
+                        <tr className={`border-b border-panel-border/50 hover:bg-panel-bg/30 transition-colors ${offen ? 'bg-panel-bg/40' : ''}`}>
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-1.5">
+                              <button onClick={umschalten} className="btn-ghost !px-1 shrink-0"
+                                title={offen ? 'Einklappen' : 'Regeln anzeigen'}>
+                                {offen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                              </button>
+                              <AtSign size={13} className="text-panel-accent shrink-0" />
+                              <span onClick={umschalten}
+                                className="font-mono truncate max-w-[180px] cursor-pointer hover:underline"
+                                title={gruppe.domain}>{gruppe.domain}</span>
+                              <span className="bg-panel-border/60 text-xs px-1.5 py-0.5 rounded whitespace-nowrap">
+                                {gruppe.anzahl}
+                              </span>
+                            </div>
+                          </td>
+                          {/* Die verschiedenen Ziele einer Domain nebeneinander — genau
+                              hier sieht man, wenn ein Anbieter auseinanderläuft. */}
+                          <td className="py-3 px-4 font-mono text-xs">
+                            {gruppe.ziele.length === 0
+                              ? <span className="text-panel-muted italic">—</span>
+                              : gruppe.ziele.map((z, i) => (
+                                <span key={z}>
+                                  {i > 0 && <span className="text-panel-muted">, </span>}
+                                  <span className={z === '(in Ruhe lassen)' ? 'text-panel-muted italic' : 'text-panel-accent'}>{z}</span>
+                                </span>
+                              ))}
+                            {gruppe.ziele.length > 1 && (
+                              <span className="ml-1 text-[10px] text-panel-orange">{gruppe.ziele.length} Ziele</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-center text-xs text-panel-muted">{gruppe.treffer}</td>
+                          <td className="py-3 px-4 text-right whitespace-nowrap">
+                            <button onClick={umschalten} className="btn-ghost !px-2 text-xs">
+                              {offen ? 'Zuklappen' : 'Regeln'}
+                            </button>
+                          </td>
+                        </tr>
+
+                        {offen && (
+                          <tr className="bg-panel-bg/50 border-b border-panel-border/60">
+                            <td colSpan="4" className="py-2 px-4 pl-8">
+                              <table className="w-full text-xs">
+                                <tbody>
+                                  {gruppe.regeln.map(r => (
+                                    <tr key={r.id} className="border-b border-panel-border/30 last:border-0">
+                                      <td className="py-2 pr-3">
+                                        <div className="text-[11px] text-panel-muted">{REGEL_TYPEN[r.typ]}</div>
+                                        <div className="font-medium truncate max-w-[220px]" title={r.muster}>{r.muster}</div>
+                                        {r.betreff_muster && (
+                                          <div className="text-[11px] text-panel-accent truncate max-w-[220px]"
+                                            title={r.betreff_muster}>
+                                            und Betreff enthält „{r.betreff_muster}“
+                                          </div>
+                                        )}
+                                      </td>
+                                      <td className="py-2 px-2 font-mono">
+                                        {r.aktion === 'behalten'
+                                          ? <span className="text-panel-muted italic">bleibt liegen</span>
+                                          : <span className="text-panel-accent">{r.zielordner}</span>}
+                                      </td>
+                                      <td className="py-2 px-2 text-center text-panel-muted">{r.treffer}</td>
+                                      <td className="py-2 text-right whitespace-nowrap">
+                                        <button onClick={() => regelBearbeiten(r)} className="btn-ghost !px-2" title="Bearbeiten">
+                                          <Wand2 size={15} />
+                                        </button>
+                                        <button onClick={() => regelLoeschen(r.id)} className="btn-ghost !px-2 text-panel-red" title="Löschen">
+                                          <Trash2 size={15} />
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                              {/* Als Domain-Regel vorbelegt, nicht als Absender: „@firma.example"
+                                  wäre als Absender-Muster wirkungslos — passt() verlangt dort
+                                  entweder eine vollständige Adresse oder ein Bruchstück ohne @. */}
+                              {gruppe.domain !== '(ohne Domain)' && (
+                                <button
+                                  onClick={() => setRegelModal({
+                                    offen: true, typ: 'domain', muster: gruppe.domain,
+                                    zielordner: gruppe.ziele.find(z => z !== '(in Ruhe lassen)') || '',
+                                    betreff_muster: '', behalten: false,
+                                  })}
+                                  className="mt-2 text-[11px] text-panel-accent hover:underline flex items-center gap-1"
+                                >
+                                  <Plus size={12} /> Regel für diese Domain
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             )}
@@ -2420,6 +2516,11 @@ export default function Sortierung() {
           </div>
         </div>
       </div>
+
+      {/* Der nächtliche Durchgang durchs ganze Postfach. Steht hier, weil die
+          Regeln direkt darüber stehen — er wendet ja nichts anderes an. */}
+      <NachsortierungKarte />
+      </div>
       )}
       {tab === 'ordner' && (
       <div className="card !p-0 overflow-hidden flex flex-col">
@@ -2581,6 +2682,27 @@ export default function Sortierung() {
                 placeholder={regelModal.typ === 'domain' ? 'amazon.de' : '...'}
               />
             </label>
+
+            {/* Die zweite, freiwillige Bedingung. Bei einer Betreff-Regel steht der
+                Betreff schon im Muster — dort wäre das Feld doppelt gemoppelt. */}
+            {regelModal.typ !== 'betreff' && (
+              <label className="block space-y-1">
+                <span className="text-sm font-medium">und Betreff enthält (optional)</span>
+                <input
+                  type="text"
+                  value={regelModal.betreff_muster || ''}
+                  onChange={e => setRegelModal(p => ({ ...p, betreff_muster: e.target.value }))}
+                  className="w-full"
+                  placeholder="z. B. Bestellung"
+                />
+                <span className="block text-[11px] text-panel-muted">
+                  Leer lassen: Die Regel gilt für alles von diesem Absender. Mit Eintrag gilt sie nur
+                  für passende Betreffe — für den Rest entscheidet die KI, solange es dafür keine
+                  allgemeine Regel gibt. So lässt sich ein Absender aufteilen, der für alles dieselbe
+                  Adresse benutzt.
+                </span>
+              </label>
+            )}
 
             <label className="flex items-center gap-2 text-sm">
               <input

@@ -35,7 +35,10 @@ function regelPruefer() {
       let regeln = [];
       try {
         const id = db.prepare('SELECT id FROM accounts WHERE name = ?').get(name)?.id;
-        if (id) regeln = db.prepare('SELECT * FROM sort_rules WHERE konto_id = ?').all(id);
+        // Ueber regelnGeordnet(), nicht ueber ein eigenes SELECT: Die Rangfolge
+        // steht an einer Stelle, sonst entscheidet hier eine andere Regel als
+        // beim Einsortieren — und niemand faende je heraus, warum.
+        if (id) regeln = sortierung.regelnGeordnet(id);
       } catch { regeln = []; }
       cache.set(name, regeln);
     }

@@ -36,6 +36,17 @@ function passt(regel, von, betreff) {
   if (!muster) return false;
   const email = adresse(von);
 
+  // Die zweite, freiwillige Bedingung — und sie gilt UND, nicht ODER.
+  //
+  // Damit laesst sich derselbe Absender aufteilen: "info@versand.example" plus
+  // Betreff "Bestellung" nach Bestellungen, dieselbe Adresse plus "Rechnung"
+  // nach Rechnungen. Ohne Betreff-Bedingung bleibt alles wie bisher.
+  //
+  // Eine Mail ohne Betreff trifft eine solche Regel nie: "enthaelt nichts" ist
+  // keine Erfuellung der Bedingung, sondern ihr Gegenteil.
+  const betreffMuster = String(regel.betreff_muster || '').toLowerCase().trim();
+  if (betreffMuster && !String(betreff || '').toLowerCase().includes(betreffMuster)) return false;
+
   switch (regel.typ) {
     case 'absender': {
       if (email === muster) return true;
@@ -59,18 +70,47 @@ function passt(regel, von, betreff) {
 }
 
 /**
+ * Die Regeln eines Kontos in der Reihenfolge, in der sie gelten sollen.
+ *
+ * Es gewinnt die erste passende Regel — bisher war das schlicht die zuerst
+ * angelegte, denn das SELECT hatte kein ORDER BY und SQLite liefert dann die
+ * Einfuegereihenfolge. Fuer den Nutzer ist das eine Zufallsreihenfolge: Ob eine
+ * alte Domain-Regel eine neuere Absender-Regel ueberstimmt, haengt daran, in
+ * welcher Woche er welche angelegt hat.
+ *
+ * Jetzt gilt: Je enger eine Regel greift, desto frueher wird sie geprueft.
+ *
+ *   1. Absender + Betreff — meint genau eine Sorte Mail eines Absenders
+ *   2. Absender           — meint einen Korrespondenten
+ *   3. Domain             — meint ein ganzes Unternehmen
+ *   4. Betreff allein     — meint ein Stichwort bei jedem Absender
+ *
+ * Bei gleichem Rang entscheidet weiterhin das Alter (`id`), damit die
+ * Reihenfolge reproduzierbar bleibt.
+ */
+function regelnGeordnet(kontoId) {
+  return db.prepare(`
+    SELECT * FROM sort_rules WHERE konto_id = ?
+    ORDER BY
+      CASE WHEN betreff_muster IS NOT NULL AND betreff_muster != '' THEN 0 ELSE 1 END,
+      CASE typ WHEN 'absender' THEN 0 WHEN 'domain' THEN 1 ELSE 2 END,
+      id
+  `).all(kontoId);
+}
+
+/**
  * Prueft, ob eine Mail auf eine der Sortier-Regeln des Kontos passt.
- * @param {number} kontoId 
- * @param {string} von 
- * @param {string} betreff 
+ * @param {number} kontoId
+ * @param {string} von
+ * @param {string} betreff
  * @returns {object|null} { ordner: 'Ziel', regel_id: 123 } oder null
  */
 function pruefeRegeln(kontoId, von, betreff) {
   if (!kontoId) return null;
 
   try {
-    const regeln = db.prepare('SELECT * FROM sort_rules WHERE konto_id = ?').all(kontoId);
-    
+    const regeln = regelnGeordnet(kontoId);
+
     for (const regel of regeln) {
       if (!passt(regel, von, betreff)) continue;
       {
@@ -308,7 +348,7 @@ async function stichworteNachtragen(konto, opt = {}) {
 function regelTreffer(kontoId, von, betreff) {
   if (!kontoId) return null;
   try {
-    for (const regel of db.prepare('SELECT * FROM sort_rules WHERE konto_id = ?').all(kontoId)) {
+    for (const regel of regelnGeordnet(kontoId)) {
       if (passt(regel, von, betreff)) return regel;
     }
   } catch (err) {
@@ -323,6 +363,7 @@ function istBehalten(kontoId, von, betreff) {
 }
 module.exports = {
   pruefeRegeln,
+  regelnGeordnet,
   regelTreffer,
   istBehalten,
   bestandAnwenden,

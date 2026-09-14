@@ -204,6 +204,10 @@ tls.starten(app, PORT, (art) => {
   // einsammeln, zu denen es keinen Datensatz mehr gibt. Workflow 07 liefert
   // unbeaufsichtigt ein — ohne das wächst das Zwischenlager unbegrenzt.
   require('./services/uploadFreigabe').zeitplanStarten();
+  // Nachsortierung: stuendlich nachsehen, ob ein Durchgang durchs Postfach
+  // faellig ist. Standardmaessig aus — wer ihn einschaltet, bewegt damit
+  // unbeaufsichtigt Mails, und das soll eine bewusste Entscheidung sein.
+  require('./services/nachsortierung').zeitplanStarten();
   // Workflows selbsttätig auf Stand bringen. Bis hierher musste man nach jeder
   // Änderung „Workflows → Synchronisieren" drücken — und wer es vergaß, betrieb
   // eine Konfiguration, die nur im Panel stand. Siehe services/autoSync.js.

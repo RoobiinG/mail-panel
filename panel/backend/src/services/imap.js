@@ -556,6 +556,47 @@ async function mailLaden({ ordner = 'INBOX', uid, ...konto }) {
     try { await client.logout(); } catch { /* Verbindung war schon zu */ }
   }
 }
+// Alle Briefkoepfe eines Ordners — Absender und Betreff, sonst nichts.
+//
+// Gebraucht von der Nachsortierung: Sie muss fuer jede Mail eines Ordners
+// wissen, ob eine Regel darauf passt, und Regeln kennen nur Absender und
+// Betreff. Der Rumpf wird also nie gebraucht.
+//
+// Warum nicht ordnerInhaltLaden(): Das ist auf eine Seite begrenzt und dreht
+// die Reihenfolge um, weil es fuer eine Anzeige gedacht ist. Hier laeuft
+// stattdessen ein einziger gestreamter FETCH ueber den ganzen Ordner —
+// dieselbe Technik wie uidsAuflisten, nur mit envelope. Ein Briefkopf ist ein
+// paar hundert Byte; fuenftausend Mails sind damit ein Bruchteil dessen, was
+// eine einzelne PDF-Anlage kostet.
+//
+// `grenze` ist die Notbremse: Ein Postfach mit 50.000 Mails in einem Ordner
+// soll die Verbindung nicht ueber Minuten offenhalten.
+async function briefkoepfe({ ordner, grenze = 20000, ...konto }) {
+  const client = verbindung(konto);
+  try {
+    await client.connect();
+    const schloss = await client.getMailboxLock(String(ordner || 'INBOX'));
+    try {
+      // Ein leerer Ordner laesst sich nicht abrufen — imapflow wirft dann.
+      if (!client.mailbox || client.mailbox.exists === 0) return [];
+      const liste = [];
+      for await (const m of client.fetch('1:*', { uid: true, envelope: true })) {
+        liste.push({
+          uid: Number(m.uid),
+          von: m.envelope?.from?.[0]?.address || m.envelope?.from?.[0]?.name || '',
+          betreff: m.envelope?.subject || '',
+        });
+        if (liste.length >= grenze) break;
+      }
+      return liste;
+    } finally {
+      schloss.release();
+    }
+  } finally {
+    try { await client.logout(); } catch { /* Verbindung war schon zu */ }
+  }
+}
+
 // Holt eine Liste der Mails (Kopfzeilen) aus einem Ordner, mit Paginierung
 async function ordnerInhaltLaden({ ordner, suche, limit = 100, seite = 1, ...konto }) {
   const client = verbindung(konto);
@@ -621,6 +662,7 @@ async function ordnerInhaltLaden({ ordner, suche, limit = 100, seite = 1, ...kon
 module.exports = {
   testVerbindung,
   uidsAuflisten,
+  briefkoepfe,
   ordnerAnlegen,
   ordnerErstellen,
   ordnerAnlegenPfad,

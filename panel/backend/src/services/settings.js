@@ -144,6 +144,17 @@ const FELDER = {
   sicherung_intervall:    { geheim: false, standard: '168' },
   sicherung_dubletten:    { geheim: false, standard: '1' },
   sicherung_letzter_lauf: { geheim: false },
+  // Nachsortierung: geht nachts durch das ganze Postfach und verschiebt, wofuer
+  // inzwischen eine Regel etwas anderes sagt (services/nachsortierung.js).
+  //
+  // Standardmaessig AUS, und im ersten Lauf nur anzeigen. Der Dienst kann
+  // unbeaufsichtigt tausende Mails bewegen — wer ihn einschaltet, soll vorher
+  // gesehen haben, was er vorhat.
+  nachsortierung_aktiv:       { env: 'NACHSORTIERUNG_AKTIV', geheim: false, standard: '0' },
+  nachsortierung_trockenlauf: { geheim: false, standard: '1' },
+  nachsortierung_takt:        { geheim: false, standard: '24' },
+  nachsortierung_max:         { geheim: false, standard: '500' },
+  nachsortierung_letzter_lauf: { geheim: false },
   // Aufsicht: prueft, ob die Workflows tatsaechlich laufen (services/aufsicht.js)
   aufsicht_aktiv:         { env: 'AUFSICHT_AKTIV', geheim: false },
   aufsicht_reparieren:    { env: 'AUFSICHT_REPARIEREN', geheim: false },

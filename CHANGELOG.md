@@ -2,6 +2,95 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [5.0.0.0] - 2026-09-14 (Build 198) — *Ein Absender, viele Themen*
+
+Die erste Stelle springt, weil die zweite über 9 hinausliefe — reiner Überlaufzähler, kein
+inhaltlicher Bruch.
+
+Drei Dinge, die am selben Punkt hingen: Eine Sortier-Regel kannte genau eine Bedingung, und die
+Regelliste zeigte 159 Zeilen ohne Struktur.
+
+### Features
+- **Regeln nach Absender-Domain gebündelt (`routes/sortierung.js`, `pages/Sortierung.jsx`):**
+  `GET /api/sortierung/regeln` nimmt jetzt `gruppiert=1` und liefert dann statt einer flachen
+  Liste die nach Domain gebündelten Gruppen. In der Oberfläche klappt jede Domain auf; im Kopf
+  stehen die Anzahl der Regeln, die Treffersumme und — das ist der eigentliche Zweck — **die
+  verschiedenen Zielordner dieser Domain**. Läuft ein Anbieter mit vier Adressen in drei Ordner
+  auseinander, sieht man das jetzt in einer Zeile statt nach dem Lesen von 159. Die Suche
+  filtert vor dem Bündeln und klappt die Treffer gleich auf.
+- **Regeln können eine zweite Bedingung auf dem Betreff haben (`sort_rules.betreff_muster`):**
+  Unternehmen verschicken Bestellbestätigung, Rechnung und Werbung über dieselbe Adresse. Eine
+  Absender-Regel kannte aber nur einen Zielordner — entweder ging alles nach „Einkauf" oder
+  alles nach „Bestellungen", und beides ist falsch. Jetzt lässt sich derselbe Absender nach dem
+  Betreff aufteilen. Beide Bedingungen gelten UND; eine Mail ohne Betreff trifft eine solche
+  Regel nie. Was keine Bedingung trifft, entscheidet die KI — solange es dafür keine allgemeine
+  Regel für denselben Absender gibt.
+- **Nächtliche Nachsortierung (`services/nachsortierung.js`, Karte auf der Sortierseite):**
+  Eine Regel wirkte bisher nur nach vorn. Wer eine falsch gelernte Regel korrigierte,
+  reparierte damit nichts von dem, was schon im falschen Ordner lag — bei einem Postfach, das
+  über Wochen von einem kleinen Sprachmodell einsortiert wurde, der größere Posten. Der neue
+  Dienst geht durch **alle Ordner des Postfachs** und verschiebt, wofür inzwischen eine Regel
+  etwas anderes sagt. **Ohne KI** — es zählen ausschließlich die Regeln des Nutzers.
+
+  Die Grenzen sind Teil des Entwurfs, weil der Dienst unbeaufsichtigt tausende Mails bewegen
+  kann: standardmäßig **aus**, im Auslieferungszustand **Trockenlauf** (schreibt auf, was er
+  täte, und rührt nichts an), höchstens **500 Verschiebungen je Lauf**, Takt 24 Stunden.
+  Papierkorb, Entwürfe, Gesendet, Gmails „Alle Nachrichten" und der Spam-Ordner des Kontos
+  bleiben immer unangetastet — etwas aus dem Papierkorb zu holen hieße, Gelöschtes
+  wiederzubeleben. Das Archiv bleibt bewusst drin: Dort liegt oft genau das Falschsortierte.
+  Eine „in Ruhe lassen"-Regel verschiebt nichts; sie ist die einzige Regel, die ein
+  Nichthandeln anordnet.
+
+  Bedient wird das über eine Karte unter den Regeln: zwei Schalter, ein Knopf **„Jetzt prüfen"**
+  und die Liste dessen, was der letzte Lauf vorgeschlagen oder verschoben hat, mit Absender,
+  Betreff, Von- und Nach-Ordner und der Regel, die entschieden hat.
+
+### Bugfixes
+- **Welche von zwei passenden Regeln gilt, war Zufall (`services/sortierung.js`):**
+  Alle drei Stellen, die Regeln auswerten, luden sie mit `SELECT * FROM sort_rules WHERE
+  konto_id = ?` — ohne `ORDER BY`. Es gewann damit die zuerst angelegte Regel, also die
+  Reihenfolge, in der man sie über Wochen zusammengeklickt hat. Neu: `regelnGeordnet()` als
+  einzige Quelle der Rangfolge, benutzt von `pruefeRegeln`, `regelTreffer` und dem
+  Regel-Prüfer in `services/budget.js`. Es gilt, je enger desto früher:
+  **Absender + Betreff → Absender → Domain → Betreff**, bei gleichem Rang weiterhin das Alter.
+- **Doppelte Regeln beim Anlegen:** `POST /regeln` prüfte gar nicht auf Doppel. Jetzt tut es
+  das — und zwar samt Betreff-Bedingung, sonst ließen sich zwei Regeln für dieselbe Adresse mit
+  verschiedenen Betreffen gar nicht anlegen, also genau der Fall, um den es geht.
+- **`zusammenfassbar()` hätte Betreff-Regeln eingeschmolzen:** Der Vorschlag, mehrere
+  Absender-Regeln zu einer Domain-Regel zusammenzufassen, überspringt Regeln mit Bedingung.
+  Sonst würde aus „nur Bestellbestätigungen" stillschweigend „alles von dieser Firma".
+- **Absender-Übersicht:** Eine Domain galt als „geregelt", sobald irgendeine Regel auf sie
+  passte. Eine Regel mit Betreff-Bedingung deckt aber nur einen Teil ab; sie wird jetzt als
+  `teilweiseGeregelt` ausgewiesen.
+
+### Technisch
+- Neu: `imap.briefkoepfe({ ordner })` — streamt Absender und Betreff aller Mails eines Ordners
+  in einem einzigen FETCH (wie `uidsAuflisten`, nur mit Envelope), mit Notbremse bei 20.000
+  Einträgen je Ordner. `ordnerInhaltLaden` war dafür nicht zu gebrauchen: Es ist auf eine Seite
+  begrenzt und dreht die Reihenfolge, weil es für eine Anzeige gedacht ist.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Eine neue Spalte `sort_rules.betreff_muster` (läuft beim Start
+  automatisch, vorhandene Regeln bleiben unverändert und verhalten sich wie bisher).
+- **n8n-Workflow-Kompatibilität:** Keine Änderung an den Workflows, kein Neuimport. Die
+  Nachsortierung ist bewusst **kein** n8n-Workflow, sondern ein Zeitplan im Panel: Es ist keine
+  KI beteiligt und keine Entscheidung je Mail nötig — nur Regeln und IMAP-Verschiebungen, beides
+  ohnehin Sache des Panels.
+- **Geändertes Verhalten:** Die Rangfolge der Regeln. Praktisch betrifft das nur den Fall, dass
+  eine Domain-Regel und eine Absender-Regel auf dieselbe Mail passen — dort gewinnt jetzt die
+  Absender-Regel, auch wenn die Domain-Regel älter ist. Das ist die Erwartung, war aber bisher
+  vom Anlegedatum abhängig.
+- **Schnittstelle:** `GET /api/sortierung/regeln` liefert mit `gruppiert=1` `gruppen` statt
+  `regeln`. Die Oberfläche nimmt weiterhin alle drei bisherigen Antwortformen an.
+- **Neustart-/Session-Verhalten:** Der Zeitplan der Nachsortierung merkt sich den letzten Lauf
+  in den Einstellungen, nicht im Arbeitsspeicher — ein Neustart verschiebt ihn nicht.
+- **Zu beachten:** Wer die Nachsortierung scharf schaltet, sollte vorher einmal „Jetzt prüfen"
+  gedrückt und die Vorschlagsliste angesehen haben. Der erste scharfe Lauf kann bei einem
+  gewachsenen Postfach bis zu 500 Mails bewegen.
+
+---
+
+
 ## [4.9.0.1] - 2026-09-14 (Build 197) — *Eine Mail je Anfrage*
 
 ### Bugfixes
