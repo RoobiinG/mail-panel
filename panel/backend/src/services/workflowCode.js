@@ -128,6 +128,13 @@ roh = String(roh).replace(/\u0060{3}json|\u0060{3}/g, '').trim();
 let k = { kategorie: 'sonstiges', spam_score: 0, kurzfassung: '', ordner: null, konfidenz: 0 };
 try { k = { ...k, ...JSON.parse(roh) }; } catch (e) { /* Fallback: sonstiges */ }
 
+// Ein List-Unsubscribe-Header ist ein hartes, strukturelles Signal fuer
+// Newsletter/Marketing-Versand (RFC 2369/8058) — zuverlaessiger als die
+// Texteinschaetzung der KI. Echte Rechnungen/Bestellbestaetigungen setzen
+// diesen Header praktisch nie. Der Spam-Check unten haengt an spam_score,
+// nicht an kategorie, bleibt also unberuehrt.
+if (mail.listUnsubscribe) k.kategorie = 'newsletter';
+
 // DNSBL-Treffer erhoehen die Bewertung der KI
 const schwelle = Number(mail.spam_schwellwert) || 0.8;
 const score = Math.min(1, (Number(k.spam_score) || 0) + (Number(mail.score_aufschlag) || 0));

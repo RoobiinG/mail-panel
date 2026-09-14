@@ -2,6 +2,37 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [5.3.0.0] - 2026-09-14 (Build 208) — *List-Unsubscribe geht jetzt vor der KI*
+
+### Features
+- **Newsletter-Sammelknopf im Ordner-Tab:** Neben dem allgemeinen „Verschieben"-Knopf steht jetzt
+  ein eigener, orange hervorgehobener **„Newsletter (N)"**-Knopf — markierte Mails wandern mit
+  einem Klick in den Newsletter-Ordner des Kontos, ohne das Zielfeld von Hand auszufüllen. Legt
+  bewusst keine Regel an (die Auswahl kann Mails verschiedener Absender mischen); für „alles von
+  diesem Absender merken" bleibt die Einzelzeilen-Kennzeichnung aus Build 206 zuständig.
+- **List-Unsubscribe geht der KI-Einschätzung jetzt vor, nicht nur der Anzeige im Ordner-Tab.**
+  Der Header ist ein hartes, strukturelles Signal für Newsletter-/Marketing-Versand (RFC
+  2369/8058) — echte Rechnungen und Bestellbestätigungen setzen ihn praktisch nie, zuverlässiger
+  als jede Texteinschätzung. Jetzt an beiden Stellen genutzt, an denen bisher nur Regeln und
+  Stichwörter die KI umgingen:
+  - `klassifizierer.js` (Bestandslauf/Workflow 04): Eine Mail mit Abmelde-Link geht bei
+    gesetztem Newsletter-Ordner direkt dorthin — kein KI-Aufruf, kein Budget verbraucht, genau
+    wie ein Regel- oder Stichwort-Treffer.
+  - `workflowCode.js` / `ANTWORT_PARSEN` (Workflow 01, live eingehende Post): Übersteuert die
+    von der KI zurückgegebene Kategorie auf „newsletter", wenn der Header vorhanden ist — die
+    KI wird weiterhin gefragt (kein Workflow-Umbau nötig), ihre Antwort zählt hier nur noch
+    nicht mehr allein.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine.
+- **n8n-Workflow-Kompatibilität:** Der geänderte Code im Knoten „Antwort parsen" kommt beim
+  nächsten automatischen Workflow-Abgleich (Einstellung ändern oder Containerstart) an — kein
+  manueller Neuimport nötig.
+- **Neustart-/Session-Verhalten:** Keins. Wirkt ab dem nächsten Klassifizierungslauf.
+
+---
+
+
 ## [5.2.0.1] - 2026-09-14 (Build 207) — *Zwei weitere Stellen mit demselben Select-Bug*
 
 Derselbe Breiten-Bug aus Build 205 (globales CSS zwingt Formularfelder auf `width: 100%`,

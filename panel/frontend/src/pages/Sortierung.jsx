@@ -264,6 +264,33 @@ export default function Sortierung() {
     }
   };
 
+  // Eigener Knopf statt nur das Zielfeld auszufüllen: Bei mehreren markierten
+  // Newsletter-Verdächtigen (siehe Kennzeichnung je Zeile) ist "alle markierten
+  // auf einen Schlag in den Newsletter-Ordner" der eigentliche Wunsch, kein
+  // Tippen jedes Mal. Legt bewusst keine Regel an — die Auswahl kann Mails
+  // verschiedener Absender mischen, für die eine Regel nicht in einem Rutsch
+  // passt (siehe alsNewsletterUebernehmen unten für die Einzelzeile mit Regel).
+  const ordnerAuswahlAlsNewsletter = async () => {
+    const zielordner = konten.find(k => k.id === Number(aktivesKonto))?.folder_newsletter;
+    if (ordnerAuswahl.length === 0 || !zielordner) return;
+    if (!(await nachfragen({
+      titel: `${ordnerAuswahl.length} Mail(s) in den Newsletter-Ordner?`,
+      text: `Die ${ordnerAuswahl.length} ausgewählten Mails wandern nach "${zielordner}".`,
+      bestaetigen: 'Verschieben',
+    }))) return;
+
+    try {
+      const { data } = await api.post('/sortierung/mails-verschieben', {
+        konto_id: aktivesKonto, von: ordnerAnsichtOrdner, nach: zielordner, uids: ordnerAuswahl,
+      });
+      melden(`${data.verschoben.length} Mail(s) nach "${zielordner}" verschoben.`);
+      setOrdnerAuswahl([]);
+      ordnerInhaltLaden();
+    } catch (err) {
+      melden(err.response?.data?.error || 'Verschieben fehlgeschlagen', 'fehler');
+    }
+  };
+
   // Ein Klick verschiebt immer nur diese eine Mail. Nur wenn der Nutzer bewusst
   // "alles von …" wählt, entsteht zusätzlich eine Regel — ein Abmelde-Link auf
   // EINER Mail beweist nicht, dass jede Mail dieses Absenders Newsletter ist.
@@ -2625,6 +2652,15 @@ export default function Sortierung() {
             </select>
           </div>
           <div className="flex items-center gap-3">
+            <button
+              onClick={ordnerAuswahlAlsNewsletter}
+              disabled={ordnerAuswahl.length === 0 || !konten.find(k => k.id === Number(aktivesKonto))?.folder_newsletter}
+              title="Markierte Mails direkt in den Newsletter-Ordner des Kontos"
+              className="btn !py-1.5 !px-3 text-sm flex items-center gap-1 disabled:opacity-50
+                         !bg-panel-orange hover:!bg-amber-500 !text-panel-bg"
+            >
+              <AlertCircle size={14} /> Newsletter ({ordnerAuswahl.length})
+            </button>
             <OrdnerFeld
               placeholder="Verschieben nach …"
               value={ordnerAnsichtZiel}

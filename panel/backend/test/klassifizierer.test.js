@@ -416,3 +416,40 @@ describe('Das Zeitbudget eines Laufs', () => {
     }
   });
 });
+
+describe('List-Unsubscribe geht vor der KI', () => {
+  test('mit Newsletter-Ordner im Konto: kein KI-Aufruf, direkt einsortiert', async () => {
+    db.prepare("UPDATE accounts SET folder_newsletter = 'Newsletter' WHERE name = 'K'").run();
+    antwortenMit(brav);
+    const e = await k.klassifizieren([mail(1, { listUnsubscribe: 'https://ab.de/melden' })]);
+
+    assert.equal(gefragt.length, 0, 'die KI wird gar nicht erst gefragt');
+    assert.equal(e.klassifiziert, 1);
+    assert.deepEqual(e.ergebnisse[0], {
+      kategorie: 'newsletter',
+      spam_score: 0,
+      kurzfassung: 'Hat einen Abmelde-Link (List-Unsubscribe)',
+      ordner: 'Newsletter',
+      konfidenz: 1.0,
+      regel: true,
+    });
+  });
+
+  test('ohne Newsletter-Ordner im Konto: normal ueber die KI', async () => {
+    // Kein UPDATE — 'K' hat wie im beforeEach kein folder_newsletter gesetzt.
+    antwortenMit(brav);
+    const e = await k.klassifizieren([mail(1, { listUnsubscribe: 'https://ab.de/melden' })]);
+
+    assert.equal(gefragt.length, 1, 'ohne Zielordner bleibt nur die KI uebrig');
+    assert.equal(e.ergebnisse[0].regel, undefined);
+  });
+
+  test('ohne Abmelde-Link aendert sich nichts', async () => {
+    db.prepare("UPDATE accounts SET folder_newsletter = 'Newsletter' WHERE name = 'K'").run();
+    antwortenMit(brav);
+    const e = await k.klassifizieren([mail(1, { listUnsubscribe: null })]);
+
+    assert.equal(gefragt.length, 1);
+    assert.equal(e.ergebnisse[0].regel, undefined);
+  });
+});

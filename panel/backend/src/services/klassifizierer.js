@@ -684,6 +684,23 @@ async function klassifizieren(mails) {
           }
         }
 
+        // List-Unsubscribe ist ein hartes, strukturelles Signal fuer
+        // Newsletter/Marketing-Versand (RFC 2369/8058) — echte Rechnungen und
+        // Bestellbestaetigungen setzen diesen Header praktisch nie. Kein Raten
+        // durch die KI noetig, genau wie bei Regel und Stichwort oben.
+        if (m.listUnsubscribe && konto.folder_newsletter) {
+          ergebnisse[m.__i] = {
+            kategorie: 'newsletter',
+            spam_score: 0,
+            kurzfassung: 'Hat einen Abmelde-Link (List-Unsubscribe)',
+            ordner: konto.folder_newsletter,
+            konfidenz: 1.0,
+            regel: true,
+          };
+          klassifiziert += 1;
+          continue;
+        }
+
         nochZuKlassifizieren.push(m);
       }
     } else {
