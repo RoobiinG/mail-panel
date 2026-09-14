@@ -1804,6 +1804,45 @@ router.post('/nachsortierung', (req, res) => {
   }
 });
 
+// POST /api/sortierung/nachsortierung/verschieben  { konto_id, uid, von, nach }
+//
+// Eine einzelne Mail aus der Vorschlagsliste umlenken, ohne die Regel
+// anzufassen. Der Vorbehalt gehoert dazu und steht auch in der Oberflaeche: Die
+// Regel bleibt, wie sie ist, und schlaegt beim naechsten Lauf wieder zu. Wer die
+// Ursache beseitigen will, aendert die Regel — dafuer gibt es den Knopf daneben.
+router.post('/nachsortierung/verschieben', async (req, res) => {
+  const { konto_id, uid, von, nach } = req.body || {};
+  const konto = db.prepare('SELECT * FROM accounts WHERE id = ?').get(Number(konto_id));
+  if (!konto) return res.status(400).json({ error: 'Das Konto existiert nicht.' });
+  const nummer = Number(uid);
+  if (!Number.isInteger(nummer) || nummer <= 0) return res.status(400).json({ error: 'Ungültige UID.' });
+  const quelle = String(von || '').trim();
+  const ziel = String(nach || '').trim();
+  if (!quelle || !ziel) return res.status(400).json({ error: 'Quell- und Zielordner sind Pflicht.' });
+
+  try {
+    const zugang = themen.zugang(konto);
+    // Zielordner sicherstellen und die Schreibweise des Servers holen — sonst
+    // scheitert der Umzug an "INBOX.Rechnungen" vs. "Rechnungen".
+    try { await imap.ordnerErstellen({ ...konto, ...zugang }, ziel); } catch { /* Best Effort */ }
+    const pfad = (await themen.ordnerPfad(konto, ziel)) || ziel;
+
+    const r = await imap.mailsVerschieben({
+      ...zugang, mails: [{ uid: nummer }], von: quelle, nach: pfad,
+    });
+    if (r.verschoben.length === 0) {
+      return res.status(400).json({ error: r.fehler[0]?.grund || 'Die Mail ließ sich nicht verschieben.' });
+    }
+    // Was die KI einmal in den Quellordner gelernt hat, zoege die naechste Mail
+    // sonst wieder dorthin — ohne KI und ohne dass es auffiele.
+    try { themen.gelerntVergessen(konto.id, quelle, req.body?.absender || ''); } catch { /* egal */ }
+    loggen('info', 'nachsortierung', `Einzelne Mail von "${quelle}" nach "${pfad}" verschoben (${konto.name}).`);
+    res.json({ ok: true, ordner: pfad });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // POST /api/sortierung/nachsortierung/start  { trockenlauf }
 //
 // Antwortet sofort und laesst den Lauf weiterarbeiten. Ein Postfach mit 20.000

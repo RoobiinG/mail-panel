@@ -161,6 +161,12 @@ async function kontoDurchgehen(konto, { trockenlauf, rest }) {
       if (ergebnis.beispiele.length < BEISPIELE_MAX) {
         ergebnis.beispiele.push({
           konto: konto.name,
+          // Beides gehört dazu, sonst ist die Liste nur zum Lesen da: Mit der
+          // UID lässt sich diese eine Mail umlenken, mit der Regel-Kennung die
+          // Ursache — also alle künftigen Mails dieses Absenders gleich mit.
+          kontoId: konto.id,
+          uid: m.uid,
+          regelId: regel.id,
           von: m.von,
           betreff: String(m.betreff || '').slice(0, 120),
           vonOrdner: quelle,

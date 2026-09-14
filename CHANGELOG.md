@@ -2,6 +2,69 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [5.1.0.0] - 2026-09-14 (Build 200) — *Der Zielordner ist da anzufassen, wo er falsch ist*
+
+Der erste Trockenlauf der Nachsortierung hat getan, wozu er da ist: Er zeigte 500 Vorschläge, und
+darunter stand `notifications@lieferung.example · „Änderung Deiner Lieferzeit" → Banking`. Eine
+falsche bestehende Regel, sichtbar geworden, bevor sie etwas bewegt hat. Nur ließ sich damit
+nichts anfangen — die Liste war zum Lesen da.
+
+### Features
+- **Zielordner direkt in der Vorschlagsliste ändern (`components/NachsortierungKarte.jsx`):**
+  Jede Zeile hat jetzt ein Feld mit dem Zielordner und drei Knöpfe.
+  - **Regel ändern** biegt die Regel dahinter um — sie gilt damit für *alle* Mails dieses
+    Absenders, nicht nur für diese eine. Das ist der Knopf, der ein Problem wirklich erledigt;
+    danach verschwinden alle übrigen Vorschläge derselben Regel aus der Liste.
+  - **Nur diese Mail** verschiebt genau diese eine und lässt die Regel, wie sie ist. Der
+    Vorbehalt steht im Hinweistext: Beim nächsten Lauf schlägt sie wieder zu.
+  - **Regel löschen** entfernt sie ganz — künftig entscheidet für diesen Absender wieder die KI.
+  Dazu ein kleines Kreuz zum Ausblenden. Das ist ausdrücklich nur die Anzeige: Der Vorschlag
+  steht beim nächsten Lauf wieder da.
+- **Zielordner in der Regelliste direkt in der Zeile ändern (`pages/Sortierung.jsx`):**
+  In der aufgeklappten Domain-Gruppe ist der Zielordner anklickbar und wird zum Eingabefeld.
+  Enter speichert, Escape bricht ab. Beim Durchgehen vieler Regeln hintereinander ist jeder
+  Dialog einer zu viel.
+- **Neu: `POST /api/sortierung/nachsortierung/verschieben`** — verschiebt eine einzelne Mail
+  aus der Vorschlagsliste. Legt den Zielordner bei Bedarf an, holt die Schreibweise des Servers
+  über `themen.ordnerPfad` und räumt das Gelernte des Quellordners auf.
+
+### Bugfixes
+- **Eine einzelne KI-Einordnung schrieb einen Absender dauerhaft an einem Ordner fest
+  (`services/themen.js`):** `aufloesen()` rief `gelerntMerken()` bei jeder Einordnung in einen
+  vorhandenen Ordner. Steht die Absender-Domain erst dort, trifft beim nächsten Mal schon der
+  Stichwort-Vergleich — **ohne KI, ohne Rückfrage**, und im Protokoll steht nur noch
+  „Stichwort … aus der Ordner-Beschreibung". Im Betrieb am 14.09.:
+
+  ```
+  Regel gelernt [absender]: notifications@lieferung.example → Banking
+  Stichwort „lieferung.example" aus der Ordner-Beschreibung (Absender)   13×
+  ```
+
+  Eine Essenslieferung im Banking-Ordner, dreizehnmal, ohne dass die KI je wieder gefragt
+  wurde. Neu: `gelerntBelegt()` verlangt vor dem Festschreiben zwei Mails desselben Absenders
+  in denselben Ordner — und schreibt gar nichts fest, wenn dieser Absender uneinheitlich
+  einsortiert wurde. Dieselbe Haltung wie bei `regelLernen()` in Build 196, nur eine Stufe
+  weicher: zwei statt drei, weil diese Mechanik keine Dauerregel schafft und in einem Klick
+  wieder weg ist. Eine **Korrektur des Nutzers** schreibt weiterhin sofort fest — dort hat ein
+  Mensch hingesehen.
+
+### Technisch
+- Die Vorschläge tragen jetzt `uid`, `kontoId` und `regelId` mit sich. Ohne diese drei Felder
+  wäre die Liste nur zum Lesen da — mit der UID lässt sich die einzelne Mail umlenken, mit der
+  Regel-Kennung die Ursache.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine.
+- **n8n-Workflow-Kompatibilität:** Keine Änderung an den Workflows.
+- **Neustart-/Session-Verhalten:** Reines Code-Update. Die Vorschlagsliste ist eine Momentaufnahme
+  des letzten Laufs; „Regel ändern" und „Regel löschen" wirken dauerhaft, das Ausblenden nicht.
+- **Zu beachten:** „Regel ändern" wirkt auf alle Mails dieses Absenders, nicht nur auf die
+  angezeigte. Das ist beabsichtigt — nur so verschwindet die Ursache — steht aber auch im
+  Hinweistext des Knopfes.
+
+---
+
+
 ## [5.0.0.1] - 2026-09-14 (Build 199) — *Eine Karte, die nicht verschwindet*
 
 ### Bugfixes

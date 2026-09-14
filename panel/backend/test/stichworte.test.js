@@ -314,3 +314,83 @@ describe('Gelerntes wird als Domain verglichen', () => {
       '"no2.de" endet zwar auf "o2.de", ist aber eine andere Domain');
   });
 });
+
+// ─── Was sich am Ordner festsetzen darf ──────────────────────────────────────
+//
+// Steht eine Absender-Domain erst am Ordner, trifft beim nächsten Mal schon der
+// Stichwort-Vergleich — ohne KI, ohne Rückfrage, ohne dass es im Protokoll
+// auffiele. Im Betrieb am 14.09. sah man genau das:
+//
+//     Regel gelernt [absender]: notifications@lieferung.example → Banking
+//     Stichwort „lieferung.example" aus der Ordner-Beschreibung (Absender)   13×
+//
+// Eine Essenslieferung im Banking-Ordner, dreizehnmal, ohne dass die KI je
+// wieder gefragt wurde. Eine einzelne Einordnung eines kleinen Modells ist kein
+// Beleg, sondern eine Vermutung.
+describe('Gelernt wird erst, wenn es belegt ist', () => {
+  const log = (von, zielordner) => db.prepare(
+    "INSERT INTO quarantine_log (konto, von, zielordner) VALUES ('K', ?, ?)",
+  ).run(von, zielordner);
+
+  const kontoZeile = () => db.prepare('SELECT * FROM accounts WHERE id = ?').get(konto);
+  const gelernt = (name) => db.prepare('SELECT gelernt FROM konto_ordner WHERE ordner = ?').get(name)?.gelernt;
+
+  beforeEach(() => {
+    db.exec('DELETE FROM quarantine_log;');
+    db.prepare("INSERT INTO settings (key, value) VALUES ('themen_sortierung_aktiv', '1')"
+      + ' ON CONFLICT(key) DO UPDATE SET value = excluded.value').run();
+  });
+
+  test('eine einzelne KI-Einordnung schreibt nichts fest', async () => {
+    ordner(konto, 'Banking');
+    await themen.aufloesen({
+      konto: kontoZeile(), vorschlag: 'Banking', konfidenz: 1,
+      von: 'notifications@lieferung.example', betreff: 'Änderung Deiner Lieferzeit',
+    });
+    assert.equal(gelernt('Banking'), null,
+      'sonst entscheidet ab der zweiten Mail der Stichwort-Vergleich statt der KI');
+  });
+
+  test('zwei gleiche Einordnungen genügen', async () => {
+    ordner(konto, 'Banking');
+    log('notifications@lieferung.example', 'Banking');
+    log('notifications@lieferung.example', 'Banking');
+    await themen.aufloesen({
+      konto: kontoZeile(), vorschlag: 'Banking', konfidenz: 1,
+      von: 'notifications@lieferung.example', betreff: 'x',
+    });
+    assert.match(gelernt('Banking') || '', /lieferung\.example/);
+  });
+
+  test('widersprüchliche Belege schreiben nichts fest', async () => {
+    ordner(konto, 'Banking');
+    log('notifications@lieferung.example', 'Banking');
+    log('notifications@lieferung.example', 'Banking');
+    log('notifications@lieferung.example', 'Werbung');
+    await themen.aufloesen({
+      konto: kontoZeile(), vorschlag: 'Banking', konfidenz: 1,
+      von: 'notifications@lieferung.example', betreff: 'x',
+    });
+    assert.equal(gelernt('Banking'), null,
+      'wer zweierlei verschickt, gehört in keinen der beiden Ordner zementiert');
+  });
+
+  test('gelerntBelegt zählt nach Domain, nicht nach Anzeigename', () => {
+    log('"lieferung.example Support" <a@fremd.example>', 'Banking');
+    log('"lieferung.example Support" <a@fremd.example>', 'Banking');
+    assert.equal(
+      themen.gelerntBelegt(kontoZeile(), 'Banking', 'b@lieferung.example'),
+      false,
+      'der Anzeigename ist frei wählbar — er darf nichts belegen',
+    );
+  });
+
+  // Eine Korrektur des Nutzers ist etwas anderes als eine KI-Vermutung: Sie
+  // schreibt weiterhin sofort fest, denn dort hat ein Mensch hingesehen.
+  test('gelerntMerken selbst bleibt unverändert — die Korrektur wirkt sofort', () => {
+    ordner(konto, 'Banking');
+    const id = db.prepare("SELECT id FROM konto_ordner WHERE ordner = 'Banking'").get().id;
+    assert.equal(themen.gelerntMerken(id, 'a@lieferung.example'), true);
+    assert.match(gelernt('Banking'), /lieferung\.example/);
+  });
+});

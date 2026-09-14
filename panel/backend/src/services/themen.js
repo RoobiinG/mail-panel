@@ -378,6 +378,52 @@ const GELERNT_MAX = 12;
 const gelernteListe = (eintrag) => String(eintrag?.gelernt || '')
   .split(',').map((s) => s.trim()).filter(Boolean);
 
+// Wie viele Mails desselben Absenders nötig sind, bevor eine KI-Beobachtung
+// festgeschrieben wird.
+//
+// Das Festschreiben hat Folgen, die eine einzelne Einordnung nicht rechtfertigt:
+// Steht die Domain erst am Ordner, trifft beim nächsten Mal schon der
+// Stichwort-Vergleich — ohne KI, ohne Rückfrage, ohne dass es im Protokoll
+// auffiele. Im Betrieb am 14.09. sah man genau das:
+//
+//     Regel gelernt [absender]: notifications@lieferung.example → Banking
+//     Stichwort „lieferung.example" aus der Ordner-Beschreibung (Absender)   13×
+//
+// Eine Essenslieferung im Banking-Ordner, dreizehnmal, ohne dass die KI je
+// wieder gefragt wurde. Zwei statt drei wie bei regelLernen(): Das hier ist die
+// weichere Mechanik, sie schafft keine Dauerregel und ist in einem Klick weg.
+const GELERNT_SCHWELLE = 2;
+
+/**
+ * Ist die Beobachtung fest genug, um ohne KI zu wirken?
+ *
+ * Dieselbe Haltung wie bei regelLernen(): Gezählt wird, was dieser Absender
+ * selbst belegt, und wer uneinheitlich einsortiert wurde, wird gar nicht
+ * festgeschrieben. Wer Bestellungen UND Werbung über dieselbe Adresse
+ * verschickt, gehört in keinen der beiden Ordner zementiert.
+ */
+function gelerntBelegt(konto, ordner, von) {
+  const domain = sortierung.domain(von);
+  if (!konto?.name || !ordner || !domain) return false;
+  try {
+    const zeilen = db.prepare(`
+      SELECT von, zielordner FROM quarantine_log
+      WHERE konto = ? AND zielordner IS NOT NULL AND zielordner != ''
+        AND von LIKE ? AND created_at >= datetime('now', '-90 day')
+    `).all(konto.name, `%${domain}%`);
+    // LIKE ist nur der Vorfilter — ein Anzeigename kann die Domain ebenfalls
+    // enthalten. Was zählt, ist die tatsächliche Absenderdomain.
+    const vonDomain = zeilen.filter((z) => sortierung.domain(z.von) === domain);
+    const ziele = new Set(vonDomain.map((z) => z.zielordner));
+    if (ziele.size > 1) return false;
+    return vonDomain.filter((z) => z.zielordner === ordner).length >= GELERNT_SCHWELLE;
+  } catch {
+    // Im Zweifel nicht festschreiben: Ein Fehler beim Prüfen darf nicht dazu
+    // führen, dass ungeprüft zementiert wird.
+    return false;
+  }
+}
+
 // Merkt sich die Absender-Domain an einem Ordner. Die älteste fällt raus, wenn
 // es zu viele werden — der Prompt soll ein Bild geben, keine Chronik.
 function gelerntMerken(ordnerId, von) {
@@ -1000,7 +1046,12 @@ async function aufloesen({ konto, vorschlag, konfidenz, von, betreff }) {
       // Hat die KI etwas erkannt, das nicht in der Beschreibung steht, wird der
       // Absender vermerkt — beim nächsten Mal trifft schon das Stichwort, ohne
       // KI und ohne Budget.
-      if (!stich || stich.ordner !== bekannt.ordner) gelerntMerken(bekannt.id, von);
+      // Festgeschrieben wird erst, wenn dieser Absender mehrfach und
+      // einheitlich hier gelandet ist — siehe gelerntBelegt(). Eine einzelne
+      // Einordnung eines kleinen Modells ist kein Beleg, sondern eine Vermutung.
+      if ((!stich || stich.ordner !== bekannt.ordner) && gelerntBelegt(konto, bekannt.ordner, von)) {
+        gelerntMerken(bekannt.id, von);
+      }
       return benutzen(bekannt, 'Vorhandener Themen-Ordner');
     }
   }
@@ -1125,6 +1176,7 @@ module.exports = {
   stichwortTreffer,
   gelernteListe,
   gelerntMerken,
+  gelerntBelegt,
   gelerntVergessen,
   gelerntLeeren,
   aehnlich,

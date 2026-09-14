@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  Repeat, ChevronDown, ChevronRight, Loader2, AlertTriangle, ArrowRight, Play,
+  Repeat, ChevronDown, ChevronRight, Loader2, AlertTriangle, ArrowRight, Play, X,
 } from 'lucide-react';
 import api from '../api';
 import { useMelden } from './ui/Meldungen';
@@ -36,6 +36,11 @@ export default function NachsortierungKarte() {
   const [fehler, setFehler] = useState('');
   const [busy, setBusy] = useState('');
   const [listeOffen, setListeOffen] = useState(false);
+  // Je Zeile der Vorschlagsliste: der eingetippte Zielordner, welche Zeile
+  // gerade arbeitet, und welche ausgeblendet ist.
+  const [zielWahl, setZielWahl] = useState({});
+  const [zeileBusy, setZeileBusy] = useState(null);
+  const [versteckt, setVersteckt] = useState({});
 
   const laden = () => api.get('/sortierung/nachsortierung')
     .then((r) => { setDaten(r.data); setFehler(''); })
@@ -85,6 +90,66 @@ export default function NachsortierungKarte() {
       melden(err.response?.data?.error || 'Konnte die Einstellung nicht ändern.', 'fehler');
     } finally {
       setBusy('');
+    }
+  };
+
+  // Alle Zeilen ausblenden, die dieselbe Regel betreffen: Ist die Ursache
+  // beseitigt, sind auch die übrigen Vorschläge dieser Regel hinfällig.
+  const gleicheRegelAusblenden = (regelId) => {
+    if (!regelId) return;
+    setVersteckt((p) => {
+      const neu = { ...p };
+      letzter.beispiele.forEach((x, idx) => { if (x.regelId === regelId) neu[idx] = true; });
+      return neu;
+    });
+  };
+
+  const regelUmbiegen = async (b, ziel, i) => {
+    setZeileBusy(i);
+    try {
+      await api.put(`/sortierung/regeln/${b.regelId}`, { zielordner: ziel.trim() });
+      melden(`Regel geändert — künftig geht das nach „${ziel.trim()}".`);
+      gleicheRegelAusblenden(b.regelId);
+    } catch (err) {
+      melden(err.response?.data?.error || 'Die Regel ließ sich nicht ändern.', 'fehler');
+    } finally {
+      setZeileBusy(null);
+    }
+  };
+
+  const regelWeg = async (b, i) => {
+    const ok = await nachfragen({
+      titel: 'Regel löschen?',
+      text: `Die Regel „${b.regel}" wird gelöscht. Mails dieses Absenders entscheidet danach `
+        + 'wieder die KI. Die Mails selbst bleiben, wo sie sind.',
+      bestaetigen: 'Löschen',
+      gefaehrlich: true,
+    });
+    if (!ok) return;
+    setZeileBusy(i);
+    try {
+      await api.delete(`/sortierung/regeln/${b.regelId}`);
+      melden('Regel gelöscht.');
+      gleicheRegelAusblenden(b.regelId);
+    } catch (err) {
+      melden(err.response?.data?.error || 'Die Regel ließ sich nicht löschen.', 'fehler');
+    } finally {
+      setZeileBusy(null);
+    }
+  };
+
+  const eineMail = async (b, ziel, i) => {
+    setZeileBusy(i);
+    try {
+      const { data } = await api.post('/sortierung/nachsortierung/verschieben', {
+        konto_id: b.kontoId, uid: b.uid, von: b.vonOrdner, nach: ziel.trim(), absender: b.von,
+      });
+      melden(`Verschoben nach „${data.ordner}". Die Regel bleibt unverändert.`);
+      setVersteckt((p) => ({ ...p, [i]: true }));
+    } catch (err) {
+      melden(err.response?.data?.error || 'Die Mail ließ sich nicht verschieben.', 'fehler');
+    } finally {
+      setZeileBusy(null);
     }
   };
 
@@ -196,21 +261,69 @@ export default function NachsortierungKarte() {
                   {letzter.treffer > letzter.beispiele.length ? ` von ${letzter.treffer}` : ''})
                 </button>
                 {listeOffen && (
-                  <div className="max-h-72 overflow-auto rounded-lg border border-panel-border divide-y divide-panel-border">
-                    {letzter.beispiele.map((b, i) => (
-                      <div key={i} className="p-2 text-xs">
-                        <div className="truncate" title={`${b.von} — ${b.betreff}`}>
-                          <span className="font-mono text-panel-muted">{b.von}</span>
-                          {b.betreff ? <> · {b.betreff}</> : null}
+                  <div className="max-h-96 overflow-auto rounded-lg border border-panel-border divide-y divide-panel-border">
+                    {letzter.beispiele.map((b, i) => {
+                      if (versteckt[i]) return null;
+                      const ziel = zielWahl[i] ?? b.nachOrdner;
+                      const geaendert = ziel.trim() && ziel.trim() !== b.nachOrdner;
+                      return (
+                        <div key={i} className="p-2 text-xs space-y-1">
+                          <div className="truncate" title={`${b.von} — ${b.betreff}`}>
+                            <span className="font-mono text-panel-muted">{b.von}</span>
+                            {b.betreff ? <> · {b.betreff}</> : null}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1.5 text-panel-muted">
+                            <span className="font-mono">{b.vonOrdner}</span>
+                            <ArrowRight size={11} className="text-panel-accent" />
+                            <input
+                              type="text"
+                              value={ziel}
+                              onChange={(e) => setZielWahl((p) => ({ ...p, [i]: e.target.value }))}
+                              list="ordner-vorschlaege"
+                              className="!py-0.5 !px-1.5 text-xs font-mono w-40"
+                              title="Zielordner ändern"
+                            />
+                            <span className="truncate max-w-[220px]" title={b.regel}>({b.regel})</span>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1">
+                            {/* Die Regel umbiegen wirkt auf ALLE Mails dieses Absenders —
+                                das ist der Knopf, der ein Problem wirklich erledigt. */}
+                            <button
+                              onClick={() => regelUmbiegen(b, ziel, i)}
+                              disabled={!geaendert || !b.regelId || zeileBusy === i}
+                              className="btn-ghost !py-0.5 !px-2 text-[11px] disabled:opacity-40"
+                              title="Ändert die Regel — gilt für alle Mails dieses Absenders"
+                            >
+                              Regel ändern
+                            </button>
+                            <button
+                              onClick={() => eineMail(b, ziel, i)}
+                              disabled={!ziel.trim() || zeileBusy === i}
+                              className="btn-ghost !py-0.5 !px-2 text-[11px] disabled:opacity-40"
+                              title="Verschiebt nur diese eine Mail. Die Regel bleibt, wie sie ist."
+                            >
+                              Nur diese Mail
+                            </button>
+                            <button
+                              onClick={() => regelWeg(b, i)}
+                              disabled={!b.regelId || zeileBusy === i}
+                              className="btn-ghost !py-0.5 !px-2 text-[11px] text-panel-red disabled:opacity-40"
+                              title="Löscht die Regel dahinter — künftig entscheidet wieder die KI"
+                            >
+                              Regel löschen
+                            </button>
+                            <button
+                              onClick={() => setVersteckt((p) => ({ ...p, [i]: true }))}
+                              className="btn-ghost !py-0.5 !px-1.5 text-[11px]"
+                              title="Nur ausblenden — beim nächsten Lauf steht der Vorschlag wieder da"
+                            >
+                              <X size={12} />
+                            </button>
+                            {zeileBusy === i && <Loader2 size={12} className="animate-spin text-panel-muted" />}
+                          </div>
                         </div>
-                        <div className="flex items-center gap-1 mt-0.5 text-panel-muted">
-                          <span className="font-mono">{b.vonOrdner}</span>
-                          <ArrowRight size={11} className="text-panel-accent" />
-                          <span className="font-mono text-panel-accent">{b.nachOrdner}</span>
-                          <span className="ml-1 truncate" title={b.regel}>({b.regel})</span>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </>

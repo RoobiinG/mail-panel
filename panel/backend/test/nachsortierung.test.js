@@ -52,6 +52,7 @@ beforeEach(() => {
 
   imap.ordnerDetails = async () => ordnerListe;
   imap.briefkoepfe = async ({ ordner }) => postfach[ordner] || [];
+  imap.ordnerErstellen = async () => false;
   imap.mailsVerschieben = async ({ mails, von, nach }) => {
     verschoben.push({ von, nach, uids: mails.map((m) => m.uid) });
     return { verschoben: mails, fehler: [] };
@@ -64,6 +65,7 @@ afterEach(() => {
   imap.ordnerDetails = echt.ordnerDetails;
   imap.briefkoepfe = echt.briefkoepfe;
   imap.mailsVerschieben = echt.mailsVerschieben;
+  imap.ordnerErstellen = echt.ordnerErstellen;
   themen.ordnerPfad = echt.ordnerPfad;
 });
 
@@ -211,6 +213,19 @@ describe('Der Trockenlauf', () => {
     assert.match(b.regel, /shop@versand\.example/);
   });
 
+  // Ohne diese drei Felder wäre die Liste nur zum Lesen da. Mit der UID lässt
+  // sich diese eine Mail umlenken, mit der Regel-Kennung die Ursache — also
+  // alle künftigen Mails dieses Absenders gleich mit.
+  test('jeder Vorschlag trägt UID, Konto und Regel mit sich', async () => {
+    const id = regel('absender', 'shop@versand.example', 'Bestellungen').lastInsertRowid;
+    postfach.Einkauf = [mail(7, 'shop@versand.example', 'Deine Lieferung')];
+
+    const b = (await n.lauf({ trockenlauf: true })).beispiele[0];
+    assert.equal(b.uid, 7);
+    assert.equal(b.kontoId, kontoId());
+    assert.equal(b.regelId, id);
+  });
+
   test('ohne Angabe wird die Einstellung genommen — und die steht auf Trockenlauf', async () => {
     regel('absender', 'shop@versand.example', 'Bestellungen');
     postfach.Einkauf = [mail(1, 'shop@versand.example')];
@@ -266,6 +281,81 @@ describe('Ein kaputtes Konto kippt den Lauf nicht', () => {
     const r = await n.lauf({ trockenlauf: false });
     assert.equal(r.treffer, 1);
     assert.match(r.fehler[0], /INBOX/);
+  });
+});
+
+describe('Eine einzelne Mail aus der Vorschlagsliste umlenken', () => {
+  const express = require('express');
+
+  const request = async (pfad, rumpf) => {
+    const app = express();
+    app.use(express.json());
+    app.use((req, _res, next) => { req.user = { id: 1 }; next(); });
+    app.use('/api/sortierung', require('../src/routes/sortierung'));
+    const server = await new Promise((f) => { const s = app.listen(0, () => f(s)); });
+    try {
+      const { port } = server.address();
+      const r = await fetch(`http://127.0.0.1:${port}${pfad}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(rumpf),
+      });
+      return { status: r.status, json: await r.json().catch(() => null) };
+    } finally {
+      await new Promise((f) => server.close(f));
+    }
+  };
+
+  test('verschiebt genau diese Mail — und lässt die Regel in Ruhe', async () => {
+    const id = regel('absender', 'shop@versand.example', 'Bestellungen').lastInsertRowid;
+    imap.ordnerErstellen = async () => false;
+
+    const r = await request('/api/sortierung/nachsortierung/verschieben', {
+      konto_id: kontoId(), uid: 7, von: 'Einkauf', nach: 'Rechnungen',
+    });
+    assert.equal(r.status, 200);
+    assert.deepEqual(verschoben, [{ von: 'Einkauf', nach: 'Rechnungen', uids: [7] }]);
+    assert.equal(
+      db.prepare('SELECT zielordner z FROM sort_rules WHERE id = ?').get(id).z,
+      'Bestellungen',
+      'die Regel bleibt falsch — genau das ist der Unterschied zu „Regel ändern"',
+    );
+  });
+
+  test('eine unbrauchbare UID wird abgewiesen, bevor IMAP überhaupt gefragt wird', async () => {
+    for (const uid of [0, -1, 'abc', null]) {
+      const r = await request('/api/sortierung/nachsortierung/verschieben', {
+        konto_id: kontoId(), uid, von: 'Einkauf', nach: 'Rechnungen',
+      });
+      assert.equal(r.status, 400, `UID ${JSON.stringify(uid)} hätte abgewiesen werden müssen`);
+    }
+    assert.deepEqual(verschoben, []);
+  });
+
+  test('ohne Quell- oder Zielordner passiert nichts', async () => {
+    const ohneZiel = await request('/api/sortierung/nachsortierung/verschieben', {
+      konto_id: kontoId(), uid: 7, von: 'Einkauf', nach: '  ',
+    });
+    assert.equal(ohneZiel.status, 400);
+    assert.deepEqual(verschoben, []);
+  });
+
+  test('ein unbekanntes Konto ebenso', async () => {
+    const r = await request('/api/sortierung/nachsortierung/verschieben', {
+      konto_id: 99999, uid: 7, von: 'Einkauf', nach: 'Rechnungen',
+    });
+    assert.equal(r.status, 400);
+  });
+
+  test('bewegt sich nichts, meldet die Route das auch', async () => {
+    imap.ordnerErstellen = async () => false;
+    imap.mailsVerschieben = async () => ({ verschoben: [], fehler: [{ uid: 7, grund: 'nicht in "Einkauf" gefunden' }] });
+
+    const r = await request('/api/sortierung/nachsortierung/verschieben', {
+      konto_id: kontoId(), uid: 7, von: 'Einkauf', nach: 'Rechnungen',
+    });
+    assert.equal(r.status, 400);
+    assert.match(r.json.error, /nicht in "Einkauf" gefunden/);
   });
 });
 

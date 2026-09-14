@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Plus, Trash2, CheckCircle2, XCircle, AlertCircle, Inbox, Tag, ArrowRight,
   FolderTree, Sparkles, Lock, Unlock, RefreshCw, Check, Wand2,
@@ -113,6 +113,13 @@ export default function Sortierung() {
   // vier Adressen in drei verschiedene Ordner sortiert wird.
   const [regelGruppen, setRegelGruppen] = useState([]);
   const [offeneRegelGruppen, setOffeneRegelGruppen] = useState({});
+  // Zielordner direkt in der Zeile ändern, ohne das Fenster zu öffnen. Beim
+  // Durchgehen vieler Regeln hintereinander ist jeder Dialog einer zu viel.
+  const [inlineRegel, setInlineRegel] = useState(null);
+  const [inlineZiel, setInlineZiel] = useState('');
+  // Escape schließt das Feld und löst dabei auch ein blur aus. Ohne diesen
+  // Merker würde der Abbruch trotzdem speichern.
+  const inlineAbbruch = useRef(false);
   const [inbox, setInbox] = useState([]);
   const [laedt, setLaedt] = useState(false);
 
@@ -984,6 +991,22 @@ export default function Sortierung() {
       regelnLaden(aktivesKonto);
     } catch (err) {
       melden(err.response?.data?.error || 'Fehler beim Speichern', 'fehler');
+    }
+  };
+
+  const inlineSpeichern = async (r) => {
+    const ziel = inlineZiel.trim();
+    setInlineRegel(null);
+    if (inlineAbbruch.current) { inlineAbbruch.current = false; return; }
+    if (!ziel || ziel === r.zielordner) return;
+    try {
+      const { data } = await api.put(`/sortierung/regeln/${r.id}`, { zielordner: ziel });
+      melden(data.ordnerAngelegt
+        ? `„${r.muster}" geht jetzt nach „${ziel}". Der Ordner wurde neu angelegt.`
+        : `„${r.muster}" geht jetzt nach „${ziel}".`);
+      regelnLaden(aktivesKonto);
+    } catch (err) {
+      melden(err.response?.data?.error || 'Die Regel ließ sich nicht ändern.', 'fehler');
     }
   };
 
@@ -2298,9 +2321,31 @@ export default function Sortierung() {
                                         )}
                                       </td>
                                       <td className="py-2 px-2 font-mono">
-                                        {r.aktion === 'behalten'
-                                          ? <span className="text-panel-muted italic">bleibt liegen</span>
-                                          : <span className="text-panel-accent">{r.zielordner}</span>}
+                                        {r.aktion === 'behalten' ? (
+                                          <span className="text-panel-muted italic">bleibt liegen</span>
+                                        ) : inlineRegel === r.id ? (
+                                          <input
+                                            type="text"
+                                            autoFocus
+                                            value={inlineZiel}
+                                            onChange={e => setInlineZiel(e.target.value)}
+                                            onBlur={() => inlineSpeichern(r)}
+                                            onKeyDown={e => {
+                                              if (e.key === 'Enter') e.currentTarget.blur();
+                                              if (e.key === 'Escape') { inlineAbbruch.current = true; e.currentTarget.blur(); }
+                                            }}
+                                            list="ordner-vorschlaege"
+                                            className="!py-0.5 !px-1 text-xs font-mono w-36"
+                                          />
+                                        ) : (
+                                          <button
+                                            onClick={() => { setInlineZiel(r.zielordner || ''); setInlineRegel(r.id); }}
+                                            className="text-panel-accent hover:underline decoration-dotted"
+                                            title="Zielordner ändern — Enter speichert, Escape bricht ab"
+                                          >
+                                            {r.zielordner}
+                                          </button>
+                                        )}
                                       </td>
                                       <td className="py-2 px-2 text-center text-panel-muted">{r.treffer}</td>
                                       <td className="py-2 text-right whitespace-nowrap">
