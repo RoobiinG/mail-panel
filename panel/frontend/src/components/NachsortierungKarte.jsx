@@ -33,11 +33,19 @@ const zeit = (iso) => {
 export default function NachsortierungKarte() {
   const { melden, nachfragen } = useMelden();
   const [daten, setDaten] = useState(null);
+  const [fehler, setFehler] = useState('');
   const [busy, setBusy] = useState('');
   const [listeOffen, setListeOffen] = useState(false);
 
   const laden = () => api.get('/sortierung/nachsortierung')
-    .then((r) => setDaten(r.data)).catch(() => setDaten(null));
+    .then((r) => { setDaten(r.data); setFehler(''); })
+    .catch((err) => {
+      setDaten(null);
+      setFehler(err.response?.status === 404
+        ? 'Das Panel kennt diese Funktion noch nicht — vermutlich läuft noch eine ältere Fassung. '
+          + 'Nach „docker compose pull && up -d" und einem harten Neuladen (Strg+F5) ist sie da.'
+        : (err.response?.data?.error || 'Der Stand der Nachsortierung ließ sich nicht laden.'));
+    });
   useEffect(() => { laden(); }, []);
 
   // Solange ein Lauf arbeitet, alle fünf Sekunden nachsehen. Ein Postfach mit
@@ -48,7 +56,24 @@ export default function NachsortierungKarte() {
     return () => clearInterval(t);
   }, [daten?.laeuft]);
 
-  if (!daten) return null;
+  // Eine Karte, die bei einem Fehler einfach verschwindet, ist der schlimmste
+  // Zustand: Der Nutzer sucht dann etwas, das er nicht findet, und nichts sagt
+  // ihm warum. Also lieber ein Kasten mit der Begründung.
+  if (!daten) {
+    return (
+      <div className="card !p-0 overflow-hidden">
+        <div className="p-4 border-b border-panel-border bg-panel-card/50 flex items-center gap-2">
+          <Repeat size={18} className="text-panel-muted" />
+          <h2 className="font-medium">Nachsortierung</h2>
+        </div>
+        <div className="p-4 flex items-start gap-2 text-sm text-panel-muted">
+          {fehler ? <AlertTriangle size={16} className="shrink-0 mt-0.5 text-panel-orange" />
+            : <Loader2 size={16} className="shrink-0 mt-0.5 animate-spin" />}
+          <span>{fehler || 'Wird geladen …'}</span>
+        </div>
+      </div>
+    );
+  }
   const letzter = daten.letzter;
 
   const setzen = async (feld, wert) => {

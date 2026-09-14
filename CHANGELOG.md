@@ -2,6 +2,28 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [5.0.0.1] - 2026-09-14 (Build 199) — *Eine Karte, die nicht verschwindet*
+
+### Bugfixes
+- **Die Nachsortierungs-Karte verschwand bei jedem Fehler spurlos
+  (`components/NachsortierungKarte.jsx`):** Sie begann mit `if (!daten) return null` — schlug
+  der Abruf ihres Zustands fehl, war an ihrer Stelle einfach nichts. Wer sie suchte, fand
+  nichts und erfuhr auch nicht, warum. Das ist dasselbe Muster, das in Build 196 bis 198 an
+  drei anderen Stellen beseitigt wurde: Es kracht nicht, es passiert nur nichts.
+
+  Jetzt steht dort ein Kasten mit Begründung — beim Laden ein Hinweis, bei einem Fehler dessen
+  Meldung, und bei einer 404 ausdrücklich der wahrscheinlichste Grund: Es läuft noch eine
+  ältere Fassung des Panels, ein `docker compose pull` samt hartem Neuladen fehlt.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine.
+- **n8n-Workflow-Kompatibilität:** Keine Änderung an den Workflows.
+- **Neustart-/Session-Verhalten:** Reine Frontend-Änderung. Nach dem Update einmal hart neu
+  laden (Strg+F5) — die Versionsanzeige wird beim Frontend-Build fest eingebacken.
+
+---
+
+
 ## [5.0.0.0] - 2026-09-14 (Build 198) — *Ein Absender, viele Themen*
 
 Die erste Stelle springt, weil die zweite über 9 hinausliefe — reiner Überlaufzähler, kein
