@@ -1817,7 +1817,7 @@ export default function Sortierung() {
               <select
                 value={korrekturRegel}
                 onChange={ev => setKorrekturRegel(ev.target.value)}
-                className="text-sm bg-panel-bg border-panel-border rounded !py-1"
+                className="text-sm bg-panel-bg border-panel-border rounded !py-1 w-full sm:!w-auto shrink-0"
               >
                 <option value="domain">Merken: Domain</option>
                 <option value="absender">Merken: Exakter Absender</option>
@@ -2579,7 +2579,7 @@ export default function Sortierung() {
                       <select
                         value={regelAnlegenWahl[mail.id] || ''}
                         onChange={e => setRegelAnlegenWahl(p => ({ ...p, [mail.id]: e.target.value }))}
-                        className="text-xs bg-panel-bg whitespace-nowrap"
+                        className="text-xs bg-panel-bg whitespace-nowrap w-full sm:!w-auto shrink-0"
                         title="Was soll sich das Panel für die Zukunft merken?"
                       >
                         <option value="">Keine Regel merken</option>

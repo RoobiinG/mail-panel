@@ -2,6 +2,23 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [5.2.0.1] - 2026-09-14 (Build 207) — *Zwei weitere Stellen mit demselben Select-Bug*
+
+Derselbe Breiten-Bug aus Build 205 (globales CSS zwingt Formularfelder auf `width: 100%`,
+ein `<select>` ohne eigene Schutzklasse neben einem `flex-1`-Feld wird auf wenige Pixel
+gequetscht, sein Dropdown zeigt dann nur abgeschnittene Einzelbuchstaben) steckte noch an zwei
+weiteren Stellen in `Sortierung.jsx`, beide vom Nutzer per Screenshot gemeldet bzw. beim
+Nachsehen gefunden: dem „Regel merken"-Auswahlschalter bei der Einzelmail-Zuordnung in der
+Sortier-Inbox, und dem gleichnamigen Schalter bei der Sammel-Korrektur in Entscheidungen. Gleicher
+Fix wie zuvor: `w-full sm:!w-auto shrink-0`.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine. **n8n-Workflow-Kompatibilität:** Keine.
+- **Neustart-/Session-Verhalten:** Reines Frontend — harter Neuladen (Strg+F5) genügt.
+
+---
+
+
 ## [5.2.0.0] - 2026-09-14 (Build 206) — *Der Ordner-Tab sieht jetzt auch, was er zeigt*
 
 Anlass: ein Newsletter (`mein-dm-newsletter@mail.dm.de`, „Ihre Neuheiten im Mai") lag im Ordner
