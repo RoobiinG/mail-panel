@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  Repeat, ChevronDown, ChevronRight, Loader2, AlertTriangle, ArrowRight, Play, X,
+  Repeat, ChevronDown, ChevronRight, Loader2, AlertTriangle, ArrowRight, Play, X, Trash2,
 } from 'lucide-react';
 import api from '../api';
 import { useMelden } from './ui/Meldungen';
@@ -301,68 +301,79 @@ export default function NachsortierungKarte({ ordner = [] }) {
               </p>
             </div>
           ) : listeOffen && (
-                  <div className="flex-1 overflow-auto max-h-[600px]">
+                  <div className="flex-1 overflow-auto max-h-[600px] p-3 space-y-2">
                     {letzter.beispiele.map((b, i) => {
                       if (versteckt[i]) return null;
                       const ziel = zielWahl[i] ?? b.nachOrdner;
                       const geaendert = ziel.trim() && ziel.trim() !== b.nachOrdner;
                       return (
-                        <div key={i} className="list-row p-3 text-xs space-y-2">
-                          <div className="truncate" title={`${b.von} — ${b.betreff}`}>
-                            <span className="font-mono text-panel-text">{b.von}</span>
-                            {b.betreff ? <span className="text-panel-muted"> · {b.betreff}</span> : null}
+                        <div key={i} className="rounded-lg bg-panel-bg/40 hover:bg-panel-bg/70
+                                                 transition-colors p-3 flex flex-col sm:flex-row
+                                                 sm:items-center gap-3 text-xs">
+                          {/* Links: worum es geht */}
+                          <div className="min-w-0 flex-1">
+                            <div className="font-mono text-panel-text truncate" title={b.von}>{b.von}</div>
+                            {b.betreff && (
+                              <div className="text-panel-muted truncate mt-0.5" title={b.betreff}>{b.betreff}</div>
+                            )}
                           </div>
-                          <div className="flex flex-wrap items-center gap-2 text-panel-muted">
-                            <span className="font-mono bg-panel-bg/60 border border-panel-border/60 rounded px-1.5 py-0.5 text-[11px]">
+
+                          {/* Rechts: Ordner-Fluss und Aktionen */}
+                          <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 shrink-0">
+                            <span
+                              className="font-mono bg-panel-bg/60 border border-panel-border/60 rounded
+                                         px-1.5 py-0.5 text-[11px] text-panel-muted cursor-help"
+                              title={`Regel: ${b.regel}`}
+                            >
                               {b.vonOrdner}
                             </span>
-                            <ArrowRight size={12} className="text-panel-accent shrink-0" />
-                            <OrdnerFeld
-                              value={ziel}
-                              onChange={(v) => setZielWahl((p) => ({ ...p, [i]: v }))}
-                              optionen={ordner}
-                              className="!py-0.5 !px-1.5 text-xs font-mono w-40"
-                              title="Zielordner ändern"
-                            />
-                            <span className="truncate max-w-[220px] text-[11px] text-panel-muted/70" title={b.regel}>
-                              ({b.regel})
-                            </span>
-                          </div>
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            {/* Die Regel umbiegen wirkt auf ALLE Mails dieses Absenders —
-                                das ist der Knopf, der ein Problem wirklich erledigt. */}
-                            <button
-                              onClick={() => regelUmbiegen(b, ziel, i)}
-                              disabled={!geaendert || !b.regelId || zeileBusy === i}
-                              className="btn-ghost !py-0.5 !px-2 text-[11px] disabled:opacity-40"
-                              title="Ändert die Regel — gilt für alle Mails dieses Absenders"
-                            >
-                              Regel ändern
-                            </button>
-                            <button
-                              onClick={() => eineMail(b, ziel, i)}
-                              disabled={!ziel.trim() || zeileBusy === i}
-                              className="btn-ghost !py-0.5 !px-2 text-[11px] disabled:opacity-40"
-                              title="Verschiebt nur diese eine Mail. Die Regel bleibt, wie sie ist."
-                            >
-                              Nur diese Mail
-                            </button>
-                            <button
-                              onClick={() => regelWeg(b, i)}
-                              disabled={!b.regelId || zeileBusy === i}
-                              className="btn-ghost !py-0.5 !px-2 text-[11px] text-panel-red disabled:opacity-40"
-                              title="Löscht die Regel dahinter — künftig entscheidet wieder die KI"
-                            >
-                              Regel löschen
-                            </button>
-                            <button
-                              onClick={() => setVersteckt((p) => ({ ...p, [i]: true }))}
-                              className="btn-ghost !py-0.5 !px-1.5 text-[11px]"
-                              title="Nur ausblenden — beim nächsten Lauf steht der Vorschlag wieder da"
-                            >
-                              <X size={12} />
-                            </button>
-                            {zeileBusy === i && <Loader2 size={12} className="animate-spin text-panel-muted" />}
+                            <ArrowRight size={12} className="text-panel-accent shrink-0" title={`Regel: ${b.regel}`} />
+                            <div className="w-36 shrink-0">
+                              <OrdnerFeld
+                                value={ziel}
+                                onChange={(v) => setZielWahl((p) => ({ ...p, [i]: v }))}
+                                optionen={ordner}
+                                className="!py-0.5 !px-1.5 text-xs font-mono"
+                                title="Zielordner ändern"
+                              />
+                            </div>
+
+                            <div className="flex items-center gap-1 pl-1 ml-1 border-l border-panel-border/50">
+                              {/* Die Regel umbiegen wirkt auf ALLE Mails dieses Absenders —
+                                  das ist der Knopf, der ein Problem wirklich erledigt. */}
+                              <button
+                                onClick={() => regelUmbiegen(b, ziel, i)}
+                                disabled={!geaendert || !b.regelId || zeileBusy === i}
+                                className="btn-ghost !py-0.5 !px-2 text-[11px] disabled:opacity-40"
+                                title="Ändert die Regel — gilt für alle Mails dieses Absenders"
+                              >
+                                Regel ändern
+                              </button>
+                              <button
+                                onClick={() => eineMail(b, ziel, i)}
+                                disabled={!ziel.trim() || zeileBusy === i}
+                                className="btn-ghost !py-0.5 !px-2 text-[11px] disabled:opacity-40"
+                                title="Verschiebt nur diese eine Mail. Die Regel bleibt, wie sie ist."
+                              >
+                                Nur diese Mail
+                              </button>
+                              <button
+                                onClick={() => regelWeg(b, i)}
+                                disabled={!b.regelId || zeileBusy === i}
+                                className="btn-ghost !p-1.5 text-panel-red disabled:opacity-40"
+                                title="Löscht die Regel dahinter — künftig entscheidet wieder die KI"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                              <button
+                                onClick={() => setVersteckt((p) => ({ ...p, [i]: true }))}
+                                className="btn-ghost !p-1.5"
+                                title="Nur ausblenden — beim nächsten Lauf steht der Vorschlag wieder da"
+                              >
+                                <X size={13} />
+                              </button>
+                              {zeileBusy === i && <Loader2 size={12} className="animate-spin text-panel-muted" />}
+                            </div>
                           </div>
                         </div>
                       );

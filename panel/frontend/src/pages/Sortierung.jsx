@@ -1952,7 +1952,7 @@ export default function Sortierung() {
                             <select
                               value={korrekturRegel}
                               onChange={ev => setKorrekturRegel(ev.target.value)}
-                              className="text-sm bg-panel-bg"
+                              className="text-sm bg-panel-bg w-full sm:!w-auto shrink-0"
                             >
                               <option value="domain">Merken: alles von @{domainVon(e.von)}</option>
                               <option value="absender">Merken: nur {adresse(e.von)}</option>
@@ -2319,18 +2319,20 @@ export default function Sortierung() {
                                         {r.aktion === 'behalten' ? (
                                           <span className="text-panel-muted italic">bleibt liegen</span>
                                         ) : inlineRegel === r.id ? (
-                                          <OrdnerFeld
-                                            autoFocus
-                                            value={inlineZiel}
-                                            onChange={v => setInlineZiel(v)}
-                                            optionen={alleOrdner}
-                                            onBlur={() => inlineSpeichern(r)}
-                                            onKeyDown={e => {
-                                              if (e.key === 'Enter') e.currentTarget.blur();
-                                              if (e.key === 'Escape') { inlineAbbruch.current = true; e.currentTarget.blur(); }
-                                            }}
-                                            className="!py-0.5 !px-1 text-xs font-mono w-36"
-                                          />
+                                          <div className="w-36">
+                                            <OrdnerFeld
+                                              autoFocus
+                                              value={inlineZiel}
+                                              onChange={v => setInlineZiel(v)}
+                                              optionen={alleOrdner}
+                                              onBlur={() => inlineSpeichern(r)}
+                                              onKeyDown={e => {
+                                                if (e.key === 'Enter') e.currentTarget.blur();
+                                                if (e.key === 'Escape') { inlineAbbruch.current = true; e.currentTarget.blur(); }
+                                              }}
+                                              className="!py-0.5 !px-1 text-xs font-mono"
+                                            />
+                                          </div>
                                         ) : (
                                           <button
                                             onClick={() => { setInlineZiel(r.zielordner || ''); setInlineRegel(r.id); }}

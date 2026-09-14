@@ -2,6 +2,32 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [5.1.3.0] - 2026-09-14 (Build 205) — *Zeilen, die nicht mehr aussehen wie ein Log*
+
+### Änderungen
+- **Nachsortierungs-Vorschläge neu gestaltet** (`NachsortierungKarte.jsx`): freistehende Karten
+  statt einer Trennlinien-Liste, Absender/Betreff zweizeilig statt zusammengequetscht, die
+  Regel-Beschreibung als Tooltip statt Dauertext. Von vier Aktions-Buttons bleiben „Regel ändern"
+  und „Nur diese Mail" beschriftet — das ist die eigentliche Entscheidung —, „Regel löschen" und
+  „Ausblenden" werden kompakte Icon-Buttons mit Tooltip.
+- **Der Breiten-Bug hinter dem übergroßen Zielordner-Feld gefunden und an drei Stellen behoben:**
+  `index.css` erzwingt global `width: 100%` auf allen Formularfeldern mit höherer Spezifität als
+  eine einzelne Tailwind-Klasse wie `w-40` — ein Kommentar im Code selbst
+  (`Sortierung.jsx`, bei der „Alle X nach …"-Sammelzeile) dokumentiert das bereits. Betroffen und
+  jetzt nach demselben Muster (Breite auf den Wrapper, nicht auf das Feld) behoben:
+  Nachsortierungs-Zeile, Inline-Bearbeitung in der Regelliste, und — neu entdeckt — der
+  „Merken: alles von …"-Auswahlschalter in der Entscheidungen-Korrekturzeile, dessen
+  aufgeklapptes Dropdown dadurch bislang nur abgeschnittene Einzelbuchstaben zeigte.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine.
+- **n8n-Workflow-Kompatibilität:** Keine.
+- **Neustart-/Session-Verhalten:** Reines Frontend — harter Neuladen (Strg+F5) nach dem
+  Deployment genügt.
+
+---
+
+
 ## [5.1.2.1] - 2026-09-14 (Build 204) — *Nachtrag zu Build 203*
 
 Build 203 hatte beim Umbau ein `</div>` zu viel stehen — der Frontend-Build brach deshalb mit
