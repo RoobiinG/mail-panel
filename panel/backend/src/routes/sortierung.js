@@ -147,8 +147,12 @@ router.put('/regeln/:id', async (req, res) => {
   // mitgeschickt" — deshalb ?? und nicht ||.
   const betreffMuster = typ === 'betreff'
     ? '' : String(req.body?.betreff_muster ?? alt.betreff_muster ?? '').trim();
+  // Dieselbe Überlegung für den Inhalt: Bei typ='inhalt' steht das Stichwort
+  // schon im Muster, eine zusätzliche Inhaltsbedingung wäre doppelt gemoppelt.
+  const inhaltMuster = typ === 'inhalt'
+    ? '' : String(req.body?.inhalt_muster ?? alt.inhalt_muster ?? '').trim();
 
-  if (!['absender', 'betreff', 'domain'].includes(typ)) {
+  if (!['absender', 'betreff', 'domain', 'inhalt'].includes(typ)) {
     return res.status(400).json({ error: 'Ungültiger Typ.' });
   }
   if (!muster) return res.status(400).json({ error: 'Das Muster darf nicht leer sein.' });
@@ -162,20 +166,20 @@ router.put('/regeln/:id', async (req, res) => {
   // sein, solange sich die Betreff-Bedingungen unterscheiden.
   const doppelt = db.prepare(
     'SELECT id FROM sort_rules WHERE konto_id = ? AND typ = ? AND muster = ?'
-    + " AND IFNULL(betreff_muster, '') = ? AND id != ?",
-  ).get(alt.konto_id, typ, muster, betreffMuster, id);
+    + " AND IFNULL(betreff_muster, '') = ? AND IFNULL(inhalt_muster, '') = ? AND id != ?",
+  ).get(alt.konto_id, typ, muster, betreffMuster, inhaltMuster, id);
   if (doppelt) {
     return res.status(400).json({
-      error: betreffMuster
-        ? `Für dieses Muster mit Betreff „${betreffMuster}" gibt es bereits eine Regel.`
+      error: betreffMuster || inhaltMuster
+        ? `Für dieses Muster mit derselben Zusatzbedingung („${betreffMuster || inhaltMuster}") gibt es bereits eine Regel.`
         : 'Für dieses Muster gibt es bereits eine Regel.',
     });
   }
 
   try {
     db.prepare(
-      'UPDATE sort_rules SET typ = ?, muster = ?, zielordner = ?, aktion = ?, betreff_muster = ? WHERE id = ?',
-    ).run(typ, muster, ziel, aktion, betreffMuster || null, id);
+      'UPDATE sort_rules SET typ = ?, muster = ?, zielordner = ?, aktion = ?, betreff_muster = ?, inhalt_muster = ? WHERE id = ?',
+    ).run(typ, muster, ziel, aktion, betreffMuster || null, inhaltMuster || null, id);
 
     // Neuer Zielordner: Gibt es ihn im Postfach nicht, scheitert jedes
     // Verschieben — und zwar erst beim nächsten Lauf, in n8n. Lieber jetzt
@@ -221,11 +225,20 @@ router.post('/regeln', async (req, res) => {
   // Die freiwillige zweite Bedingung. Bei typ='betreff' waere sie doppelt
   // gemoppelt — dort steht der Betreff schon im Muster.
   const betreffMuster = typ === 'betreff' ? '' : String(req.body?.betreff_muster || '').trim();
+  // Und die dritte: ein Stichwort im Text der Mail. Bei typ='inhalt' steht es
+  // schon im Muster.
+  const inhaltMuster = typ === 'inhalt' ? '' : String(req.body?.inhalt_muster || '').trim();
   if (!konto_id || !typ || !muster || (aktion === 'verschieben' && !ziel)) {
     return res.status(400).json({ error: 'Alle Felder müssen ausgefüllt sein.' });
   }
-  if (!['absender', 'betreff', 'domain'].includes(typ)) {
+  if (!['absender', 'betreff', 'domain', 'inhalt'].includes(typ)) {
     return res.status(400).json({ error: 'Ungültiger Typ.' });
+  }
+  // Ein zu kurzes Stichwort trifft fast jede Mail. „AG" steht in jeder zweiten
+  // Signatur — eine Regel daraus verschiebt wahllos.
+  if ((typ === 'inhalt' ? String(muster).trim() : inhaltMuster).length > 0
+      && (typ === 'inhalt' ? String(muster).trim() : inhaltMuster).length < 3) {
+    return res.status(400).json({ error: 'Ein Stichwort für den Inhalt braucht mindestens 3 Zeichen.' });
   }
   const konto = db.prepare('SELECT * FROM accounts WHERE id = ?').get(Number(konto_id));
   if (!konto) {
@@ -237,20 +250,20 @@ router.post('/regeln', async (req, res) => {
   // Absender mit verschiedenen Betreffen mehrfach zu regeln.
   const doppelt = db.prepare(
     'SELECT id FROM sort_rules WHERE konto_id = ? AND typ = ? AND muster = ?'
-    + " AND IFNULL(betreff_muster, '') = ?",
-  ).get(Number(konto_id), typ, muster.trim(), betreffMuster);
+    + " AND IFNULL(betreff_muster, '') = ? AND IFNULL(inhalt_muster, '') = ?",
+  ).get(Number(konto_id), typ, muster.trim(), betreffMuster, inhaltMuster);
   if (doppelt) {
     return res.status(400).json({
-      error: betreffMuster
-        ? `Für dieses Muster mit Betreff „${betreffMuster}" gibt es bereits eine Regel.`
+      error: betreffMuster || inhaltMuster
+        ? `Für dieses Muster mit derselben Zusatzbedingung („${betreffMuster || inhaltMuster}") gibt es bereits eine Regel.`
         : 'Für dieses Muster gibt es bereits eine Regel.',
     });
   }
   try {
     const info = db.prepare(`
-      INSERT INTO sort_rules (konto_id, typ, muster, zielordner, aktion, betreff_muster, erstellt_von)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(konto_id, typ, muster.trim(), ziel, aktion, betreffMuster || null, req.user.id);
+      INSERT INTO sort_rules (konto_id, typ, muster, zielordner, aktion, betreff_muster, inhalt_muster, erstellt_von)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(konto_id, typ, muster.trim(), ziel, aktion, betreffMuster || null, inhaltMuster || null, req.user.id);
 
     // "In Ruhe lassen": nichts anlegen, nichts verschieben. Was schon in der
     // Sortier-Inbox liegt und dazu passt, verschwindet aus der Liste — genau
@@ -261,7 +274,7 @@ router.post('/regeln', async (req, res) => {
         const offen = db.prepare("SELECT id, von, betreff FROM sort_inbox WHERE konto_id = ? AND status = 'offen'").all(konto_id);
         const setzen = db.prepare("UPDATE sort_inbox SET status = 'ignoriert' WHERE id = ?");
         for (const m of offen) {
-          if (!sortierung.passt({ typ, muster, betreff_muster: betreffMuster }, m.von, m.betreff)) continue;
+          if (!sortierung.passt({ typ, muster, betreff_muster: betreffMuster, inhalt_muster: inhaltMuster }, m.von, m.betreff)) continue;
           setzen.run(m.id);
           beruhigt++;
         }
@@ -546,8 +559,22 @@ router.get('/entscheidungen', async (req, res) => {
 // POST /api/sortierung/korrigieren
 // { log_id, zielordner, regelTyp: 'domain'|'absender'|'keine' }
 router.post('/korrigieren', async (req, res) => {
-  const { log_id, zielordner, regelTyp = 'domain', imap_uid, imap_konto, imap_ordner, imap_von, imap_betreff } = req.body || {};
+  const {
+    log_id, zielordner, regelTyp = 'domain', stichwort: stichwortRoh,
+    imap_uid, imap_konto, imap_ordner, imap_von, imap_betreff,
+  } = req.body || {};
   if (!log_id || !zielordner) return res.status(400).json({ error: 'log_id und zielordner sind Pflicht.' });
+
+  // Zwei der Merk-Arten brauchen ein Stichwort, und zwar BEVOR irgendetwas
+  // passiert: Die Mail wird weiter unten verschoben, und eine Absage danach
+  // hinterließe eine verschobene Mail ohne die Regel, um die es ging.
+  const stichwort = String(stichwortRoh || '').trim();
+  const brauchtStichwort = regelTyp === 'absender_inhalt' || regelTyp === 'inhalt';
+  if (brauchtStichwort && stichwort.length < 3) {
+    return res.status(400).json({
+      error: 'Für eine Regel auf den Inhalt braucht es ein Stichwort mit mindestens 3 Zeichen.',
+    });
+  }
 
   const isVirtual = String(log_id).startsWith('imap-');
   let eintrag, konto;
@@ -632,25 +659,45 @@ router.post('/korrigieren', async (req, res) => {
     }
 
     // 3. Aus der Korrektur lernen
+    // Fünf Arten, aus einer Korrektur zu lernen — von „gar nicht" bis „immer,
+    // wenn dieses Wort in der Mail steht":
+    //
+    //   keine            nur diese eine Mail verschieben
+    //   domain           alles von dieser Domain
+    //   absender         alles von genau dieser Adresse
+    //   absender_inhalt  von dieser Adresse, aber nur wenn das Stichwort drinsteht
+    //   inhalt           jede Mail mit diesem Stichwort, egal von wem
+    //
+    // Die vierte Art ist der Grund für den ganzen Umbau: Viele Unternehmen
+    // verschicken alles über dieselbe Adresse. Von "donotreply@" kommen
+    // Buchungsbestätigung, Rechnung und Werbung — eine reine Absender-Regel
+    // liegt dort bei zwei von drei Mails falsch, egal wohin sie zeigt.
     let regel = null;
     if (regelTyp !== 'keine') {
-      const typ = regelTyp === 'absender' ? 'absender' : 'domain';
-      const muster = typ === 'domain' ? sortierung.domain(eintrag.von) : sortierung.adresse(eintrag.von);
+      const typ = regelTyp === 'inhalt' ? 'inhalt'
+        : (regelTyp === 'absender' || regelTyp === 'absender_inhalt') ? 'absender' : 'domain';
+      const muster = typ === 'inhalt' ? stichwort.toLowerCase()
+        : typ === 'domain' ? sortierung.domain(eintrag.von) : sortierung.adresse(eintrag.von);
+      const inhaltMuster = regelTyp === 'absender_inhalt' ? stichwort.toLowerCase() : null;
       if (muster) {
+        // Die Zusatzbedingung gehört zum Vergleich: Derselbe Absender DARF
+        // mehrfach geregelt sein, solange sich die Stichwörter unterscheiden —
+        // genau darum geht es ja.
         const vorhanden = db.prepare(
-          'SELECT id, zielordner FROM sort_rules WHERE konto_id = ? AND typ = ? AND muster = ?',
-        ).get(konto.id, typ, muster);
+          'SELECT id, zielordner FROM sort_rules WHERE konto_id = ? AND typ = ? AND muster = ?'
+          + " AND IFNULL(inhalt_muster, '') = ?",
+        ).get(konto.id, typ, muster, inhaltMuster || '');
         if (vorhanden) {
           // Eine bestehende Regel zeigte auf den falschen Ordner — die wird umgebogen,
           // sonst korrigiert man dieselbe Mail immer wieder.
           db.prepare('UPDATE sort_rules SET zielordner = ? WHERE id = ?').run(ziel, vorhanden.id);
-          regel = { typ, muster, zielordner: ziel, aktualisiert: true };
+          regel = { typ, muster, zielordner: ziel, inhalt_muster: inhaltMuster, aktualisiert: true };
         } else {
           db.prepare(`
-            INSERT INTO sort_rules (konto_id, typ, muster, zielordner, erstellt_von)
-            VALUES (?, ?, ?, ?, ?)
-          `).run(konto.id, typ, muster, ziel, req.user.id);
-          regel = { typ, muster, zielordner: ziel, aktualisiert: false };
+            INSERT INTO sort_rules (konto_id, typ, muster, zielordner, inhalt_muster, erstellt_von)
+            VALUES (?, ?, ?, ?, ?, ?)
+          `).run(konto.id, typ, muster, ziel, inhaltMuster, req.user.id);
+          regel = { typ, muster, zielordner: ziel, inhalt_muster: inhaltMuster, aktualisiert: false };
         }
       }
     }
@@ -670,9 +717,20 @@ router.post('/korrigieren', async (req, res) => {
     //    nächste Mail wieder dorthin schieben, diesmal ohne KI. Eine Korrektur
     //    muss beides können: verschieben und die Ursache beseitigen.
     themen.gelerntVergessen(konto.id, eintrag.zielordner, eintrag.von);
-    const zielEintrag = db.prepare('SELECT id FROM konto_ordner WHERE konto_id = ? AND ordner = ?')
-      .get(konto.id, ziel);
-    if (zielEintrag) themen.gelerntMerken(zielEintrag.id, eintrag.von);
+    // Den Absender dem neuen Ordner zuschreiben — aber nur, wenn die Korrektur
+    // überhaupt am Absender festgemacht war.
+    //
+    // Dieser Vermerk wirkt wie eine Regel ohne Bedingung: Die nächste Mail
+    // dieser Adresse geht in diesen Ordner, ohne KI. Wer gerade gesagt hat „nur
+    // diese eine" oder „nur wenn das Wort drinsteht", bekäme damit durch die
+    // Hintertür genau die Absender-Regel, die er nicht wollte — und bei einem
+    // Absender, der Rechnungen UND Werbung schickt, ist das der Fehler, um den
+    // es hier geht.
+    if (regelTyp === 'domain' || regelTyp === 'absender') {
+      const zielEintrag = db.prepare('SELECT id FROM konto_ordner WHERE konto_id = ? AND ordner = ?')
+        .get(konto.id, ziel);
+      if (zielEintrag) themen.gelerntMerken(zielEintrag.id, eintrag.von);
+    }
 
     if (!isVirtual) {
       db.prepare('UPDATE quarantine_log SET korrigiert_zu = ? WHERE id = ?').run(ziel, eintrag.id);
@@ -681,7 +739,10 @@ router.post('/korrigieren', async (req, res) => {
     uebersicht.cacheVerwerfen();
     loggen('info', 'sortierung',
       `Korrektur: ${eintrag.von} von "${eintrag.zielordner}" nach "${ziel}"`
-      + (regel ? ` — Regel [${regel.typ}] ${regel.muster}` : ' — ohne Regel'));
+      + (regel
+        ? ` — Regel [${regel.typ}] ${regel.muster}`
+          + (regel.inhalt_muster ? ` + Inhalt „${regel.inhalt_muster}"` : '')
+        : ' — ohne Regel'));
 
     res.json({ ok: true, verschoben, hinweis, regel, nachsortiert });
   } catch (err) {
@@ -787,7 +848,7 @@ router.post('/sammel-zuordnen', async (req, res) => {
   if (!konto_id || !typ || !muster || !zielordner) {
     return res.status(400).json({ error: 'konto_id, typ, muster und zielordner sind Pflicht.' });
   }
-  if (!['absender', 'domain', 'betreff'].includes(typ)) {
+  if (!['absender', 'domain', 'betreff', 'inhalt'].includes(typ)) {
     return res.status(400).json({ error: 'Ungültiger Typ.' });
   }
   const konto = kontoLaden(konto_id);

@@ -683,7 +683,7 @@ async function klassifizieren(mails) {
     const nochZuKlassifizieren = [];
     if (konto) {
       for (const m of kontoMails) {
-        const regelMatch = sortierung.pruefeRegeln(konto.id, m.von, m.betreff);
+        const regelMatch = sortierung.pruefeRegeln(konto.id, m.von, m.betreff, m.text);
         if (regelMatch) {
           ergebnisse[m.__i] = {
             kategorie: 'sonstiges',

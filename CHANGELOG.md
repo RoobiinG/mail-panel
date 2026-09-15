@@ -2,6 +2,67 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [5.9.0.0] - 2026-09-15 (Build 221) — *Regeln, die in die Mail schauen*
+
+Bisher konnte eine Korrektur nur zweierlei merken: **diese Adresse** oder **diese Domain**. Beides
+hilft nicht, wenn ein Unternehmen alles über dieselbe Adresse schickt — und das ist der Normalfall:
+
+```
+donotreply@easyjet.com   "easyJet Buchungsnummer: K9614Z1"
+donotreply@easyjet.com   "Ready to take off? Welcome to easyJet"
+```
+
+Eine Absender-Regel liegt dort bei zwei von drei Mails falsch, egal wohin sie zeigt. Im Betrieb
+landete die Buchungsbestätigung in „Einkauf" und die Werbung in „Banking". Was die Fälle trennt,
+steht nicht im Absender und oft nicht einmal im Betreff, sondern **im Text**.
+
+### Features
+- **Neuer Regeltyp „Inhalt enthält"**: ein Stichwort, gesucht in Betreff **und** Text der Mail —
+  unabhängig davon, wer schreibt.
+- **Neue Zusatzbedingung „und Mail enthält"** an Absender- und Domain-Regeln. Damit lässt sich
+  derselbe Absender aufteilen, ohne sich auf die Betreffzeile verlassen zu müssen:
+  `donotreply@easyjet.com` + „buchungsnummer" → Reisen, alles andere von dort weiter zur KI.
+- **Die Korrektur kennt jetzt fünf Arten zu lernen** statt drei — in den Entscheidungen, sowohl
+  einzeln als auch für eine ganze Markierung:
+  | Auswahl | Was gemerkt wird |
+  |---|---|
+  | Nur diese verschieben | nichts |
+  | Merken: Domain | alles von dieser Domain |
+  | Merken: Exakter Absender | alles von dieser Adresse |
+  | **Merken: Absender + Stichwort** | von dieser Adresse, aber nur wenn das Wort in der Mail steht |
+  | **Merken: Stichwort im Inhalt** | jede Mail mit diesem Wort, egal von wem |
+- **Das Stichwort wird vorgeschlagen**, nicht abgefragt: Vorgeschlagen wird das längste Wort, das
+  in allen markierten Betreffen vorkommt — bei drei „Buchungsbestätigung"-Mails also genau das.
+  Das Feld bleibt zum Überschreiben da; der Nutzer weiß besser als jede Heuristik, woran er diese
+  Sorte Mail erkennt.
+
+### Änderungen
+- **Die Rangfolge der Regeln** kennt die neue Art: Absender + Bedingung · Absender · Domain ·
+  Betreff · Inhalt. Der Inhalt steht zuletzt, weil er am weitesten greift — sonst fischte ein
+  einzelnes Wort Mails weg, für die es eine genaue Regel gibt.
+- **Eine Korrektur merkt sich den Absender nur noch, wenn sie am Absender festgemacht war.**
+  Bisher schrieb jede Korrektur den Absender dem neuen Ordner zu (Stichwort-Vorprüfung) — auch bei
+  „nur diese eine Mail". Das wirkte wie eine Absender-Regel ohne Bedingung und war bei genau den
+  Absendern falsch, um die es hier geht.
+- **Die Workflow-Vorlagen schicken den Mailtext an `/api/internal/sort`** (auf 4.000 Zeichen
+  gekürzt), damit Inhalts-Regeln schon vor dem KI-Aufruf greifen.
+- **Ein Stichwort braucht mindestens 3 Zeichen.** „AG" steht in jeder zweiten Signatur — eine Regel
+  daraus verschiebt wahllos.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Datenbank:** `sort_rules` bekommt die Spalte `inhalt_muster` (ALTER) und einen erweiterten
+  Typ-Bereich. Eine CHECK-Bedingung lässt sich in SQLite nicht ändern, deshalb wird die Tabelle
+  **einmal neu gebaut** — mit denselben Zeilen und denselben ids. Läuft beim Start, ohne Zutun.
+  Vorhandene Regeln bleiben unverändert gültig.
+- **n8n-Workflows:** Die Vorlagen 01 und 04 wurden geändert (Mailtext im Aufruf an `/sort`). Ein
+  **Neuimport ist optional**: Ohne ihn greifen Inhalts-Regeln eine Station später, nämlich bei der
+  Vorprüfung vor dem KI-Aufruf — dort liegt der Text ohnehin vor. Die Wirkung ist dieselbe, nur
+  eine Stufe weiter hinten.
+- **Wo der Text nicht vorliegt:** Die Nachsortierung liest nur Briefköpfe (Absender, Betreff,
+  Datum). Dort zählt bei einer Inhalts-Regel der Betreff allein. Das kann eine Regel übersehen,
+  aber nie eine falsch auslösen: Ein fehlender Text führt zu „trifft nicht", nie zu „trifft".
+- **Neustart/Sitzung:** normaler Neustart, danach Strg+F5 im Browser.
+
 ## [5.8.0.1] - 2026-09-15 (Build 220) — *Der Lauf rechnet mit dem, was er gemessen hat*
 
 Drei Fehler aus dem Diagnosebericht vom 15.09.

@@ -38,10 +38,31 @@ const adresse = (von) => {
 };
 const domainVon = (von) => (adresse(von).split('@')[1] || '').trim();
 
+// Ein Stichwort aus Betreffzeilen vorschlagen.
+//
+// Gesucht wird das längste Wort, das in ALLEN markierten Betreffen vorkommt —
+// bei drei „easyJet Buchungsbestätigung"-Mails also „buchungsbestätigung".
+// Gibt es keins, steht das längste Wort des ersten Betreffs da. Der Vorschlag
+// ist nur ein Vorschlag: Das Feld bleibt zum Überschreiben da, und der Nutzer
+// weiß besser als jede Heuristik, woran er diese Sorte Mail erkennt.
+const WORT = /[\p{L}\p{N}]{4,}/gu;
+const stichwortVorschlag = (betreffe) => {
+  const listen = (betreffe || [])
+    .map((b) => String(b || '').toLowerCase().match(WORT) || [])
+    .filter((woerter) => woerter.length > 0);
+  if (listen.length === 0) return '';
+  const [erste, ...rest] = listen;
+  const gemeinsam = erste.filter((w) => rest.every((liste) => liste.includes(w)));
+  const auswahl = (gemeinsam.length > 0 ? gemeinsam : erste).slice()
+    .sort((a, b) => b.length - a.length);
+  return auswahl[0] || '';
+};
+
 const REGEL_TYPEN = {
   absender: 'Exakter Absender (E-Mail)',
   domain: 'Domain (z.B. amazon.de)',
   betreff: 'Betreff enthält',
+  inhalt: 'Inhalt enthält (Betreff oder Text)',
 };
 
 // Die Filter der Entscheidungs-Chronik. Sie beantworten verschiedene Fragen:
@@ -235,6 +256,9 @@ export default function Sortierung() {
   const [offeneZeile, setOffeneZeile] = useState(null);   // log_id
   const [korrekturOrdner, setKorrekturOrdner] = useState('');
   const [korrekturRegel, setKorrekturRegel] = useState('domain');
+  // Das Stichwort für die beiden Inhalts-Arten. Es gehört zur Korrektur, nicht
+  // zur Regelverwaltung — deshalb steht es hier und nicht im Regel-Dialog.
+  const [korrekturStichwort, setKorrekturStichwort] = useState('');
 
   // Ordner-Ansicht
   const [ordnerInhalt, setOrdnerInhalt] = useState([]);
@@ -527,14 +551,31 @@ export default function Sortierung() {
     return konto?.folder_newsletter || '';
   };
 
+  // Zwei der fünf Merk-Arten schauen in die Mail statt auf den Absender.
+  const brauchtStichwort = korrekturRegel === 'absender_inhalt' || korrekturRegel === 'inhalt';
+
+  // Beim Umschalten auf eine Inhalts-Art gleich einen Vorschlag hinschreiben —
+  // ein leeres Pflichtfeld ist eine Sackgasse, und das passende Wort steht
+  // meistens schon im Betreff.
+  const regelArtWaehlen = (art, betreffe) => {
+    setKorrekturRegel(art);
+    if ((art === 'absender_inhalt' || art === 'inhalt') && !korrekturStichwort.trim()) {
+      setKorrekturStichwort(stichwortVorschlag(betreffe));
+    }
+  };
+
   const korrigieren = async (eintrag, zielVorgabe) => {
     const ziel = String(zielVorgabe ?? korrekturOrdner).trim();
     if (!ziel) return melden('Bitte den richtigen Ordner angeben.', 'hinweis');
+    if (brauchtStichwort && korrekturStichwort.trim().length < 3) {
+      return melden('Für eine Regel auf den Inhalt fehlt das Stichwort (mindestens 3 Zeichen).', 'hinweis');
+    }
     try {
       const { data } = await api.post('/sortierung/korrigieren', {
-        log_id: eintrag.id, 
-        zielordner: ziel, 
+        log_id: eintrag.id,
+        zielordner: ziel,
         regelTyp: korrekturRegel,
+        stichwort: korrekturStichwort.trim(),
         imap_uid: String(eintrag.id).startsWith('imap-') ? eintrag.uid : null,
         imap_konto: eintrag.konto,
         imap_ordner: eintrag.zielordner,
@@ -565,6 +606,9 @@ export default function Sortierung() {
   const chronikSammelKorrigieren = async (alsNewsletter = false) => {
     const eingetippt = korrekturOrdner.trim();
     if (!alsNewsletter && !eingetippt) return melden('Bitte den richtigen Ordner angeben.', 'hinweis');
+    if (brauchtStichwort && korrekturStichwort.trim().length < 3) {
+      return melden('Für eine Regel auf den Inhalt fehlt das Stichwort (mindestens 3 Zeichen).', 'hinweis');
+    }
     if (auswahlChronik.length === 0) return;
     setChronikLaedt(true);
     let ok = 0;
@@ -581,6 +625,7 @@ export default function Sortierung() {
             log_id: logId,
             zielordner: ziel,
             regelTyp: korrekturRegel,
+            stichwort: korrekturStichwort.trim(),
             imap_uid: String(logId).startsWith('imap-') ? mail.uid : null,
             imap_konto: mail?.konto,
             imap_ordner: mail?.zielordner,
@@ -1093,6 +1138,7 @@ export default function Sortierung() {
       zielordner: regelModal.zielordner,
       aktion: regelModal.behalten ? 'behalten' : 'verschieben',
       betreff_muster: regelModal.betreff_muster || '',
+      inhalt_muster: regelModal.inhalt_muster || '',
     };
     try {
       if (regelModal.id) {
@@ -1106,7 +1152,7 @@ export default function Sortierung() {
       } else {
         await api.post('/sortierung/regeln', { konto_id: aktivesKonto, ...rumpf });
       }
-      setRegelModal({ offen: false, typ: 'absender', muster: '', zielordner: '', betreff_muster: '', behalten: false });
+      setRegelModal({ offen: false, typ: 'absender', muster: '', zielordner: '', betreff_muster: '', inhalt_muster: '', behalten: false });
       regelnLaden(aktivesKonto);
     } catch (err) {
       melden(err.response?.data?.error || 'Fehler beim Speichern', 'fehler');
@@ -1136,6 +1182,7 @@ export default function Sortierung() {
     muster: r.muster,
     zielordner: r.zielordner || '',
     betreff_muster: r.betreff_muster || '',
+    inhalt_muster: r.inhalt_muster || '',
     behalten: (r.aktion || 'verschieben') === 'behalten',
   });
 
@@ -1884,13 +1931,27 @@ export default function Sortierung() {
               />
               <select
                 value={korrekturRegel}
-                onChange={ev => setKorrekturRegel(ev.target.value)}
+                onChange={ev => regelArtWaehlen(
+                  ev.target.value,
+                  auswahlChronik.map(id => entscheidungen.eintraege.find(e => e.id === id)?.betreff),
+                )}
                 className="text-sm bg-panel-bg border-panel-border rounded !py-1 w-full sm:!w-auto shrink-0"
               >
                 <option value="domain">Merken: Domain</option>
                 <option value="absender">Merken: Exakter Absender</option>
+                <option value="absender_inhalt">Merken: Absender + Stichwort</option>
+                <option value="inhalt">Merken: Stichwort im Inhalt</option>
                 <option value="keine">Nur diese verschieben</option>
               </select>
+              {brauchtStichwort && (
+                <input
+                  value={korrekturStichwort}
+                  onChange={ev => setKorrekturStichwort(ev.target.value)}
+                  placeholder="Stichwort, z. B. Rechnung"
+                  title="Steht dieses Wort im Betreff oder im Text der Mail, greift die Regel."
+                  className="text-sm bg-panel-bg border border-panel-border rounded !py-1 !px-2 !w-[190px] shrink-0"
+                />
+              )}
               <button onClick={() => chronikSammelKorrigieren()} disabled={chronikLaedt} className="btn !py-1 !px-3 text-sm flex items-center gap-1">
                 <CheckCircle2 size={14} /> Korrigieren
               </button>
@@ -2080,13 +2141,27 @@ export default function Sortierung() {
                             />
                             <select
                               value={korrekturRegel}
-                              onChange={ev => setKorrekturRegel(ev.target.value)}
+                              onChange={ev => regelArtWaehlen(ev.target.value, [e.betreff])}
                               className="text-sm bg-panel-bg w-full sm:!w-auto shrink-0"
                             >
                               <option value="domain">Merken: alles von @{domainVon(e.von)}</option>
                               <option value="absender">Merken: nur {adresse(e.von)}</option>
+                              {/* Der Fall, für den es die beiden gibt: Dieselbe
+                                  Adresse schickt Rechnung, Bestellung und
+                                  Werbung — dann trennt nur der Text. */}
+                              <option value="absender_inhalt">Merken: {adresse(e.von)} + Stichwort</option>
+                              <option value="inhalt">Merken: Stichwort im Inhalt</option>
                               <option value="keine">Nur diese Mail, nichts merken</option>
                             </select>
+                            {brauchtStichwort && (
+                              <input
+                                value={korrekturStichwort}
+                                onChange={ev => setKorrekturStichwort(ev.target.value)}
+                                placeholder="Stichwort, z. B. Rechnung"
+                                title="Steht dieses Wort im Betreff oder im Text der Mail, greift die Regel."
+                                className="text-sm bg-panel-bg !w-[190px] shrink-0"
+                              />
+                            )}
                             <button
                               onClick={() => {
                                 const ziel = newsletterOrdnerFuer(e.konto);
@@ -2350,7 +2425,7 @@ export default function Sortierung() {
                 />
               </div>
               <button
-                onClick={() => setRegelModal({ offen: true, typ: 'absender', muster: '', zielordner: '', betreff_muster: '', behalten: false })}
+                onClick={() => setRegelModal({ offen: true, typ: 'absender', muster: '', zielordner: '', betreff_muster: '', inhalt_muster: '', behalten: false })}
                 className="btn !py-1.5 !px-3 text-sm flex items-center gap-1"
                 disabled={!aktivesKonto}
               >
@@ -2457,6 +2532,12 @@ export default function Sortierung() {
                                             und Betreff enthält „{r.betreff_muster}“
                                           </div>
                                         )}
+                                        {r.inhalt_muster && (
+                                          <div className="text-[11px] text-panel-accent truncate max-w-[220px]"
+                                            title={r.inhalt_muster}>
+                                            und Mail enthält „{r.inhalt_muster}“
+                                          </div>
+                                        )}
                                       </td>
                                       <td className="py-2 px-2 font-mono">
                                         {r.aktion === 'behalten' ? (
@@ -2507,7 +2588,7 @@ export default function Sortierung() {
                                   onClick={() => setRegelModal({
                                     offen: true, typ: 'domain', muster: gruppe.domain,
                                     zielordner: gruppe.ziele.find(z => z !== '(in Ruhe lassen)') || '',
-                                    betreff_muster: '', behalten: false,
+                                    betreff_muster: '', inhalt_muster: '', behalten: false,
                                   })}
                                   className="mt-2 text-[11px] text-panel-accent hover:underline flex items-center gap-1"
                                 >
@@ -2932,6 +3013,28 @@ export default function Sortierung() {
                   für passende Betreffe — für den Rest entscheidet die KI, solange es dafür keine
                   allgemeine Regel gibt. So lässt sich ein Absender aufteilen, der für alles dieselbe
                   Adresse benutzt.
+                </span>
+              </label>
+            )}
+
+            {/* Die dritte Bedingung: ein Wort aus dem Text. Bei typ='inhalt'
+                steht es schon im Muster. */}
+            {regelModal.typ !== 'inhalt' && (
+              <label className="block space-y-1">
+                <span className="text-sm font-medium">und Mail enthält (optional)</span>
+                <input
+                  type="text"
+                  value={regelModal.inhalt_muster || ''}
+                  onChange={e => setRegelModal(p => ({ ...p, inhalt_muster: e.target.value }))}
+                  className="w-full"
+                  placeholder="z. B. Rechnungsnummer"
+                />
+                <span className="block text-[11px] text-panel-muted">
+                  Wie darüber, nur wird zusätzlich der <b>Text</b> der Mail durchsucht, nicht nur die
+                  Betreffzeile. Das ist der Weg für Absender, die alles über dieselbe Adresse
+                  schicken — der Betreff verrät oft nicht, worum es geht, der Text schon.
+                  Wo der Text nicht vorliegt (Nachsortierung liest nur Briefköpfe), zählt der
+                  Betreff allein; die Regel greift dann seltener, aber nie falsch.
                 </span>
               </label>
             )}

@@ -341,7 +341,7 @@
                                          "genericAuthType":  "httpHeaderAuth",
                                          "sendBody":  true,
                                          "specifyBody":  "json",
-                                         "jsonBody":  "={{ JSON.stringify({ konto: $json.konto, von: $json.von, betreff: $json.betreff, uid: $json.uid }) }}",
+                                         "jsonBody":  "={{ JSON.stringify({ konto: $json.konto, von: $json.von, betreff: $json.betreff, uid: $json.uid, text: String($json.text || '').slice(0, 4000) }) }}",
                                          "options":  {
 
                                                      }

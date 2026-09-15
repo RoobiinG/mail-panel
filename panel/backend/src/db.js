@@ -135,10 +135,20 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_authlog_user ON auth_log(user_id);
 
   -- Sortier-Regeln pro Konto
+  --
+  -- Vier Arten, von eng nach weit: ein exakter Absender, ein Stichwort im
+  -- Betreff, eine ganze Domain, ein Stichwort im INHALT der Mail. Dazu zwei
+  -- freiwillige Zusatzbedingungen (betreff_muster, inhalt_muster), die eine
+  -- Absender- oder Domain-Regel einengen.
+  --
+  -- Warum der Inhalt: Viele Unternehmen verschicken alles ueber dieselbe
+  -- Adresse — Buchungsbestaetigung, Rechnung und Werbung kommen von
+  -- "donotreply@". Eine Absender-Regel kann da nur falsch liegen, egal wohin
+  -- sie zeigt. Erst der Text der Mail trennt die Faelle.
   CREATE TABLE IF NOT EXISTS sort_rules (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     konto_id INTEGER NOT NULL,
-    typ TEXT NOT NULL CHECK(typ IN ('absender','betreff','domain')),
+    typ TEXT NOT NULL CHECK(typ IN ('absender','betreff','domain','inhalt')),
     muster TEXT NOT NULL,
     zielordner TEXT NOT NULL,
     treffer INTEGER NOT NULL DEFAULT 0,
@@ -386,6 +396,8 @@ const migrations = [
   // beides ist falsch. Mit dieser Spalte laesst sich derselbe Absender nach dem
   // Betreff aufteilen. Leer/NULL = die Regel gilt wie bisher fuer alles.
   'ALTER TABLE sort_rules ADD COLUMN betreff_muster TEXT',
+  // Die zweite freiwillige Bedingung: ein Stichwort im Text der Mail.
+  'ALTER TABLE sort_rules ADD COLUMN inhalt_muster TEXT',
   // Hat für diese Mail wirklich die KI gearbeitet? Eine Mail, die eine eigene
   // Sortier-Regel trifft, läuft im Workflow an Gemini vorbei — sie darf das
   // Tagesbudget nicht verbrauchen. Vorher zählte jede Zeile als KI-Aufruf.
@@ -541,6 +553,53 @@ try {
   }
 } catch (err) {
   console.warn('[db] Fehler bei Migration von dashboard_layouts:', err.message);
+}
+
+// ─── Migration: sort_rules erlaubt den Typ "inhalt" ──────────────────────────
+//
+// Die Spalte inhalt_muster kommt oben per ALTER dazu, der neue Typ nicht: Eine
+// CHECK-Bedingung laesst sich in SQLite nicht aendern, sie gehoert zur
+// Tabellendefinition. Also wird die Tabelle einmal neu gebaut — mit denselben
+// Zeilen und denselben ids, damit nichts ins Leere zeigt.
+//
+// Erkannt wird der Altbestand am gespeicherten CREATE-Text: Steht dort kein
+// 'inhalt', ist die Tabelle alt.
+try {
+  const alt = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'sort_rules'").get();
+  if (alt && alt.sql && !alt.sql.includes("'inhalt'")) {
+    const spalten = db.prepare('PRAGMA table_info(sort_rules)').all().map((s) => s.name);
+    const hatAktion = spalten.includes('aktion');
+    const hatBetreff = spalten.includes('betreff_muster');
+    const hatInhalt = spalten.includes('inhalt_muster');
+    db.exec(`
+      CREATE TABLE sort_rules_neu (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        konto_id INTEGER NOT NULL,
+        typ TEXT NOT NULL CHECK(typ IN ('absender','betreff','domain','inhalt')),
+        muster TEXT NOT NULL,
+        zielordner TEXT NOT NULL,
+        treffer INTEGER NOT NULL DEFAULT 0,
+        erstellt_von INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        aktion TEXT NOT NULL DEFAULT 'verschieben',
+        betreff_muster TEXT,
+        inhalt_muster TEXT,
+        FOREIGN KEY(konto_id) REFERENCES accounts(id) ON DELETE CASCADE
+      );
+      INSERT INTO sort_rules_neu
+        (id, konto_id, typ, muster, zielordner, treffer, erstellt_von, created_at, aktion, betreff_muster, inhalt_muster)
+        SELECT id, konto_id, typ, muster, zielordner, treffer, erstellt_von, created_at,
+               ${hatAktion ? "IFNULL(aktion, 'verschieben')" : "'verschieben'"},
+               ${hatBetreff ? 'betreff_muster' : 'NULL'},
+               ${hatInhalt ? 'inhalt_muster' : 'NULL'}
+        FROM sort_rules;
+      DROP TABLE sort_rules;
+      ALTER TABLE sort_rules_neu RENAME TO sort_rules;
+    `);
+    console.log('[db] Tabelle sort_rules neu gebaut — der Regeltyp "inhalt" ist jetzt erlaubt.');
+  }
+} catch (err) {
+  console.warn('[db] Fehler bei Migration von sort_rules:', err.message);
 }
 // ─── Default-Einstellungen beim ersten Start ─────────────────────────────────
 const defaults = {

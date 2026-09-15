@@ -23,6 +23,26 @@ function domain(von) {
 }
 
 /**
+ * Steht das Stichwort irgendwo in der Mail?
+ *
+ * Gesucht wird in Betreff UND Text, denn der Betreff ist der erste Satz der
+ * Mail und nicht etwas anderes. Beides zusammen ist das, was der Nutzer meint,
+ * wenn er sagt „wenn da Rechnung drinsteht".
+ *
+ * Wichtig fuer das Verstaendnis: Nicht ueberall im Panel liegt der Text vor.
+ * Die Nachsortierung liest nur Briefkoepfe (Absender, Betreff, Datum) — den
+ * Rumpf zu holen hiesse, fuer jede einzelne Mail eines ganzen Postfachs eine
+ * eigene IMAP-Abfrage zu stellen. Dort wird deshalb nur der Betreff geprueft.
+ * Das kann eine Regel uebersehen, aber nie eine falsch ausloesen: Ein fehlender
+ * Text fuehrt zu "trifft nicht", nie zu "trifft".
+ */
+function imInhalt(betreff, text, muster) {
+  if (!muster) return false;
+  const heuhaufen = `${betreff || ''}\n${text || ''}`.toLowerCase();
+  return heuhaufen.includes(muster);
+}
+
+/**
  * Passt eine einzelne Regel auf diese Mail?
  *
  * Der Domain-Vergleich lief bis v2.8.0.0 ueber ein blankes endsWith. Damit traf
@@ -31,7 +51,7 @@ function domain(von) {
  * Jetzt wird auf Punktgrenzen geprueft: "google.com" trifft google.com selbst
  * und jede Unterdomain, aber nichts, was blos so endet.
  */
-function passt(regel, von, betreff) {
+function passt(regel, von, betreff, text) {
   const muster = String(regel.muster || '').toLowerCase().trim();
   if (!muster) return false;
   const email = adresse(von);
@@ -46,6 +66,15 @@ function passt(regel, von, betreff) {
   // keine Erfuellung der Bedingung, sondern ihr Gegenteil.
   const betreffMuster = String(regel.betreff_muster || '').toLowerCase().trim();
   if (betreffMuster && !String(betreff || '').toLowerCase().includes(betreffMuster)) return false;
+
+  // Die dritte Bedingung: ein Stichwort im INHALT.
+  //
+  // Der Grund, warum es sie gibt: Viele Unternehmen verschicken alles ueber
+  // dieselbe Adresse. Von "donotreply@" kommen Buchungsbestaetigung, Rechnung
+  // und Werbung — eine Absender-Regel liegt dort zwangslaeufig bei zwei von
+  // drei Mails falsch, egal wohin sie zeigt. Erst der Text trennt die Faelle.
+  const inhaltMuster = String(regel.inhalt_muster || '').toLowerCase().trim();
+  if (inhaltMuster && !imInhalt(betreff, text, inhaltMuster)) return false;
 
   switch (regel.typ) {
     case 'absender': {
@@ -64,6 +93,8 @@ function passt(regel, von, betreff) {
     }
     case 'betreff':
       return String(betreff || '').toLowerCase().includes(muster);
+    case 'inhalt':
+      return imInhalt(betreff, text, muster);
     default:
       return false;
   }
@@ -80,10 +111,14 @@ function passt(regel, von, betreff) {
  *
  * Jetzt gilt: Je enger eine Regel greift, desto frueher wird sie geprueft.
  *
- *   1. Absender + Betreff — meint genau eine Sorte Mail eines Absenders
- *   2. Absender           — meint einen Korrespondenten
- *   3. Domain             — meint ein ganzes Unternehmen
- *   4. Betreff allein     — meint ein Stichwort bei jedem Absender
+ *   1. Absender + Bedingung — meint genau eine Sorte Mail eines Absenders
+ *   2. Absender             — meint einen Korrespondenten
+ *   3. Domain               — meint ein ganzes Unternehmen
+ *   4. Betreff allein       — meint ein Stichwort in der Betreffzeile
+ *   5. Inhalt allein        — meint ein Stichwort irgendwo in der Mail
+ *
+ * Der Inhalt steht zuletzt, weil er am weitesten greift: Ein Wort, das im Text
+ * vorkommen darf, steht in mehr Mails als dasselbe Wort in der Betreffzeile.
  *
  * Bei gleichem Rang entscheidet weiterhin das Alter (`id`), damit die
  * Reihenfolge reproduzierbar bleibt.
@@ -92,8 +127,9 @@ function regelnGeordnet(kontoId) {
   return db.prepare(`
     SELECT * FROM sort_rules WHERE konto_id = ?
     ORDER BY
-      CASE WHEN betreff_muster IS NOT NULL AND betreff_muster != '' THEN 0 ELSE 1 END,
-      CASE typ WHEN 'absender' THEN 0 WHEN 'domain' THEN 1 ELSE 2 END,
+      CASE WHEN (betreff_muster IS NOT NULL AND betreff_muster != '')
+             OR (inhalt_muster IS NOT NULL AND inhalt_muster != '') THEN 0 ELSE 1 END,
+      CASE typ WHEN 'absender' THEN 0 WHEN 'domain' THEN 1 WHEN 'betreff' THEN 2 ELSE 3 END,
       id
   `).all(kontoId);
 }
@@ -105,14 +141,14 @@ function regelnGeordnet(kontoId) {
  * @param {string} betreff
  * @returns {object|null} { ordner: 'Ziel', regel_id: 123 } oder null
  */
-function pruefeRegeln(kontoId, von, betreff) {
+function pruefeRegeln(kontoId, von, betreff, text) {
   if (!kontoId) return null;
 
   try {
     const regeln = regelnGeordnet(kontoId);
 
     for (const regel of regeln) {
-      if (!passt(regel, von, betreff)) continue;
+      if (!passt(regel, von, betreff, text)) continue;
       {
         // Zaehler hochsetzen
         db.prepare('UPDATE sort_rules SET treffer = treffer + 1 WHERE id = ?').run(regel.id);
@@ -345,11 +381,11 @@ async function stichworteNachtragen(konto, opt = {}) {
 // allen Stellen, die nur wissen wollen, ob eine Regel greift: Der Zähler soll
 // zählen, wie oft eine Regel wirklich sortiert hat, nicht wie oft jemand
 // nachgeschaut hat.
-function regelTreffer(kontoId, von, betreff) {
+function regelTreffer(kontoId, von, betreff, text) {
   if (!kontoId) return null;
   try {
     for (const regel of regelnGeordnet(kontoId)) {
-      if (passt(regel, von, betreff)) return regel;
+      if (passt(regel, von, betreff, text)) return regel;
     }
   } catch (err) {
     loggen('warn', 'backend:sortierung', `regelTreffer fehlgeschlagen: ${err.message}`);
@@ -357,8 +393,8 @@ function regelTreffer(kontoId, von, betreff) {
   return null;
 }
 
-function istBehalten(kontoId, von, betreff) {
-  const regel = regelTreffer(kontoId, von, betreff);
+function istBehalten(kontoId, von, betreff, text) {
+  const regel = regelTreffer(kontoId, von, betreff, text);
   return Boolean(regel) && (regel.aktion || 'verschieben') === 'behalten';
 }
 module.exports = {

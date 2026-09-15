@@ -122,14 +122,17 @@ function kiPlatzFrei() {
 
 // ─── SORTIERUNG (VOR GEMINI) ─────────────────────────────────────────────────
 router.post('/sort', (req, res) => {
-  const { konto, von, betreff, uid } = req.body || {};
+  // `text` ist freiwillig und nur fuer Regeln da, die auf den Inhalt sehen.
+  // Aeltere Workflow-Staende schicken ihn nicht; dann greifen Inhalts-Regeln
+  // eine Station spaeter, bei der Vorpruefung vor dem KI-Aufruf.
+  const { konto, von, betreff, uid, text } = req.body || {};
   if (!konto || !von) return res.status(400).json({ error: 'konto und von sind Pflicht' });
 
   try {
     // Finde konto_id
     const account = db.prepare('SELECT id FROM accounts WHERE name = ?').get(konto);
     if (account) {
-      const match = sortierung.pruefeRegeln(account.id, von, betreff);
+      const match = sortierung.pruefeRegeln(account.id, von, betreff, text);
       // "In Ruhe lassen": Die Mail bleibt, wo sie ist. Sie laeuft zwar noch durch
       // den Workflow, wird aber am Ende (/einsortieren) nicht verschoben und
       // landet auch nicht in der Sortier-Inbox. Wichtig: nie als 'verschieben'
@@ -517,7 +520,7 @@ router.post('/einsortieren', async (req, res) => {
     // Einmal nachsehen, ob eine eigene Regel greift — die Antwort wird gleich
     // dreifach gebraucht: fuer "in Ruhe lassen", fuer den Vermerk und fuer die
     // Frage, ob dieser Mail ueberhaupt ein KI-Aufruf zuzurechnen ist.
-    const regel = konto ? sortierung.regelTreffer(konto.id, b.von, b.betreff) : null;
+    const regel = konto ? sortierung.regelTreffer(konto.id, b.von, b.betreff, b.text) : null;
     const inRuhe = !b.ziel_fest && Boolean(regel)
       && (regel.aktion || 'verschieben') === 'behalten';
 
