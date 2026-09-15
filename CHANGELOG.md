@@ -2,6 +2,52 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [5.10.0.0] - 2026-09-15 (Build 222) — *Der Ordner ist kein freier Text mehr*
+
+Aus dem Diagnosebericht vom 15.09.: `noreply@duden.de` „Letzter Tag: Ihr Premium-Test endet
+heute" wurde als **persönlich → MC-HOST24** eingestuft, Konfidenz 0,8. Im Protokoll standen dazu
+18 Zeilen „Ordnername abgelehnt" in sieben Tagen. Beides hat denselben Grund: Das Feld „ordner" in
+der Antwort der KI war ein **freier String**. Ein 3-Milliarden-Parameter-Modell schrieb dort mal
+den Namen exakt, mal die ganze Beschreibung dahinter ab, mal einen Tippfehler, mal einen erfundenen
+Namen — und ein ganzer Reparaturapparat (`themen.vorschlagSaeubern`, `themen.imKatalog` mit
+Levenshtein-Distanz und Synonym-Gruppen) musste das hinterher wieder geradeziehen. Was er nicht
+schaffte, blieb liegen.
+
+### Änderungen
+- **„ordner" ist jetzt an die tatsächlich vorhandenen Namen gebunden** — dieselbe Absicherung, die
+  für „kategorie" schon lange gilt (`enum: [spam, rechnung, …]`), jetzt auch für den Themen-Ordner.
+  Bei Ollama erzwingt die eingeschränkte Grammatik das hart: Das Modell **kann** keinen anderen Wert
+  mehr erzeugen als einen Namen aus der Liste oder einen leeren String. Bei Gemini ist es eine
+  starke Bindung über `responseSchema` — vorher bekam Gemini überhaupt kein Antwortschema, nur die
+  Bitte „antworte als JSON" im Fließtext.
+- **Ein neuer Ordner hat jetzt ein eigenes Feld** (`neuer_ordner`) statt der Zeichenkette
+  „NEU:<Name>" innerhalb von „ordner". Die alte Form musste „ordner" frei lassen, damit überhaupt
+  etwas Neues hineinpasste — das ist mit dem Enum nicht mehr möglich, und jetzt auch nicht mehr
+  nötig. Das Feld erscheint im Schema nur, wenn neue Ordner erlaubt sind
+  (Einstellungen → Themen-Sortierung).
+- **Text und Zwang kommen aus derselben Quelle.** Neue Funktion `themenKontext()`: Sie berechnet
+  die Ordnerliste einmal und liefert sowohl den Fließtext fürs Prompt als auch die Namen fürs
+  Schema. Zwei getrennte Listen wären zwangsläufig auseinandergelaufen, sobald jemand nur eine
+  davon geändert hätte.
+- **Gemini bekommt jetzt überhaupt ein Antwortschema.** Neu: `kiText.zuGeminiSchema()` übersetzt
+  dasselbe JSON-Schema, das an Ollama geht, in Googles Schreibweise (`type` in Großbuchstaben,
+  sonst gleich) und schickt es als `responseSchema` mit. Betrifft nur Aufrufe, die überhaupt ein
+  Schema übergeben — die paar anderen Gemini-Anfragen im Panel (Ordner-Beschreibung formulieren,
+  Aktions-Entwurf, Beleg-Text) bleiben unverändert.
+- **Kategorie-Ordner fliegen aus dem Enum**, nicht nur aus dem Fließtext: Stünde „Newsletter" (der
+  Kategorie-Ordner des Kontos) im Enum, könnte das Modell ihn trotz der Anweisung als Thema wählen
+  — ein Enum ist ein Zwang, ein Satz im Prompt nur ein Rat.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Datenbank:** keine Änderung.
+- **n8n-Workflows:** unberührt. Kein Neuimport nötig — die Änderung liegt vollständig im Panel
+  (`services/klassifizierer.js`, `services/kiText.js`).
+- **Verhalten:** Bei aktiver Themen-Sortierung sinkt die Zahl der „Ordnername abgelehnt"-Fälle
+  strukturell auf null für vorhandene Ordner — ein falscher, aber gültiger Ordner (das Modell wählt
+  den falschen von mehreren echten Namen) bleibt weiterhin möglich; das ist eine
+  Klassifizierungsfrage, keine Formatfrage, und nicht Gegenstand dieser Änderung.
+- **Neustart/Sitzung:** normaler Neustart genügt.
+
 ## [5.9.0.0] - 2026-09-15 (Build 221) — *Regeln, die in die Mail schauen*
 
 Bisher konnte eine Korrektur nur zweierlei merken: **diese Adresse** oder **diese Domain**. Beides

@@ -37,6 +37,46 @@ function denkstufe() {
   return ['minimal', 'low', 'medium', 'high'].includes(wert) ? wert : '';
 }
 
+// ─── Dasselbe Schema für beide Anbieter ──────────────────────────────────────
+//
+// Ollamas `format`-Feld nimmt reines JSON-Schema — das schreibt der Aufrufer
+// (z. B. services/klassifizierer.js) direkt in `opt.schema`. Gemini versteht
+// dieselbe Sache nur mit anderer Schreibweise: `type` steht dort in
+// GROSSBUCHSTABEN ("OBJECT", "STRING", "ARRAY" …), alles andere (enum,
+// properties, items, required) ist gleich. Bis hierher gab es nur die
+// Ollama-Fassung — Gemini bekam gar kein Schema, nur die Bitte "antworte als
+// JSON" im Fließtext. Ohne erzwungene Struktur kann das Modell trotzdem jeden
+// Ordnernamen frei erfinden oder die Beschreibung abschreiben, genau das
+// Problem, das der Ordner-Enum lösen soll (siehe klassifizierer.js).
+//
+// Eine Übersetzung statt zwei getrennter Schemata: Zwei Quellen der Wahrheit
+// laufen zwangsläufig auseinander, sobald jemand nur eine davon ändert.
+const TYP_GEMINI = {
+  object: 'OBJECT', array: 'ARRAY', string: 'STRING',
+  number: 'NUMBER', integer: 'INTEGER', boolean: 'BOOLEAN',
+};
+
+function zuGeminiSchema(schema) {
+  if (!schema || typeof schema !== 'object') return schema;
+  const knoten = {};
+  // Gemini kennt keine Typ-Vereinigung ("string" ODER "null") — das kam bei
+  // uns nirgends vor, aber falls doch: den ersten echten Typ nehmen, "null"
+  // weglassen. Besser ein zu strenges Schema als ein von Google abgelehntes.
+  const roh = Array.isArray(schema.type) ? schema.type.find((t) => t !== 'null') : schema.type;
+  if (roh && TYP_GEMINI[roh]) knoten.type = TYP_GEMINI[roh];
+  if (schema.enum) knoten.enum = schema.enum.filter((w) => w !== null);
+  if (schema.required) knoten.required = schema.required;
+  if (schema.maxItems != null) knoten.maxItems = String(schema.maxItems);
+  if (schema.minimum != null) knoten.minimum = schema.minimum;
+  if (schema.maximum != null) knoten.maximum = schema.maximum;
+  if (schema.properties) {
+    knoten.properties = {};
+    for (const [k, v] of Object.entries(schema.properties)) knoten.properties[k] = zuGeminiSchema(v);
+  }
+  if (schema.items) knoten.items = zuGeminiSchema(schema.items);
+  return knoten;
+}
+
 // ─── Wie viel passt in eine Ollama-Anfrage? ──────────────────────────────────
 //
 // Gemini nimmt entgegen, was kommt, und sagt hinterher „MAX_TOKENS", wenn die
@@ -266,6 +306,7 @@ async function frageJson(prompt, opt = {}) {
               responseMimeType: 'application/json',
               temperature: 0.2,
               maxOutputTokens: opt.maxAntwort || 8192,
+              ...(opt.schema ? { responseSchema: zuGeminiSchema(opt.schema) } : {}),
               ...(denkstufe() ? { thinking_level: denkstufe() } : {}),
             },
           }),
@@ -322,5 +363,5 @@ async function frageJson(prompt, opt = {}) {
 }
 
 module.exports = {
-  frageJson, kontextFenster, promptPlatz, promptKuerzen, KONTEXT_STANDARD, MAIL_MARKE,
+  frageJson, kontextFenster, promptPlatz, promptKuerzen, zuGeminiSchema, KONTEXT_STANDARD, MAIL_MARKE,
 };
