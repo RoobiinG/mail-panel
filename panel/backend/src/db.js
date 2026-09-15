@@ -316,11 +316,16 @@ db.exec(`
   -- es nicht, es reicht es nur durch. Passt eine gespeicherte Anordnung nicht
   -- mehr zum Widget-Katalog (weil Widgets dazukommen oder wegfallen), gleicht
   -- das Frontend sie beim Laden ab; hier ist deshalb nie etwas zu migrieren.
+  --
+  -- Der Schluessel steht als eigene Zeile (PRIMARY KEY (user_id)) statt als
+  -- Spaltenzusatz: So ist er eine echte Eindeutigkeitsbedingung und kein
+  -- rowid-Aliasname — nur darauf darf sich das ON CONFLICT der Speicher-Route
+  -- beziehen. Gleiche Bauweise wie im Ueberwachungs-Panel.
   CREATE TABLE IF NOT EXISTS dashboard_layouts (
-    user_id INTEGER PRIMARY KEY,
-    layout TEXT NOT NULL,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    layout     TEXT    NOT NULL DEFAULT '[]',
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    PRIMARY KEY (user_id)
   );
 
   CREATE TABLE IF NOT EXISTS ordner_alias (

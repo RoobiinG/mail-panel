@@ -2,6 +2,27 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [5.7.0.1] - 2026-09-15 (Build 218) — *Die Anordnung braucht einen Benutzer*
+
+Build 217 kam nicht durch den Testlauf, und damit entstand auch kein Abbild. Was daran hing:
+
+### Bugfixes
+- **Der Testlauf legte keinen Benutzer an.** Die Anordnung hängt per Fremdschlüssel am Benutzer,
+  und better-sqlite3 prüft Fremdschlüssel — jedes Speichern in der Wegwerf-Datenbank endete
+  deshalb mit „FOREIGN KEY constraint failed" und einem 500er. Der Test legt den Benutzer jetzt an.
+- **Der Schlüssel der Tabelle steht als eigene Zeile** (`PRIMARY KEY (user_id)`) statt als
+  Spaltenzusatz. So ist er eine echte Eindeutigkeitsbedingung und kein rowid-Aliasname — nur auf
+  eine solche darf sich das `ON CONFLICT` der Speicher-Route verlassen. Gleiche Bauweise wie im
+  Überwachungs-Panel, wo dieselbe Abfrage seit Langem läuft.
+- **Fehlgeschlagene Testaufrufe sagen jetzt, woran es lag.** Die Antwort des Servers steht in der
+  Meldung; vorher blieb vom eigentlichen Fehler nur ein „500 !== 200" und danach ein Dutzend
+  Folgefehler der Art „Cannot read properties of null".
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Datenbank:** `dashboard_layouts` wurde mit Build 217 nirgends ausgeliefert (der Bau brach
+  vorher ab) — die geänderte Definition trifft also auf keinen Bestand. Kein Migrationsschritt.
+- **n8n-Workflows:** unberührt. Alles Weitere wie in Build 217.
+
 ## [5.7.0.0] - 2026-09-15 (Build 217) — *Das Dashboard wird ein Widget-Brett*
 
 Das Dashboard war eine feste Abfolge von Karten, und das sah man ihm an: Der Sortier-Rückstand

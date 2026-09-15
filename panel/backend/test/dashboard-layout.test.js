@@ -16,17 +16,26 @@ const http = require('http');
 require('./umgebung');
 
 const express = require('express');
-require('../src/db');
+const db = require('../src/db');
+
+const BENUTZER = 7;
 
 let server;
 let port;
 
 before(async () => {
+  // Die Anordnung haengt per Fremdschluessel am Benutzer, und better-sqlite3
+  // prueft Fremdschluessel — ohne diese Zeile scheitert jedes Speichern mit
+  // "FOREIGN KEY constraint failed". Genau daran ist der erste Testlauf
+  // gescheitert.
+  db.prepare('INSERT OR IGNORE INTO users (id, username, password) VALUES (?, ?, ?)')
+    .run(BENUTZER, 'testnutzer', 'nicht-echt');
+
   const app = express();
   app.use(express.json());
   // Statt echter Anmeldung: ein fester Benutzer. Geprüft wird hier die
   // Verarbeitung der Anordnung, nicht die Anmeldung — die hat eigene Tests.
-  app.use('/api/dashboard', (req, _res, weiter) => { req.user = { id: 7 }; weiter(); },
+  app.use('/api/dashboard', (req, _res, weiter) => { req.user = { id: BENUTZER }; weiter(); },
     require('../src/routes/dashboard'));
   await new Promise((fertig) => {
     server = app.listen(0, '127.0.0.1', () => { port = server.address().port; fertig(); });
@@ -54,6 +63,16 @@ function ruf(methode, pfad, rumpf) {
   });
 }
 
+// Speichern und dabei gleich prüfen, dass es geklappt hat. Die Antwort des
+// Servers steht in der Meldung — sonst endet ein Fehlschlag in einem Dutzend
+// Folgefehlern der Art "Cannot read properties of null", und die eigentliche
+// Ursache steht nirgends.
+async function speichern(rumpf) {
+  const { status, daten } = await ruf('PUT', '/api/dashboard/layout', rumpf);
+  assert.equal(status, 200, JSON.stringify(daten));
+  return daten;
+}
+
 describe('Anordnung der Dashboard-Widgets', () => {
   test('ohne gespeicherte Anordnung kommt null zurück', async () => {
     const { status, daten } = await ruf('GET', '/api/dashboard/layout');
@@ -64,7 +83,9 @@ describe('Anordnung der Dashboard-Widgets', () => {
   test('speichert und liefert dieselbe Anordnung wieder aus', async () => {
     const layout = [{ i: 'zutun', x: 0, y: 0, w: 8, h: 9, minW: 4, minH: 3 }];
     const gesetzt = await ruf('PUT', '/api/dashboard/layout', { layout });
-    assert.equal(gesetzt.status, 200);
+    // Die Antwort gehoert in die Meldung: Ein blankes "500 !== 200" sagt nicht,
+    // woran es lag, und ein Testlauf ohne lokales Node ist ein ganzer Umlauf.
+    assert.equal(gesetzt.status, 200, JSON.stringify(gesetzt.daten));
     assert.equal(gesetzt.daten.ok, true);
 
     const { daten } = await ruf('GET', '/api/dashboard/layout');
@@ -72,7 +93,7 @@ describe('Anordnung der Dashboard-Widgets', () => {
   });
 
   test('überschreibt die vorhandene Anordnung, statt eine zweite anzulegen', async () => {
-    await ruf('PUT', '/api/dashboard/layout', { layout: [{ i: 'betrieb', x: 8, y: 0, w: 4, h: 4 }] });
+    await speichern({ layout: [{ i: 'betrieb', x: 8, y: 0, w: 4, h: 4 }] });
     const { daten } = await ruf('GET', '/api/dashboard/layout');
     assert.equal(daten.layout.length, 1);
     assert.equal(daten.layout[0].i, 'betrieb');
@@ -86,7 +107,7 @@ describe('Anordnung der Dashboard-Widgets', () => {
   });
 
   test('fremde Felder fallen weg, Zahlen bleiben in ihren Grenzen', async () => {
-    await ruf('PUT', '/api/dashboard/layout', {
+    await speichern({
       layout: [{
         i: 'verlauf', x: -5, y: -1, w: 9999, h: 9999,
         // Nichts davon darf in der Datenbank landen:
@@ -103,7 +124,7 @@ describe('Anordnung der Dashboard-Widgets', () => {
   });
 
   test('unbrauchbare Kennungen und Dubletten fliegen raus', async () => {
-    await ruf('PUT', '/api/dashboard/layout', {
+    await speichern({
       layout: [
         { i: 'zutun', x: 0, y: 0, w: 4, h: 4 },
         { i: 'zutun', x: 4, y: 0, w: 4, h: 4 },          // Dublette
@@ -122,7 +143,7 @@ describe('Anordnung der Dashboard-Widgets', () => {
   // Ein ausgeblendetes Widget verschwindet nicht aus der Anordnung, es wird nur
   // markiert — sonst wüsste das Panel beim Zurückholen nicht mehr, wo es lag.
   test('die Markierung „ausgeblendet" überlebt', async () => {
-    await ruf('PUT', '/api/dashboard/layout', {
+    await speichern({
       layout: [
         { i: 'belege', x: 8, y: 4, w: 4, h: 5, versteckt: true },
         { i: 'zutun', x: 0, y: 0, w: 8, h: 9, versteckt: 'ja' },
@@ -136,7 +157,7 @@ describe('Anordnung der Dashboard-Widgets', () => {
 
   test('die Liste ist gedeckelt', async () => {
     const viele = Array.from({ length: 200 }, (_, n) => ({ i: `w${n}`, x: 0, y: n, w: 4, h: 4 }));
-    await ruf('PUT', '/api/dashboard/layout', { layout: viele });
+    await speichern({ layout: viele });
     const { daten } = await ruf('GET', '/api/dashboard/layout');
     assert.equal(daten.layout.length, 40);
   });
