@@ -2,6 +2,21 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [5.4.3.1] - 2026-09-15 (Build 214) — *Nachtrag zu Build 213*
+
+Ein erklärender Kommentar landete in `Konten.jsx` zwischen `&& (` und dem Element — dort darf nur
+ein Ausdruck stehen, ein JSX-Kommentar ist selbst einer, also zwei. Der Frontend-Build brach mit
+`Expected ")" but found "className"` ab; zu Build 213 gibt es deshalb **kein Image**. Der Kommentar
+steht jetzt über der Bedingung. Die übrigen Dateien wurden auf dasselbe Muster durchsucht — sauber.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine. **n8n-Workflow-Kompatibilität:** Keine.
+- **Neustart-/Session-Verhalten:** Keine Verhaltensänderung gegenüber Build 213 — nur der Build
+  selbst. Wer Build 213 sucht: Die Änderungen stecken in diesem hier.
+
+---
+
+
 ## [5.4.3.0] - 2026-09-15 (Build 213) — *Fundament: Ursachen statt Symptome*
 
 Erster von drei Schritten des Oberflächen-Umbaus. Dieser hier ändert fast nichts an der Anordnung

@@ -234,11 +234,11 @@ export default function Konten() {
                   viele Server die Anmeldung, weil n8n dort kein STARTTLS anbietet.
                 </p>
               )}
+              {/* Der Kasten stand auf "panel-blue" — ein Name, den es in der
+                  Farbtafel nie gab. Tailwind erzeugt für einen unbekannten
+                  Namen keine Regel, also stand der Hinweis in der Standardfarbe
+                  auf durchsichtigem Grund. Gemeint war panel-accent. */}
               {/web\.de|gmx/i.test(formular.host || '') && (
-                {/* War "panel-blue" — ein Name, den es in der Farbtafel nie gab.
-                    Tailwind erzeugte dafür keine Regel, also stand hier Text in
-                    der Standardfarbe auf durchsichtigem Grund. Gemeint war der
-                    Hinweis-Blauton, und der heißt panel-accent. */}
                 <div className="card !py-2.5 !px-3 bg-panel-accent/10 border-panel-accent/30 text-xs text-panel-accent">
                   <strong>Wichtiger Hinweis zu Web.de & GMX:</strong> Der Abruf über IMAP muss in den Postfach-Einstellungen im Webbrowser unter <em>„Sicherheit → POP3/IMAP Zugriff erlauben“</em> freigeschaltet sein, sonst wird die Anmeldung vom Server abgewiesen.
                 </div>
