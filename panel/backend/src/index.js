@@ -117,6 +117,9 @@ app.use('/api/quarantaene', auth, rechtErforderlich('quarantaene'), require('./r
 app.use('/api/rspamd', auth, rechtErforderlich('rspamd'), require('./routes/rspamd'));
 app.use('/api/newsletter', auth, rechtErforderlich('newsletter'), require('./routes/newsletter'));
 app.use('/api/dashboard', auth, rechtErforderlich('dashboard'), require('./routes/dashboard'));
+// Die Widget-Anordnung ist eine persoenliche Einstellung, kein Bereich: Sie
+// braucht nur eine Anmeldung, und jeder aendert ausschliesslich seine eigene.
+app.use('/api/anordnung', auth, require('./routes/anordnung'));
 app.use('/api/benutzer', auth, rechtErforderlich('benutzer'), require('./routes/benutzer'));
 app.use('/api/rollen', auth, rechtErforderlich('benutzer'), require('./routes/rollen'));
 app.use('/api/sortierung', auth, rechtErforderlich('sortierung'), require('./routes/sortierung'));

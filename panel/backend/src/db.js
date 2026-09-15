@@ -311,21 +311,24 @@ db.exec(`
     FOREIGN KEY(konto_id) REFERENCES accounts(id) ON DELETE CASCADE
   );
 
-  -- Anordnung der Dashboard-Widgets, je Benutzer. Gespeichert wird genau das
+  -- Anordnung der Widgets, je Benutzer und Seite. Gespeichert wird genau das
   -- Format von react-grid-layout ({i,x,y,w,h,...}) als JSON — das Panel deutet
   -- es nicht, es reicht es nur durch. Passt eine gespeicherte Anordnung nicht
   -- mehr zum Widget-Katalog (weil Widgets dazukommen oder wegfallen), gleicht
   -- das Frontend sie beim Laden ab; hier ist deshalb nie etwas zu migrieren.
   --
-  -- Der Schluessel steht als eigene Zeile (PRIMARY KEY (user_id)) statt als
-  -- Spaltenzusatz: So ist er eine echte Eindeutigkeitsbedingung und kein
-  -- rowid-Aliasname — nur darauf darf sich das ON CONFLICT der Speicher-Route
-  -- beziehen. Gleiche Bauweise wie im Ueberwachungs-Panel.
+  -- "seite" trennt Dashboard und Statistik: Jede Seite hat ihren eigenen
+  -- Katalog, eine gemeinsame Zeile waere fuer beide die falsche.
+  --
+  -- Der Schluessel steht als eigene Zeile statt als Spaltenzusatz: So ist er
+  -- eine echte Eindeutigkeitsbedingung und kein rowid-Aliasname — nur darauf
+  -- darf sich das ON CONFLICT der Speicher-Route beziehen.
   CREATE TABLE IF NOT EXISTS dashboard_layouts (
     user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    seite      TEXT    NOT NULL DEFAULT 'dashboard',
     layout     TEXT    NOT NULL DEFAULT '[]',
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (user_id)
+    PRIMARY KEY (user_id, seite)
   );
 
   CREATE TABLE IF NOT EXISTS ordner_alias (
@@ -511,6 +514,34 @@ if (!bestandMigration) {
   }
 }
 
+
+// ─── Migration: dashboard_layouts bekommt die Spalte "seite" ─────────────────
+//
+// Build 218 kannte nur eine Anordnung je Benutzer — die des Dashboards. Mit der
+// Statistik gibt es eine zweite, und der Schluessel muss beide auseinanderhalten
+// koennen. SQLite kann einen Primaerschluessel nicht erweitern, also wird die
+// Tabelle neu gebaut. Der vorhandene Bestand gehoert dem Dashboard.
+try {
+  const spalten = db.prepare('PRAGMA table_info(dashboard_layouts)').all();
+  if (spalten.length > 0 && !spalten.some((s) => s.name === 'seite')) {
+    db.exec(`
+      CREATE TABLE dashboard_layouts_neu (
+        user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        seite      TEXT    NOT NULL DEFAULT 'dashboard',
+        layout     TEXT    NOT NULL DEFAULT '[]',
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_id, seite)
+      );
+      INSERT INTO dashboard_layouts_neu (user_id, seite, layout, updated_at)
+        SELECT user_id, 'dashboard', layout, updated_at FROM dashboard_layouts;
+      DROP TABLE dashboard_layouts;
+      ALTER TABLE dashboard_layouts_neu RENAME TO dashboard_layouts;
+    `);
+    console.log('[db] Tabelle dashboard_layouts um die Spalte "seite" erweitert.');
+  }
+} catch (err) {
+  console.warn('[db] Fehler bei Migration von dashboard_layouts:', err.message);
+}
 // ─── Default-Einstellungen beim ersten Start ─────────────────────────────────
 const defaults = {
   dnsbl_listen: JSON.stringify(['zen.spamhaus.org', 'bl.spamcop.net', 'b.barracudacentral.org']),

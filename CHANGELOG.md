@@ -2,6 +2,54 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [5.8.0.0] - 2026-09-15 (Build 219) — *Auch die Statistik wird ein Widget-Brett*
+
+Die vier Fragen der Auswertung (Qualität, Durchsatz, Absender, Kosten) steckten in vier großen
+Karten mit fester Reihenfolge: Wer täglich auf die Domains schaut, musste jedes Mal an zwei
+Diagrammen vorbeiscrollen. Jetzt ist jeder Abschnitt ein eigenes Widget — aus demselben Baukasten
+wie das Dashboard.
+
+### Features
+- **Elf Widgets auf der Statistik**: Die vier Zahlen · Wie gut sortiert es? · Wie sicher war die
+  KI? · Häufigste Begründung · Wie viel läuft durch? · Was hakte? · Domains · Absender ·
+  Zielordner · Regeln, die greifen · Was kostet es?
+  Was vorher in einer Karte übereinanderlag (Diagramm plus zwei Ranglisten), ist jetzt einzeln zu
+  greifen, zu verschieben und auszublenden.
+- **Eigene Anordnung je Seite.** Dashboard und Statistik haben getrennte Kataloge und getrennte
+  gespeicherte Anordnungen; die Tabelle hat dafür die Spalte `seite` bekommen.
+- **Zeitraum und Postfach bleiben über dem Raster stehen** — sie gelten für alle Widgets und
+  sollen sich nicht wegschieben lassen. Genauso wie die Störmeldung im Dashboard.
+
+### Änderungen
+- **Die Widget-Mechanik liegt jetzt an einer Stelle** (`components/ui/Widgets.jsx`): Rahmen,
+  Raster, Werkzeugleiste und der Haken `useAnordnung(katalog, seite)`. Nach dem Dashboard-Umbau
+  stand sie vollständig in `Dashboard.jsx`; die Statistik hätte sie kopieren müssen, und ab der
+  zweiten Kopie läuft so etwas auseinander. Das Dashboard benutzt jetzt denselben Baukasten und
+  ist dabei um 166 Zeilen kürzer geworden.
+- **Die Anordnung hat eine eigene Route** (`/api/anordnung` statt `/api/dashboard/layout`).
+  Grund ist die Rechteverteilung: Das Dashboard hängt am Recht „dashboard", die Statistik am Recht
+  „sortierung". Läge das Speichern beim Dashboard, könnte jemand mit Zugriff auf die Statistik
+  seine eigene Statistik-Anordnung nicht sichern. Sich die Kacheln zurechtzuschieben ist keine
+  Befugnis, sondern eine Einstellung — sie braucht nur eine Anmeldung, und jeder ändert
+  ausschließlich seine eigene.
+- **Die Kennzahlen der Statistik sind flach** statt eigener Karten: Karte-in-Karte sah nach
+  Verpackung aus (dieselbe Änderung wie im Dashboard).
+
+### Sicherheit
+- Die Prüfung der eingehenden Anordnung ist mitgewandert und um die Seite erweitert: Nur bekannte
+  Seiten werden angenommen, sonst ließe sich die Tabelle mit beliebig vielen Zeilen je Benutzer
+  füllen. Drei Tests dazu, insgesamt jetzt zwölf (`test/anordnung.test.js`).
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Datenbank:** `dashboard_layouts` bekommt die Spalte `seite` und einen zusammengesetzten
+  Schlüssel `(user_id, seite)`. SQLite kann einen Primärschlüssel nicht erweitern, deshalb baut
+  die Migration die Tabelle neu und schreibt den vorhandenen Bestand als `dashboard` fort — eine
+  im Dashboard gespeicherte Anordnung bleibt also erhalten. Läuft beim Start, ohne Zutun.
+- **n8n-Workflows:** unberührt. Kein Neuimport nötig.
+- **Neustart/Sitzung:** normaler Neustart. Der alte Endpunkt `/api/dashboard/layout` ist weg;
+  Frontend und Backend kommen aus demselben Abbild, ein veralteter Stand im Browser-Cache würde
+  ihn aber noch rufen — deshalb nach dem Deployment **Strg+F5**.
+
 ## [5.7.0.1] - 2026-09-15 (Build 218) — *Die Anordnung braucht einen Benutzer*
 
 Build 217 kam nicht durch den Testlauf, und damit entstand auch kein Abbild. Was daran hing:

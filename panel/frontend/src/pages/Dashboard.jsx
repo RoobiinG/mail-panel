@@ -10,30 +10,24 @@
 // Jetzt liegt jede Karte als Widget in einem Raster (react-grid-layout, wie im
 // Überwachungs-Panel): am Kopf verschieben, an den Kanten größer ziehen,
 // einzeln ausblenden und wieder hereinholen. Die Anordnung hängt am Benutzer
-// und liegt im Panel (GET/PUT /api/dashboard/layout) statt im Browser — sie
+// und liegt im Panel (GET/PUT /api/anordnung) statt im Browser — sie
 // gilt deshalb auch am nächsten Gerät.
 //
 // Außerhalb des Rasters bleibt nur, was keine Kachel sein darf: die Störmeldung
 // der Aufsicht. Die soll immer oben stehen und sich nicht wegschieben lassen.
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import RasterBasis, { WidthProvider } from 'react-grid-layout';
-import 'react-grid-layout/css/styles.css';
-import 'react-resizable/css/styles.css';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import {
   AlertTriangle, Inbox, Gauge, ShieldCheck, HardDriveDownload, Target,
   CheckCircle2, Workflow, ArrowRight, Archive, Check, RefreshCw,
   ListChecks, Sparkles, Repeat, CloudUpload, PauseCircle, Activity,
-  BarChart3, PieChart as PieSymbol, EyeOff, Plus, RotateCcw, GripVertical,
+  BarChart3, PieChart as PieSymbol,
 } from 'lucide-react';
 import api from '../api';
 import { useMelden } from '../components/ui/Meldungen';
-import { useIsMobile } from '../hooks/useIsMobile';
+import { Widget, WidgetLeiste, WidgetRaster, useAnordnung } from '../components/ui/Widgets';
 import { FARBEN, TOOLTIP_STIL } from '../components/ui/diagramm';
-
-const Raster = WidthProvider(RasterBasis);
-const SPALTEN = 12;
 
 // Farben aus der gemeinsamen Diagramm-Einstellung. Vorher standen hier eigene
 // Hex-Werte, und dieselbe Sache hatte je nach Seite eine andere Farbe: Spam war
@@ -67,66 +61,8 @@ const KATALOG = {
   verlauf:    { titel: 'Tagesverlauf (30 Tage)',          icon: BarChart3,   standard: { x: 0, y: 27, w: 8,  h: 10, minW: 4, minH: 5 } },
   verteilung: { titel: 'Verteilung',                      icon: PieSymbol,   standard: { x: 8, y: 27, w: 4,  h: 10, minW: 3, minH: 5 } },
 };
-const IDS = Object.keys(KATALOG);
-const STANDARD = IDS.map((i) => ({ i, ...KATALOG[i].standard }));
-
-// Gespeicherte Anordnung mit dem Katalog abgleichen.
-//
-// Zwei Fälle, die sonst weh tun: Ein Widget kommt neu dazu (dann taucht es
-// unten auf und fehlt nicht einfach), und ein Widget fällt weg (dann darf seine
-// alte Zeile das Raster nicht durcheinanderbringen). Ausgeblendete Widgets
-// bleiben mit ihrer Position in der Liste stehen — nur so weiß das Panel, wohin
-// sie gehören, wenn man sie zurückholt.
-function abgleichen(liste) {
-  const nach = new Map();
-  for (const eintrag of liste || []) {
-    const id = eintrag?.i;
-    if (!KATALOG[id] || nach.has(id)) continue;
-    nach.set(id, { ...KATALOG[id].standard, ...eintrag });
-  }
-  let unten = [...nach.values()].reduce((m, it) => Math.max(m, (it.y || 0) + (it.h || 1)), 0);
-  for (const id of IDS) {
-    if (nach.has(id)) continue;
-    nach.set(id, { i: id, ...KATALOG[id].standard, y: unten });
-    unten += KATALOG[id].standard.h;
-  }
-  return IDS.map((id) => nach.get(id));
-}
-
-// Anordnung als Zeichenkette — zum Vergleich, ob sich wirklich etwas geändert
-// hat. react-grid-layout meldet auch Umsortierungen, die es selbst ausgelöst
-// hat; ohne diesen Vergleich schriebe jede davon die gespeicherte Anordnung um.
-const signatur = (liste) => (liste || [])
-  .map((it) => `${it.i}:${it.x},${it.y},${it.w},${it.h}${it.versteckt ? ':aus' : ''}`)
-  .sort().join('|');
 
 // ─── Bausteine ───────────────────────────────────────────────────────────────
-
-// Der Rahmen eines Widgets: Kopf mit Griff, Titel und Ausblenden-Knopf, darunter
-// der Inhalt. Nur der linke Teil des Kopfes trägt `.wdrag` — sonst würde jeder
-// Klick im Widget das Verschieben auslösen und Knöpfe wären nicht mehr zu
-// treffen.
-function Widget({ titel, icon: Icon, aktion, flach, onAusblenden, children }) {
-  return (
-    <div className="card !p-0 h-full flex flex-col overflow-hidden">
-      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-panel-border/60 bg-panel-surface/40 shrink-0">
-        <div className="wdrag flex items-center gap-2 min-w-0 flex-1 cursor-move select-none" title="Zum Verschieben ziehen">
-          <GripVertical size={14} className="text-panel-muted/40 shrink-0" />
-          <Icon size={15} className="text-panel-accent shrink-0" />
-          <h2 className="text-sm font-medium truncate">{titel}</h2>
-        </div>
-        {aktion}
-        {onAusblenden && (
-          <button type="button" onClick={onAusblenden} title="Widget ausblenden" aria-label="Widget ausblenden"
-            className="p-1 rounded text-panel-muted hover:text-panel-text hover:bg-panel-card transition-colors shrink-0">
-            <EyeOff size={14} />
-          </button>
-        )}
-      </div>
-      <div className={`flex-1 min-h-0 overflow-y-auto ${flach ? '' : 'p-4'}`}>{children}</div>
-    </div>
-  );
-}
 
 // Etwas Luft unter dem, was Google zuletzt zugelassen hat: Genau auf die Kante
 // zu gehen heißt, beim nächsten Lauf wieder mittendrin abzubrechen.
@@ -240,67 +176,10 @@ export default function Dashboard() {
   const [uebersichtFehler, setUebersichtFehler] = useState('');
   const [zuletzt, setZuletzt] = useState(null);
   const { nachfragen } = useMelden();
-  const istHandy = useIsMobile();
 
-  // ── Anordnung der Widgets ──────────────────────────────────────────────────
-  const [gespeichert, setGespeichert] = useState(null);
-  const bereit = useRef(false);        // gespeicherte Anordnung geladen?
-  const speicherUhr = useRef(null);
-
-  const layoutAlle = useMemo(() => abgleichen(gespeichert ?? STANDARD), [gespeichert]);
-  const sichtbar = useMemo(() => layoutAlle.filter((it) => !it.versteckt), [layoutAlle]);
-  const ausgeblendet = useMemo(() => layoutAlle.filter((it) => it.versteckt), [layoutAlle]);
-
-  useEffect(() => {
-    api.get('/dashboard/layout')
-      .then((r) => {
-        const l = r.data?.layout;
-        if (Array.isArray(l) && l.length) setGespeichert(l);
-      })
-      .catch(() => { /* dann eben die Standard-Anordnung */ })
-      // Auch im Fehlerfall als "geladen" merken — sonst bliebe das Raster
-      // dauerhaft gesperrt und jedes Verschieben ginge beim Neuladen verloren.
-      .finally(() => { bereit.current = true; });
-    return () => clearTimeout(speicherUhr.current);
-  }, []);
-
-  // Nicht bei jedem Pixel schreiben: Beim Ziehen meldet react-grid-layout
-  // laufend, und jede Meldung wäre ein eigener Aufruf.
-  const sichern = (liste) => {
-    clearTimeout(speicherUhr.current);
-    speicherUhr.current = setTimeout(() => {
-      api.put('/dashboard/layout', { layout: liste }).catch(() => { /* still */ });
-    }, 700);
-  };
-
-  const uebernehmen = (liste) => { setGespeichert(liste); sichern(liste); };
-
-  const beimVerschieben = (neu) => {
-    if (!bereit.current) return;
-    const nachId = new Map((neu || []).map((it) => [it.i, it]));
-    const zusammen = layoutAlle.map((it) => {
-      const n = nachId.get(it.i);
-      return n ? { ...it, x: n.x, y: n.y, w: n.w, h: n.h } : it;
-    });
-    if (signatur(zusammen) === signatur(layoutAlle)) return;
-    uebernehmen(zusammen);
-  };
-
-  const ausblenden = (id) =>
-    uebernehmen(layoutAlle.map((it) => (it.i === id ? { ...it, versteckt: true } : it)));
-
-  const einblenden = (id) =>
-    uebernehmen(layoutAlle.map((it) => {
-      if (it.i !== id) return it;
-      const { versteckt, ...rest } = it;
-      return rest;
-    }));
-
-  const zuruecksetzen = () => {
-    setGespeichert(null);
-    clearTimeout(speicherUhr.current);
-    api.put('/dashboard/layout', { layout: [] }).catch(() => { /* still */ });
-  };
+  // Anordnung, Raster und Rahmen kommen aus dem gemeinsamen Baukasten — die
+  // Statistik benutzt denselben.
+  const anordnung = useAnordnung(KATALOG, 'dashboard');
 
   // ── Daten ──────────────────────────────────────────────────────────────────
 
@@ -412,7 +291,10 @@ export default function Dashboard() {
   // ── Inhalte der Widgets ────────────────────────────────────────────────────
   const widget = (id) => {
     const eintrag = KATALOG[id];
-    const rahmen = { titel: eintrag.titel, icon: eintrag.icon, onAusblenden: () => ausblenden(id) };
+    const rahmen = {
+      titel: eintrag.titel, icon: eintrag.icon,
+      onAusblenden: () => anordnung.ausblenden(id),
+    };
 
     if (id === 'zutun') {
       const z = u?.zuTun;
@@ -982,62 +864,14 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className="flex items-center gap-2 flex-wrap text-xs text-panel-muted">
-        {!istHandy && <span>Widgets am Kopf verschieben, an den Kanten größer ziehen.</span>}
-        <div className="ml-auto flex items-center gap-2 flex-wrap">
-          {ausgeblendet.map((it) => (
-            <button key={it.i} type="button" onClick={() => einblenden(it.i)}
-              className="flex items-center gap-1 px-2 py-1 rounded-md border border-panel-accent/40 bg-panel-accent/10 text-panel-accent hover:bg-panel-accent hover:text-white transition-colors">
-              <Plus size={12} />{KATALOG[it.i].titel}
-            </button>
-          ))}
-          {gespeichert && (
-            <button type="button" onClick={zuruecksetzen} title="Auf Standard-Anordnung zurücksetzen"
-              className="flex items-center gap-1 hover:text-panel-text transition-colors">
-              <RotateCcw size={12} />Anordnung zurücksetzen
-            </button>
-          )}
-        </div>
-      </div>
+      <WidgetLeiste anordnung={anordnung} />
     </>
   );
-
-  // Am Handy einspaltig gestapelt, ohne Ziehen und ohne Größenänderung: Dafür
-  // ist auf 375 px kein Platz, und ein Raster, das man nicht bedienen kann,
-  // wäre nur im Weg. Die Reihenfolge ist die der Anordnung (oben nach unten,
-  // links vor rechts).
-  if (istHandy) {
-    const folge = [...sichtbar].sort((a, b) => (a.y - b.y) || (a.x - b.x));
-    return (
-      <div className="space-y-4">
-        {kopf}
-        {folge.map((it) => <div key={it.i}>{widget(it.i)}</div>)}
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-4">
       {kopf}
-      <Raster
-        className="layout"
-        layout={sichtbar}
-        cols={SPALTEN}
-        rowHeight={30}
-        margin={[14, 14]}
-        containerPadding={[0, 0]}
-        isDraggable
-        isResizable
-        draggableHandle=".wdrag"
-        resizeHandles={['se', 'e', 's', 'sw']}
-        compactType="vertical"
-        onLayoutChange={beimVerschieben}
-        useCSSTransforms
-      >
-        {sichtbar.map((it) => (
-          <div key={it.i}>{widget(it.i)}</div>
-        ))}
-      </Raster>
+      <WidgetRaster anordnung={anordnung} inhalt={widget} />
     </div>
   );
 }

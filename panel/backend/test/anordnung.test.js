@@ -3,13 +3,14 @@
 // Was hier ankommt, kommt aus dem Browser — und wird am nächsten Tag wieder
 // ausgeliefert und ausgeführt. Ungeprüft gespeichert hieße: Wer einmal einen
 // Aufruf absetzen kann, bestimmt, was das Dashboard beim nächsten Laden an
-// Daten bekommt. Deshalb prüft `saeubern()` in routes/dashboard.js jeden
+// Daten bekommt. Deshalb prüft `saeubern()` in routes/anordnung.js jeden
 // Eintrag, und diese Tests halten genau das fest:
 //
 //  - nur bekannte Felder überleben (alles andere fällt weg),
 //  - Zahlen bleiben in ihren Grenzen (keine Breite 9999, kein negatives y),
 //  - Kennungen sind kurze, harmlose Namen, Dubletten fliegen raus,
-//  - die Liste ist gedeckelt, damit niemand die Datenbank vollschreibt.
+//  - die Liste ist gedeckelt, damit niemand die Datenbank vollschreibt,
+//  - und jede Seite hat ihre eigene Anordnung, ohne die andere zu überschreiben.
 const { test, describe, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('http');
@@ -35,8 +36,8 @@ before(async () => {
   app.use(express.json());
   // Statt echter Anmeldung: ein fester Benutzer. Geprüft wird hier die
   // Verarbeitung der Anordnung, nicht die Anmeldung — die hat eigene Tests.
-  app.use('/api/dashboard', (req, _res, weiter) => { req.user = { id: BENUTZER }; weiter(); },
-    require('../src/routes/dashboard'));
+  app.use('/api/anordnung', (req, _res, weiter) => { req.user = { id: BENUTZER }; weiter(); },
+    require('../src/routes/anordnung'));
   await new Promise((fertig) => {
     server = app.listen(0, '127.0.0.1', () => { port = server.address().port; fertig(); });
   });
@@ -68,40 +69,40 @@ function ruf(methode, pfad, rumpf) {
 // Folgefehlern der Art "Cannot read properties of null", und die eigentliche
 // Ursache steht nirgends.
 async function speichern(rumpf) {
-  const { status, daten } = await ruf('PUT', '/api/dashboard/layout', rumpf);
+  const { status, daten } = await ruf('PUT', '/api/anordnung', rumpf);
   assert.equal(status, 200, JSON.stringify(daten));
   return daten;
 }
 
 describe('Anordnung der Dashboard-Widgets', () => {
   test('ohne gespeicherte Anordnung kommt null zurück', async () => {
-    const { status, daten } = await ruf('GET', '/api/dashboard/layout');
+    const { status, daten } = await ruf('GET', '/api/anordnung');
     assert.equal(status, 200);
     assert.equal(daten.layout, null);
   });
 
   test('speichert und liefert dieselbe Anordnung wieder aus', async () => {
     const layout = [{ i: 'zutun', x: 0, y: 0, w: 8, h: 9, minW: 4, minH: 3 }];
-    const gesetzt = await ruf('PUT', '/api/dashboard/layout', { layout });
+    const gesetzt = await ruf('PUT', '/api/anordnung', { layout });
     // Die Antwort gehoert in die Meldung: Ein blankes "500 !== 200" sagt nicht,
     // woran es lag, und ein Testlauf ohne lokales Node ist ein ganzer Umlauf.
     assert.equal(gesetzt.status, 200, JSON.stringify(gesetzt.daten));
     assert.equal(gesetzt.daten.ok, true);
 
-    const { daten } = await ruf('GET', '/api/dashboard/layout');
+    const { daten } = await ruf('GET', '/api/anordnung');
     assert.deepEqual(daten.layout, layout);
   });
 
   test('überschreibt die vorhandene Anordnung, statt eine zweite anzulegen', async () => {
     await speichern({ layout: [{ i: 'betrieb', x: 8, y: 0, w: 4, h: 4 }] });
-    const { daten } = await ruf('GET', '/api/dashboard/layout');
+    const { daten } = await ruf('GET', '/api/anordnung');
     assert.equal(daten.layout.length, 1);
     assert.equal(daten.layout[0].i, 'betrieb');
   });
 
   test('etwas anderes als eine Liste wird abgewiesen', async () => {
     for (const unfug of [{ layout: 'alles' }, { layout: 42 }, {}]) {
-      const { status } = await ruf('PUT', '/api/dashboard/layout', unfug);
+      const { status } = await ruf('PUT', '/api/anordnung', unfug);
       assert.equal(status, 400);
     }
   });
@@ -114,7 +115,7 @@ describe('Anordnung der Dashboard-Widgets', () => {
         onClick: 'alert(1)', html: '<script>x</script>', gross: 'A'.repeat(5000),
       }],
     });
-    const { daten } = await ruf('GET', '/api/dashboard/layout');
+    const { daten } = await ruf('GET', '/api/anordnung');
     const eintrag = daten.layout[0];
     assert.deepEqual(Object.keys(eintrag).sort(), ['h', 'i', 'minH', 'minW', 'w', 'x', 'y']);
     assert.equal(eintrag.x, 0);          // unter null geklemmt
@@ -134,7 +135,7 @@ describe('Anordnung der Dashboard-Widgets', () => {
         { x: 0, y: 16, w: 4, h: 4 },                       // ohne Kennung
       ],
     });
-    const { daten } = await ruf('GET', '/api/dashboard/layout');
+    const { daten } = await ruf('GET', '/api/anordnung');
     assert.equal(daten.layout.length, 1);
     assert.equal(daten.layout[0].i, 'zutun');
     assert.equal(daten.layout[0].x, 0);
@@ -149,7 +150,7 @@ describe('Anordnung der Dashboard-Widgets', () => {
         { i: 'zutun', x: 0, y: 0, w: 8, h: 9, versteckt: 'ja' },
       ],
     });
-    const { daten } = await ruf('GET', '/api/dashboard/layout');
+    const { daten } = await ruf('GET', '/api/anordnung');
     assert.equal(daten.layout[0].versteckt, true);
     // Nur ein echtes true zählt; alles andere ist kein Ausblenden.
     assert.equal(daten.layout[1].versteckt, undefined);
@@ -158,14 +159,39 @@ describe('Anordnung der Dashboard-Widgets', () => {
   test('die Liste ist gedeckelt', async () => {
     const viele = Array.from({ length: 200 }, (_, n) => ({ i: `w${n}`, x: 0, y: n, w: 4, h: 4 }));
     await speichern({ layout: viele });
-    const { daten } = await ruf('GET', '/api/dashboard/layout');
+    const { daten } = await ruf('GET', '/api/anordnung');
     assert.equal(daten.layout.length, 40);
   });
 
+  // Dashboard und Statistik haben eigene Kataloge — eine gemeinsame Zeile wäre
+  // für beide die falsche.
+  test('jede Seite hat ihre eigene Anordnung', async () => {
+    await speichern({ seite: 'dashboard', layout: [{ i: 'zutun', x: 0, y: 0, w: 8, h: 9 }] });
+    await speichern({ seite: 'statistik', layout: [{ i: 'domains', x: 0, y: 0, w: 4, h: 7 }] });
+
+    const armaturenbrett = await ruf('GET', '/api/anordnung?seite=dashboard');
+    const auswertung = await ruf('GET', '/api/anordnung?seite=statistik');
+    assert.equal(armaturenbrett.daten.layout[0].i, 'zutun');
+    assert.equal(auswertung.daten.layout[0].i, 'domains');
+  });
+
+  test('ohne Angabe ist die Seite das Dashboard', async () => {
+    await speichern({ layout: [{ i: 'betrieb', x: 8, y: 0, w: 4, h: 4 }] });
+    const { daten } = await ruf('GET', '/api/anordnung?seite=dashboard');
+    assert.equal(daten.layout[0].i, 'betrieb');
+  });
+
+  test('eine unbekannte Seite wird abgewiesen', async () => {
+    const gelesen = await ruf('GET', '/api/anordnung?seite=../../etc');
+    assert.equal(gelesen.status, 400);
+    const geschrieben = await ruf('PUT', '/api/anordnung', { seite: 'phantasie', layout: [] });
+    assert.equal(geschrieben.status, 400);
+  });
+
   test('eine leere Liste bedeutet: zurück zur Standard-Anordnung', async () => {
-    const { status } = await ruf('PUT', '/api/dashboard/layout', { layout: [] });
+    const { status } = await ruf('PUT', '/api/anordnung', { layout: [] });
     assert.equal(status, 200);
-    const { daten } = await ruf('GET', '/api/dashboard/layout');
+    const { daten } = await ruf('GET', '/api/anordnung');
     assert.deepEqual(daten.layout, []);
   });
 });
