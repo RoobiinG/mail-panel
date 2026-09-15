@@ -736,6 +736,29 @@ const DOMAIN_SCHWELLE = 2;
  * Deshalb: Sobald zwei verschiedene Absender derselben Domain im selben Ordner
  * gelandet sind, entsteht eine Regel für die Domain.
  */
+// Dieselbe Feststellung nicht wieder und wieder ins Protokoll schreiben.
+//
+// Im Speicher, nicht in der Datenbank: Es geht nur darum, eine Flut innerhalb
+// eines Laufs zu verhindern. Nach einem Neustart darf die Meldung ruhig wieder
+// kommen — dann ist sie neu.
+const MELDE_PAUSE_MS = 60 * 60 * 1000;
+const zuletztGemeldet = new Map();
+
+function schonGemeldet(schluessel) {
+  const jetzt = Date.now();
+  const alt = zuletztGemeldet.get(schluessel);
+  if (alt && jetzt - alt < MELDE_PAUSE_MS) return true;
+  // Damit die Karte nicht unbegrenzt waechst: Abgelaufenes fliegt raus, sobald
+  // sie eine gewisse Groesse erreicht.
+  if (zuletztGemeldet.size > 500) {
+    for (const [k, t] of zuletztGemeldet) {
+      if (jetzt - t >= MELDE_PAUSE_MS) zuletztGemeldet.delete(k);
+    }
+  }
+  zuletztGemeldet.set(schluessel, jetzt);
+  return false;
+}
+
 function regelLernen(kontoId, von, ordner) {
   const adresse = sortierung.adresse(von);
   const domain = sortierung.domain(von);
@@ -798,11 +821,20 @@ function regelLernen(kontoId, von, ordner) {
   // Die Pruefung steht bewusst NACH der Schwelle: Sonst schriebe sie bei jeder
   // einzelnen Mail eines uneinheitlichen Absenders eine Logzeile. Gemeldet wird
   // nur, was ohne sie tatsaechlich gelernt worden waere.
+  //
+  // Das reichte nicht. Wer in einem Lauf zwanzig Mails desselben uneinheitlichen
+  // Absenders einsortiert, bekommt zwanzigmal dieselbe Zeile — am 15.09. waren
+  // 40 der letzten 60 Protokollzeilen ein und dieselbe Meldung ueber einen
+  // einzigen Absender. Damit verdeckt eine Nebensaechlichkeit alles, was
+  // wirklich passiert ist. Die Aussage bleibt, aber sie wird nur einmal je
+  // Absender und Stunde geschrieben.
   const ziele = new Set(vomAbsender.map((z) => z.zielordner));
   if (ziele.size > 1) {
-    loggen('info', 'themen',
-      `Keine Regel für ${adresse} gelernt: Mails dieses Absenders gingen nach `
-      + `${[...ziele].slice(0, 4).join(', ')}. Solange das uneinheitlich ist, entscheidet die KI weiter.`);
+    if (!schonGemeldet(`${kontoId}:${adresse}`)) {
+      loggen('info', 'themen',
+        `Keine Regel für ${adresse} gelernt: Mails dieses Absenders gingen nach `
+        + `${[...ziele].slice(0, 4).join(', ')}. Solange das uneinheitlich ist, entscheidet die KI weiter.`);
+    }
     return false;
   }
 

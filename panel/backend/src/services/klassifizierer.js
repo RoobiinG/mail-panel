@@ -527,6 +527,35 @@ function antwortZuordnen(daten, gruppen) {
 // Eine Anfrage, die über das Ende des Laufs hinausreicht, ist verlorene Zeit.
 const ANFRAGE_MIN_MS = 20000;
 
+// Wie viel Restzeit eine weitere Anfrage mindestens braucht.
+//
+// 20 Sekunden sind für Gemini reichlich und für eine lokale KI eine Farce: Ein
+// Modell, das gemessen 60 bis 89 Sekunden braucht, kann eine Anfrage mit 25
+// Sekunden Rest nicht beantworten. Sie läuft trotzdem los, läuft ins Limit,
+// und zwei solche Fehlschläge hintereinander beenden den ganzen Lauf. Im Log
+// stand das als „Die KI hat auf ein Bündel nicht innerhalb von 50 s geantwortet
+// — 140 von 492 Mails klassifiziert": Die 50 s waren kein eingestelltes Limit,
+// sondern der klägliche Rest der Frist.
+//
+// Das Panel misst die Antwortzeiten ohnehin (services/ollamaMessung.js). Also
+// wird gefragt, statt geraten. Etwas Luft oben drauf, weil die nächste Anfrage
+// auch mal länger braucht als die langsamste bisherige.
+//
+// Die Obergrenze verhindert den Stillstand: Ist das Modell so langsam, dass
+// selbst die halbe Frist nicht reicht, wird trotzdem eine Anfrage gewagt —
+// sonst geschähe gar nichts mehr, und niemand sähe, woran es liegt.
+function mindestRestMs() {
+  try {
+    if ((settings.hole('ki_anbieter') || 'gemini') !== 'ollama') return ANFRAGE_MIN_MS;
+    const erwartet = require('./ollamaMessung').erwarteteDauerMs();
+    if (!erwartet) return ANFRAGE_MIN_MS;
+    const noetig = Math.round(erwartet * 1.15) + 5000;
+    return Math.min(Math.max(ANFRAGE_MIN_MS, noetig), Math.round(frist() / 2));
+  } catch {
+    return ANFRAGE_MIN_MS;
+  }
+}
+
 function anfrageZeitlimit(verbleibend) {
   // 5 Sekunden Puffer für Folgearbeiten (Speichern etc.)
   return Math.max(ANFRAGE_MIN_MS, verbleibend - 5000);
@@ -719,8 +748,9 @@ async function klassifizieren(mails) {
       // zu werden — dann wäre auch das Fertige verloren.
       const verbleibend = frist() - (Date.now() - begonnen);
       // Unter dem Mindestmaß lohnt keine Anfrage mehr — sie käme nach dem Ende
-      // des Laufs zurück und wäre für nichts gestellt.
-      if (verbleibend < ANFRAGE_MIN_MS) {
+      // des Laufs zurück und wäre für nichts gestellt. Was „Mindestmaß" heißt,
+      // sagt bei der lokalen KI die Messung, nicht eine geratene Konstante.
+      if (verbleibend < mindestRestMs()) {
         abgebrochen = true;
         hinweis = `Zeitbudget des Laufs erreicht — ${klassifiziert} von ${liste.length} Mails `
           + 'klassifiziert. Der Rest kommt im nächsten Lauf zuerst wieder dran.';
@@ -742,7 +772,7 @@ async function klassifizieren(mails) {
         let gerettet = false;
         for (const einzelGruppe of teil) {
           const restFrist = frist() - (Date.now() - begonnen);
-          if (restFrist < ANFRAGE_MIN_MS) break;
+          if (restFrist < mindestRestMs()) break;
           const einzelAntwort = await fragen([einzelGruppe], konto, bekannt, anfrageZeitlimit(restFrist));
           anfragen += 1;
           if (einzelAntwort.ok) {
@@ -766,7 +796,7 @@ async function klassifizieren(mails) {
         timeoutsInFolge += 1;
         const rest = frist() - (Date.now() - begonnen);
         // Erst nach zwei Timeouts in Folge abbrechen, oder wenn keine Zeit mehr da ist:
-        if (timeoutsInFolge >= 2 || rest < ANFRAGE_MIN_MS) {
+        if (timeoutsInFolge >= 2 || rest < mindestRestMs()) {
           abgebrochen = true;
           hinweis = `Die KI hat auf ein Bündel nicht innerhalb von `
             + `${Math.round(anfrageZeitlimit(verbleibend) / 1000)} s geantwortet — `

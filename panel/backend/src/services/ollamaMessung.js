@@ -154,6 +154,33 @@ function stand() {
   };
 }
 
+/**
+ * Womit ist bei der nächsten Anfrage zu rechnen? — in Millisekunden.
+ *
+ * Gemessen wird das ohnehin; benutzt wurde es bisher nur im Diagnosebericht.
+ * Dabei ist es genau die Zahl, die der Lauf braucht, um zu entscheiden, ob noch
+ * eine Anfrage in die Restzeit passt. Ohne sie stand dort ein fester
+ * Mindestwert von 20 Sekunden — und bei einem Modell, das im Mittel 60 braucht,
+ * ist jede Anfrage, die mit 25 Sekunden Rest startet, von vornherein verloren.
+ * Zwei davon hintereinander beenden den Lauf („nicht innerhalb von 50 s
+ * geantwortet").
+ *
+ * Genommen wird der LANGSAMSTE der fertigen Läufe, nicht der Mittelwert: Eine
+ * Anfrage, die zu spät kommt, ist komplett verloren — eine, die zu früh
+ * aufhört, kostet nur ein bisschen ungenutzte Restzeit. Der Fehler darf also
+ * ruhig auf der vorsichtigen Seite liegen.
+ *
+ * Ohne Messwerte (frischer Start) kommt `null` zurück; dann gilt wieder der
+ * feste Mindestwert des Aufrufers.
+ */
+function erwarteteDauerMs() {
+  const dauern = eintraege
+    .filter((e) => !e.abgebrochen && typeof e.sekunden === 'number' && e.sekunden > 0)
+    .map((e) => e.sekunden);
+  if (dauern.length < 2) return null;   // ein einzelner Wert ist noch kein Maß
+  return Math.round(Math.max(...dauern) * 1000);
+}
+
 function _zuruecksetzen() { eintraege = []; }
 
-module.exports = { kennzahlen, abbruch, satz, merken, stand, _zuruecksetzen, MAX };
+module.exports = { kennzahlen, abbruch, satz, merken, stand, erwarteteDauerMs, _zuruecksetzen, MAX };

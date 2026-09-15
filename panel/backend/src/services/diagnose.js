@@ -183,7 +183,7 @@ function konfiguration() {
     'ollama_kontext', 'ollama_buendel', 'ki_lauf_frist_ms',
     'auto_sync', 'neue_mails_ungelesen', 'spam_schwellwert', 'clamav_aktiv',
     'safebrowsing_aktiv', 'bestand_intervall', 'beleg_lese_tagesbudget',
-    'themen_sortierung_aktiv', 'themen_max', 'themen_konfidenz', 'n8n_url',
+    'themen_sortierung_aktiv', 'themen_ordner_max', 'themen_konfidenz', 'n8n_url',
     'beleg_ocr_aktiv',
   ];
   const geheim = [

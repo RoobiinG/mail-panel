@@ -143,3 +143,38 @@ describe('Die Statistik zählt auch das, was nicht geklappt hat', () => {
     assert.equal(s.mittel.sekunden, 124);
   });
 });
+
+// ─── Die Zahl, wegen der überhaupt gemessen wird ─────────────────────────────
+//
+// Der Lauf muss vor jeder Anfrage entscheiden, ob sie in die Restzeit passt.
+// Bis Build 219 stand dort ein fester Mindestwert von 20 Sekunden — bei einem
+// Modell, das gemessen 60 bis 89 Sekunden braucht, startete der Lauf also
+// Anfragen, die nicht zurückkommen konnten. Zwei davon hintereinander beendeten
+// ihn ("nicht innerhalb von 50 s geantwortet — 140 von 492 Mails").
+describe('Die erwartete Dauer', () => {
+  beforeEach(() => messung._zuruecksetzen());
+
+  test('ohne Messwerte gibt es keine Schätzung', () => {
+    assert.equal(messung.erwarteteDauerMs(), null);
+  });
+
+  test('ein einzelner Wert ist noch kein Maß', () => {
+    messung.merken(messung.kennzahlen({ ...ANTWORT, total_duration: 60_000_000_000 }, 'a'));
+    assert.equal(messung.erwarteteDauerMs(), null);
+  });
+
+  // Vorsichtig, nicht mittig: Eine Anfrage, die zu spät kommt, ist ganz
+  // verloren — eine, die zu früh aufhört, kostet nur Restzeit.
+  test('gerechnet wird mit der langsamsten, nicht mit dem Mittel', () => {
+    messung.merken(messung.kennzahlen({ ...ANTWORT, total_duration: 40_000_000_000 }, 'a'));
+    messung.merken(messung.kennzahlen({ ...ANTWORT, total_duration: 90_000_000_000 }, 'a'));
+    assert.equal(messung.erwarteteDauerMs(), 90_000);
+  });
+
+  test('Abbrüche zählen nicht mit — ihre Dauer ist das Zeitlimit, nicht die Wahrheit', () => {
+    messung.merken(messung.kennzahlen({ ...ANTWORT, total_duration: 40_000_000_000 }, 'a'));
+    messung.merken(messung.kennzahlen({ ...ANTWORT, total_duration: 50_000_000_000 }, 'a'));
+    messung.merken(messung.abbruch('a', 999, 'timeout'));
+    assert.equal(messung.erwarteteDauerMs(), 50_000);
+  });
+});

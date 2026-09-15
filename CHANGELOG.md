@@ -2,6 +2,38 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [5.8.0.1] - 2026-09-15 (Build 220) — *Der Lauf rechnet mit dem, was er gemessen hat*
+
+Drei Fehler aus dem Diagnosebericht vom 15.09.
+
+### Bugfixes
+- **Der Lauf startete Anfragen, die nicht mehr zurückkommen konnten.** Vor jedem Bündel wird
+  geprüft, ob die Restzeit noch reicht — dort stand ein fester Mindestwert von 20 Sekunden. Bei
+  einem lokalen Modell, das gemessen 60 bis 89 Sekunden braucht, ist jede mit 25 Sekunden Rest
+  gestartete Anfrage von vornherein verloren, und **zwei solche Fehlschläge hintereinander beenden
+  den ganzen Lauf**. Im Log las sich das als „Die KI hat auf ein Bündel nicht innerhalb von 50 s
+  geantwortet — 140 von 492 Mails klassifiziert": Die 50 s waren kein eingestelltes Limit, sondern
+  der Rest der Frist. Das Panel misst die Antwortzeiten ohnehin (`services/ollamaMessung.js`),
+  benutzte sie aber nur im Diagnosebericht. Jetzt entscheidet die Messung: gerechnet wird mit der
+  **langsamsten** fertigen Anfrage plus 15 % plus 5 Sekunden Puffer, gedeckelt auf die halbe Frist,
+  damit ein sehr langsames Modell nicht zum Stillstand führt. Für Gemini bleibt es bei 20 Sekunden.
+- **Eine Nebensächlichkeit verdeckte das ganze Protokoll.** Die Meldung „Keine Regel für … gelernt"
+  wurde je Mail geschrieben — am 15.09. waren 40 der letzten 60 Zeilen dieselbe Meldung über einen
+  einzigen Absender. Sie kommt jetzt höchstens einmal je Absender und Stunde.
+- **Die Diagnose fragte einen Schlüssel ab, den es nicht gibt.** `themen_max` statt
+  `themen_ordner_max` — im Bericht stand deshalb immer „(nicht gesetzt)", auch wenn eine Grenze
+  gesetzt war.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Datenbank:** keine Änderung.
+- **n8n-Workflows:** unberührt. Kein Neuimport nötig.
+- **Verhalten:** Bei einem langsamen lokalen Modell werden pro Lauf **weniger Anfragen gestellt,
+  aber mehr davon kommen an**. Der Lauf endet künftig mit „Zeitbudget des Laufs erreicht" statt mit
+  einer Zeitüberschreitung — das ist dieselbe Menge Arbeit ohne die zwei verbrannten Anfragen.
+  Die Schätzung braucht zwei gemessene Anfragen; direkt nach einem Neustart gilt bis dahin der alte
+  Mindestwert.
+- **Neustart/Sitzung:** normaler Neustart genügt.
+
 ## [5.8.0.0] - 2026-09-15 (Build 219) — *Auch die Statistik wird ein Widget-Brett*
 
 Die vier Fragen der Auswertung (Qualität, Durchsatz, Absender, Kosten) steckten in vier großen
