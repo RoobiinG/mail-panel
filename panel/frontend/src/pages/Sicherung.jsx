@@ -132,11 +132,10 @@ export default function Sicherung() {
 
   return (
     <div className="space-y-6 max-w-4xl">
-      <div>
-        <h1 className="text-xl font-medium flex items-center gap-2">
-          <HardDriveDownload size={22} className="text-panel-accent" /> Postfach-Sicherung
-        </h1>
-        <p className="text-sm text-panel-muted mt-1">
+      <div className="flex items-start gap-2">
+        {/* Titel steht in der Kopfleiste — hier bleibt die Erklärung. */}
+        <HardDriveDownload size={18} className="text-panel-accent mt-0.5 shrink-0" />
+        <p className="text-sm text-panel-muted">
           Holt alle Mails aus jedem Konto, packt sie verschlüsselt zusammen und legt das Archiv
           auf einen FTP-Server. Es wird nur gelesen — im Postfach ändert sich nichts.
         </p>

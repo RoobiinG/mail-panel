@@ -18,7 +18,11 @@ export const Header = () => {
 
   return (
     <header className="flex items-center justify-between gap-3 px-4 py-3 bg-panel-surface border-b border-panel-border min-h-[57px] flex-shrink-0">
-      <h1 className="text-sm font-semibold text-panel-text truncate">{seitenTitel(pathname)}</h1>
+      {/* Der einzige Seitentitel. Sieben Seiten setzten darunter noch einen
+          eigenen — in fünf verschiedenen Größen, alle mit demselben Wort. Die
+          sind weg; dafür ist dieser hier groß genug, um als Titel zu gelten
+          und nicht als Beschriftung der Leiste. */}
+      <h1 className="text-base font-semibold text-panel-text truncate">{seitenTitel(pathname)}</h1>
 
       <div className="flex items-center gap-3 flex-shrink-0">
         {/* Am Rechner steht der Benutzer unten in der Seitenleiste — am Handy

@@ -31,10 +31,22 @@ input, select, textarea {
 
 /* Formularelemente sind im Mail-Panel überall ohne eigene Klasse im Einsatz —
    deshalb bleibt die Gestaltung global. Kästchen und Radios sind ausgenommen,
-   sonst würden sie über die volle Breite gezogen. */
-input:not([type='checkbox']):not([type='radio']),
-select,
-textarea {
+   sonst würden sie über die volle Breite gezogen.
+
+   Das :where() ist der Grund, warum diese Regel niemandem mehr im Weg steht.
+   Ohne es zählte der Selektor als (0,2,1) — Elementname plus zwei
+   Attributprüfungen — und schlug damit jede einzelne Tailwind-Klasse am selben
+   Element. Ein `w-40` an einem <input> blieb wirkungslos, und zwar lautlos: Das
+   Feld lief einfach über die ganze Zeile. Das ist in diesem Projekt fünfmal
+   passiert, zuletzt beim Zielordner-Feld der Nachsortierung; ein Kommentar in
+   Sortierung.jsx hielt es als "genau das war der Fehler" fest, und an zwei
+   Stellen steht bis heute ein `!` am Padding, aber nicht an der Breite.
+
+   :where() trägt null Spezifität bei. Damit gewinnt ab hier jede Utility-Klasse
+   am Element, ohne `!` und ohne Wrapper — so, wie man es erwartet. */
+:where(input:not([type='checkbox']):not([type='radio'])),
+:where(select),
+:where(textarea) {
   @apply w-full bg-panel-surface border border-panel-border rounded-md px-3 py-2 text-sm text-panel-text
          placeholder:text-panel-muted/40
          focus:border-panel-accent focus:outline-none
@@ -71,17 +83,26 @@ input[type='checkbox'], input[type='radio'] {
     @apply border-b border-panel-border/50 last:border-0 hover:bg-panel-card/40 transition-colors duration-100;
   }
 
-  /* Knöpfe — dieselben Farben wie der Button-Baustein in components/ui */
+  /* Knöpfe.
+     `.btn` bringt jetzt auch Farbe mit, nicht nur Form. Vorher standen hier
+     ausschließlich Layout, Fokus und Abstände — Hintergrund und Schriftfarbe
+     hatten allein die Varianten. Wer `className="btn"` schrieb (und das taten
+     34 Stellen, darunter der Bestätigen-Knopf im eigenen Rückfrage-Dialog),
+     bekam deshalb die graue Schaltfläche des Betriebssystems mitten im dunklen
+     Panel. `.btn` allein ist ab hier der normale, blaue Knopf; wer etwas
+     anderes will, nimmt eine Variante. */
   .btn {
     @apply inline-flex items-center justify-center px-3 py-1.5 text-sm gap-1.5 rounded-md font-medium
+           bg-panel-accent text-white shadow-sm hover:brightness-110
            transition-all duration-150 cursor-pointer
            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-panel-accent/50
            focus-visible:ring-offset-1 focus-visible:ring-offset-panel-bg
            disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none;
   }
-  .btn-primary { @apply btn bg-panel-accent hover:bg-blue-500 text-white shadow-sm; }
-  .btn-ghost   { @apply btn bg-transparent hover:bg-panel-card text-panel-text border border-panel-border hover:border-panel-muted/50; }
-  .btn-danger  { @apply btn bg-panel-red hover:bg-red-500 text-white shadow-sm; }
+  /* Gleichbedeutend mit `.btn`, für Stellen, die es ausdrücklich benennen. */
+  .btn-primary { @apply btn; }
+  .btn-ghost   { @apply btn bg-transparent shadow-none hover:brightness-100 hover:bg-panel-card text-panel-text border border-panel-border hover:border-panel-muted/50; }
+  .btn-danger  { @apply btn bg-panel-red; }
 
   /* Karte — Premium Glassmorphism Optik */
   .card { 

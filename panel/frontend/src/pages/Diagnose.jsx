@@ -134,8 +134,8 @@ export default function Diagnose() {
         <div className="flex items-start gap-3 flex-wrap">
           <Stethoscope size={20} className="text-panel-accent mt-0.5" />
           <div className="flex-1 min-w-[260px]">
-            <h1 className="font-medium">Diagnose</h1>
-            <p className="text-xs text-panel-muted mt-1 max-w-2xl">
+            {/* Titel steht in der Kopfleiste, hier nur noch die Erklärung. */}
+            <p className="text-xs text-panel-muted max-w-2xl">
               Sammelt an einer Stelle, was zum Fehlersuchen nötig ist: Zustand der Dienste, Speicher und
               Platte, die Workflows in n8n samt ihrer KI-Adresse, die letzten Läufe mit Fehlerstelle,
               Zahlen zur Sortierung und die letzten Logzeilen. Zum Weitergeben, damit niemand dafür eine

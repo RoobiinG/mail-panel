@@ -80,7 +80,7 @@ export default function Paste() {
           {content && (
             <button
               onClick={copyText}
-              className="btn btn-secondary flex items-center gap-2 text-xs"
+              className="btn-ghost flex items-center gap-2 text-xs"
             >
               {copied ? <Check size={14} className="text-panel-accent" /> : <Copy size={14} />}
               {copied ? 'Kopiert' : 'Kopieren'}

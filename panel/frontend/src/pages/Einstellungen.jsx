@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import api from '../api';
 import { useMelden } from '../components/ui/Meldungen';
+import Karte from '../components/ui/Karte';
 
 // ─── Gemeinsame Styles ────────────────────────────────────────────────────────
 
@@ -74,24 +75,8 @@ function ModellWahl({ wert, modelle, fehler, gesperrt, onWahl, leerText, standar
   );
 }
 
-// ─── Karten-Komponente (wie im Überwachungs-Panel) ────────────────────────────
-
-function Card({ title, children }) {
-  return (
-    <div className="bg-panel-card border border-panel-border rounded-lg overflow-hidden">
-      {title && (
-        <div className="px-4 py-2.5 border-b border-panel-border bg-panel-surface/50">
-          <h2 className="text-xs font-semibold text-panel-text uppercase tracking-wide flex items-center gap-2">
-            {title}
-          </h2>
-        </div>
-      )}
-      <div className="p-4 space-y-3">
-        {children}
-      </div>
-    </div>
-  );
-}
+// Die Karte steht jetzt in components/ui/Karte.jsx — dieselbe Darstellung,
+// aber einmal für alle statt als Kopie je Seite.
 
 // ─── Passwort-Feld mit Sichtbarkeits-Toggle ───────────────────────────────────
 
@@ -558,7 +543,7 @@ export default function Einstellungen() {
       {tab === 'verbindungen' && (
         <div className="columns-1 lg:columns-2 gap-4 [&>*]:mb-4 [&>*]:break-inside-avoid">
 
-          <Card title={<><Wifi size={13} /> n8n &amp; Mailcow</>}>
+          <Karte title={<><Wifi size={13} /> n8n &amp; Mailcow</>}>
             <p className="text-xs text-panel-muted">
               Den n8n-API-Key findest du in n8n unter <em>Einstellungen → n8n API</em>.
             </p>
@@ -574,9 +559,9 @@ export default function Einstellungen() {
                 disabled={settings.mailcow_api_key_per_env} onChange={v => set('mailcow_api_key', v)} />
             </div>
             <SpeichernBtn onSpeichern={() => speichern('verbindungen')} meldung={meldung.verbindungen} />
-          </Card>
+          </Karte>
 
-          <Card title={<><PlugZap size={13} /> Verbindungstests</>}>
+          <Karte title={<><PlugZap size={13} /> Verbindungstests</>}>
             <p className="text-xs text-panel-muted">
               Prüft die Erreichbarkeit der Dienste aus Sicht des Panel-Backends.
             </p>
@@ -589,7 +574,7 @@ export default function Einstellungen() {
               .map(({ id, label }) => (
                 <TestZeile key={id} id={id} label={label} onTest={testen} tests={tests} />
             ))}
-          </Card>
+          </Karte>
 
         </div>
       )}
@@ -598,7 +583,7 @@ export default function Einstellungen() {
       {tab === 'ki' && (
         <div className="columns-1 lg:columns-2 gap-4 [&>*]:mb-4 [&>*]:break-inside-avoid">
 
-          <Card title={<><Cpu size={13} /> KI-Klassifizierung</>}>
+          <Karte title={<><Cpu size={13} /> KI-Klassifizierung</>}>
             <p className="text-xs text-panel-muted">
               Die Werte werden bei der Konto-Synchronisierung an die n8n-Workflows verteilt.
             </p>
@@ -911,9 +896,9 @@ export default function Einstellungen() {
             </div>
 
             <SpeichernBtn onSpeichern={() => speichern('ki')} meldung={meldung.ki} />
-          </Card>
+          </Karte>
 
-          <Card title={<><MailOpen size={13} /> Umgang mit neuer Post</>}>
+          <Karte title={<><MailOpen size={13} /> Umgang mit neuer Post</>}>
             <p className="text-xs text-panel-muted">
               Was das Panel im Postfach hinterlässt, während es sortiert. Diese Einstellung steckt
               im Workflow — nach dem Ändern einmal <b>Workflows → Synchronisieren</b> drücken.
@@ -985,9 +970,9 @@ export default function Einstellungen() {
             </div>
 
             <SpeichernBtn onSpeichern={() => speichern('post')} meldung={meldung.post} />
-          </Card>
+          </Karte>
 
-          <Card title={<><Mail size={13} /> Telegram-Benachrichtigungen</>}>
+          <Karte title={<><Mail size={13} /> Telegram-Benachrichtigungen</>}>
             <PwFeld label="Bot-Token" value={settings.telegram_token} placeholder="123456:ABC-DEF…"
               disabled={settings.telegram_token_per_env} onChange={v => set('telegram_token', v)} />
             <Feld label="Chat-ID" value={settings.telegram_chat_id} placeholder="123456789"
@@ -1000,9 +985,9 @@ export default function Einstellungen() {
               </p>
               <TestZeile id="telegram" label="Testnachricht senden" onTest={testen} tests={tests} />
             </div>
-          </Card>
+          </Karte>
 
-          <Card title={<><Server size={13} /> Spam-Prüfung</>}>
+          <Karte title={<><Server size={13} /> Spam-Prüfung</>}>
             <div className="space-y-1">
               <label className="block text-xs text-panel-muted">Spam-Schwellwert (0–1)</label>
               <p className="text-[10px] text-panel-muted/60">Ab diesem Score wandert eine Mail in Quarantäne</p>
@@ -1040,9 +1025,9 @@ export default function Einstellungen() {
                 onChange={v => set('safebrowsing_api_key', v)} />
             )}
             <SpeichernBtn onSpeichern={() => speichern('spam')} meldung={meldung.spam} />
-          </Card>
+          </Karte>
 
-          <Card title={<><FolderTree size={13} /> Automatische Themen-Sortierung</>}>
+          <Karte title={<><FolderTree size={13} /> Automatische Themen-Sortierung</>}>
             <p className="text-xs text-panel-muted">
               Die KI ordnet jede Mail zusätzlich einem Themen-Ordner zu — „alles rund um Games
               in den Games-Ordner“. Welche Ordner sie dabei kennt, steht auf der Seite
@@ -1148,7 +1133,7 @@ export default function Einstellungen() {
               </>
             )}
             <SpeichernBtn onSpeichern={() => speichern('themen')} meldung={meldung.themen} />
-          </Card>
+          </Karte>
 
         </div>
       )}
@@ -1157,7 +1142,7 @@ export default function Einstellungen() {
       {tab === 'dienste' && (
         <div className="columns-1 lg:columns-2 gap-4 [&>*]:mb-4 [&>*]:break-inside-avoid">
 
-          <Card title={<><Mail size={13} /> Postausgang (SMTP)</>}>
+          <Karte title={<><Mail size={13} /> Postausgang (SMTP)</>}>
             <p className="text-xs text-panel-muted">
               Nur für das Abbestellen von Newslettern per Mail. Ohne Angaben bleibt
               der Versand-Knoten in Workflow 06 stillgelegt.
@@ -1185,9 +1170,9 @@ export default function Einstellungen() {
               </div>
             </label>
             <SpeichernBtn onSpeichern={() => speichern('smtp')} meldung={meldung.smtp} />
-          </Card>
+          </Karte>
 
-          <Card title={<><Cloud size={13} /> Nextcloud</>}>
+          <Karte title={<><Cloud size={13} /> Nextcloud</>}>
             <p className="text-xs text-panel-muted">
               Für eigene Aktionen — ein App-Passwort verwenden (Nextcloud → Einstellungen → Sicherheit).
             </p>
@@ -1202,9 +1187,9 @@ export default function Einstellungen() {
             <Feld label="Basis-Pfad für Belege" value={settings.nextcloud_beleg_pfad} placeholder="Belege"
               disabled={settings.nextcloud_beleg_pfad_per_env} onChange={v => set('nextcloud_beleg_pfad', v)} />
             <SpeichernBtn onSpeichern={() => speichern('nextcloud')} meldung={meldung.nextcloud} />
-          </Card>
+          </Karte>
 
-          <Card title={<><Cloud size={13} /> Google-Kalender</>}>
+          <Karte title={<><Cloud size={13} /> Google-Kalender</>}>
             <p className="text-xs text-panel-muted">
               <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" className="text-panel-accent hover:underline">Google Cloud Console</a> öffnen, Projekt anlegen, <em>Google Calendar API</em> aktivieren.
               OAuth-Client (Typ Webanwendung) erstellen und die unten angezeigte Rücksprung-URI eintragen.
@@ -1220,7 +1205,7 @@ export default function Einstellungen() {
               <GoogleVerbindung />
             </div>
             <SpeichernBtn onSpeichern={() => speichern('google')} meldung={meldung.google} />
-          </Card>
+          </Karte>
 
         </div>
       )}
@@ -1229,7 +1214,7 @@ export default function Einstellungen() {
       {tab === 'konto' && (
         <div className="columns-1 lg:columns-2 gap-4 [&>*]:mb-4 [&>*]:break-inside-avoid">
 
-          <Card title={<><KeyRound size={13} /> Panel-Secret</>}>
+          <Karte title={<><KeyRound size={13} /> Panel-Secret</>}>
             <p className="text-xs text-panel-muted">
               Die Workflows rufen die Prüfdienste des Panels mit diesem Schlüssel auf.
               In n8n als Header-Auth-Credential anlegen: Name{' '}
@@ -1257,9 +1242,9 @@ export default function Einstellungen() {
                 </button>
               </div>
             )}
-          </Card>
+          </Karte>
 
-          <Card title={<><ShieldCheck size={13} /> Passkeys (WebAuthn)</>}>
+          <Karte title={<><ShieldCheck size={13} /> Passkeys (WebAuthn)</>}>
             <p className="text-xs text-panel-muted">
               Passwortloser Login per Fingerabdruck, Face ID, Hardware-Key oder Passwort-Manager.
             </p>
@@ -1295,14 +1280,14 @@ export default function Einstellungen() {
                 {pkMeldung}
               </p>
             )}
-          </Card>
+          </Karte>
 
-          <Card title={<><Settings2 size={13} /> Oberfläche</>}>
+          <Karte title={<><Settings2 size={13} /> Oberfläche</>}>
             <label className="flex items-center gap-3 cursor-pointer">
               <Toggle on={showPrideFlag} onToggle={() => togglePrideFlag(!showPrideFlag)} />
               <span className="text-sm text-panel-text">Pride Flag im Menü anzeigen</span>
             </label>
-          </Card>
+          </Karte>
 
         </div>
       )}

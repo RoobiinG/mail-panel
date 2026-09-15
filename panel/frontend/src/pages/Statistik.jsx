@@ -57,14 +57,10 @@ export default function Statistik() {
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-black tracking-tight text-white/95 flex items-center gap-3">
-          <div className="p-2 bg-panel-accent/10 rounded-lg border border-panel-accent/20">
-            <BarChart3 size={24} className="text-panel-accent" />
-          </div>
-          Statistiken
-        </h1>
-        <p className="text-sm text-panel-muted ml-12">Performance und Auswertung aller Postfächer im Detail</p>
+      {/* Titel steht in der Kopfleiste — hier bleibt die Erklärung. */}
+      <div className="flex items-start gap-2">
+        <BarChart3 size={18} className="text-panel-accent mt-0.5 shrink-0" />
+        <p className="text-sm text-panel-muted">Auswertung aller Postfächer</p>
       </div>
 
       {data.map((konto) => {

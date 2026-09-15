@@ -6,6 +6,12 @@ export default {
       colors: {
         panel: {
           bg: '#0d1117',
+          // Tiefer als der Seitenhintergrund, für eingelassene Flächen:
+          // Code-Blöcke, Protokollausschnitte, Statuskästen. Sechs Stellen
+          // benutzten "panel-darker" bereits, ohne dass es die Farbe gab —
+          // Tailwind erzeugt für einen unbekannten Namen schlicht keine Regel,
+          // die Flächen blieben also einfach durchsichtig.
+          darker: '#010409',
           surface: '#161b22',
           card: '#21262d',
           border: '#30363d',

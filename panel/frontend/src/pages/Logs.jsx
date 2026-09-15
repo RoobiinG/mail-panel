@@ -360,10 +360,11 @@ export default function Logs() {
       {/* ── Header ──────────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2">
-          <h1 className="text-sm font-semibold text-panel-text">Panel-Logs</h1>
+          {/* Der Seitentitel steht in der Kopfleiste — hier bliebe er nur eine
+              zweite, kleinere Kopie davon. */}
           {total > 0 && (
-            <span className="px-1.5 py-0.5 bg-panel-red/20 text-panel-red text-[10px] rounded-full tabular-nums">
-              {total}
+            <span className="text-xs text-panel-muted tabular-nums">
+              {total.toLocaleString('de-DE')} Einträge
             </span>
           )}
         </div>

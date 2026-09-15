@@ -2,6 +2,65 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [5.4.3.0] - 2026-09-15 (Build 213) — *Fundament: Ursachen statt Symptome*
+
+Erster von drei Schritten des Oberflächen-Umbaus. Dieser hier ändert fast nichts an der Anordnung
+und trotzdem das Aussehen an vielen Stellen — weil er vier Ursachen behebt, an denen die Gestaltung
+seit Langem auseinanderlief.
+
+### Änderungen
+- **Breitenangaben an Formularfeldern wirken wieder** (`index.css`). Die globale Regel für
+  `input`/`select`/`textarea` zählte als Spezifität (0,2,1) und schlug damit jede Tailwind-Klasse am
+  selben Element: Ein `w-40` an einem Feld blieb wirkungslos, und zwar lautlos — das Feld lief
+  einfach über die ganze Zeile. Genau das ist in diesem Projekt fünfmal passiert und wurde fünfmal
+  einzeln umschifft (zuletzt mit einem Wrapper in der Nachsortierung, davor mit `!w-auto` an zehn
+  Stellen, an zwei weiteren steht bis heute ein `!` am Padding, aber nicht an der Breite). Der
+  Selektor steckt jetzt in `:where()` und trägt damit **null** Spezifität bei. Ab hier gewinnt jede
+  Utility-Klasse am Element — ohne `!`, ohne Wrapper. Die beiden verbliebenen kaputten Stellen
+  (`Listen.jsx`, `Sortierung.jsx`) sind damit ohne eigenen Eingriff repariert.
+  *Sichtbare Nebenwirkung:* Klassen wie `bg-panel-bg` an Auswahlfeldern wurden bisher von der
+  globalen Regel überstimmt und werden jetzt wirksam — solche Felder sind etwas dunkler als zuvor.
+  Das war immer die Absicht der Stellen, die es hinschrieben; bisher kam sie nur nicht an.
+- **`.btn` hat endlich eine Farbe** (`index.css`). Die Klasse setzte Form, Abstände und Fokus, aber
+  weder Hintergrund noch Schriftfarbe — die hatten allein `.btn-primary/-ghost/-danger`. **34
+  Stellen** benutzten das nackte `.btn` und rendeten damit als graue Schaltfläche des
+  Betriebssystems mitten im dunklen Panel, darunter der Bestätigen-Knopf im eigenen
+  Rückfrage-Dialog. `.btn` allein ist ab jetzt der normale blaue Knopf; `.btn-primary` bleibt als
+  gleichbedeutender Name bestehen. Nebenbei: `Paste.jsx` benutzte `btn-secondary` — eine Klasse, die
+  es nie gab.
+- **Eine Karte statt drei.** `components/ui/Card.jsx` (nie importiert), die wortgleiche lokale Kopie
+  in `Einstellungen.jsx` und die CSS-Klasse `.card` sahen unterschiedlich aus. Neu:
+  `components/ui/Karte.jsx` für Karten **mit** Kopfzeile (13 Verwendungen auf der Einstellungsseite,
+  dazu ein Slot für Aktionen rechts); `.card` bleibt die freistehende Fläche ohne Kopfzeile.
+  Gelöscht wurden `Card.jsx`, `Button.jsx`, `Badge.jsx`, `StatCard.jsx` und `Modal.jsx` — alle fünf
+  hatten null Importe im ganzen Baum und täuschten ein Bausteinsystem vor, das niemand benutzte.
+- **Ein Seitentitel je Seite.** Sieben Seiten setzten unter den Titel aus der Kopfleiste noch einen
+  eigenen — in fünf verschiedenen Größen, meist mit demselben Wort. Die vier echten Dopplungen
+  (Diagnose, Logs, Sicherung, Statistik) sind weg, ihre Erklärtexte bleiben. Login und Paste
+  behalten ihre Überschrift: Die beiden laufen außerhalb des Layouts und haben gar keine Kopfleiste.
+  Der Titel dort ist dafür von `text-sm` auf `text-base` gewachsen — er war kleiner als die
+  Kartenüberschriften darunter.
+- **Zwei Farbnamen, die es nicht gab.** `panel-darker` (6 Verwendungen) ist jetzt als Token
+  definiert; für einen unbekannten Namen erzeugt Tailwind schlicht keine Regel, die Flächen blieben
+  also durchsichtig. `panel-blue` in `Konten.jsx` war derselbe Fall, dort aber mit Folgen: Der
+  Hinweistext stand unsichtbar auf durchsichtigem Grund. Gemeint war `panel-accent`.
+
+**Abweichung vom Plan:** Ein eigener `Seitenkopf`-Baustein war vorgesehen, ist aber nicht entstanden.
+Nach dem Blick in die vier betroffenen Seiten war klar, dass sie keinen gemeinsamen Kopf brauchen,
+sondern nur ihre doppelte Überschrift loswerden mussten — ein Baustein mit vier unterschiedlichen
+Aufrufformen wäre eine Abstraktion ohne Nutzen gewesen. Falls Dashboard und Statistik im nächsten
+Schritt eine Kopfzeile mit Aktionen brauchen, entsteht sie dort, wo es echte Verwender gibt.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine. **n8n-Workflow-Kompatibilität:** Keine.
+- **Neustart-/Session-Verhalten:** Reines Frontend — nach dem Deployment hart neu laden (Strg+F5).
+- **Worauf zu achten ist:** Der Build prüft Übersetzbarkeit, nicht Aussehen. Nach dem Einspielen
+  einmal durchsehen, ob Knöpfe überall blau statt grau sind, ob Auswahlfelder ihre gedachte Breite
+  haben und ob jede Seite genau eine Überschrift trägt.
+
+---
+
+
 ## [5.4.2.0] - 2026-09-15 (Build 212) — *Der Newsletter-Knopf jetzt auch in den Entscheidungen*
 
 Denselben Handgriff wie im Ordner-Tab (Build 208) gibt es jetzt auch dort, wo man Fehleinordnungen
