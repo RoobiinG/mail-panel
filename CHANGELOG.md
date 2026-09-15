@@ -2,6 +2,49 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [5.5.0.0] - 2026-09-15 (Build 215) — *Das Dashboard beantwortet jetzt „muss ich etwas tun?"*
+
+Zweiter Schritt des Oberflächen-Umbaus. Das Dashboard zeigte bisher Zahlen, aber keinen Weg: Auf
+628 Zeilen stand **kein einziger Link** — man las „12 wartet auf dich" und musste sich selbst
+erinnern, wo das lag.
+
+### Features
+- **„Zu tun" steht jetzt oben**, vor allen Kennzahlen, und jede Zeile führt mit einem Klick dorthin,
+  wo die Arbeit liegt: wartende Zuordnungen, vorgeschlagene Themen-Ordner, Vorschläge der
+  Nachsortierung, Dateien vor der Freigabe. Ist nichts offen, steht das da — statt eines leeren
+  Gerüsts.
+- **Steckengebliebene Bestandsmails sind endlich sichtbar.** Die Zahl wurde seit jeher berechnet und
+  nirgends angezeigt, obwohl im Code daneben stand, dass sie sichtbar sein muss. Sie bekommt bewusst
+  **keinen** Link: Für diese Mails gibt es noch keine eigene Ansicht, und ein Link, der woanders
+  landet, wäre schlechter als keiner. Stattdessen der Hinweis, dass „Gesamten Posteingang neu
+  bewerten" ihnen eine neue Chance gibt.
+- **Die Sortierseite ist verlinkbar geworden** (`Sortierung.jsx`): Der Reiter steht als `?tab=` in
+  der Adresse statt nur im Zustand der Komponente. Erst dadurch kann das Dashboard auf
+  „Nachsortierung" oder „Freigaben" zeigen, statt den Nutzer auf dem ersten Reiter abzusetzen.
+
+### Änderungen
+- **Der Fortschrittsbalken zeigte eine erfundene Zahl.** Dahinter stand
+  `100 − (wartend × 3 + Posteingang/50)`, geklemmt auf 5–95 % — das sah aus wie ein Anteil, war aber
+  keiner. Jetzt der echte Anteil bereits einsortierter Mails; fehlt die Bezugsgröße, entfällt der
+  Balken, statt etwas zu behaupten.
+- **Das Dashboard frischt sich auf** (jede Minute und beim Zurückwechseln in den Reiter). Es war die
+  einzige Seite, die einmal lud und dann stehenblieb — ausgerechnet die, die sagen soll, was zu tun
+  ist. Dazu echte Lade- und Fehlerzustände: Bisher setzte beides die Übersicht auf `null`, und die
+  Seite zeigte in beiden Fällen schlicht nichts.
+- **`window.confirm` ist raus.** Der Reset des Bestands-Gedächtnisses fragte über den Systemdialog
+  nach — der einzige im ganzen Panel, mitten in einer Oberfläche mit eigenem Rückfrage-Weg.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine. Die neuen Zahlen sind Abfragen auf vorhandene Tabellen
+  (`sort_inbox`, `ordner_vorschlaege`, `upload_freigaben`, `bestand_erledigt`).
+- **n8n-Workflow-Kompatibilität:** Keine Änderung.
+- **Neustart-/Session-Verhalten:** Backend und Frontend geändert — nach `docker compose pull && up -d`
+  einmal hart neu laden. Alte Lesezeichen auf `/sortierung` funktionieren unverändert; ohne `?tab=`
+  öffnet wie bisher der erste Reiter.
+
+---
+
+
 ## [5.4.3.1] - 2026-09-15 (Build 214) — *Nachtrag zu Build 213*
 
 Ein erklärender Kommentar landete in `Konten.jsx` zwischen `&& (` und dem Element — dort darf nur

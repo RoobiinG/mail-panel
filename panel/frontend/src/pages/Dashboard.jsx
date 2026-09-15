@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import {
   AlertTriangle, Inbox, Gauge, ShieldCheck, HardDriveDownload, Target,
-  CheckCircle2, XCircle, Workflow, ArrowRight, Archive, Check, RefreshCw
+  CheckCircle2, XCircle, Workflow, ArrowRight, Archive, Check, RefreshCw,
+  ListChecks, Sparkles, Repeat, CloudUpload, PauseCircle
 } from 'lucide-react';
 import api from '../api';
+import { useMelden } from '../components/ui/Meldungen';
 
 const COLORS = {
   Clean: '#10B981', // emerald-500
@@ -65,6 +68,42 @@ function StatusKachel({ icon: Icon, titel, wert, unter, ton = 'neutral' }) {
   );
 }
 
+// ─── Was auf eine Entscheidung wartet ────────────────────────────────────────
+//
+// Die erste Frage beim Öffnen des Dashboards ist "muss ich etwas tun?" — also
+// steht die Antwort oben und nicht zwischen Kennzahlen. Jede Zeile führt mit
+// einem Klick genau dorthin, wo die Arbeit liegt; bisher war auf der ganzen
+// Seite keine einzige Zahl anklickbar.
+function ZuTunZeile({ icon: Icon, zahl, titel, unter, ziel, hinweis }) {
+  const inhalt = (
+    <>
+      <Icon size={18} className="text-panel-accent shrink-0" />
+      <span className="text-xl font-semibold tabular-nums w-12 shrink-0">{zahl}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm text-panel-text">{titel}</span>
+        <span className="block text-xs text-panel-muted">{unter}</span>
+      </span>
+      {ziel && <ArrowRight size={16} className="text-panel-muted shrink-0" />}
+    </>
+  );
+
+  // Ohne Ziel keine Verlinkung: Für die steckengebliebenen Bestandsmails gibt
+  // es (noch) keine eigene Ansicht — ein Link, der irgendwo anders landet,
+  // wäre schlechter als keiner.
+  if (!ziel) {
+    return (
+      <div className="list-row flex items-center gap-3 p-3" title={hinweis}>
+        {inhalt}
+      </div>
+    );
+  }
+  return (
+    <Link to={ziel} className="list-row flex items-center gap-3 p-3 hover:bg-panel-bg/40 transition-colors">
+      {inhalt}
+    </Link>
+  );
+}
+
 // Ein schmaler Fortschrittsbalken.
 function Balken({ anteil, ton = 'accent' }) {
   const farbe = { accent: 'bg-panel-accent', warnung: 'bg-yellow-500', rot: 'bg-panel-red', gruen: 'bg-emerald-500' }[ton];
@@ -87,6 +126,9 @@ export default function Dashboard() {
   const [budgetLaeuft, setBudgetLaeuft] = useState(false);
   const [statsKonto, setStatsKonto] = useState('');
   const [loadingStats, setLoadingStats] = useState(true);
+  const [uebersichtLaedt, setUebersichtLaedt] = useState(true);
+  const [uebersichtFehler, setUebersichtFehler] = useState('');
+  const { nachfragen } = useMelden();
 
   // Bestands-Triage von Hand anstoßen. n8n startet den Lauf und antwortet sofort —
   // die Arbeit selbst dauert je nach Bestand Minuten bis Stunden, deshalb wird hier
@@ -128,9 +170,15 @@ export default function Dashboard() {
       .then(res => setAufsicht(res.data))
       .catch(() => setAufsicht(null));
 
+    // Fehler und "lädt noch" waren bisher nicht zu unterscheiden: Beides
+    // setzte die Übersicht auf null, und die Seite zeigte schlicht nichts.
     api.get('/dashboard/uebersicht')
-      .then(res => setUebersicht(res.data))
-      .catch(() => setUebersicht(null));
+      .then((res) => { setUebersicht(res.data); setUebersichtFehler(''); })
+      .catch((err) => {
+        setUebersicht(null);
+        setUebersichtFehler(err.response?.data?.error || 'Die Übersicht ließ sich nicht laden.');
+      })
+      .finally(() => setUebersichtLaedt(false));
   };
 
   const loadStats = async () => {
@@ -145,8 +193,21 @@ export default function Dashboard() {
     }
   };
 
-  useEffect(() => { 
-    laden(); 
+  // Das Dashboard war die einzige Seite, die einmal lud und dann stehenblieb —
+  // Workflows, Sicherung und Logs frischen längst selbst auf. Bei einer Seite,
+  // die "was ist zu tun" beantworten soll, ist ein veralteter Stand aber das
+  // eigentliche Problem: Man sieht Arbeit, die längst erledigt ist.
+  useEffect(() => {
+    laden();
+    const takt = setInterval(laden, 60000);
+    // Wer den Reiter wechselt und zurückkommt, will den aktuellen Stand sehen
+    // und nicht bis zum nächsten Takt warten.
+    const beiRueckkehr = () => { if (!document.hidden) laden(); };
+    document.addEventListener('visibilitychange', beiRueckkehr);
+    return () => {
+      clearInterval(takt);
+      document.removeEventListener('visibilitychange', beiRueckkehr);
+    };
   }, []);
 
   useEffect(() => {
@@ -201,11 +262,81 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className="flex justify-between items-end">
-        <div>
-          <p className="text-sm text-panel-muted mt-1">Überblick der letzten 30 Tage</p>
+      {uebersichtLaedt && !uebersicht && (
+        <div className="card text-sm text-panel-muted animate-pulse">Übersicht wird geladen …</div>
+      )}
+      {uebersichtFehler && (
+        <div className="card border-panel-orange/40 bg-panel-orange/10 flex items-start gap-2 text-sm">
+          <AlertTriangle size={16} className="text-panel-orange mt-0.5 shrink-0" />
+          <span>{uebersichtFehler}</span>
         </div>
-        
+      )}
+
+      {/* ── Zu tun ─────────────────────────────────────────────────────────── */}
+      {uebersicht?.zuTun && (() => {
+        const z = uebersicht.zuTun;
+        const posten = [
+          {
+            schluessel: 'zuordnungen', icon: Inbox, zahl: z.zuordnungen,
+            titel: 'Mails warten auf eine Zuordnung',
+            unter: 'Die KI war sich nicht sicher genug — entscheide einmal, und die Regel gilt künftig.',
+            ziel: '/sortierung',
+          },
+          {
+            schluessel: 'themenVorschlaege', icon: Sparkles, zahl: z.themenVorschlaege,
+            titel: 'Vorgeschlagene Themen-Ordner',
+            unter: 'Neue Ordner, die erst entstehen, wenn du sie freigibst.',
+            ziel: '/sortierung?tab=vorschlaege',
+          },
+          {
+            schluessel: 'nachsortierung', icon: Repeat, zahl: z.nachsortierung,
+            titel: 'Vorschläge der Nachsortierung',
+            unter: 'Ein Trockenlauf hat gefunden, wofür inzwischen eine Regel etwas anderes sagt.',
+            ziel: '/sortierung?tab=nachsortierung',
+          },
+          {
+            schluessel: 'freigaben', icon: CloudUpload, zahl: z.freigaben,
+            titel: 'Dateien warten auf Freigabe',
+            unter: 'Anhänge, die erst nach deinem Ja in die Ablage wandern.',
+            ziel: '/sortierung?tab=freigaben',
+          },
+          {
+            schluessel: 'bestandUnklar', icon: PauseCircle, zahl: z.bestandUnklar,
+            titel: 'Bestandsmails sind hängengeblieben',
+            unter: 'Zweimal angeboten, beide Male unentscheidbar — sie werden nicht mehr vorgelegt. '
+              + '„Gesamten Posteingang neu bewerten" unten gibt ihnen eine neue Chance.',
+            ziel: null,
+          },
+        ].filter((p) => (Number(p.zahl) || 0) > 0);
+
+        return (
+          <div className="card !p-0 overflow-hidden">
+            <div className="p-4 border-b border-panel-border bg-panel-card/50 flex items-center gap-2">
+              <ListChecks size={18} className="text-panel-accent" />
+              <h2 className="font-medium">Zu tun</h2>
+              {posten.length > 0 && (
+                <span className="bg-panel-accent text-white text-xs px-2 py-0.5 rounded-full tabular-nums">
+                  {z.gesamt.toLocaleString('de-DE')}
+                </span>
+              )}
+            </div>
+            {posten.length === 0 ? (
+              <div className="p-6 text-center text-panel-muted flex flex-col items-center gap-2">
+                <CheckCircle2 size={26} className="text-panel-green/60" />
+                <p className="text-sm">Nichts offen — es wartet gerade keine Entscheidung auf dich.</p>
+              </div>
+            ) : (
+              <div>
+                {posten.map((p) => <ZuTunZeile key={p.schluessel} {...p} />)}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      <div className="flex justify-between items-end gap-3 flex-wrap">
+        <p className="text-sm text-panel-muted">Überblick der letzten 30 Tage</p>
+
         {n8n && (
           <div className={`px-4 py-2 rounded flex items-center gap-3 ${n8n.online ? 'bg-panel-darker border border-emerald-500/30' : 'bg-red-500/10 border border-red-500/30'}`}>
             <div className={`w-3 h-3 rounded-full ${n8n.online ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]' : 'bg-red-500'}`} />
@@ -276,9 +407,15 @@ export default function Dashboard() {
                       const hatBestand = k.posteingangGesamt > 0;
                       const hatWartend = k.wartend > 0;
                       const istVollstaendig = !hatWartend && (!hatBestand || k.posteingangGesamt === 0);
-                      const anteil = istVollstaendig
-                        ? 100
-                        : Math.max(5, Math.min(95, 100 - (k.wartend * 3 + (hatBestand ? Math.min(80, k.posteingangGesamt / 50) : 0))));
+                      // Hier stand ein Balken, der nichts maß: "100 − (wartend × 3
+                      // + Posteingang/50)", geklemmt auf 5–95 %. Eine Zahl, die
+                      // wie ein Anteil aussah, aber keiner war. Jetzt der echte
+                      // Anteil — wie viel des gezählten Posteingangs bereits
+                      // einsortiert ist. Ohne Bezugsgröße gibt es keinen Balken.
+                      const bezug = k.posteingangGesamt || 0;
+                      const anteil = bezug > 0
+                        ? Math.max(0, Math.min(100, ((bezug - k.wartend) / bezug) * 100))
+                        : null;
                       const ton = istVollstaendig ? 'gruen' : (k.wartend > 20 || k.posteingangGesamt > 500) ? 'warnung' : 'accent';
                       return (
                         <div key={k.konto_id}>
@@ -297,7 +434,7 @@ export default function Dashboard() {
                               ) : 'nicht erreichbar'}
                             </span>
                           </div>
-                          {k.erreichbar && (
+                          {k.erreichbar && anteil !== null && (
                             <Balken anteil={anteil} ton={ton} />
                           )}
                         </div>
@@ -317,7 +454,18 @@ export default function Dashboard() {
                       </div>
                       <div className="flex items-center gap-3 pt-2 mt-2 border-t border-white/5">
                         <button disabled={startet || resettet} onClick={async () => {
-                            if (!confirm('Willst du wirklich das Gedächtnis des Bestands-Scanners und offene Zuordnungen löschen? Er wird danach deinen gesamten Posteingang erneut prüfen.')) return;
+                            // Vorher window.confirm — der einzige Systemdialog
+                            // im ganzen Panel, mitten in einer Oberfläche, die
+                            // für Rückfragen einen eigenen Weg hat.
+                            const ok = await nachfragen({
+                              titel: 'Gedächtnis des Bestands-Scanners löschen?',
+                              text: 'Offene Zuordnungen und der Vermerk, welche Mails schon geprüft wurden, '
+                                + 'werden gelöscht. Das Panel bewertet danach den gesamten Posteingang neu — '
+                                + 'das kann je nach Bestand dauern. Verschoben wird dabei nichts rückgängig.',
+                              bestaetigen: 'Neu bewerten',
+                              gefaehrlich: true,
+                            });
+                            if (!ok) return;
                             setResettet(true);
                             setStartMeldung('Gedächtnis wird geleert …');
                             try {

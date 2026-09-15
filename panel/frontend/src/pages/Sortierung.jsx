@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Plus, Trash2, CheckCircle2, XCircle, AlertCircle, Inbox, Tag, ArrowRight,
   FolderTree, Sparkles, Lock, Unlock, RefreshCw, Check, Wand2,
@@ -116,7 +117,15 @@ export default function Sortierung() {
   const { melden, nachfragen } = useMelden();
   const [konten, setKonten] = useState([]);
   const [aktivesKonto, setAktivesKonto] = useState('');
-  const [tab, setTab] = useState('sortieren');
+  // Der Reiter steht in der Adresse, nicht nur im Zustand der Komponente.
+  // Erst dadurch lässt sich von außen auf einen bestimmten Reiter zeigen — das
+  // Dashboard verlinkt genau hierher ("/sortierung?tab=nachsortierung"), statt
+  // den Nutzer auf der Startseite abzusetzen und ihn selbst suchen zu lassen.
+  // `replace`, weil ein Reiterwechsel eine Ansicht ist und kein Schritt, den
+  // man mit dem Zurück-Knopf einzeln rückgängig machen möchte.
+  const [suchParams, setSuchParams] = useSearchParams();
+  const tab = suchParams.get('tab') || 'sortieren';
+  const setTab = (neu) => setSuchParams(neu === 'sortieren' ? {} : { tab: neu }, { replace: true });
   // Wie viele Dateien auf eine Freigabe warten. Steht am Tab-Knopf, damit man es
   // auch sieht, ohne den Tab zu öffnen — sonst wartet dort etwas und niemand
   // erfährt davon.

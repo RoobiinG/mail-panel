@@ -81,8 +81,33 @@ async function laden({ mitPosteingang = true } = {}) {
     "SELECT COUNT(*) n FROM quarantine_log WHERE korrigiert_zu IS NOT NULL AND created_at >= datetime('now','-7 days')",
   );
 
+  // ─── Was auf eine Entscheidung wartet ──────────────────────────────────────
+  //
+  // Die eine Frage, mit der man das Dashboard öffnet: Muss ich etwas tun? Die
+  // Zahlen lagen bisher über vier Seiten verteilt, und eine davon (die
+  // steckengebliebenen Bestandsmails) wurde zwar berechnet, aber nirgends
+  // angezeigt — obwohl im Code daneben stand, dass sie sichtbar sein muss.
+  //
+  // Nur Zahlen, keine Beschriftungen: Wie sie heißen und wohin sie führen,
+  // entscheidet die Oberfläche.
+  const nachsortierungLauf = (() => {
+    try { return require('./nachsortierung').letzterLauf(); } catch { return null; }
+  })();
+
+  const zuTun = {
+    zuordnungen: zahl("SELECT COUNT(*) n FROM sort_inbox WHERE status='offen'"),
+    themenVorschlaege: zahl("SELECT COUNT(*) n FROM ordner_vorschlaege WHERE status='offen'"),
+    freigaben: zahl("SELECT COUNT(*) n FROM upload_freigaben WHERE status='offen'"),
+    // Nur ein Trockenlauf wartet auf eine Entscheidung. Lief die Nachsortierung
+    // scharf, ist sie damit fertig und hat nichts offen.
+    nachsortierung: nachsortierungLauf?.trockenlauf ? (nachsortierungLauf.treffer || 0) : 0,
+    bestandUnklar: require('./bestand').unklareAnzahl(),
+  };
+  zuTun.gesamt = Object.values(zuTun).reduce((s, n) => s + (Number(n) || 0), 0);
+
   return {
     zeitpunkt: new Date().toISOString(),
+    zuTun,
 
     // „Wie weit ist die Sortierung?"
     posteingang: {
