@@ -8,13 +8,17 @@ import {
 } from 'lucide-react';
 import api from '../api';
 import { useMelden } from '../components/ui/Meldungen';
+import { FARBEN, TOOLTIP_STIL } from '../components/ui/diagramm';
 
+// Farben aus der gemeinsamen Diagramm-Einstellung. Vorher standen hier eigene
+// Hex-Werte, und dieselbe Sache hatte je nach Seite eine andere Farbe: Spam war
+// hier bernsteinfarben und in der Statistik rot.
 const COLORS = {
-  Clean: '#10B981', // emerald-500
-  Spam: '#F59E0B',  // amber-500
-  Phishing: '#EF4444', // red-500
-  Viren: '#8B5CF6',  // violet-500
-  Newsletter: '#3B82F6' // blue-500
+  Clean: FARBEN.gruen,
+  Spam: FARBEN.orange,
+  Phishing: FARBEN.rot,
+  Viren: FARBEN.lila,
+  Newsletter: FARBEN.akzent,
 };
 
 // Etwas Luft unter dem, was Google zuletzt zugelassen hat: Genau auf die Kante
@@ -711,10 +715,10 @@ export default function Dashboard() {
                       <stop offset="95%" stopColor={COLORS.Viren} stopOpacity={0.2}/>
                     </linearGradient>
                   </defs>
-                  <XAxis dataKey="tag" tick={{fill: '#8b949e', fontSize: 11, fontWeight: 500}} tickFormatter={(v) => v.split('-').slice(1).join('.')} axisLine={false} tickLine={false} dy={5} />
-                  <YAxis tick={{fill: '#8b949e', fontSize: 11, fontWeight: 500}} axisLine={false} tickLine={false} dx={-5} />
+                  <XAxis dataKey="tag" tick={{ fill: FARBEN.grau, fontSize: 11, fontWeight: 500 }} tickFormatter={(v) => v.split('-').slice(1).join('.')} axisLine={false} tickLine={false} dy={5} />
+                  <YAxis tick={{ fill: FARBEN.grau, fontSize: 11, fontWeight: 500 }} axisLine={false} tickLine={false} dx={-5} />
                   <Tooltip 
-                    contentStyle={{ backgroundColor: '#1a1b1e', borderColor: '#374151', borderRadius: '8px', color: '#f3f4f6' }}
+                    contentStyle={TOOLTIP_STIL}
                     itemStyle={{ fontSize: '13px' }}
                   />
                   <Bar dataKey="Clean" stackId="a" fill="url(#colorClean)" radius={[0, 0, 4, 4]} />
@@ -749,7 +753,7 @@ export default function Dashboard() {
                     ))}
                   </Pie>
                   <Tooltip 
-                    contentStyle={{ backgroundColor: '#1a1b1e', borderColor: '#374151', borderRadius: '8px', color: '#f3f4f6' }}
+                    contentStyle={TOOLTIP_STIL}
                     itemStyle={{ fontSize: '14px' }}
                   />
                 </PieChart>

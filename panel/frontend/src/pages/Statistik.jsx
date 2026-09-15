@@ -1,193 +1,349 @@
+// Die Auswertung — vier Fragen, vier Abschnitte.
+//
+// Vorher: eine Karte je Postfach mit lebenslangen Gesamtzahlen, ohne Zeitraum
+// und ohne Kontofilter. Alles außer vier Kategorien landete in einem grauen
+// Klumpen "sonstiges" — ausgerechnet die Themen-Sortierung, also die Arbeit,
+// um die es hier geht.
 import { useEffect, useState } from 'react';
-import { PieChart, Pie, Cell, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from 'recharts';
-import { Loader2, AlertCircle, BarChart3, Inbox, ArrowRightLeft, Target } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import {
+  BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+} from 'recharts';
+import {
+  Loader2, AlertCircle, Target, Gauge, AtSign, Coins, Inbox,
+} from 'lucide-react';
 import api from '../api';
+import Karte from '../components/ui/Karte';
+import { FARBEN, TOOLTIP_STIL, ACHSE, tagKurz } from '../components/ui/diagramm';
 
-const COLORS = {
-  clean: '#10b981', // emerald-500
-  spam: '#ef4444', // red-500
-  phishing: '#a855f7', // purple-500
-  newsletter: '#3b82f6', // blue-500
-  sonstiges: '#6b7280' // gray-500
-};
+const ZEITRAEUME = [
+  { tage: 7, label: '7 Tage' },
+  { tage: 30, label: '30 Tage' },
+  { tage: 90, label: '90 Tage' },
+];
+
+const zahl = (n) => Number(n || 0).toLocaleString('de-DE');
+
+// Eine große Zahl mit Beschriftung. Bewusst schlicht: Die Aussage steckt in der
+// Zahl, nicht im Rahmen.
+function Kennzahl({ icon: Icon, titel, wert, unter, ton = 'neutral' }) {
+  const farben = {
+    neutral: 'text-panel-text',
+    gut: 'text-panel-green',
+    warnung: 'text-panel-orange',
+    schlecht: 'text-panel-red',
+  };
+  return (
+    <div className="card !p-4">
+      <div className="flex items-center gap-2 text-xs text-panel-muted mb-1">
+        <Icon size={14} className="text-panel-accent" /> {titel}
+      </div>
+      <div className={`text-2xl font-semibold tabular-nums ${farben[ton]}`}>{wert}</div>
+      {unter && <div className="text-[11px] text-panel-muted mt-0.5">{unter}</div>}
+    </div>
+  );
+}
+
+// Balkenliste für Ranglisten — lesbarer als ein Tortendiagramm mit zwölf
+// Stücken und ehrlicher als eine Tabelle ohne Größenverhältnis.
+function Rangliste({ eintraege, leer = 'Nichts im Zeitraum.' }) {
+  if (!eintraege?.length) return <p className="text-xs text-panel-muted">{leer}</p>;
+  const groesste = Math.max(...eintraege.map((e) => e.anzahl), 1);
+  return (
+    <div className="space-y-1.5">
+      {eintraege.map((e) => (
+        <div key={e.name} className="text-xs">
+          <div className="flex justify-between gap-2">
+            <span className="truncate text-panel-text" title={e.name}>{e.name}</span>
+            <span className="text-panel-muted tabular-nums shrink-0">{zahl(e.anzahl)}</span>
+          </div>
+          <div className="h-1 mt-1 rounded-full bg-panel-border/40 overflow-hidden">
+            <div className="h-full rounded-full bg-panel-accent/70"
+              style={{ width: `${(e.anzahl / groesste) * 100}%` }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function Statistik() {
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [suchParams, setSuchParams] = useSearchParams();
+  const tage = Number(suchParams.get('tage')) || 30;
+  const konto = suchParams.get('konto') || '';
+
+  const [daten, setDaten] = useState(null);
+  const [laedt, setLaedt] = useState(true);
+  const [fehler, setFehler] = useState('');
 
   useEffect(() => {
-    const ladeDaten = async () => {
-      try {
-        const res = await api.get('/statistik');
-        setData(res.data.konten || []);
-      } catch (err) {
-        setError(err.message || 'Fehler beim Laden der Statistiken');
-      } finally {
-        setLoading(false);
-      }
-    };
-    ladeDaten();
-  }, []);
+    let abgemeldet = false;
+    setLaedt(true);
+    api.get(`/statistik?tage=${tage}${konto ? `&konto=${encodeURIComponent(konto)}` : ''}`)
+      .then((r) => { if (!abgemeldet) { setDaten(r.data); setFehler(''); } })
+      .catch((err) => {
+        if (!abgemeldet) setFehler(err.response?.data?.error || 'Die Auswertung ließ sich nicht laden.');
+      })
+      .finally(() => { if (!abgemeldet) setLaedt(false); });
+    return () => { abgemeldet = true; };
+  }, [tage, konto]);
 
-  if (loading) {
+  const setzen = (schluessel, wert) => {
+    const neu = new URLSearchParams(suchParams);
+    if (wert) neu.set(schluessel, String(wert)); else neu.delete(schluessel);
+    setSuchParams(neu, { replace: true });
+  };
+
+  if (laedt && !daten) {
     return (
       <div className="flex justify-center p-8">
         <Loader2 className="animate-spin text-panel-accent" size={24} />
       </div>
     );
   }
-
-  if (error) {
+  if (fehler) {
     return (
-      <div className="p-4 bg-panel-red/10 border border-panel-red/20 rounded-md text-panel-red text-sm flex items-center gap-2">
-        <AlertCircle size={16} />
-        {error}
+      <div className="card border-panel-red/30 bg-panel-red/10 text-panel-red text-sm flex items-center gap-2">
+        <AlertCircle size={16} /> {fehler}
       </div>
     );
   }
 
-  if (!data || data.length === 0) {
-    return (
-      <div className="p-8 text-center text-panel-muted text-sm border border-panel-border rounded-lg bg-panel-surface">
-        Es liegen noch keine Statistiken vor.
-      </div>
-    );
-  }
+  const s = daten?.summe || {};
+  const verlauf = (daten?.verlauf || []).map((z) => ({ ...z, tagKurz: tagKurz(z.tag) }));
+  const stoerungen = (daten?.stoerungen || []).map((z) => ({ ...z, tagKurz: tagKurz(z.tag) }));
+  const ohneKiAnteil = s.gesamt ? Math.round((s.vonRegel / s.gesamt) * 100) : 0;
+  const leer = !s.gesamt;
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      {/* Titel steht in der Kopfleiste — hier bleibt die Erklärung. */}
-      <div className="flex items-start gap-2">
-        <BarChart3 size={18} className="text-panel-accent mt-0.5 shrink-0" />
-        <p className="text-sm text-panel-muted">Auswertung aller Postfächer</p>
+    <div className="space-y-6">
+      {/* ── Zeitraum und Postfach ──────────────────────────────────────────── */}
+      <div className="card flex flex-wrap items-center gap-3">
+        <div className="flex rounded-md border border-panel-border overflow-hidden">
+          {ZEITRAEUME.map((z) => (
+            <button
+              key={z.tage}
+              onClick={() => setzen('tage', z.tage === 30 ? '' : z.tage)}
+              className={`px-3 py-1.5 text-xs transition-colors ${
+                tage === z.tage ? 'bg-panel-accent text-white' : 'text-panel-muted hover:text-panel-text'
+              }`}
+            >
+              {z.label}
+            </button>
+          ))}
+        </div>
+
+        <select
+          value={konto}
+          onChange={(e) => setzen('konto', e.target.value)}
+          className="text-sm bg-panel-bg w-full sm:!w-auto shrink-0"
+        >
+          <option value="">Alle Postfächer</option>
+          {(daten?.konten || []).map((k) => <option key={k} value={k}>{k}</option>)}
+        </select>
+
+        <span className="text-xs text-panel-muted ml-auto">
+          {zahl(s.gesamt)} Einordnungen im Zeitraum
+        </span>
       </div>
 
-      {data.map((konto) => {
-        const pieData = Object.entries(konto.kategorien)
-          .map(([key, value]) => ({ name: key, value }))
-          .filter(d => d.value > 0);
+      {leer ? (
+        <div className="card text-center text-panel-muted text-sm py-10">
+          Im gewählten Zeitraum wurde nichts einsortiert. Ein größeres Fenster zeigt vielleicht mehr.
+        </div>
+      ) : (
+        <>
+          {/* ── Die vier Zahlen, auf die es ankommt ────────────────────────── */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <Kennzahl icon={Inbox} titel="Einsortiert" wert={zahl(s.gesamt)}
+              unter={`in ${tage} Tagen`} />
+            <Kennzahl icon={Target} titel="Nachträglich korrigiert"
+              wert={s.korrekturQuote == null ? '—' : `${s.korrekturQuote} %`}
+              ton={s.korrekturQuote == null ? 'neutral' : s.korrekturQuote <= 5 ? 'gut' : s.korrekturQuote <= 15 ? 'warnung' : 'schlecht'}
+              unter={`${zahl(s.korrigiert)} von ${zahl(s.gesamt)} geradegezogen`} />
+            <Kennzahl icon={Gauge} titel="Liegengeblieben" wert={zahl(s.liegengeblieben)}
+              ton={s.liegengeblieben > s.gesamt * 0.3 ? 'warnung' : 'neutral'}
+              unter="ohne Zielordner geblieben" />
+            <Kennzahl icon={Coins} titel="Ohne KI erledigt" wert={`${ohneKiAnteil} %`}
+              ton={ohneKiAnteil >= 30 ? 'gut' : 'neutral'}
+              unter={`${zahl(s.vonRegel)} Mails über Regeln`} />
+          </div>
 
-        const barData = [
-          { name: 'Offen', anzahl: konto.sortInbox.offen, fill: '#f59e0b' },
-          { name: 'Zugeordnet', anzahl: konto.sortInbox.zugeordnet, fill: '#10b981' },
-          { name: 'Ignoriert', anzahl: konto.sortInbox.ignoriert, fill: '#6b7280' }
-        ];
-
-        return (
-          <div key={konto.name} className="card card-hover relative overflow-hidden flex flex-col space-y-6 !p-6">
-            {/* Background Glows */}
-            <div className="absolute -left-12 -top-12 w-48 h-48 rounded-full blur-3xl opacity-5 bg-panel-accent pointer-events-none" />
-            <div className="absolute -right-12 -bottom-12 w-48 h-48 rounded-full blur-3xl opacity-5 bg-emerald-500 pointer-events-none" />
-
-            <div className="flex justify-between items-center relative z-10 border-b border-white/5 pb-4">
-              <h2 className="text-lg font-bold text-white tracking-wide">{konto.name}</h2>
-              <span className="px-3 py-1 rounded-full bg-panel-surface/50 border border-white/10 text-xs font-medium text-panel-muted shadow-inner">
-                {konto.gesamtMails} klassifiziert
-              </span>
+          {/* ── Wie gut sortiert es? ───────────────────────────────────────── */}
+          <Karte title={<><Target size={13} /> Wie gut sortiert es?</>}>
+            <p className="text-xs text-panel-muted">
+              Wie viel die KI entschieden hat und wie viel bereits eine Regel erledigte — und was
+              danach von Hand korrigiert werden musste. Eine niedrige Korrekturzahl bei vielen
+              Einordnungen ist das Ziel.
+            </p>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={verlauf}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={FARBEN.rand} vertical={false} />
+                  <XAxis dataKey="tagKurz" {...ACHSE} />
+                  <YAxis {...ACHSE} allowDecimals={false} />
+                  <Tooltip contentStyle={TOOLTIP_STIL} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Bar dataKey="vonKi" name="von der KI" stackId="a" fill={FARBEN.akzent} radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="vonRegel" name="von einer Regel" stackId="a" fill={FARBEN.gruen} radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="korrigiert" name="später korrigiert" fill={FARBEN.rot} radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
             </div>
-            
-            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 relative z-10">
-              
-              {/* KI-Kategorien (Pie Chart) */}
-              <div className="col-span-1 lg:col-span-2 bg-black/20 rounded-xl p-5 border border-white/5">
-                <h3 className="text-[11px] font-bold tracking-widest text-panel-muted/70 uppercase mb-4 flex items-center gap-2">
-                  <Inbox size={14} className="text-panel-accent" /> Klassifizierungen
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+              <div>
+                <h3 className="text-xs font-semibold text-panel-muted uppercase tracking-wide mb-2">
+                  Wie sicher war die KI?
                 </h3>
-                {pieData.length > 0 ? (
-                  <div className="h-56">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={pieData}
-                          innerRadius={55}
-                          outerRadius={85}
-                          paddingAngle={3}
-                          dataKey="value"
-                          stroke="none"
-                        >
-                          {pieData.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={COLORS[entry.name] || COLORS.sonstiges} />
-                          ))}
-                        </Pie>
-                        <Tooltip 
-                          contentStyle={{ backgroundColor: '#1a1d24', border: '1px solid #333', borderRadius: '8px' }}
-                          itemStyle={{ color: '#eee', fontSize: '13px', fontWeight: 500 }}
-                        />
-                      </PieChart>
-                    </ResponsiveContainer>
-                    <div className="flex flex-wrap justify-center gap-3 mt-4">
-                      {pieData.map(d => (
-                        <div key={d.name} className="flex items-center gap-1.5 text-[11px] font-medium text-panel-muted uppercase bg-white/5 px-2 py-1 rounded-md">
-                          <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: COLORS[d.name] || COLORS.sonstiges }}></span>
-                          {d.name} <span className="text-white/50 ml-1">{d.value}</span>
-                        </div>
-                      ))}
-                    </div>
+                <Rangliste eintraege={(daten.konfidenz || []).map((k) => ({ name: k.stufe, anzahl: k.anzahl }))} />
+              </div>
+              <div>
+                <h3 className="text-xs font-semibold text-panel-muted uppercase tracking-wide mb-2">
+                  Häufigste Begründung
+                </h3>
+                <Rangliste eintraege={(daten.gruende || []).map((g) => ({ name: g.grund, anzahl: g.anzahl }))} />
+              </div>
+            </div>
+          </Karte>
+
+          {/* ── Wie viel läuft durch? ──────────────────────────────────────── */}
+          <Karte title={<><Gauge size={13} /> Wie viel läuft durch?</>}>
+            <p className="text-xs text-panel-muted">
+              Menge je Tag und daneben, woran es hakte: Zeitüberschreitungen und abgebrochene Bündel
+              aus dem Panel-Protokoll. Ein Ausschlag rechts erklärt oft eine Delle links.
+            </p>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="h-52">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={verlauf}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={FARBEN.rand} vertical={false} />
+                    <XAxis dataKey="tagKurz" {...ACHSE} />
+                    <YAxis {...ACHSE} allowDecimals={false} />
+                    <Tooltip contentStyle={TOOLTIP_STIL} />
+                    <Line type="monotone" dataKey="gesamt" name="einsortiert" stroke={FARBEN.akzent}
+                      strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="liegengeblieben" name="liegengeblieben"
+                      stroke={FARBEN.orange} strokeWidth={2} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="h-52">
+                {stoerungen.length === 0 ? (
+                  <div className="h-full flex items-center justify-center text-xs text-panel-muted">
+                    Keine Warnungen der KI-Kette im Zeitraum.
                   </div>
                 ) : (
-                  <div className="h-56 flex items-center justify-center text-sm text-panel-muted/50 font-medium">
-                    Keine Daten vorhanden
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={stoerungen}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={FARBEN.rand} vertical={false} />
+                      <XAxis dataKey="tagKurz" {...ACHSE} />
+                      <YAxis {...ACHSE} allowDecimals={false} />
+                      <Tooltip contentStyle={TOOLTIP_STIL} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
+                      <Bar dataKey="anzahl" name="Warnungen" fill={FARBEN.orange} radius={[3, 3, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
+          </Karte>
+
+          {/* ── Wer schreibt mir? ──────────────────────────────────────────── */}
+          <Karte title={<><AtSign size={13} /> Wer schreibt mir?</>}>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+              <div>
+                <h3 className="text-xs font-semibold text-panel-muted uppercase tracking-wide mb-2">Domains</h3>
+                <Rangliste eintraege={(daten.domains || []).map((d) => ({ name: d.domain, anzahl: d.anzahl }))} />
+              </div>
+              <div>
+                <h3 className="text-xs font-semibold text-panel-muted uppercase tracking-wide mb-2">Absender</h3>
+                <Rangliste eintraege={(daten.absender || []).map((a) => ({ name: a.von, anzahl: a.anzahl }))} />
+              </div>
+              <div>
+                <h3 className="text-xs font-semibold text-panel-muted uppercase tracking-wide mb-2">Zielordner</h3>
+                <Rangliste eintraege={(daten.zielordner || []).map((z) => ({ name: z.ordner, anzahl: z.anzahl }))} />
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-panel-border/50">
+              <h3 className="text-xs font-semibold text-panel-muted uppercase tracking-wide mb-2">
+                Regeln, die am meisten greifen
+              </h3>
+              {/* Der Treffer-Zähler einer Regel hat keinen Zeitstempel — er
+                  lässt sich ranken, aber nicht über die Zeit auftragen.
+                  Deshalb steht ausdrücklich dabei, dass es Gesamtwerte sind. */}
+              <Rangliste
+                eintraege={(daten.regeln || []).map((r) => ({
+                  name: `${r.muster} → ${r.zielordner || 'bleibt liegen'}`,
+                  anzahl: r.treffer || 0,
+                }))}
+                leer="Noch keine Regel hat gegriffen."
+              />
+              <p className="text-[11px] text-panel-muted/70 mt-2">
+                Treffer seit Anlegen der Regel — nicht auf den Zeitraum bezogen.
+                {daten.newsletterOffen > 0 && ` · ${zahl(daten.newsletterOffen)} Newsletter-Absender noch nicht abbestellt.`}
+              </p>
+            </div>
+          </Karte>
+
+          {/* ── Was kostet es? ─────────────────────────────────────────────── */}
+          <Karte title={<><Coins size={13} /> Was kostet es?</>}>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-center">
+              <div className="h-52">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={[
+                        { name: 'von der KI', value: s.vonKi || 0 },
+                        { name: 'von einer Regel', value: s.vonRegel || 0 },
+                      ].filter((e) => e.value > 0)}
+                      dataKey="value" nameKey="name" innerRadius={45} outerRadius={75} paddingAngle={2}
+                    >
+                      <Cell fill={FARBEN.akzent} />
+                      <Cell fill={FARBEN.gruen} />
+                    </Pie>
+                    <Tooltip contentStyle={TOOLTIP_STIL} />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div className="space-y-3 text-sm">
+                <p className="text-xs text-panel-muted">
+                  Jede Mail, die eine Regel erledigt, kostet keine KI-Anfrage. Der grüne Anteil ist
+                  also das, was die Regeln eingespart haben.
+                </p>
+                {daten.budget && (
+                  <div className="space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-panel-muted">Anbieter</span>
+                      <span className="font-medium">{daten.budget.anbieter === 'ollama' ? 'Ollama (lokal)' : 'Gemini'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-panel-muted">Anfragen heute</span>
+                      <span className="tabular-nums">
+                        {zahl(daten.budget.heuteAnfragen)}
+                        {daten.budget.grenze ? ` / ${zahl(daten.budget.grenze)}` : ''}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-panel-muted">Mails dabei</span>
+                      <span className="tabular-nums">{zahl(daten.budget.heuteMails)}</span>
+                    </div>
+                    {daten.budget.anbieter === 'ollama' && (
+                      <p className="text-[11px] text-panel-muted/70 pt-1">
+                        Bei lokaler KI kostet eine Anfrage kein Geld, sondern Rechenzeit — das
+                        Tagesbudget greift dort nicht.
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
-
-              {/* Unbekannte / Sort-Inbox (Bar Chart) */}
-              <div className="col-span-1 lg:col-span-2 bg-black/20 rounded-xl p-5 border border-white/5">
-                <h3 className="text-[11px] font-bold tracking-widest text-panel-muted/70 uppercase mb-4 flex items-center gap-2">
-                  <ArrowRightLeft size={14} className="text-amber-500" /> Unbekannte Sender
-                </h3>
-                <div className="h-56">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={barData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="barOffen" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.8}/>
-                          <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.2}/>
-                        </linearGradient>
-                        <linearGradient id="barZugeordnet" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#10b981" stopOpacity={0.8}/>
-                          <stop offset="95%" stopColor="#10b981" stopOpacity={0.2}/>
-                        </linearGradient>
-                        <linearGradient id="barIgnoriert" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#6b7280" stopOpacity={0.8}/>
-                          <stop offset="95%" stopColor="#6b7280" stopOpacity={0.2}/>
-                        </linearGradient>
-                      </defs>
-                      <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#8b949e', fontWeight: 500 }} axisLine={false} tickLine={false} dy={5} />
-                      <YAxis tick={{ fontSize: 11, fill: '#8b949e', fontWeight: 500 }} axisLine={false} tickLine={false} dx={-5} />
-                      <Tooltip 
-                        contentStyle={{ backgroundColor: '#1a1d24', border: '1px solid #333', borderRadius: '8px', fontSize: '13px', fontWeight: 500 }}
-                        cursor={{ fill: 'rgba(255,255,255,0.03)' }}
-                      />
-                      <Bar dataKey="anzahl" radius={[4, 4, 0, 0]}>
-                        {barData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={`url(#bar${entry.name})`} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-
-              {/* Metriken */}
-              <div className="col-span-1 lg:col-span-4 grid grid-cols-2 gap-4 mt-2">
-                <div className="bg-gradient-to-br from-panel-surface/60 to-transparent border border-white/5 rounded-xl p-4 text-center group transition-all duration-300 hover:border-white/10 hover:shadow-lg">
-                  <div className="text-[10px] font-bold tracking-widest text-panel-muted/70 uppercase mb-2">Gereinigter Bestand</div>
-                  <div className="text-3xl font-black text-white/90 drop-shadow-sm group-hover:scale-105 transition-transform">{konto.bestandErledigt}</div>
-                </div>
-                <div className="bg-gradient-to-br from-panel-accent/10 to-transparent border border-panel-accent/20 rounded-xl p-4 text-center group transition-all duration-300 hover:border-panel-accent/40 hover:shadow-[0_0_20px_rgba(56,139,253,0.1)]">
-                  <div className="text-[10px] font-bold tracking-widest text-panel-accent uppercase flex items-center justify-center gap-1.5 mb-2">
-                    <Target size={12} /> Regel-Treffer
-                  </div>
-                  <div className="text-3xl font-black text-panel-accent drop-shadow-sm group-hover:scale-105 transition-transform">{konto.regelTreffer}</div>
-                </div>
-              </div>
-
             </div>
-          </div>
-        );
-      })}
+          </Karte>
+        </>
+      )}
     </div>
   );
 }

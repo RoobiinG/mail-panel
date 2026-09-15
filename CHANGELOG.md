@@ -2,6 +2,55 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [5.6.0.0] - 2026-09-15 (Build 216) — *Die Statistik bekommt eine Zeitachse*
+
+Dritter und letzter Schritt des Oberflächen-Umbaus. Die Statistik hatte bisher **keinen
+Zeitbezug**: vier Abfragen ohne `WHERE`, alle Zahlen Gesamtwerte seit Installation. Ein
+Spam-Ausschlag von letztem Dienstag war unsichtbar, und ein Konto, das seit einem halben Jahr
+sauber läuft, sah aus wie eines, das gestern aus dem Ruder lief.
+
+### Features
+- **Zeitraum (7/30/90 Tage) und Kontofilter**, beides in der Adresse (`?tage=&konto=`), also
+  teilbar und über den Zurück-Knopf erreichbar.
+- **Vier Abschnitte statt einer Karte je Postfach**, entlang der Fragen, die man an so eine Seite
+  wirklich hat:
+  - *Wie gut sortiert es?* — Verlauf aus KI-Entscheidungen, Regel-Treffern und nachträglichen
+    Korrekturen; dazu die Sicherheit der KI und die häufigsten Begründungen. Die Korrekturquote
+    steht als eigene Kennzahl oben: Sie misst, wie oft das Panel danebenlag.
+  - *Wie viel läuft durch?* — Menge je Tag neben den Warnungen der KI-Kette aus dem
+    Panel-Protokoll. Ein Ausschlag rechts erklärt meist eine Delle links; die 504er von Ollama
+    tauchen hier auf.
+  - *Wer schreibt mir?* — Domains, Absender und Zielordner als Ranglisten, dazu die Regeln, die am
+    häufigsten greifen.
+  - *Was kostet es?* — Anteil der Mails, die eine Regel ohne KI erledigt hat, mit heutigem
+    Anfragenstand und Budget.
+- **Der Klumpen „sonstiges" ist weg.** Die alte Auswertung warf alles außer vier Kategorien in
+  einen Topf — ausgerechnet die Themen-Sortierung. Ausgewertet wird jetzt nach **Zielordner**, also
+  nach der tatsächlichen Ablage.
+
+### Änderungen
+- **Die Abfragen aggregieren in SQL statt in JavaScript** (`routes/statistik.js`, vollständig neu).
+  Gruppiert wird über `date(created_at)` auf dem vorhandenen Index, statt Zeilen zu holen und in
+  einer Schleife zu zählen.
+- **Eine gemeinsame Diagramm-Einstellung** (`components/ui/diagramm.js`): Farben aus der
+  `panel-*`-Tafel, ein Tooltip-Stil, eine Achsenformatierung — benutzt von Statistik **und**
+  Dashboard. Vorher hatte jede Seite eigene Hex-Werte, und dieselbe Sache war zweifarbig: Spam war
+  im Dashboard bernstein, in der Statistik rot. Die beiden erfundenen Tooltip-Grautöne (`#1a1b1e`
+  und `#1a1d24`, keiner davon `panel-surface`) sind damit ebenfalls erledigt.
+
+**Bewusst nicht enthalten:** ein Verlauf der KI-**Anfragen** über die Tage. Gespeichert wird nur der
+Zähler des laufenden Tages, eine Tageshistorie gibt es nicht — die ließe sich nur erfinden. Der
+Anfragenstand steht deshalb als heutiger Wert da, der Verlauf zeigt Mails.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine — alle Auswertungen laufen auf vorhandenen Tabellen und Indizes.
+- **n8n-Workflow-Kompatibilität:** Keine Änderung.
+- **Neustart-/Session-Verhalten:** Backend und Frontend geändert; nach dem Deployment hart neu
+  laden. Alte Lesezeichen auf `/statistik` funktionieren, es gilt dann der Standard von 30 Tagen.
+
+---
+
+
 ## [5.5.0.0] - 2026-09-15 (Build 215) — *Das Dashboard beantwortet jetzt „muss ich etwas tun?"*
 
 Zweiter Schritt des Oberflächen-Umbaus. Das Dashboard zeigte bisher Zahlen, aber keinen Weg: Auf
