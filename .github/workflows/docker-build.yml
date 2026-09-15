@@ -60,15 +60,6 @@ jobs:
         working-directory: panel/backend
         run: npm test
 
-      # Bekannte Schwachstellen in den Abhängigkeiten sichtbar machen — hier,
-      # weil dieser Lauf bei jeder Panel-Änderung greift. Bewusst nicht
-      # blockierend: Eine neue Meldung in einem fremden Paket soll nicht den
-      # Bau eines Abbilds verhindern, aber im Protokoll stehen.
-      - name: Schwachstellen-Check (Backend)
-        working-directory: panel/backend
-        continue-on-error: true
-        run: npm audit --omit=dev
-
   build:
     needs: test
     runs-on: ubuntu-latest

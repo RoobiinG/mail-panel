@@ -17,6 +17,9 @@ on:
 jobs:
   audit:
     runs-on: ubuntu-latest
+    # Der Lauf liest nur — mehr braucht er nicht.
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:

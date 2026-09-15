@@ -2,6 +2,31 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [5.4.0.1] - 2026-09-15 (Build 210) — *Doppelte Prüfung wieder ausgebaut*
+
+In Build 209 kamen `npm audit`-Schritte in den Testlauf und in den Image-Bau — überflüssig, denn
+dafür gibt es längst `security-audit.yml` (wöchentlich und bei Änderungen an den `package.json`,
+mit Zusammenfassung je Projekt). Die Dopplung ist wieder raus; die Leserechte-Begrenzung bleibt und
+gilt jetzt auch für den Abhängigkeits-Workflow selbst.
+
+Nachtrag zum PDF-Parser aus Build 209: Die Abhängigkeitsprüfung meldete für das Backend sowohl
+davor als auch danach „0 vulnerabilities". Das widerspricht dem Befund nicht, sondern erklärt ihn —
+`pdf-parse` liefert seine pdf.js-Kopie **im Paket mit**, statt sie als Abhängigkeit zu deklarieren.
+Für `npm audit` ist sie damit unsichtbar. Genau solche Fälle findet nur ein Blick in den Code.
+
+**Offen und bewusst nicht angefasst:** `react-router-dom` (6.x) hat zwei mittlere Meldungen
+(Open Redirect über Backslash in `<Link>`/`useNavigate`; Constructor Injection in der
+SSR-Hydration). Beide greifen hier nicht — das Panel ist eine reine Client-Anwendung ohne SSR, und
+alle Navigationsziele stehen fest im Code, keines kommt von außen. Der Fix wäre der Sprung auf
+Version 7, also eine Breaking-Change-Migration; die gehört getestet und nicht in einen
+Sicherheits-Commit gedrängt.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine. **n8n-Workflow-Kompatibilität:** Keine. **Neustart:** Keiner nötig.
+
+---
+
+
 ## [5.4.0.0] - 2026-09-15 (Build 209) — *Was eine Durchsicht des ganzen Codes zutage brachte*
 
 Anlass war eine gezielte Suche nach Fehlern und Sicherheitslücken im gesamten Bestand. Der Großteil
@@ -37,8 +62,10 @@ HTML. Was gefunden wurde, steht hier.
   `isEvalSupported: false` gesetzt, dazu keine Schriftverarbeitung und kein Nachladen.
 - **Erststart-Setup ohne Bremse** (`routes/auth.js`): `/api/auth/setup` hat jetzt dieselbe
   Versuchsbegrenzung wie der Login.
-- **CI**: Der Testlauf bekommt nur noch Leserechte (`permissions: contents: read`), und beide Läufe
-  melden bekannte Schwachstellen der Abhängigkeiten (`npm audit`, bewusst nicht blockierend).
+- **CI**: Testlauf und Abhängigkeitsprüfung bekommen nur noch Leserechte
+  (`permissions: contents: read`) statt der Standardrechte des Repository-Tokens. Einen eigenen
+  `npm audit`-Workflow gab es bereits (`security-audit.yml`, wöchentlich und bei Änderungen an den
+  `package.json`) — der bleibt die zuständige Stelle dafür.
 
 **System-Auswirkungen & Nachwirken (Impact Analysis):**
 - **DB-Migrationen:** Keine.
