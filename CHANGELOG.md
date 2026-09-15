@@ -2,6 +2,30 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [5.4.2.0] - 2026-09-15 (Build 212) — *Der Newsletter-Knopf jetzt auch in den Entscheidungen*
+
+Denselben Handgriff wie im Ordner-Tab (Build 208) gibt es jetzt auch dort, wo man Fehleinordnungen
+tatsächlich bemerkt: in der Entscheidungs-Chronik.
+
+### Änderungen
+- **Orangener „Newsletter"-Knopf an zwei Stellen** (`pages/Sortierung.jsx`): in der Sammelleiste
+  über den markierten Einträgen und in der aufgeklappten Einzelzeile neben „Verschieben & merken".
+  Er spart das Tippen des Ordnernamens — sonst passiert genau dasselbe wie beim Korrigieren, die
+  Merken-Auswahl daneben (`ganze Domain` / `nur diese Adresse` / `nichts merken`) gilt unverändert
+  mit.
+- **Das Ziel wird je Eintrag aufgelöst, nicht einmal für die ganze Auswahl.** Mit „alle Postfächer"
+  stehen hier Einträge aus mehreren Konten untereinander, und der Newsletter-Ordner gehört zum
+  Konto — bei einem heißt er „Werbung", beim nächsten „Newsletter". Ein Eintrag, dessen Postfach
+  keinen eingestellt hat, wird übersprungen und als Fehlschlag gezählt, statt irgendwo anders zu
+  landen.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine. **n8n-Workflow-Kompatibilität:** Keine.
+- **Neustart-/Session-Verhalten:** Reines Frontend — hart neu laden genügt.
+
+---
+
+
 ## [5.4.1.0] - 2026-09-15 (Build 211) — *React Router 7*
 
 Der letzte offene Punkt aus der Code-Durchsicht: `react-router-dom` 6 → 7. Damit sind die beiden

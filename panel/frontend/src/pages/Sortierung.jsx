@@ -508,8 +508,18 @@ export default function Sortierung() {
     setKorrekturRegel('domain');
   };
 
-  const korrigieren = async (eintrag) => {
-    const ziel = korrekturOrdner.trim();
+  // Der Newsletter-Ordner hängt am Postfach, nicht an der Seite: Mit „alle
+  // Postfächer" stehen hier Einträge aus mehreren Konten untereinander, und
+  // jedes hat seinen eigenen (bei einem heißt er „Werbung", beim nächsten
+  // „Newsletter"). Deshalb je Eintrag auflösen, nicht einmal für alle.
+  const newsletterOrdnerFuer = (kontoName) => {
+    const konto = konten.find((k) => k.name === kontoName)
+      || konten.find((k) => k.id === Number(aktivesKonto));
+    return konto?.folder_newsletter || '';
+  };
+
+  const korrigieren = async (eintrag, zielVorgabe) => {
+    const ziel = String(zielVorgabe ?? korrekturOrdner).trim();
     if (!ziel) return melden('Bitte den richtigen Ordner angeben.', 'hinweis');
     try {
       const { data } = await api.post('/sortierung/korrigieren', {
@@ -543,9 +553,9 @@ export default function Sortierung() {
   // Sammelkorrektur: alle markierten Einträge der Chronik in einen neuen Ordner
   // verschieben und optional eine Regel anlegen. Nutzt die gleiche API wie die
   // Einzelkorrektur — ein Batch-Endpunkt existiert noch nicht.
-  const chronikSammelKorrigieren = async () => {
-    const ziel = korrekturOrdner.trim();
-    if (!ziel) return melden('Bitte den richtigen Ordner angeben.', 'hinweis');
+  const chronikSammelKorrigieren = async (alsNewsletter = false) => {
+    const eingetippt = korrekturOrdner.trim();
+    if (!alsNewsletter && !eingetippt) return melden('Bitte den richtigen Ordner angeben.', 'hinweis');
     if (auswahlChronik.length === 0) return;
     setChronikLaedt(true);
     let ok = 0;
@@ -554,9 +564,13 @@ export default function Sortierung() {
       for (const logId of auswahlChronik) {
         try {
           const mail = entscheidungen.eintraege.find(e => e.id === logId);
+          const ziel = alsNewsletter ? newsletterOrdnerFuer(mail?.konto) : eingetippt;
+          // Kein Newsletter-Ordner für dieses Postfach: lieber diesen einen
+          // Eintrag als Fehler zählen, als ihn irgendwo anders hinzuschieben.
+          if (!ziel) { fehler++; continue; }
           await api.post('/sortierung/korrigieren', {
-            log_id: logId, 
-            zielordner: ziel, 
+            log_id: logId,
+            zielordner: ziel,
             regelTyp: korrekturRegel,
             imap_uid: String(logId).startsWith('imap-') ? mail.uid : null,
             imap_konto: mail?.konto,
@@ -569,7 +583,8 @@ export default function Sortierung() {
           fehler++;
         }
       }
-      const teile = [`${ok} von ${auswahlChronik.length} Einträgen nach „${ziel}" korrigiert.`];
+      const wohin = alsNewsletter ? 'in den Newsletter-Ordner' : `nach „${eingetippt}"`;
+      const teile = [`${ok} von ${auswahlChronik.length} Einträgen ${wohin} korrigiert.`];
       if (fehler > 0) teile.push(`${fehler} fehlgeschlagen.`);
       melden(teile.join(' '), fehler > 0 ? 'warnung' : 'erfolg');
       setAuswahlChronik([]);
@@ -1867,8 +1882,19 @@ export default function Sortierung() {
                 <option value="absender">Merken: Exakter Absender</option>
                 <option value="keine">Nur diese verschieben</option>
               </select>
-              <button onClick={chronikSammelKorrigieren} disabled={chronikLaedt} className="btn !py-1 !px-3 text-sm flex items-center gap-1">
+              <button onClick={() => chronikSammelKorrigieren()} disabled={chronikLaedt} className="btn !py-1 !px-3 text-sm flex items-center gap-1">
                 <CheckCircle2 size={14} /> Korrigieren
+              </button>
+              {/* Der häufigste Fall braucht kein Tippen: Das Ziel steht im
+                  Konto, und bei „alle Postfächer" je Eintrag ein anderes. */}
+              <button
+                onClick={() => chronikSammelKorrigieren(true)}
+                disabled={chronikLaedt}
+                title="Markierte Einträge in den Newsletter-Ordner ihres Postfachs — die Merken-Auswahl daneben gilt auch hier"
+                className="btn !py-1 !px-3 text-sm flex items-center gap-1
+                           !bg-panel-orange hover:!bg-amber-500 !text-panel-bg"
+              >
+                <AlertCircle size={14} /> Newsletter ({auswahlChronik.length})
               </button>
               <button onClick={() => setAuswahlChronik([])} className="btn-ghost !py-1 !px-2 text-sm ml-auto">
                 Auswahl aufheben
@@ -2052,6 +2078,20 @@ export default function Sortierung() {
                               <option value="absender">Merken: nur {adresse(e.von)}</option>
                               <option value="keine">Nur diese Mail, nichts merken</option>
                             </select>
+                            <button
+                              onClick={() => {
+                                const ziel = newsletterOrdnerFuer(e.konto);
+                                if (!ziel) {
+                                  return melden(`Für „${e.konto}" ist kein Newsletter-Ordner eingestellt (Konten-Seite).`, 'fehler');
+                                }
+                                return korrigieren(e, ziel);
+                              }}
+                              title="In den Newsletter-Ordner dieses Postfachs — die Merken-Auswahl links gilt auch hier"
+                              className="btn !py-1.5 !px-3 text-sm whitespace-nowrap flex items-center gap-1
+                                         !bg-panel-orange hover:!bg-amber-500 !text-panel-bg"
+                            >
+                              <AlertCircle size={14} /> Newsletter
+                            </button>
                             <button onClick={() => korrigieren(e)} className="btn !py-1.5 !px-3 text-sm whitespace-nowrap">
                               Verschieben &amp; merken
                             </button>
