@@ -2,6 +2,35 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [5.4.1.0] - 2026-09-15 (Build 211) — *React Router 7*
+
+Der letzte offene Punkt aus der Code-Durchsicht: `react-router-dom` 6 → 7. Damit sind die beiden
+mittleren Meldungen erledigt (Open Redirect über Backslash in `<Link>`/`useNavigate`, Constructor
+Injection in der SSR-Hydration) — beide griffen hier zwar nicht, aber offen stehen lassen muss man
+sie deshalb nicht.
+
+**Warum das hier ein reiner Versionssprung ist, keine Migration:** Das Panel benutzt aus dem Paket
+nur `BrowserRouter`, `Routes`, `Route`, `Navigate`, `Outlet`, `NavLink`, `useLocation`,
+`useNavigate` und `useParams` — in Version 7 allesamt unverändert. Es gibt keinen Data-Router
+(`createBrowserRouter`), keine Loader oder Actions, kein `Form`, kein `useFetcher` und kein
+`lazy`/`Suspense`. Damit laufen die Umstellungen, die v7 zum Standard macht, hier ins Leere:
+`v7_fetcherPersist`, `v7_normalizeFormMethod`, `v7_partialHydration` und
+`v7_skipActionErrorRevalidation` betreffen Bauteile, die nicht vorkommen; `v7_startTransition`
+bräuchte eine Komponente, die während der Navigation aussetzt, und ohne `lazy`/`Suspense` gibt es
+die nicht; `v7_relativeSplatPath` ändert relative Pfade **innerhalb** einer `*`-Route, und die
+einzige hier (`path="*"`) leitet auf den absoluten Pfad `/` um.
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine. **n8n-Workflow-Kompatibilität:** Keine.
+- **Neustart-/Session-Verhalten:** Reines Frontend. Nach dem Deployment einmal hart neu laden.
+- **Worauf zu achten ist:** Der Build prüft die Importe, nicht das Verhalten. Nach dem Einspielen
+  einmal durchklicken: Seitenwechsel über die Navigation, Abmelden und der Sprung zurück auf
+  `/login`, eine unbekannte Adresse (muss auf das Dashboard zurückleiten) und ein Paste-Link
+  (`/paste/:id`).
+
+---
+
+
 ## [5.4.0.1] - 2026-09-15 (Build 210) — *Doppelte Prüfung wieder ausgebaut*
 
 In Build 209 kamen `npm audit`-Schritte in den Testlauf und in den Image-Bau — überflüssig, denn
