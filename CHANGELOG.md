@@ -2,6 +2,18 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [5.10.0.1] - 2026-09-15 (Build 223) — *Ein Test kannte den alten Wortlaut*
+
+Build 222 kam nicht durch den Testlauf: Der Prompt-Satz „Als Wert kommt NUR **der** Name aus den
+Anführungszeichen infrage" heißt jetzt „NUR **ein** Name" — treffend, seit es mehrere zulässige
+Namen gibt und das Schema die Auswahl ohnehin erzwingt. Ein Test prüfte noch den alten Wortlaut.
+
+### Bugfixes
+- Testregex in `test/klassifizierer.test.js` an die neue Formulierung angepasst.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- Nur der Testlauf betroffen. Kein Verhalten geändert, keine Migration.
+
 ## [5.10.0.0] - 2026-09-15 (Build 222) — *Der Ordner ist kein freier Text mehr*
 
 Aus dem Diagnosebericht vom 15.09.: `noreply@duden.de` „Letzter Tag: Ihr Premium-Test endet

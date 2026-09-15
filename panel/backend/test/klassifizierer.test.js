@@ -280,7 +280,10 @@ describe('Der Prompt', () => {
     settings.setze('themen_sortierung_aktiv', '1');
     antwortenMit(brav);
     await k.klassifizieren([mail(1)]);
-    assert.match(gefragt[0], /NUR der Name aus den Anfuehrungszeichen/);
+    // Seit Build 222 erzwingt zusätzlich das Schema selbst einen der Namen
+    // (siehe ordner-enum.test.js) — dieser Satz im Prompt bleibt trotzdem
+    // bestehen, für Gemini und als Erklärung fürs Modell.
+    assert.match(gefragt[0], /NUR ein Name aus den Anfuehrungszeichen/);
   });
 });
 
