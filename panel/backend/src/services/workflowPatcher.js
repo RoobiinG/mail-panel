@@ -18,6 +18,39 @@ const { loggen } = require('./panelLog');
 // umbenannter Knoten nicht durchs Raster fällt.
 const TELEGRAM_TYPEN = ['n8n-nodes-base.telegram', 'n8n-nodes-base.telegramTrigger'];
 
+// ─── Absenderprüfung im Telegram-Rückkanal ───────────────────────────────────
+//
+// Ein Telegram-Bot ist über seinen Namen auffindbar, und wer ihn anschreibt,
+// landet im selben Trigger wie der Besitzer. Eine Bedingung, die nur die
+// Knopf-Kennung prüft ("q_deliver_all"), fragt deshalb nie, WER gedrückt hat —
+// sie würde jedem antworten, der dieselbe Kennung schickt.
+//
+// Die Vorlage bringt dafür eine zweite Bedingung mit Platzhalter mit; hier
+// bekommt sie die hinterlegte Chat-ID. Fehlt die, bleibt der Platzhalter stehen
+// und die Bedingung trifft nie zu — der Zweig läuft dann gar nicht erst an.
+// Lieber wirkungslos als offen.
+const bedingungenAus = (knoten) => (Array.isArray(knoten?.parameters?.conditions?.string)
+  ? knoten.parameters.conditions.string
+  : []);
+
+const istChatIdBedingung = (bedingung) => String(bedingung?.value1 || '').includes('message.chat.id')
+  && telegram.istPlatzhalter(bedingung?.value2);
+
+function bedingungBrauchtChatId(knoten) {
+  return bedingungenAus(knoten).some(istChatIdBedingung);
+}
+
+function absenderpruefungFuellen(knoten, chatId) {
+  if (!chatId) return false;
+  let geaendert = false;
+  for (const bedingung of bedingungenAus(knoten)) {
+    if (!istChatIdBedingung(bedingung)) continue;
+    bedingung.value2 = String(chatId);
+    geaendert = true;
+  }
+  return geaendert;
+}
+
 const PRAEFIX = 'panel-';
 // Ankerpunkte in den Workflow-Vorlagen, an die das Panel andockt
 const ANKER = {
@@ -1809,6 +1842,10 @@ async function kiUndBenachrichtigungenSynchronisieren() {
             geaendert = true;
           }
         }
+        if (absenderpruefungFuellen(knoten, telegramChatId)) geaendert = true;
+        else if (bedingungBrauchtChatId(knoten) && !telegramChatId) {
+          ohneChatId.push(`${wfInfo.name || wfInfo.id} → ${knoten.name}`);
+        }
         // Über den Typ, nicht über den Namen.
         //
         // Bis Build 195 stand hier eine Liste mit drei Knotennamen. Wer den
@@ -2080,4 +2117,5 @@ module.exports = {
   kiKnotenNeutralBenennen, KI_NAME, KI_ZUSAMMENFASSER_NAME,
   KI_ZEITLIMIT_GEMINI, KI_ZEITLIMIT_OLLAMA,
   kiAntwortLesenAngleichen, istKiKnoten,
+  absenderpruefungFuellen, bedingungBrauchtChatId,
 };

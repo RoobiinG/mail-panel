@@ -76,8 +76,12 @@ router.get('/setup-status', (req, res) => {
   res.json({ setupNoetig: anzahlUser() === 0 });
 });
 
-// Einmaliges Anlegen des Admin-Kontos beim Erststart
-router.post('/setup', (req, res) => {
+// Einmaliges Anlegen des Admin-Kontos beim Erststart.
+//
+// Auch hier die Bremse: Zwar schliesst die Pruefung darunter den Weg, sobald
+// ein Benutzer existiert — bis dahin steht der Endpunkt aber offen, und genau
+// in diesem Fenster soll niemand im Sekundentakt Versuche abfeuern koennen.
+router.post('/setup', loginLimiter, (req, res) => {
   if (anzahlUser() > 0) return res.status(403).json({ error: 'Setup ist bereits abgeschlossen.' });
   const { username, password } = req.body || {};
   if (!username || typeof username !== 'string' || username.trim().length < 3) {

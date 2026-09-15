@@ -111,7 +111,9 @@ services:
     volumes:
       - n8n_data:/home/node/.n8n
     ports:
-      - "${N8N_PORT:-5678}:5678"
+      # Standardmäßig nur lokal erreichbar — davor gehört ein Reverse Proxy.
+      # Wer ohne Proxy direkt aufs Gerät zugreift, setzt N8N_BIND=0.0.0.0.
+      - "${N8N_BIND:-127.0.0.1}:${N8N_PORT:-5678}:5678"
     networks:
       - internal
 
@@ -157,7 +159,12 @@ services:
     volumes:
       - panel_data:/app/data
     ports:
-      - "${PANEL_PORT:-3002}:3002"
+      # Wie bei n8n und Ollama: standardmäßig nur lokal. Hinter diesem Port
+      # liegen auch die internen Prüfdienst-Endpunkte (/api/internal/*), die
+      # allein über das Panel-Secret abgesichert sind — die sollen nicht schon
+      # deshalb im Netz stehen, weil jemand das Panel gestartet hat. Ohne
+      # Reverse Proxy: PANEL_BIND=0.0.0.0 in der .env.
+      - "${PANEL_BIND:-127.0.0.1}:${PANEL_PORT:-3002}:3002"
     depends_on:
       - n8n
     networks:

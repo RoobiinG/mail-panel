@@ -23,12 +23,16 @@
             {
               "value1": "={{ $json.message.data }}",
               "value2": "q_deliver_all"
+            },
+            {
+              "value1": "={{ $json.message.message.chat.id }}",
+              "value2": "DEINE_CHAT_ID"
             }
           ]
         }
       },
       "id": "switch-action",
-      "name": "Aktion prüfen",
+      "name": "Aktion und Absender prüfen",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 1,
       "position": [
@@ -77,14 +81,14 @@
       "main": [
         [
           {
-            "node": "Aktion prüfen",
+            "node": "Aktion und Absender prüfen",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Aktion prüfen": {
+    "Aktion und Absender prüfen": {
       "main": [
         [
           {

@@ -12,6 +12,23 @@ import UploadFreigabenKarte from '../components/UploadFreigabenKarte';
 import NachsortierungKarte from '../components/NachsortierungKarte';
 import OrdnerFeld from '../components/ui/OrdnerFeld';
 
+// Der Abmelde-Link stammt aus dem List-Unsubscribe-Kopf einer fremden Mail —
+// also aus der Hand dessen, der sie geschickt hat. Ohne Prüfung stünde dort
+// auch „javascript:…", und ein Klick darauf liefe im Ursprung des Panels, mit
+// Zugriff auf die Sitzung. Deshalb: nur die drei Schemata, die hier Sinn
+// ergeben; alles andere wird als Text gezeigt statt als Verweis.
+const ERLAUBTE_SCHEMATA = ['http:', 'https:', 'mailto:'];
+
+function sichererLink(roh) {
+  const kandidat = String(roh || '').replace(/[<>]/g, '').split(',')[0].trim();
+  if (!kandidat) return null;
+  try {
+    return ERLAUBTE_SCHEMATA.includes(new URL(kandidat).protocol) ? kandidat : null;
+  } catch {
+    return null; // Gar keine gültige Adresse — dann erst recht kein Verweis.
+  }
+}
+
 // "Name <a@b.de>" -> "a@b.de" bzw. "b.de"
 const adresse = (von) => {
   const roh = String(von || '').toLowerCase().trim();
@@ -2920,9 +2937,24 @@ export default function Sortierung() {
                 {ansicht.unsubscribe && (
                   <div className="bg-panel-bg border border-panel-border rounded p-3 flex flex-col sm:flex-row sm:items-center gap-2">
                     <span className="text-sm font-medium shrink-0">Abmelde-Link:</span>
-                    <a href={ansicht.unsubscribe.replace(/[<>]/g, '').split(',')[0].trim()} target="_blank" rel="noopener noreferrer" className="text-sm text-panel-accent hover:underline truncate max-w-[500px]">
-                      {ansicht.unsubscribe.replace(/[<>]/g, '').split(',')[0].trim()}
-                    </a>
+                    {sichererLink(ansicht.unsubscribe) ? (
+                      <a
+                        href={sichererLink(ansicht.unsubscribe)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-panel-accent hover:underline truncate max-w-[500px]"
+                      >
+                        {sichererLink(ansicht.unsubscribe)}
+                      </a>
+                    ) : (
+                      <span
+                        className="text-sm text-panel-orange truncate max-w-[500px]"
+                        title={ansicht.unsubscribe}
+                      >
+                        Kein anklickbarer Link — der Absender hat hier etwas anderes als http, https
+                        oder mailto eingetragen.
+                      </span>
+                    )}
                   </div>
                 )}
                 <div className="flex-1 overflow-auto bg-panel-bg/50 border border-panel-border p-4 rounded text-sm whitespace-pre-wrap break-words font-mono">

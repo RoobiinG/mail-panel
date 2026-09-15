@@ -30,6 +30,11 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Der Testlauf liest nur — mehr braucht er nicht. Ohne diesen Block bekäme
+    # der Token die Standardrechte des Repositories, also je nach Einstellung
+    # auch Schreibrechte.
+    permissions:
+      contents: read
     steps:
       - name: Code auschecken
         uses: actions/checkout@v7
@@ -49,3 +54,17 @@ jobs:
       - name: Tests
         working-directory: panel/backend
         run: npm test
+
+      # Bekannte Schwachstellen in den Abhängigkeiten sichtbar machen. Bewusst
+      # nicht blockierend: Eine neue Meldung in einem fremden Paket soll keinen
+      # Testlauf rot färben, der mit der eigenen Änderung nichts zu tun hat —
+      # sie soll im Protokoll stehen, damit sie jemand liest.
+      - name: Schwachstellen-Check (Backend)
+        working-directory: panel/backend
+        continue-on-error: true
+        run: npm audit --omit=dev
+
+      - name: Schwachstellen-Check (Frontend)
+        working-directory: panel/frontend
+        continue-on-error: true
+        run: npm install --no-audit --no-fund && npm audit --omit=dev

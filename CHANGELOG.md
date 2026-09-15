@@ -2,6 +2,57 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [5.4.0.0] - 2026-09-15 (Build 209) — *Was eine Durchsicht des ganzen Codes zutage brachte*
+
+Anlass war eine gezielte Suche nach Fehlern und Sicherheitslücken im gesamten Bestand. Der Großteil
+hielt stand — SQL durchgehend mit Platzhaltern, kein `eval`/`exec`, SSRF-Schutz inklusive
+DNS-Rebinding, AES-256-GCM mit frischem IV, Mailinhalte im Frontend überall als Text statt als
+HTML. Was gefunden wurde, steht hier.
+
+### Sicherheit
+- **Das Panel-Secret ging bei jedem Öffnen der Einstellungsseite im Klartext über die Leitung**
+  (`routes/einstellungen.js`). Es ist der Generalschlüssel für *jeden* `/api/internal/*`-Endpunkt,
+  und es war der einzige Wert, den `settings.fuerUi()` nicht maskierte. Jetzt maskiert wie alle
+  anderen; den Klartext holt die Oberfläche auf Knopfdruck über `GET /einstellungen/panel-secret`,
+  und dieser Abruf steht mit Benutzernamen im Protokoll.
+- **Der Abmelde-Link aus einer Mail wurde ungeprüft als Verweis dargestellt**
+  (`pages/Sortierung.jsx`). `List-Unsubscribe` bestimmt der Absender; stand dort `javascript:…`,
+  lief ein Klick im Ursprung des Panels — mit Zugriff auf die Sitzung. Jetzt sind nur `http`,
+  `https` und `mailto` anklickbar, alles andere wird als Hinweis angezeigt. Das Backend prüfte
+  diesen Link über `urlSchutz` schon vorher; nur die Anzeige tat es nicht.
+- **Panel und n8n hörten ab Werk auf allen Netzwerkschnittstellen** (`docker-compose.yml`). Damit
+  standen auch die intern gedachten Prüfdienst-Endpunkte im Netz, die allein das Panel-Secret
+  schützt. Jetzt wie bei Ollama standardmäßig nur lokal; `PANEL_BIND` / `N8N_BIND` in der `.env`
+  öffnen sie bewusst. **Wer das Panel ohne Reverse Proxy direkt über die Server-IP aufruft, muss
+  `PANEL_BIND=0.0.0.0` setzen.**
+- **Der Telegram-Rückkanal fragte nicht, wer drückt** (`workflows/05-telegram-callback.json`). Die
+  Bedingung prüfte nur die Knopf-Kennung — die steht als fester Text in der Vorlage, und wer den
+  Bot anschreibt, landet im selben Trigger wie der Besitzer. Die Vorlage prüft jetzt zusätzlich die
+  Chat-ID; der Workflow-Abgleich setzt die hinterlegte ein. Ohne hinterlegte Chat-ID bleibt der
+  Platzhalter stehen, die Bedingung trifft nie zu und der Zweig läuft gar nicht erst an.
+- **`pdf-parse` ersetzt durch `pdfjs-dist`** (`services/pdfText.js`). Das alte Paket ist seit 2018
+  unverändert und bringt eine ebenso alte pdf.js-Kopie mit — betroffen von der Lücke, die als
+  CVE-2024-4367 bekannt wurde (präparierte Schrift führt JavaScript aus, behoben ab pdf.js 4.2.67).
+  Auf diesem Pfad landen PDF-Anhänge von Fremden. Zusätzlich zum aktuellen Paket ist jetzt
+  `isEvalSupported: false` gesetzt, dazu keine Schriftverarbeitung und kein Nachladen.
+- **Erststart-Setup ohne Bremse** (`routes/auth.js`): `/api/auth/setup` hat jetzt dieselbe
+  Versuchsbegrenzung wie der Login.
+- **CI**: Der Testlauf bekommt nur noch Leserechte (`permissions: contents: read`), und beide Läufe
+  melden bekannte Schwachstellen der Abhängigkeiten (`npm audit`, bewusst nicht blockierend).
+
+**System-Auswirkungen & Nachwirken (Impact Analysis):**
+- **DB-Migrationen:** Keine.
+- **n8n-Workflow-Kompatibilität:** Die geänderte Vorlage 05 wirkt für bestehende Installationen
+  erst nach einem Neuimport; der Chat-ID-Abgleich selbst läuft beim nächsten automatischen
+  Workflow-Abgleich mit.
+- **Neustart-/Session-Verhalten:** `docker compose up -d` zieht die neue Port-Bindung. Wer bisher
+  direkt auf `<server-ip>:3002` ging, braucht `PANEL_BIND=0.0.0.0` in der `.env`.
+- **Offen:** Das Repository führt weiterhin keine Lockfiles (`.gitignore`), Abhängigkeiten werden
+  beim Bauen frisch aufgelöst. Der neue `npm audit`-Schritt macht die Folgen wenigstens sichtbar.
+
+---
+
+
 ## [5.3.0.0] - 2026-09-14 (Build 208) — *List-Unsubscribe geht jetzt vor der KI*
 
 ### Features

@@ -294,6 +294,9 @@ export default function Einstellungen() {
   const [dnsblText, setDnsblText] = useState('');
   const [meldung, setMeldung] = useState({});
   const [tests, setTests]     = useState({});
+  // Das Panel-Secret kommt nicht mehr mit den übrigen Einstellungen, sondern
+  // erst auf Knopfdruck — siehe Karte „Panel-Secret".
+  const [panelSecret, setPanelSecret] = useState('');
 
   // Passkeys
   const [passkeys,    setPasskeys]    = useState([]);
@@ -305,6 +308,15 @@ export default function Einstellungen() {
   const [showPrideFlag, setShowPrideFlag] = useState(
     () => localStorage.getItem('show_pride_flag') !== 'false'
   );
+
+  const panelSecretHolen = async () => {
+    try {
+      const { data } = await api.get('/einstellungen/panel-secret');
+      setPanelSecret(data.panel_secret || '');
+    } catch {
+      setPanelSecret('');
+    }
+  };
 
   const loadPasskeys = async () => {
     try { const { data } = await api.get('/passkeys'); setPasskeys(data); } catch { /* ignorieren */ }
@@ -1223,9 +1235,28 @@ export default function Einstellungen() {
               In n8n als Header-Auth-Credential anlegen: Name{' '}
               <code className="text-panel-text">X-Panel-Secret</code>, Wert:
             </p>
-            <code className="block bg-panel-surface border border-panel-border rounded-md p-2 text-xs font-mono break-all text-panel-text">
-              {settings.panel_secret}
-            </code>
+            {/* Der Wert kommt nicht mehr mit den übrigen Einstellungen mit: Er
+                öffnet jeden /api/internal-Endpunkt, also wird er einzeln und
+                bewusst geholt — und dieser Abruf steht im Protokoll. */}
+            {panelSecret ? (
+              <code className="block bg-panel-surface border border-panel-border rounded-md p-2 text-xs font-mono break-all text-panel-text">
+                {panelSecret}
+              </code>
+            ) : (
+              <div className="flex items-center gap-2">
+                <code className="flex-1 bg-panel-surface border border-panel-border rounded-md p-2 text-xs font-mono text-panel-muted">
+                  {settings.panel_secret_gesetzt ? '••••••••' : '(nicht gesetzt)'}
+                </code>
+                <button
+                  type="button"
+                  onClick={panelSecretHolen}
+                  disabled={!settings.panel_secret_gesetzt}
+                  className="btn-ghost !py-1.5 !px-3 text-xs whitespace-nowrap disabled:opacity-40"
+                >
+                  Anzeigen
+                </button>
+              </div>
+            )}
           </Card>
 
           <Card title={<><ShieldCheck size={13} /> Passkeys (WebAuthn)</>}>

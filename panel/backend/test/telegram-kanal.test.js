@@ -175,3 +175,50 @@ describe('Der glückliche Fall', () => {
     assert.ok(gerufen[0].text.length <= 4000, 'Telegram lehnt ab 4096 Zeichen ab');
   });
 });
+
+// Der Rückkanal: Wer den Bot anschreibt, landet im selben Trigger wie der
+// Besitzer. Ohne Absenderprüfung genügt die Knopf-Kennung, um eine Aktion im
+// Panel auszulösen — die Kennung steht als fester Text in der Vorlage.
+describe('Die Absenderprüfung im Telegram-Rückkanal', () => {
+  const patcher = require('../src/services/workflowPatcher');
+
+  const knotenMitPruefung = () => ({
+    name: 'Aktion und Absender prüfen',
+    parameters: {
+      conditions: {
+        string: [
+          { value1: '={{ $json.message.data }}', value2: 'q_deliver_all' },
+          { value1: '={{ $json.message.message.chat.id }}', value2: 'DEINE_CHAT_ID' },
+        ],
+      },
+    },
+  });
+
+  test('die hinterlegte Chat-ID ersetzt den Platzhalter', () => {
+    const knoten = knotenMitPruefung();
+    assert.equal(patcher.absenderpruefungFuellen(knoten, '987654321'), true);
+    assert.equal(knoten.parameters.conditions.string[1].value2, '987654321');
+    assert.equal(knoten.parameters.conditions.string[0].value2, 'q_deliver_all',
+      'die Knopf-Kennung bleibt unangetastet');
+  });
+
+  test('ohne Chat-ID bleibt der Platzhalter stehen — die Bedingung trifft dann nie zu', () => {
+    const knoten = knotenMitPruefung();
+    assert.equal(patcher.absenderpruefungFuellen(knoten, ''), false);
+    assert.equal(knoten.parameters.conditions.string[1].value2, 'DEINE_CHAT_ID');
+    assert.equal(patcher.bedingungBrauchtChatId(knoten), true, 'und das Panel sagt es');
+  });
+
+  test('ein bereits gefüllter Wert wird nicht überschrieben', () => {
+    const knoten = knotenMitPruefung();
+    knoten.parameters.conditions.string[1].value2 = '111';
+    assert.equal(patcher.absenderpruefungFuellen(knoten, '987654321'), false);
+    assert.equal(knoten.parameters.conditions.string[1].value2, '111');
+  });
+
+  test('Knoten ohne solche Bedingung bleiben unberührt', () => {
+    const knoten = { name: 'Irgendwas', parameters: { url: 'http://panel:3002/x' } };
+    assert.equal(patcher.absenderpruefungFuellen(knoten, '987654321'), false);
+    assert.equal(patcher.bedingungBrauchtChatId(knoten), false);
+  });
+});

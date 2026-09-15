@@ -1,5 +1,6 @@
 const express  = require('express');
 const db       = require('../db');
+const { loggen } = require('../services/panelLog');
 const settings = require('../services/settings');
 const n8n      = require('../services/n8n');
 const mailcow  = require('../services/mailcow');
@@ -30,9 +31,26 @@ router.get('/', (req, res) => {
   res.json({
     ...Object.fromEntries(zeilen.map((z) => [z.key, z.value])),
     ...settings.fuerUi(),
-    // Damit der Nutzer das Secret in die n8n-Workflows kopieren kann
-    panel_secret: process.env.PANEL_SECRET,
+    // Nur ob es eines gibt — den Wert selbst holt die Oberflaeche bei Bedarf
+    // einzeln ab (siehe GET /panel-secret). Das Secret oeffnet JEDEN
+    // /api/internal/*-Endpunkt ohne weitere Pruefung; es gehoert damit nicht in
+    // eine Antwort, die bei jedem Oeffnen der Seite ueber die Leitung geht und
+    // in jedem Browser-Cache und Log landet.
+    panel_secret: process.env.PANEL_SECRET ? '••••••••' : '',
+    panel_secret_gesetzt: Boolean(process.env.PANEL_SECRET),
   });
+});
+
+// GET /api/einstellungen/panel-secret — den Schlüssel im Klartext holen.
+//
+// Eigener Weg, weil dieser eine Wert mehr Gewicht hat als alle anderen: Er ist
+// der Generalschluessel fuer die interne API. Wer ihn abruft, tut das bewusst
+// (Knopf „Anzeigen"), und es steht danach im Protokoll — wer ihn wann geholt
+// hat, laesst sich so nachlesen.
+router.get('/panel-secret', (req, res) => {
+  loggen('warn', 'einstellungen',
+    `Panel-Secret im Klartext abgerufen von ${req.user?.username || 'unbekannt'}.`);
+  res.json({ panel_secret: process.env.PANEL_SECRET || '' });
 });
 
 // GET /api/einstellungen/ki-modelle — welche Gemini-Modelle stehen zur Wahl?
