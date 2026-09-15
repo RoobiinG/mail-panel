@@ -311,6 +311,18 @@ db.exec(`
     FOREIGN KEY(konto_id) REFERENCES accounts(id) ON DELETE CASCADE
   );
 
+  -- Anordnung der Dashboard-Widgets, je Benutzer. Gespeichert wird genau das
+  -- Format von react-grid-layout ({i,x,y,w,h,...}) als JSON — das Panel deutet
+  -- es nicht, es reicht es nur durch. Passt eine gespeicherte Anordnung nicht
+  -- mehr zum Widget-Katalog (weil Widgets dazukommen oder wegfallen), gleicht
+  -- das Frontend sie beim Laden ab; hier ist deshalb nie etwas zu migrieren.
+  CREATE TABLE IF NOT EXISTS dashboard_layouts (
+    user_id INTEGER PRIMARY KEY,
+    layout TEXT NOT NULL,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
   CREATE TABLE IF NOT EXISTS ordner_alias (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     konto_id INTEGER NOT NULL,

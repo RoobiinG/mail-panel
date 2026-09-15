@@ -2,6 +2,67 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [5.7.0.0] - 2026-09-15 (Build 217) — *Das Dashboard wird ein Widget-Brett*
+
+Das Dashboard war eine feste Abfolge von Karten, und das sah man ihm an: Der Sortier-Rückstand
+stand auf halber Breite, weil daneben das KI-Budget gehörte — das bei Ollama gar nicht angezeigt
+wird. Übrig blieb eine halbe Seite Leere. Die Schutz-Kacheln lagen unter den Diagrammen, die
+Postfach-Auswahl mitten im Diagrammkopf, und die n8n-Anzeige schwebte als loser Kasten in einer
+Zeile mit einer Überschrift. Wer das anders gewichten wollte, konnte nichts tun.
+
+Jetzt ist jede Karte ein **Widget in einem freien Raster** — dieselbe Bauweise wie im
+Überwachungs-Panel (`react-grid-layout`).
+
+### Features
+- **Neun Widgets statt einer festen Seite**: Zu tun · Betrieb · Belege in Nextcloud · Zustand ·
+  Sortier-Rückstand & Posteingang · KI-Tagesbudget · Schutzwirkung · Tagesverlauf · Verteilung.
+- **Verschieben am Kopf, Größe an den Kanten.** Der Griff sitzt links im Widget-Kopf; der Rest des
+  Kopfes bleibt bedienbar, damit Knöpfe und Auswahlfelder dort nicht am Ziehen scheitern.
+- **Einzeln ausblenden und zurückholen.** Ausgeblendete Widgets stehen als Knopf in der Leiste
+  über dem Raster und kommen an ihre alte Stelle zurück — die Anordnung merkt sich die Position,
+  auch wenn das Widget gerade nicht zu sehen ist. Dazu „Anordnung zurücksetzen".
+- **Die Anordnung hängt am Benutzer und liegt im Panel**, nicht im Browser: neue Tabelle
+  `dashboard_layouts`, `GET`/`PUT /api/dashboard/layout`. Sie gilt deshalb auch am nächsten Gerät.
+  Jeder Benutzer hat seine eigene.
+- **Am Handy einspaltig gestapelt**, ohne Ziehen und ohne Größenänderung: Auf 375 px wäre ein
+  Raster, das man nicht bedienen kann, nur im Weg. Die Reihenfolge folgt der Anordnung.
+
+### Änderungen
+- **Die Standard-Anordnung lässt keine Reihe halb leer.** „Zu tun" oben links neben Betrieb und
+  Belegen, darunter die Zustandskacheln über die volle Breite, dann Rückstand und Budget
+  nebeneinander, die Diagramme zum Schluss.
+- **Das Budget-Widget verschwindet bei Ollama nicht mehr**, sondern sagt selbst, warum es nichts zu
+  zählen hat. Vorher klaffte an seiner Stelle die Lücke.
+- **Die Postfach-Auswahl des Tagesverlaufs sitzt im Widget-Kopf** statt im Diagramm.
+- **Die n8n-Anzeige ist ein Widget** („Betrieb") mit Link zu den Workflows, dem Zeitpunkt der
+  letzten Auffrischung und einem Knopf dafür — vorher ein loser Kasten neben einer Überschrift.
+- **Kacheln sind flach statt Karte-in-Karte.** Innerhalb eines Widgets sah die alte Kachel mit
+  eigenem Schatten und Verlauf nach Verpackung aus.
+- **Farben aus der `panel-*`-Tafel**: Die Tailwind-Standardfarben im Dashboard (`emerald-500`,
+  `yellow-500`, `amber-400`, `blue-400`, `violet-500`, `red-500`) sind durch `panel-green`,
+  `panel-orange`, `panel-accent`, `panel-purple` und `panel-red` ersetzt.
+
+### Sicherheit
+- **Was der Browser als Anordnung schickt, wird nicht ungeprüft gespeichert.** `saeubern()` lässt
+  nur die bekannten Felder durch (`i/x/y/w/h/minW/minH/versteckt`), klemmt jede Zahl in ihre
+  Grenzen, verlangt kurze, harmlose Kennungen, wirft Dubletten weg und deckelt die Liste bei 40
+  Einträgen. Sonst stünde in der Datenbank genau das, was jemand in den Aufruf schreibt — und das
+  Dashboard läse es beim nächsten Laden wieder aus. Acht Tests halten das fest
+  (`test/dashboard-layout.test.js`).
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Datenbank:** neue Tabelle `dashboard_layouts` (`user_id`, `layout`, `updated_at`), angelegt
+  beim Start über `CREATE TABLE IF NOT EXISTS`. Keine Migration bestehender Daten, kein Umbau
+  vorhandener Tabellen. Wird ein Benutzer gelöscht, geht seine Anordnung mit (`ON DELETE CASCADE`).
+- **n8n-Workflows:** unberührt. Kein Neuimport nötig.
+- **Neue Abhängigkeit im Frontend:** `react-grid-layout` (^1.4.4, bringt `react-resizable` mit).
+  Das Abbild baut sie beim nächsten Build automatisch — lokal wäre ein `npm install` nötig.
+- **Neustart/Sitzung:** normaler Neustart genügt. Beim ersten Öffnen steht die Standard-Anordnung;
+  ab der ersten Verschiebung wird gespeichert. Kommt später ein Widget dazu, taucht es unten im
+  Raster auf, statt eine gespeicherte Anordnung ungültig zu machen.
+- **Nach dem Deployment im Browser:** Strg+F5 — das Raster bringt eigenes CSS mit, ein alter
+  Stand im Cache zeigt sonst gestapelte Widgets ohne Anordnung.
+
 ## [5.6.0.0] - 2026-09-15 (Build 216) — *Die Statistik bekommt eine Zeitachse*
 
 Dritter und letzter Schritt des Oberflächen-Umbaus. Die Statistik hatte bisher **keinen

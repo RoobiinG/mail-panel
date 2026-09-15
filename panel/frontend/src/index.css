@@ -116,3 +116,20 @@ input[type='checkbox'], input[type='radio'] {
     @apply hover:bg-panel-card/90 hover:border-white/10 hover:-translate-y-0.5 hover:shadow-[0_12px_40px_rgba(0,0,0,0.4)];
   }
 }
+
+/* react-grid-layout — Platzhalter und Anfasser im dunklen Panel.
+   Die mitgelieferten Stile sind für helle Oberflächen gedacht: Der Platzhalter,
+   der beim Ziehen zeigt, wo ein Widget landet, ist dort ein rotes Rechteck. Hier
+   ist er die gedämpfte Akzentfarbe mit gestricheltem Rand — dieselbe Rundung wie
+   eine Karte, damit er aussieht wie das Widget, das gleich einrastet.
+   Gleiche Behandlung wie im Überwachungs-Panel. */
+.react-grid-item.react-grid-placeholder {
+  background: rgba(56, 139, 253, 0.15) !important;
+  border: 1px dashed rgba(56, 139, 253, 0.5);
+  border-radius: 16px;
+}
+.react-resizable-handle { opacity: 0.25; transition: opacity 0.15s; }
+.react-grid-item:hover .react-resizable-handle { opacity: 0.8; }
+/* Das gezogene Widget gehört über die anderen, sonst schiebt es sich darunter. */
+.react-grid-item.react-grid-item--resizing,
+.react-grid-item.react-draggable-dragging { z-index: 20; }
