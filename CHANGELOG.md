@@ -2,6 +2,48 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [6.2.0.0] - 2026-09-17 (Build 226) — *Weniger Vertrauen in Adresse und Domain, mehr in den Inhalt*
+
+Nutzerhinweis: Nicht zu viel darf über E-Mail-Adresse oder Domain laufen — manche Anbieter
+verschicken alles über dieselbe Adresse (Buchung, Rechnung, Werbung von derselben „donotreply@"),
+und dort trifft nur der Inhalt der Mail die richtige Entscheidung, nicht der Absender.
+
+### Bugfixes
+- **„Zusammenfassen" konnte eine Inhalts-Bedingung stillschweigend wegwerfen.** Die Ausnahme für
+  Regeln mit Betreff-Bedingung (Build 197) galt nie für die neuere Inhalts-Bedingung
+  (`inhalt_muster`, Build 221) — sie fehlte einfach in der Abfrage. Eine Regel
+  „donotreply@easyjet.com + „buchungsnummer" → Reisen" wäre beim Zusammenfassen zu einer reinen
+  Domain-Regel verschmolzen worden — genau der Fall, für den die Bedingung überhaupt existiert.
+  Jetzt bleiben Regeln mit Inhalts-Bedingung von der Zusammenfassung ausgeschlossen, wie Regeln mit
+  Betreff-Bedingung auch.
+
+### Features
+- **„Zusammenfassen" warnt, wenn dieselbe Domain schon woanders landete.** `GET
+  .../zusammenfassbar` prüft jetzt fürs Protokoll, ob Mails derselben Domain je in einen anderen
+  Ordner einsortiert wurden als den vorgeschlagenen. Ist das der Fall, zeigt die Karte orange statt
+  blau, nennt die abweichenden Ordner und rät zu einer Regel mit Inhalts-Bedingung statt der
+  Domain-Regel — eine Vermutung wird sichtbar gemacht, nicht stillschweigend übergangen oder
+  blockiert; die Entscheidung bleibt beim Nutzer.
+- **Der Sammelknopf der Sortier-Inbox kennt jetzt dieselben fünf Merk-Arten wie die Korrektur in
+  den Entscheidungen**: Domain · Absender · **Absender + Stichwort** · **Stichwort im Inhalt** ·
+  keine Regel. Vorher gab es dort nur Domain, Absender oder nichts — für einen Anbieter, der eine
+  Adresse für alles benutzt, blieb keine der drei Optionen richtig. Das Stichwort wird beim
+  Umschalten vorgeschlagen (aus den Betreffen der sichtbaren Mails), bleibt aber änderbar.
+
+### Änderungen
+- **`POST /api/sortierung/sammel-zuordnen` nimmt jetzt zusätzlich `inhalt_muster` und `typ: 'inhalt'`
+  entgegen.** Die Dubletten-Prüfung berücksichtigt die Bedingung mit — dieselbe Adresse mit und ohne
+  Stichwort sind zwei verschiedene Regeln, keine Dublette, die sich gegenseitig überschreibt.
+- Zehn neue Tests: drei für die Zusammenfassen-Warnung, drei für den Inhalt-Ausschluss beim
+  Zusammenfassen, sieben für `POST /sammel-zuordnen` — die Route hatte vorher keinen einzigen.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Datenbank:** keine Änderung.
+- **n8n-Workflows:** unberührt.
+- **API:** `POST /api/sortierung/sammel-zuordnen` bekommt ein zusätzliches, optionales Feld
+  (`inhalt_muster`) — bestehende Aufrufe ohne dieses Feld verhalten sich unverändert.
+- **Neustart/Sitzung:** normaler Neustart, danach Strg+F5.
+
 ## [6.1.0.0] - 2026-09-17 (Build 225) — *Die Sortier-Inbox macht mehr vor*
 
 ### Features

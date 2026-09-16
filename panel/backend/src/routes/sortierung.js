@@ -759,13 +759,17 @@ router.post('/korrigieren', async (req, res) => {
 
 /** Gruppen von mindestens zwei Absender-Regeln mit gleicher Domain und gleichem Ziel. */
 function zusammenfassbar(kontoId) {
-  // Regeln mit Betreff-Bedingung bleiben außen vor. Sie zu einer Domain-Regel
-  // zu verschmelzen hieße, genau die Bedingung wegzuwerfen, wegen der es sie
-  // gibt — und aus „nur Bestellbestätigungen" würde stillschweigend „alles von
-  // dieser Firma".
+  // Regeln mit Betreff- ODER Inhalts-Bedingung bleiben außen vor. Sie zu einer
+  // Domain-Regel zu verschmelzen hieße, genau die Bedingung wegzuwerfen, wegen
+  // der es sie gibt — und aus „nur Bestellbestätigungen" oder „nur wenn
+  // 'Buchungsnummer' drinsteht" würde stillschweigend „alles von dieser
+  // Firma". Gerade die Inhalts-Bedingung existiert extra für Anbieter, die
+  // dieselbe Adresse für alles benutzen (Buchung, Rechnung, Werbung von
+  // derselben "donotreply@") — die als erste wieder zu verschmelzen wäre der
+  // Grund, warum es sie gibt, rückgängig gemacht.
   const regeln = db.prepare(
     "SELECT id, typ, muster, zielordner, treffer FROM sort_rules WHERE konto_id = ? AND typ = 'absender'"
-    + " AND IFNULL(betreff_muster, '') = ''",
+    + " AND IFNULL(betreff_muster, '') = '' AND IFNULL(inhalt_muster, '') = ''",
   ).all(kontoId);
   const domainRegeln = new Set(
     db.prepare("SELECT muster FROM sort_rules WHERE konto_id = ? AND typ = 'domain'")
@@ -780,7 +784,31 @@ function zusammenfassbar(kontoId) {
     if (!gruppen.has(schluessel)) gruppen.set(schluessel, { domain: dom, zielordner: r.zielordner, regeln: [] });
     gruppen.get(schluessel).regeln.push(r);
   }
-  return [...gruppen.values()].filter((g) => g.regeln.length >= 2);
+
+  const kandidaten = [...gruppen.values()].filter((g) => g.regeln.length >= 2);
+
+  // Warnt, statt zu verschweigen: Ist dieselbe Domain im Protokoll schon auch
+  // WOANDERS gelandet, verschickt sie erkennbar nicht nur eine Sorte Mail —
+  // genau der Fall, vor dem eine Domain-Regel nicht schützen kann. Dieselbe
+  // Prüfung, die themen.js beim automatischen Lernen anstellt (dort auf den
+  // exakten Absender bezogen), hier auf die Domain bezogen, weil DAS die
+  // vorgeschlagene Regel wäre.
+  for (const g of kandidaten) {
+    try {
+      // von steht im Protokoll normalerweise als nackte Adresse (die
+      // Normalisierer ziehen sie schon vorher aus envelope.from), gelegentlich
+      // aber als "Name <a@b.de>" — deshalb beide Endungen prüfen.
+      const andereZiele = db.prepare(
+        `SELECT DISTINCT zielordner FROM quarantine_log
+         WHERE konto = (SELECT name FROM accounts WHERE id = ?)
+           AND (von LIKE ? OR von LIKE ?)
+           AND zielordner IS NOT NULL AND zielordner != '' AND zielordner != ?`,
+      ).all(kontoId, `%@${g.domain}`, `%@${g.domain}>`, g.zielordner);
+      g.andereZiele = andereZiele.map((z) => z.zielordner);
+    } catch { g.andereZiele = []; }
+  }
+
+  return kandidaten;
 }
 
 // GET /api/sortierung/regeln/zusammenfassbar?konto_id=1
@@ -898,19 +926,34 @@ router.post('/regeln/zusammenfassen', async (req, res) => {
 const kontoLaden = (id) => db.prepare('SELECT * FROM accounts WHERE id = ?').get(Number(id));
 
 // POST /api/sortierung/sammel-zuordnen
-// { konto_id, typ: 'absender'|'domain'|'betreff', muster, zielordner, regelMerken }
+// { konto_id, typ: 'absender'|'domain'|'betreff'|'inhalt', muster, zielordner, inhalt_muster, regelMerken }
 router.post('/sammel-zuordnen', async (req, res) => {
   const { konto_id, typ, muster, zielordner, regelMerken = true } = req.body || {};
+  // Die Zusatzbedingung fürs Sortier-Inbox-Handgriff: "diese Adresse, aber nur
+  // wenn das Stichwort in der Mail steht" — derselbe Mechanismus wie beim
+  // einzelnen Korrigieren (routes/sortierung.js, POST /korrigieren) und beim
+  // Anlegen einer Regel (POST /regeln). Bei typ='inhalt' steht das Stichwort
+  // schon im Muster, eine zweite Bedingung wäre doppelt gemoppelt.
+  const inhaltMuster = typ === 'inhalt' ? '' : String(req.body?.inhalt_muster || '').trim();
   if (!konto_id || !typ || !muster || !zielordner) {
     return res.status(400).json({ error: 'konto_id, typ, muster und zielordner sind Pflicht.' });
   }
   if (!['absender', 'domain', 'betreff', 'inhalt'].includes(typ)) {
     return res.status(400).json({ error: 'Ungültiger Typ.' });
   }
+  if (typ === 'inhalt' && String(muster).trim().length < 3) {
+    return res.status(400).json({ error: 'Ein Stichwort für den Inhalt braucht mindestens 3 Zeichen.' });
+  }
+  if (inhaltMuster && inhaltMuster.length < 3) {
+    return res.status(400).json({ error: 'Ein Stichwort für den Inhalt braucht mindestens 3 Zeichen.' });
+  }
   const konto = kontoLaden(konto_id);
   if (!konto) return res.status(400).json({ error: 'Das Konto existiert nicht.' });
 
-  const regel = { typ, muster: String(muster).trim().toLowerCase(), zielordner: String(zielordner).trim() };
+  const regel = {
+    typ, muster: String(muster).trim().toLowerCase(), zielordner: String(zielordner).trim(),
+    inhalt_muster: inhaltMuster || null,
+  };
 
   try {
     // 1. Zielordner sicherstellen — ohne ihn scheitert jedes Verschieben
@@ -924,15 +967,18 @@ router.post('/sammel-zuordnen', async (req, res) => {
     // 2. Regel merken, damit künftige Mails gar nicht erst hier landen
     let regelId = null;
     if (regelMerken) {
+      // Die Zusatzbedingung gehört zum Vergleich: Dieselbe Adresse mit UND
+      // ohne Stichwort sind zwei verschiedene Regeln, keine Dublette.
       const schonDa = db.prepare(
-        'SELECT id FROM sort_rules WHERE konto_id = ? AND typ = ? AND muster = ?',
-      ).get(konto.id, regel.typ, regel.muster);
+        'SELECT id FROM sort_rules WHERE konto_id = ? AND typ = ? AND muster = ?'
+        + " AND IFNULL(inhalt_muster, '') = ?",
+      ).get(konto.id, regel.typ, regel.muster, inhaltMuster);
       if (schonDa) regelId = schonDa.id;
       else {
         regelId = db.prepare(`
-          INSERT INTO sort_rules (konto_id, typ, muster, zielordner, erstellt_von)
-          VALUES (?, ?, ?, ?, ?)
-        `).run(konto.id, regel.typ, regel.muster, regel.zielordner, req.user.id).lastInsertRowid;
+          INSERT INTO sort_rules (konto_id, typ, muster, zielordner, inhalt_muster, erstellt_von)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run(konto.id, regel.typ, regel.muster, regel.zielordner, inhaltMuster || null, req.user.id).lastInsertRowid;
       }
     }
 

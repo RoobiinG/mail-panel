@@ -45,13 +45,16 @@ const request = async (methode, pfad, rumpf) => {
 const kontoId = () => db.prepare("SELECT id FROM accounts WHERE name = 'K'").get().id;
 
 const regel = (typ, muster, zielordner, opt = {}) => db.prepare(
-  'INSERT INTO sort_rules (konto_id, typ, muster, zielordner, betreff_muster, aktion, treffer)'
-  + ' VALUES (?, ?, ?, ?, ?, ?, ?)',
-).run(kontoId(), typ, muster, zielordner, opt.betreff || null,
+  'INSERT INTO sort_rules (konto_id, typ, muster, zielordner, betreff_muster, inhalt_muster, aktion, treffer)'
+  + ' VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+).run(kontoId(), typ, muster, zielordner, opt.betreff || null, opt.inhalt || null,
   opt.aktion || 'verschieben', opt.treffer || 0).lastInsertRowid;
 
 beforeEach(() => {
-  db.exec('DELETE FROM sort_rules; DELETE FROM accounts;');
+  // quarantine_log gehört seit den "andereZiele"-Tests weiter unten mit dazu
+  // — sonst bliebe ein Protokolleintrag über das eigene Beispiel hinaus
+  // stehen und würde einen späteren Test verfälschen.
+  db.exec('DELETE FROM sort_rules; DELETE FROM accounts; DELETE FROM quarantine_log;');
   db.prepare("INSERT INTO accounts (name, host, port, username, password_enc, aktiv)"
     + " VALUES ('K', 'h', 993, 'u', 'x', 1)").run();
 });
@@ -285,6 +288,60 @@ describe('Zusammenfassen lässt Betreff-Regeln in Ruhe', () => {
     const r = await request('GET', `/api/sortierung/regeln/zusammenfassbar?konto_id=${kontoId()}`);
     assert.equal(r.json.length, 1);
     assert.equal(r.json[0].domain, 'treue.example');
+  });
+
+  // Dieselbe Überlegung gilt für die Inhalts-Bedingung — genauer sogar: Sie
+  // existiert extra für Anbieter, die dieselbe Adresse für alles benutzen
+  // (Buchung, Rechnung, Werbung von derselben "donotreply@"). Sie zuerst
+  // wieder zu einer Domain-Regel zu verschmelzen würde den Grund, warum es
+  // sie gibt, rückgängig machen.
+  test('zwei Absender-Regeln mit Inhalts-Bedingung sind nicht zusammenfassbar', async () => {
+    regel('absender', 'a@easyjet.example', 'Reisen', { inhalt: 'buchungsnummer' });
+    regel('absender', 'b@easyjet.example', 'Reisen', { inhalt: 'buchungsnummer' });
+
+    const r = await request('GET', `/api/sortierung/regeln/zusammenfassbar?konto_id=${kontoId()}`);
+    assert.deepEqual(r.json, []);
+  });
+});
+
+// Der eigentliche Grund für regel_ids statt domain (siehe Beschreibung oben
+// bei der Route): Eine Domain-Regel ist die weiteste aller Regeln — sie trifft
+// JEDE künftige Adresse. Ist dieselbe Domain im Protokoll schon auch woanders
+// gelandet, ist eine Domain-Regel wahrscheinlich der falsche Schluss, und die
+// Karte soll davor warnen, nicht daran vorbeigehen.
+describe('Zusammenfassen warnt, wenn dieselbe Domain schon woanders landete', () => {
+  const protokoll = (von, zielordner) => db.prepare(
+    "INSERT INTO quarantine_log (konto, von, zielordner) VALUES ('K', ?, ?)",
+  ).run(von, zielordner);
+
+  test('andereZiele bleibt leer, wenn die Domain immer im selben Ordner landete', async () => {
+    regel('absender', 'a@treue.example', 'Einkauf');
+    regel('absender', 'b@treue.example', 'Einkauf');
+    protokoll('a@treue.example', 'Einkauf');
+    protokoll('c@treue.example', 'Einkauf');
+
+    const r = await request('GET', `/api/sortierung/regeln/zusammenfassbar?konto_id=${kontoId()}`);
+    assert.deepEqual(r.json[0].andereZiele, []);
+  });
+
+  test('andereZiele nennt die abweichenden Ordner aus dem Protokoll', async () => {
+    regel('absender', 'a@easyjet.example', 'Einkauf');
+    regel('absender', 'b@easyjet.example', 'Einkauf');
+    protokoll('donotreply@easyjet.example', 'Werbung');
+    protokoll('donotreply@easyjet.example', 'Banking');
+    protokoll('donotreply@easyjet.example', 'Einkauf'); // das vorgeschlagene Ziel selbst zählt nicht als Abweichung
+
+    const r = await request('GET', `/api/sortierung/regeln/zusammenfassbar?konto_id=${kontoId()}`);
+    assert.deepEqual(r.json[0].andereZiele.sort(), ['Banking', 'Werbung']);
+  });
+
+  test('eine Adresse einer anderen Domain zählt nicht mit', async () => {
+    regel('absender', 'a@treue.example', 'Einkauf');
+    regel('absender', 'b@treue.example', 'Einkauf');
+    protokoll('a@anders.example', 'Werbung');
+
+    const r = await request('GET', `/api/sortierung/regeln/zusammenfassbar?konto_id=${kontoId()}`);
+    assert.deepEqual(r.json[0].andereZiele, []);
   });
 });
 

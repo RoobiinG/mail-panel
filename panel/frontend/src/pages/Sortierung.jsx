@@ -230,7 +230,14 @@ export default function Sortierung() {
   // Sortier-Inbox nach Absender-Domain gebuendelt
   const [offeneGruppen, setOffeneGruppen] = useState({});   // domain -> aufgeklappt?
   const [gruppenOrdner, setGruppenOrdner] = useState({});   // domain -> Zielordner
-  const [gruppenTyp, setGruppenTyp] = useState({});         // domain -> 'domain'|'absender'|'keine'
+  // domain -> 'domain'|'absender'|'absender_inhalt'|'inhalt'|'keine'. Die
+  // beiden Inhalts-Arten gibt es aus demselben Grund wie bei der Korrektur in
+  // den Entscheidungen: Viele Anbieter verschicken alles über dieselbe Adresse
+  // oder Domain — Buchung, Rechnung und Werbung von derselben "donotreply@".
+  // Eine Absender- oder gar Domain-Regel liegt dort zwangsläufig oft falsch.
+  const [gruppenTyp, setGruppenTyp] = useState({});
+  // Das Stichwort für die beiden Inhalts-Arten, je Domain-Gruppe.
+  const [gruppenStichwort, setGruppenStichwort] = useState({});
   const [gruppeLaeuft, setGruppeLaeuft] = useState('');
 
   // Einzelregeln, die sich zu einer Domain-Regel zusammenfassen lassen
@@ -1207,25 +1214,47 @@ export default function Sortierung() {
     behalten: (r.aktion || 'verschieben') === 'behalten',
   });
 
+  // Was aus der Auswahl "Regel: …" tatsächlich wird — typ, muster und, bei den
+  // beiden Inhalts-Arten, das Stichwort. Ein Ort, gebraucht an zwei Stellen
+  // (Verschieben und In-Ruhe-Lassen), damit beide dasselbe meinen. "keine"
+  // fällt bewusst auf "domain" zurück: Der Sammelaufruf braucht trotzdem eine
+  // Bedingung, um zu wissen, welche wartenden Mails er gleich mitnimmt — nur
+  // gemerkt wird sie dann nicht (regelMerken: false beim Aufrufer).
+  const gruppenRegelTeile = (gruppe, wahl) => {
+    const absender = adresse(gruppe.mails[0].von);
+    const stichwort = (gruppenStichwort[gruppe.domain] || '').trim();
+    if (wahl === 'absender') return { typ: 'absender', muster: absender, inhalt_muster: '' };
+    if (wahl === 'absender_inhalt') return { typ: 'absender', muster: absender, inhalt_muster: stichwort };
+    if (wahl === 'inhalt') return { typ: 'inhalt', muster: stichwort, inhalt_muster: '' };
+    return { typ: 'domain', muster: gruppe.domain, inhalt_muster: '' };
+  };
+  const gruppenBrauchtStichwort = (wahl) => wahl === 'absender_inhalt' || wahl === 'inhalt';
+
   // "In Ruhe lassen": eine Regel, die nichts verschiebt. Die Mails bleiben im
   // Posteingang und werden nicht mehr zur Zuordnung vorgelegt — für alles, was
   // man weder sortiert noch ständig wiedersehen möchte.
   const inRuheLassen = async (gruppe) => {
     const wahl = gruppenTyp[gruppe.domain] || (gruppe.absender.size > 1 ? 'domain' : 'absender');
-    const typ = wahl === 'absender' ? 'absender' : 'domain';
-    const muster = typ === 'domain' ? gruppe.domain : adresse(gruppe.mails[0].von);
+    if (gruppenBrauchtStichwort(wahl) && (gruppenStichwort[gruppe.domain] || '').trim().length < 3) {
+      return melden('Für eine Regel auf den Inhalt fehlt das Stichwort (mindestens 3 Zeichen).', 'hinweis');
+    }
+    const { typ, muster, inhalt_muster } = gruppenRegelTeile(gruppe, wahl);
+    const beschreibung = typ === 'inhalt' ? `Mails mit „${muster}" im Inhalt`
+      : typ === 'domain' ? `Mails von @${gruppe.domain}`
+      : inhalt_muster ? `Mails von ${muster} mit „${inhalt_muster}" im Inhalt`
+      : `Mails von ${muster}`;
     const kontoId = gruppe.mails[0]?.konto_id;
     if (!kontoId) return melden('Zu diesen Mails ist kein Konto hinterlegt.', 'hinweis');
     if (!(await nachfragen({
       titel: 'In Ruhe lassen?',
-      text: `Mails von ${typ === 'domain' ? '@' + gruppe.domain : muster} werden künftig nicht mehr `
-        + 'verschoben und nicht mehr zur Zuordnung vorgelegt. Sie bleiben einfach im Posteingang liegen.',
+      text: `${beschreibung} werden künftig nicht mehr verschoben und nicht mehr zur Zuordnung `
+        + 'vorgelegt. Sie bleiben einfach im Posteingang liegen.',
       bestaetigen: 'In Ruhe lassen',
     }))) return;
     setGruppeLaeuft(gruppe.domain);
     try {
       const { data } = await api.post('/sortierung/regeln', {
-        konto_id: kontoId, typ, muster, aktion: 'behalten',
+        konto_id: kontoId, typ, muster, inhalt_muster, aktion: 'behalten',
       });
       melden(`Regel angelegt — ${data.beruhigt || 0} wartende Mail(s) aus der Liste genommen.`);
       inboxLaden();
@@ -1327,17 +1356,19 @@ export default function Sortierung() {
     if (!kontoId) return melden('Zu diesen Mails ist kein Konto hinterlegt.', 'hinweis');
 
     // Standard: Domain-Regel, wenn mehrere Absender darin stecken
-    const typ = gruppenTyp[gruppe.domain] || (gruppe.absender.size > 1 ? 'domain' : 'absender');
-    const muster = typ === 'domain' ? gruppe.domain : adresse(gruppe.mails[0].von);
+    const wahl = gruppenTyp[gruppe.domain] || (gruppe.absender.size > 1 ? 'domain' : 'absender');
+    if (gruppenBrauchtStichwort(wahl) && (gruppenStichwort[gruppe.domain] || '').trim().length < 3) {
+      return melden('Für eine Regel auf den Inhalt fehlt das Stichwort (mindestens 3 Zeichen).', 'hinweis');
+    }
+    const { typ, muster, inhalt_muster } = gruppenRegelTeile(gruppe, wahl);
 
     setGruppeLaeuft(gruppe.domain);
     try {
       const { data } = await api.post('/sortierung/sammel-zuordnen', {
         konto_id: kontoId,
-        typ: typ === 'keine' ? 'domain' : typ,
-        muster: typ === 'keine' ? gruppe.domain : muster,
+        typ, muster, inhalt_muster,
         zielordner,
-        regelMerken: typ !== 'keine',
+        regelMerken: wahl !== 'keine',
       });
       // Eine nackte Fehlerzahl hilft niemandem weiter — sie sagt nicht, was zu
       // tun ist. Veraltete Eintraege sind ausserdem gar kein Fehler: Die Mail
@@ -2488,11 +2519,26 @@ export default function Sortierung() {
           {/* Aufgesammelte Einzelregeln zu einer Domain-Regel bündeln.
               Das Ziel steht als echtes Feld da, nicht als Text — der Vorschlag
               ist ein Vorschlag, kein Diktat. Voreingestellt auf das, worauf die
-              Einzelregeln ohnehin schon zeigen. */}
-          {zusammenfassbar.map(gruppe => (
+              Einzelregeln ohnehin schon zeigen.
+
+              Eine Domain-Regel ist die weiteste aller Regeln: Sie trifft JEDE
+              künftige Adresse dieser Domain, auch eine, die morgen zum ersten
+              Mal schreibt. Genau das ist bei Anbietern falsch, die dieselbe
+              Adresse (oder Domain) für alles benutzen — Buchung, Rechnung und
+              Werbung von derselben "donotreply@". Ist diese Domain im
+              Protokoll schon auch woanders gelandet, ist das kein Zufall,
+              sondern ein Beleg dafür — die Karte warnt dann, statt es zu
+              verschweigen (andereZiele kommt aus routes/sortierung.js). */}
+          {zusammenfassbar.map(gruppe => {
+            const riskant = gruppe.andereZiele?.length > 0;
+            return (
             <div key={gruppe.domain + gruppe.zielordner}
-              className="mx-4 mt-3 p-3 rounded-lg border border-panel-accent/40 bg-panel-accent/5 flex flex-wrap items-center gap-2 text-sm">
-              <Layers size={16} className="text-panel-accent shrink-0" />
+              className={`mx-4 mt-3 p-3 rounded-lg border flex flex-wrap items-center gap-2 text-sm ${
+                riskant ? 'border-panel-orange/50 bg-panel-orange/5' : 'border-panel-accent/40 bg-panel-accent/5'
+              }`}>
+              {riskant
+                ? <AlertCircle size={16} className="text-panel-orange shrink-0" />
+                : <Layers size={16} className="text-panel-accent shrink-0" />}
               <span className="flex-1 min-w-[240px] flex flex-wrap items-center gap-x-1.5">
                 <span className="font-medium">{gruppe.regeln.length} Einzelregeln</span>
                 <span>für</span>
@@ -2508,12 +2554,25 @@ export default function Sortierung() {
                 <span className="text-panel-muted basis-full sm:basis-auto">
                   Eine Domain-Regel ersetzt sie und deckt künftige Adressen mit ab.
                 </span>
+                {riskant && (
+                  <span className="text-panel-orange basis-full text-xs">
+                    Achtung: Mails von @{gruppe.domain} landeten laut Protokoll auch schon in{' '}
+                    {gruppe.andereZiele.map((z, i) => (
+                      <span key={z}>{i > 0 && ', '}<span className="font-mono">{z}</span></span>
+                    ))}
+                    {' '}— vermutlich verschickt dieser Anbieter mehr als eine Sorte Mail über dieselbe
+                    Adresse oder Domain. Statt zusammenzufassen lieber einzeln lassen oder oben über
+                    „+ Regel" eine an den Inhalt gebunden anlegen.
+                  </span>
+                )}
               </span>
-              <button onClick={() => regelnZusammenfassen(gruppe)} className="btn !py-1.5 !px-3 text-sm whitespace-nowrap">
+              <button onClick={() => regelnZusammenfassen(gruppe)}
+                className={`btn !py-1.5 !px-3 text-sm whitespace-nowrap ${riskant ? '!bg-panel-orange hover:!bg-amber-500 !text-panel-bg' : ''}`}>
                 Zusammenfassen
               </button>
             </div>
-          ))}
+            );
+          })}
 
           <div className="flex-1 overflow-auto max-h-[500px]">
             {regeln.length === 0 ? (
@@ -2754,14 +2813,37 @@ export default function Sortierung() {
                             flex-1 geht sonst nicht unter die Breite des Inhalts. */}
                         <select
                           value={typ}
-                          onChange={e => setGruppenTyp(p => ({ ...p, [gruppe.domain]: e.target.value }))}
+                          onChange={e => {
+                            const art = e.target.value;
+                            setGruppenTyp(p => ({ ...p, [gruppe.domain]: art }));
+                            if (gruppenBrauchtStichwort(art) && !(gruppenStichwort[gruppe.domain] || '').trim()) {
+                              setGruppenStichwort(p => ({
+                                ...p, [gruppe.domain]: stichwortVorschlag(gruppe.mails.map(m => m.betreff)),
+                              }));
+                            }
+                          }}
                           className="text-sm bg-panel-bg w-full sm:!w-auto shrink-0"
                           title="Was soll sich das Panel für die Zukunft merken?"
                         >
                           <option value="domain">Regel: ganze Domain</option>
                           <option value="absender">Regel: nur dieser Absender</option>
+                          {/* Der Fall, für den es diese beiden gibt: Dieselbe
+                              Adresse oder Domain schickt Rechnung, Bestellung
+                              und Werbung durcheinander — dann trennt nur der
+                              Text, nicht der Absender. */}
+                          <option value="absender_inhalt">Regel: Absender + Stichwort</option>
+                          <option value="inhalt">Regel: Stichwort im Inhalt</option>
                           <option value="keine">Nur jetzt, keine Regel</option>
                         </select>
+                        {gruppenBrauchtStichwort(typ) && (
+                          <input
+                            value={gruppenStichwort[gruppe.domain] || ''}
+                            onChange={e => setGruppenStichwort(p => ({ ...p, [gruppe.domain]: e.target.value }))}
+                            placeholder="Stichwort, z. B. Rechnung"
+                            title="Steht dieses Wort im Betreff oder im Text der Mail, greift die Regel."
+                            className="text-sm bg-panel-bg w-full sm:!w-[170px] shrink-0"
+                          />
+                        )}
                         <button
                           onClick={() => stapelZuordnen(gruppe)}
                           disabled={laeuft}
