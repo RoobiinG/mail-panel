@@ -235,6 +235,11 @@ export default function Sortierung() {
 
   // Einzelregeln, die sich zu einer Domain-Regel zusammenfassen lassen
   const [zusammenfassbar, setZusammenfassbar] = useState([]);
+  // Das vorgeschlagene Ziel je Zusammenfassen-Karte, wenn abweichend vom
+  // Vorschlag: {domain+zielordner: neuesZiel}. Der Schlüssel bleibt der des
+  // ANGEZEIGTEN Vorschlags — er ändert sich nicht, nur weil der Nutzer daran
+  // dreht, sonst verliert der Eintrag beim Tippen seine eigene Identität.
+  const [zusammenfassZiel, setZusammenfassZiel] = useState({});
 
   // Die Entscheidungs-Chronik: was wurde einsortiert, von wem — und wo lässt
   // sich das korrigieren. Der Server liefert immer nur eine Seite; gesamt und
@@ -452,21 +457,37 @@ export default function Sortierung() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [regelSuche]);
 
+  // Der Vorschlag ist bearbeitbar: Der Nutzer kann das Ziel ändern, bevor er
+  // zusammenfasst — z. B. wenn die Einzelregeln zufällig alle auf denselben
+  // (falschen) Ordner zeigen und die Domain eigentlich woanders hingehört.
+  const zusammenfassSchluessel = (gruppe) => gruppe.domain + gruppe.zielordner;
+  const zusammenfassZielVon = (gruppe) => zusammenfassZiel[zusammenfassSchluessel(gruppe)] ?? gruppe.zielordner;
+
   const regelnZusammenfassen = async (gruppe) => {
+    const ziel = zusammenfassZielVon(gruppe).trim();
+    if (!ziel) return melden('Bitte ein Ziel angeben.', 'hinweis');
+    const zielGeaendert = ziel !== gruppe.zielordner;
     const text = `${gruppe.regeln.length} Einzelregeln durch eine Regel für @${gruppe.domain} ersetzen?\n\n`
       + gruppe.regeln.map(r => `  ${r.muster}`).join('\n')
+      + (zielGeaendert
+        ? `\n\nZiel: ${ziel} (die Einzelregeln zeigten bisher auf ${gruppe.zielordner})`
+        : '')
       + `\n\nDie neue Regel deckt auch alle künftigen Adressen dieser Domain ab.`;
     if (!(await nachfragen({
       titel: 'Regeln zusammenfassen?', text, bestaetigen: 'Zusammenfassen',
     }))) return;
     try {
       const { data } = await api.post('/sortierung/regeln/zusammenfassen', {
-        konto_id: aktivesKonto, domain: gruppe.domain, zielordner: gruppe.zielordner,
+        konto_id: aktivesKonto, regel_ids: gruppe.regeln.map(r => r.id), zielordner: ziel,
       });
       const dazu = data.nachsortiert?.verschoben
         ? ` Dabei wurden ${data.nachsortiert.verschoben} wartende Mail(s) mitsortiert.`
         : '';
-      melden(`${data.ersetzt} Regeln zu einer Domain-Regel zusammengefasst.${dazu}`);
+      melden(`${data.ersetzt} Regeln zu einer Domain-Regel für „${data.zielordner}" zusammengefasst.${dazu}`);
+      setZusammenfassZiel(p => {
+        const { [zusammenfassSchluessel(gruppe)]: _weg, ...rest } = p;
+        return rest;
+      });
       regelnLaden(aktivesKonto);
       inboxLaden();
     } catch (err) {
@@ -1276,8 +1297,31 @@ export default function Sortierung() {
     return [...map.values()].sort((a, b) => b.mails.length - a.mails.length);
   })();
 
+  // Der Mehrheitsvorschlag der KI je Domain-Gruppe.
+  //
+  // Bisher musste das Zielordner-Feld für jede Gruppe von Hand getippt werden
+  // — obwohl die KI schon zu jeder einzelnen Mail einen Ordner vorgeschlagen
+  // hatte (Spalte "Wer", zu sehen beim Aufklappen). Stimmen mindestens die
+  // Hälfte der Mails einer Gruppe überein, ist das kein Vorschlag mehr, den
+  // man erst suchen muss — er wird vorbelegt. Änderbar bleibt er trotzdem: Wer
+  // tippt, überschreibt ihn, genau wie bei jedem anderen vorbelegten Feld.
+  const gruppenVorschlag = (gruppe) => {
+    const zaehler = new Map();
+    for (const m of gruppe.mails) {
+      const o = String(m.ki_ordner || '').trim();
+      if (!o) continue;
+      zaehler.set(o, (zaehler.get(o) || 0) + 1);
+    }
+    if (zaehler.size === 0) return null;
+    const [ordner, anzahl] = [...zaehler.entries()].sort((a, b) => b[1] - a[1])[0];
+    return anzahl >= Math.ceil(gruppe.mails.length / 2) ? ordner : null;
+  };
+
   const stapelZuordnen = async (gruppe) => {
-    const zielordner = (gruppenOrdner[gruppe.domain] || '').trim();
+    // Dieselbe Vorbelegung wie im Feld: Wer den KI-Vorschlag stehen lässt und
+    // direkt auf "verschieben" klickt, darf nicht an einem Feld scheitern, das
+    // visuell längst ausgefüllt aussah.
+    const zielordner = (gruppenOrdner[gruppe.domain] ?? gruppenVorschlag(gruppe) ?? '').trim();
     if (!zielordner) return melden('Bitte einen Zielordner angeben.', 'hinweis');
     const kontoId = gruppe.mails[0]?.konto_id;
     if (!kontoId) return melden('Zu diesen Mails ist kein Konto hinterlegt.', 'hinweis');
@@ -2398,7 +2442,14 @@ export default function Sortierung() {
 
       {tab === 'sortieren' && (
       <div className="space-y-6">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* items-start: CSS-Grid streckt Geschwisterzellen per Vorgabe auf gleiche
+          Höhe. Bei 167 Regeln links und 5 Domain-Gruppen rechts hieß das: Die
+          rechte Karte wurde so hoch gezogen wie die linke, ihr Inhalt füllte
+          das aber nicht — darunter blieb schlicht eine leere Fläche stehen.
+          Beide Karten haben ohnehin ihr eigenes `max-h-[500px]` mit eigenem
+          Scrollbalken; sie sollen sich an ihrem Inhalt bemessen, nicht am
+          Nachbarn. */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
         {/* LINKE SEITE: Regeln */}
         <div className="card !p-0 overflow-hidden flex flex-col">
           <div className="p-4 border-b border-panel-border bg-panel-card/50 flex flex-wrap gap-4 justify-between items-center">
@@ -2434,16 +2485,29 @@ export default function Sortierung() {
             </div>
           </div>
           
-          {/* Aufgesammelte Einzelregeln zu einer Domain-Regel bündeln */}
+          {/* Aufgesammelte Einzelregeln zu einer Domain-Regel bündeln.
+              Das Ziel steht als echtes Feld da, nicht als Text — der Vorschlag
+              ist ein Vorschlag, kein Diktat. Voreingestellt auf das, worauf die
+              Einzelregeln ohnehin schon zeigen. */}
           {zusammenfassbar.map(gruppe => (
             <div key={gruppe.domain + gruppe.zielordner}
               className="mx-4 mt-3 p-3 rounded-lg border border-panel-accent/40 bg-panel-accent/5 flex flex-wrap items-center gap-2 text-sm">
               <Layers size={16} className="text-panel-accent shrink-0" />
-              <span className="flex-1 min-w-[200px]">
-                <span className="font-medium">{gruppe.regeln.length} Einzelregeln</span> für
-                {' '}<span className="font-mono">@{gruppe.domain}</span> zeigen alle auf
-                {' '}<span className="font-mono text-panel-accent">{gruppe.zielordner}</span>.
-                <span className="text-panel-muted"> Eine Domain-Regel erledigt das und deckt künftige Adressen mit ab.</span>
+              <span className="flex-1 min-w-[240px] flex flex-wrap items-center gap-x-1.5">
+                <span className="font-medium">{gruppe.regeln.length} Einzelregeln</span>
+                <span>für</span>
+                <span className="font-mono">@{gruppe.domain}</span>
+                <span>→</span>
+                <OrdnerFeld
+                  value={zusammenfassZielVon(gruppe)}
+                  onChange={v => setZusammenfassZiel(p => ({ ...p, [zusammenfassSchluessel(gruppe)]: v }))}
+                  optionen={alleOrdner}
+                  className="!w-auto min-w-[120px] max-w-[220px] !py-1 !px-2 text-sm font-mono text-panel-accent"
+                  title="Ziel ändern — voreingestellt auf das, worauf die Einzelregeln schon zeigen"
+                />
+                <span className="text-panel-muted basis-full sm:basis-auto">
+                  Eine Domain-Regel ersetzt sie und deckt künftige Adressen mit ab.
+                </span>
               </span>
               <button onClick={() => regelnZusammenfassen(gruppe)} className="btn !py-1.5 !px-3 text-sm whitespace-nowrap">
                 Zusammenfassen
@@ -2636,6 +2700,11 @@ export default function Sortierung() {
                   const offen = offeneGruppen[gruppe.domain];
                   const typ = gruppenTyp[gruppe.domain] || (gruppe.absender.size > 1 ? 'domain' : 'absender');
                   const laeuft = gruppeLaeuft === gruppe.domain;
+                  const vorschlag = gruppenVorschlag(gruppe);
+                  // Solange niemand ins Feld getippt hat, gilt der Vorschlag —
+                  // ?? statt ||, sonst würde ein bewusst geleertes Feld sofort
+                  // wieder den Vorschlag zeigen.
+                  const feldWert = gruppenOrdner[gruppe.domain] ?? vorschlag ?? '';
                   return (
                     <div key={gruppe.domain}>
                       {/* Kopfzeile der Domain-Gruppe */}
@@ -2659,13 +2728,21 @@ export default function Sortierung() {
                             {gruppe.absender.size} Absender
                           </span>
                         )}
+                        {vorschlag && gruppenOrdner[gruppe.domain] === undefined && (
+                          <span
+                            className="text-[11px] text-panel-accent flex items-center gap-1 whitespace-nowrap"
+                            title="Das Ziel unten ist damit schon vorbelegt — einfach tippen, um es zu ändern."
+                          >
+                            <Wand2 size={11} className="shrink-0" /> KI schlägt „{vorschlag}" vor
+                          </span>
+                        )}
                       </div>
 
                       {/* Ein Handgriff für den ganzen Stapel */}
                       <div className="px-3 pb-3 flex flex-col sm:flex-row gap-2 items-stretch sm:items-center bg-panel-bg/40">
                         <OrdnerFeld
                           placeholder={`Alle ${gruppe.mails.length} nach … (z.B. Google)`}
-                          value={gruppenOrdner[gruppe.domain] || ''}
+                          value={feldWert}
                           onChange={v => setGruppenOrdner(p => ({ ...p, [gruppe.domain]: v }))}
                           optionen={alleOrdner}
                           className="flex-1 min-w-0 sm:min-w-[10rem] text-sm"

@@ -2,6 +2,49 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [6.1.0.0] - 2026-09-17 (Build 225) — *Die Sortier-Inbox macht mehr vor*
+
+### Features
+- **Der Zielordner der Sammelaktion ist vorbelegt**, wenn die KI sich schon einig war: Stimmt bei
+  mindestens der Hälfte der Mails einer Domain-Gruppe der KI-Vorschlag überein, steht er schon im
+  Feld — mit einem sichtbaren Hinweis („KI schlägt „X" vor") daneben, damit klar bleibt: Das ist
+  ein Vorschlag, kein Diktat. Wer tippt, überschreibt ihn; wer direkt auf „Alle N verschieben"
+  klickt, bekommt genau das erwartete Ergebnis. Vorher musste jeder Zielordner von Hand getippt
+  werden, obwohl die KI zu jeder einzelnen Mail schon einen hatte.
+- **Der „Zusammenfassen"-Vorschlag ist bearbeitbar.** Bisher zeigte die Karte „N Einzelregeln für
+  @domain zeigen alle auf X" nur Text — das Ziel X war exakt das, worauf die Einzelregeln zufällig
+  schon zeigten, ohne Möglichkeit, es beim Zusammenfassen zu ändern. Jetzt steht dort ein echtes
+  Feld: Wer die Domain lieber unter einem anderen Namen bündeln will, tippt es um, bevor er
+  bestätigt.
+
+### Bugfixes
+- **Die leere Fläche unter der Sortier-Inbox ist weg.** CSS-Grid streckt Geschwisterzellen per
+  Vorgabe auf gleiche Höhe — bei 167 Regeln links und nur 5 Domain-Gruppen rechts wurde die rechte
+  Karte so hoch gezogen wie die linke, ohne dass ihr Inhalt das ausfüllte. Beide Karten haben
+  ohnehin ihr eigenes `max-h-[500px]` mit eigenem Scrollbalken; `items-start` auf dem Grid lässt
+  beide sich an ihrem Inhalt bemessen statt am Nachbarn.
+
+### Änderungen
+- **`POST /api/sortierung/regeln/zusammenfassen` nimmt jetzt `regel_ids` statt `domain`.** Vorher
+  war `zielordner` im Request kein Ziel, sondern nur ein Suchschlüssel — die Route fand die
+  Vorschau-Gruppe, deren `zielordner` GENAU passte, und konnte deshalb gar nicht auf ein anderes
+  Ziel zeigen. Jetzt kommen die betroffenen Regeln als IDs (dieselben, die das Frontend schon aus
+  `GET .../zusammenfassbar` kennt), das Ziel ist ein eigener, freier Wert. Prüft: alle IDs
+  existieren noch, zeigen auf dieselbe Domain, keine davon hat eine Betreff-Bedingung, es gibt noch
+  keine Domain-Regel für diese Domain. Zeigt keine der Einzelregeln schon auf das gewählte (neue)
+  Ziel, wird der Ordner per Best-Effort-IMAP-Aufruf gleich mit angelegt — wie beim Anlegen einer
+  einzelnen Regel.
+- Sieben Tests für die neue Route (`test/regeln-gruppiert.test.js`) — vorher hatte
+  `POST /regeln/zusammenfassen` keinen einzigen.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Datenbank:** keine Änderung.
+- **n8n-Workflows:** unberührt.
+- **API:** `POST /api/sortierung/regeln/zusammenfassen` ist eine Breaking Change im Rumpf
+  (`domain` → `regel_ids`) — betrifft nur das eigene Frontend, das im selben Commit mitgeht; keine
+  externe Integration ruft diesen Endpunkt.
+- **Neustart/Sitzung:** normaler Neustart, danach Strg+F5.
+
 ## [6.0.1.0] - 2026-09-17 (Build 224) — *Felder ohne Ecken*
 
 > **Versionshinweis:** Die zweite Stelle war in Build 222/223 auf „10" gelaufen, statt bei 9 auf

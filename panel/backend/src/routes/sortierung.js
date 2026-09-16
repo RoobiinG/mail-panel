@@ -794,17 +794,68 @@ router.get('/regeln/zusammenfassbar', (req, res) => {
   }
 });
 
-// POST /api/sortierung/regeln/zusammenfassen  { konto_id, domain, zielordner }
-// Legt die Domain-Regel an und raeumt die ersetzten Einzelregeln weg.
+// POST /api/sortierung/regeln/zusammenfassen  { konto_id, regel_ids, zielordner }
+//
+// Vorher stand hier { domain, zielordner } — und zielordner war kein Ziel,
+// sondern nur ein Schlüssel: Die Funktion suchte die Vorschau-Gruppe, deren
+// zielordner GENAU dazu passte. Ändern ließ sich das Ziel damit gar nicht; wer
+// die Zusammenfassung lieber woanders hinlegen wollte, konnte es nur nachher
+// per Hand umbiegen (PUT /regeln/:id).
+//
+// Jetzt kommen die betroffenen Regeln als IDs — dieselben, die das Frontend
+// schon aus GET .../zusammenfassbar kennt — und das Ziel ist ein echter,
+// eigener Wert. Ein Absender-Domain kann mehr als eine zusammenfassbare Gruppe
+// haben (dieselbe Domain, aber zwei verschiedene bisherige Ziele) — über die
+// IDs ist immer eindeutig, welche gemeint ist, auch wenn sich das Ziel dabei
+// ändert und der alte Gruppen-Schlüssel gar nicht mehr passt.
 router.post('/regeln/zusammenfassen', async (req, res) => {
-  const { konto_id, domain, zielordner } = req.body || {};
+  const { konto_id, zielordner } = req.body || {};
+  const regelIds = Array.isArray(req.body?.regel_ids)
+    ? [...new Set(req.body.regel_ids.map(Number).filter((n) => Number.isInteger(n) && n > 0))]
+    : [];
   const konto = kontoLaden(konto_id);
-  if (!konto || !domain || !zielordner) {
-    return res.status(400).json({ error: 'konto_id, domain und zielordner sind Pflicht.' });
+  const ziel = String(zielordner || '').trim();
+  if (!konto || regelIds.length < 2 || !ziel) {
+    return res.status(400).json({ error: 'konto_id, mindestens zwei regel_ids und zielordner sind Pflicht.' });
   }
-  const gruppe = zusammenfassbar(konto.id)
-    .find((g) => g.domain === String(domain).toLowerCase() && g.zielordner === zielordner);
-  if (!gruppe) return res.status(404).json({ error: 'Dazu gibt es nichts zusammenzufassen.' });
+
+  const platzhalter = regelIds.map(() => '?').join(',');
+  const regeln = db.prepare(
+    `SELECT id, typ, muster, zielordner, treffer FROM sort_rules
+     WHERE konto_id = ? AND typ = 'absender' AND IFNULL(betreff_muster, '') = ''
+       AND id IN (${platzhalter})`,
+  ).all(konto.id, ...regelIds);
+  if (regeln.length !== regelIds.length) {
+    return res.status(404).json({
+      error: 'Mindestens eine der Regeln existiert nicht mehr — die Ansicht ist veraltet. Bitte neu laden.',
+    });
+  }
+
+  const domains = new Set(regeln.map((r) => sortierung.domain(r.muster)).filter(Boolean));
+  if (domains.size !== 1) {
+    return res.status(400).json({ error: 'Die Regeln zeigen auf verschiedene Domains — so lassen sie sich nicht zusammenfassen.' });
+  }
+  const gruppe = { domain: [...domains][0], zielordner: ziel, regeln };
+
+  const domainSchonDa = db.prepare(
+    "SELECT id FROM sort_rules WHERE konto_id = ? AND typ = 'domain' AND muster = ?",
+  ).get(konto.id, gruppe.domain);
+  if (domainSchonDa) {
+    return res.status(400).json({ error: `Für @${gruppe.domain} gibt es bereits eine Domain-Regel.` });
+  }
+
+  // Zeigt keine der zusammengefassten Regeln schon dorthin, ist das Ziel neu
+  // gewählt — dann existiert der Ordner vielleicht noch nicht. Best Effort,
+  // wie beim Anlegen einer einzelnen Regel (POST /regeln).
+  if (!regeln.some((r) => r.zielordner === gruppe.zielordner)) {
+    try {
+      konto.passwort = entschluesseln(konto.password_enc);
+      const angelegt = await imap.ordnerErstellen(konto, gruppe.zielordner);
+      if (angelegt) loggen('info', 'sortierung', `Neuer Ordner "${gruppe.zielordner}" für Konto ${konto.name} via IMAP angelegt.`);
+    } catch (err) {
+      loggen('warn', 'sortierung', `Konnte Ordner "${gruppe.zielordner}" nicht via IMAP anlegen: ${err.message}`);
+    }
+  }
 
   try {
     db.transaction(() => {
@@ -824,9 +875,14 @@ router.post('/regeln/zusammenfassen', async (req, res) => {
     const nachsortiert = await sortierung.bestandAnwenden(konto, {
       typ: 'domain', muster: gruppe.domain, zielordner: gruppe.zielordner,
     });
+    // Ziel im Log nur nennen, wenn es sich vom bisherigen unterscheidet —
+    // sonst wiederholt der Satz nur, was die Regeln ohnehin schon sagten.
+    const altesZiel = gruppe.regeln[0]?.zielordner;
+    const zielHinweis = altesZiel && altesZiel !== gruppe.zielordner
+      ? ` → "${gruppe.zielordner}" (vorher "${altesZiel}")` : ` → "${gruppe.zielordner}"`;
     loggen('info', 'sortierung',
-      `${gruppe.regeln.length} Einzelregeln zu einer Domain-Regel für @${gruppe.domain} zusammengefasst.`);
-    res.json({ ok: true, ersetzt: gruppe.regeln.length, domain: gruppe.domain, nachsortiert });
+      `${gruppe.regeln.length} Einzelregeln zu einer Domain-Regel für @${gruppe.domain}${zielHinweis} zusammengefasst.`);
+    res.json({ ok: true, ersetzt: gruppe.regeln.length, domain: gruppe.domain, zielordner: gruppe.zielordner, nachsortiert });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

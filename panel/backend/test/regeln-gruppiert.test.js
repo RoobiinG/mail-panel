@@ -164,6 +164,108 @@ describe('Die Route liefert Gruppen statt einer flachen Liste', () => {
   });
 });
 
+// POST /regeln/zusammenfassen — bis hierhin ohne einen einzigen Test, obwohl
+// die Route Daten löscht (die Einzelregeln) und neue anlegt. Seit die Route
+// { regel_ids, zielordner } statt { domain, zielordner } nimmt, ist das Ziel
+// ein echter, vom Vorschlag abweichender Wert — kein Suchschlüssel mehr, der
+// zur Vorschau passen MUSSTE.
+describe('Zusammenfassen — regel_ids statt domain, Ziel ist frei wählbar', () => {
+  const ids = () => db.prepare("SELECT id FROM sort_rules WHERE typ = 'absender' ORDER BY id").all()
+    .map((r) => r.id);
+
+  test('ersetzt die Einzelregeln durch eine Domain-Regel mit dem vorgeschlagenen Ziel', async () => {
+    regel('absender', 'a@treue.example', 'Einkauf', { treffer: 3 });
+    regel('absender', 'b@treue.example', 'Einkauf', { treffer: 5 });
+
+    const r = await request('POST', '/api/sortierung/regeln/zusammenfassen', {
+      konto_id: kontoId(), regel_ids: ids(), zielordner: 'Einkauf',
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    assert.equal(r.json.ersetzt, 2);
+    assert.equal(r.json.zielordner, 'Einkauf');
+
+    const uebrig = db.prepare("SELECT * FROM sort_rules WHERE konto_id = ?").all(kontoId());
+    assert.equal(uebrig.length, 1, 'die beiden Einzelregeln sind weg, eine Domain-Regel steht da');
+    assert.equal(uebrig[0].typ, 'domain');
+    assert.equal(uebrig[0].muster, 'treue.example');
+    assert.equal(uebrig[0].zielordner, 'Einkauf');
+    assert.equal(uebrig[0].treffer, 8, 'die Trefferzahlen wandern mit');
+  });
+
+  test('das Ziel lässt sich beim Zusammenfassen ändern — der eigentliche Grund für den Umbau', async () => {
+    regel('absender', 'a@treue.example', 'Einkauf');
+    regel('absender', 'b@treue.example', 'Einkauf');
+
+    const r = await request('POST', '/api/sortierung/regeln/zusammenfassen', {
+      konto_id: kontoId(), regel_ids: ids(), zielordner: 'Games',
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    const uebrig = db.prepare("SELECT * FROM sort_rules WHERE konto_id = ?").get(kontoId());
+    assert.equal(uebrig.zielordner, 'Games', 'nicht das alte Ziel der Einzelregeln, sondern das gewählte');
+  });
+
+  test('weniger als zwei regel_ids wird abgewiesen', async () => {
+    regel('absender', 'a@treue.example', 'Einkauf');
+    const r = await request('POST', '/api/sortierung/regeln/zusammenfassen', {
+      konto_id: kontoId(), regel_ids: ids(), zielordner: 'Einkauf',
+    });
+    assert.equal(r.status, 400);
+  });
+
+  test('ohne zielordner wird abgewiesen', async () => {
+    regel('absender', 'a@treue.example', 'Einkauf');
+    regel('absender', 'b@treue.example', 'Einkauf');
+    const r = await request('POST', '/api/sortierung/regeln/zusammenfassen', {
+      konto_id: kontoId(), regel_ids: ids(),
+    });
+    assert.equal(r.status, 400);
+  });
+
+  test('eine nicht mehr existierende Regel-ID wird abgewiesen — die Ansicht war veraltet', async () => {
+    regel('absender', 'a@treue.example', 'Einkauf');
+    const echt = ids();
+    const r = await request('POST', '/api/sortierung/regeln/zusammenfassen', {
+      konto_id: kontoId(), regel_ids: [...echt, echt[0] + 999], zielordner: 'Einkauf',
+    });
+    assert.equal(r.status, 404);
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM sort_rules').get().n, 1, 'nichts wurde angefasst');
+  });
+
+  test('gemischte Domains werden abgewiesen', async () => {
+    regel('absender', 'a@treue.example', 'Einkauf');
+    regel('absender', 'b@anders.example', 'Einkauf');
+    const r = await request('POST', '/api/sortierung/regeln/zusammenfassen', {
+      konto_id: kontoId(), regel_ids: ids(), zielordner: 'Einkauf',
+    });
+    assert.equal(r.status, 400);
+    assert.match(r.json.error, /verschiedene Domains/);
+  });
+
+  test('eine Regel mit Betreff-Bedingung zählt nicht mit, selbst wenn ihre ID mitgeschickt wird', async () => {
+    regel('absender', 'a@treue.example', 'Einkauf');
+    regel('absender', 'b@treue.example', 'Einkauf', { betreff: 'bestellung' });
+    const r = await request('POST', '/api/sortierung/regeln/zusammenfassen', {
+      konto_id: kontoId(), regel_ids: ids(), zielordner: 'Einkauf',
+    });
+    // Nur eine der beiden ids trifft die WHERE-Bedingung (ohne betreff_muster)
+    // — die Route sieht das als "eine Regel existiert nicht" und lehnt ab,
+    // statt die Betreff-Bedingung stillschweigend wegzuwerfen.
+    assert.equal(r.status, 404);
+  });
+
+  test('gibt es die Domain-Regel schon, wird nicht dupliziert', async () => {
+    regel('domain', 'treue.example', 'Altes-Ziel');
+    regel('absender', 'a@treue.example', 'Einkauf');
+    regel('absender', 'b@treue.example', 'Einkauf');
+    const nurAbsender = db.prepare("SELECT id FROM sort_rules WHERE typ = 'absender'").all().map((r) => r.id);
+    const r = await request('POST', '/api/sortierung/regeln/zusammenfassen', {
+      konto_id: kontoId(), regel_ids: nurAbsender, zielordner: 'Einkauf',
+    });
+    assert.equal(r.status, 400);
+    assert.match(r.json.error, /bereits eine Domain-Regel/);
+  });
+});
+
 describe('Zusammenfassen lässt Betreff-Regeln in Ruhe', () => {
   // Sie zu einer Domain-Regel zu verschmelzen hieße, genau die Bedingung
   // wegzuwerfen, wegen der es sie gibt: Aus „nur Bestellbestätigungen" würde
