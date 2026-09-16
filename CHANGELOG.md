@@ -2,6 +2,37 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [6.0.1.0] - 2026-09-17 (Build 224) — *Felder ohne Ecken*
+
+> **Versionshinweis:** Die zweite Stelle war in Build 222/223 auf „10" gelaufen, statt bei 9 auf
+> die erste Stelle überzulaufen (AGENTS.md, Abschnitt 2). Mit diesem Build ist das nachgeholt —
+> `6.0.1.0` und `5.10.0.1` bezeichnen denselben laufenden Stand, nichts an der Software ändert
+> sich dadurch.
+
+Screenshot-Anlass: Die Aktionsreihen der Sortierung („Alle 28 nach … verschieben") wirkten neben
+den weich gerundeten Karten (`rounded-2xl`) kantig — Felder, Auswahllisten und Knöpfe liefen mit
+`rounded-md` (6px), spürbar eckiger als ihre Umgebung.
+
+### Änderungen
+- **Formularfelder, Knöpfe und ihre Dropdowns sind jetzt `rounded-xl`** (12px) statt `rounded-md`
+  (6px) — sowohl über die globale `:where()`-Regel in `index.css` (trifft jedes Feld ohne eigene
+  Breitenklasse) als auch über `.btn` und `.input-field`. 12px liegt sichtbar näher an der Karte,
+  ohne dass ein 36px hohes Feld schon wie eine Pille aussieht.
+- **`Einstellungen.jsx` hatte eine eigene, ältere Feld-Konstante** (`inputCls`, 23 Verwendungen)
+  und ging nie über die globale Regel — deshalb blieb die ganze Einstellungsseite von der letzten
+  Rundungs-Änderung unberührt. Jetzt zieht sie mit, ebenso das DNSBL-Textfeld dort, das seine
+  eigene, dritte Fassung derselben Klassen mitbrachte.
+- **`OrdnerFeld`s Vorschlagsliste** (das Dropdown unter jedem Ordner-Eingabefeld) und das
+  „Widget einblenden"-Chip im Dashboard/Statistik-Raster ziehen nach, damit ein Feld und seine
+  eigene Vorschlagsliste nicht unterschiedlich rund aussehen.
+- **Nicht angefasst:** die kleinen Tags/Badges (Mail-Zahl, Konto-Kürzel, Segmentschalter wie der
+  Zeitraum-Umschalter der Statistik) — das waren Textfelder nicht, und eine engere Rundung ist bei
+  einem 4px-Tag kein Fehler, sondern die passende Größe.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- Rein optisch, keine Datenbank- oder Workflow-Änderung. Strg+F5 nach dem Deployment, wie bei jeder
+  CSS-Änderung.
+
 ## [5.10.0.1] - 2026-09-15 (Build 223) — *Ein Test kannte den alten Wortlaut*
 
 Build 222 kam nicht durch den Testlauf: Der Prompt-Satz „Als Wert kommt NUR **der** Name aus den

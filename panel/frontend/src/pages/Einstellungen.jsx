@@ -10,7 +10,10 @@ import Karte from '../components/ui/Karte';
 
 // ─── Gemeinsame Styles ────────────────────────────────────────────────────────
 
-const inputCls = 'w-full bg-panel-surface border border-panel-border rounded-md px-3 py-2 text-sm text-panel-text focus:outline-none focus:border-panel-accent transition-colors';
+// rounded-xl statt rounded-md: dieselbe Rundung wie die globale Feld-Regel in
+// index.css — diese Seite geht nicht über sie, sondern hat ihre eigene, ältere
+// Konstante. Zwei Werte für dieselbe Sache liefen sonst wieder auseinander.
+const inputCls = 'w-full bg-panel-surface border border-panel-border rounded-xl px-3 py-2 text-sm text-panel-text focus:outline-none focus:border-panel-accent transition-colors';
 
 // ─── Toggle-Switch ────────────────────────────────────────────────────────────
 
@@ -998,7 +1001,7 @@ export default function Einstellungen() {
             </div>
             <div className="space-y-1">
               <label className="block text-xs text-panel-muted">DNSBL-Listen (eine pro Zeile)</label>
-              <textarea rows={4} className="w-full font-mono bg-panel-surface border border-panel-border rounded-md px-3 py-2 text-sm text-panel-text focus:outline-none focus:border-panel-accent resize-none"
+              <textarea rows={4} className="w-full font-mono bg-panel-surface border border-panel-border rounded-xl px-3 py-2 text-sm text-panel-text focus:outline-none focus:border-panel-accent resize-none"
                 value={dnsblText} onChange={e => setDnsblText(e.target.value)} />
             </div>
             <div className="space-y-2.5">

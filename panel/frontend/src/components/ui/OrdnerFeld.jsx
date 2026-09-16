@@ -98,7 +98,7 @@ export default function OrdnerFeld({
       />
       {offen && position && gefiltert.length > 0 && createPortal(
         <div
-          className="fixed z-[60] max-h-56 overflow-auto rounded-md border border-panel-border
+          className="fixed z-[60] max-h-56 overflow-auto rounded-xl border border-panel-border
                      bg-panel-surface shadow-[0_8px_30px_rgba(0,0,0,0.4)] py-1"
           style={{ top: position.top, left: position.left, width: position.width }}
         >

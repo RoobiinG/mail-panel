@@ -43,11 +43,18 @@ input, select, textarea {
    Stellen steht bis heute ein `!` am Padding, aber nicht an der Breite.
 
    :where() trägt null Spezifität bei. Damit gewinnt ab hier jede Utility-Klasse
-   am Element, ohne `!` und ohne Wrapper — so, wie man es erwartet. */
+   am Element, ohne `!` und ohne Wrapper — so, wie man es erwartet.
+
+   Die Rundung ist absichtlich `rounded-xl` und nicht mehr `rounded-md`: Karten
+   sind `rounded-2xl` (index.css, .card), Felder und Knöpfe standen mit den
+   alten 6px eckig daneben — ausgerechnet in den dichtesten Zeilen des Panels,
+   den Aktionsreihen der Sortier-Inbox und -Regeln, wo Feld, Auswahl und Knopf
+   direkt nebeneinander sitzen. 12px liegt sichtbar näher an der Karte, ohne bei
+   einem 36px hohen Feld schon wie eine Pille auszusehen. */
 :where(input:not([type='checkbox']):not([type='radio'])),
 :where(select),
 :where(textarea) {
-  @apply w-full bg-panel-surface border border-panel-border rounded-md px-3 py-2 text-sm text-panel-text
+  @apply w-full bg-panel-surface border border-panel-border rounded-xl px-3 py-2 text-sm text-panel-text
          placeholder:text-panel-muted/40
          focus:border-panel-accent focus:outline-none
          transition-colors duration-150;
@@ -64,9 +71,11 @@ input[type='checkbox'], input[type='radio'] {
 }
 
 @layer components {
-  /* Gleiche Bezeichnung wie im Überwachungs-Panel, für neue Formulare */
+  /* Gleiche Bezeichnung wie im Überwachungs-Panel, für neue Formulare.
+     Dieselbe Rundung wie die globale Feld-Regel oben — beide beschreiben
+     dasselbe Aussehen, nur für Stellen, die die Klasse ausdrücklich nennen. */
   .input-field {
-    @apply w-full bg-panel-surface border border-panel-border rounded-md px-3 py-2 text-sm text-panel-text
+    @apply w-full bg-panel-surface border border-panel-border rounded-xl px-3 py-2 text-sm text-panel-text
            placeholder:text-panel-muted/40
            focus:border-panel-accent focus:outline-none
            transition-colors duration-150;
@@ -92,7 +101,7 @@ input[type='checkbox'], input[type='radio'] {
      Panel. `.btn` allein ist ab hier der normale, blaue Knopf; wer etwas
      anderes will, nimmt eine Variante. */
   .btn {
-    @apply inline-flex items-center justify-center px-3 py-1.5 text-sm gap-1.5 rounded-md font-medium
+    @apply inline-flex items-center justify-center px-3 py-1.5 text-sm gap-1.5 rounded-xl font-medium
            bg-panel-accent text-white shadow-sm hover:brightness-110
            transition-all duration-150 cursor-pointer
            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-panel-accent/50

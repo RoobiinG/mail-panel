@@ -169,7 +169,7 @@ export function WidgetLeiste({ anordnung, kinder }) {
         {kinder}
         {ausgeblendet.map((it) => (
           <button key={it.i} type="button" onClick={() => einblenden(it.i)}
-            className="flex items-center gap-1 px-2 py-1 rounded-md border border-panel-accent/40 bg-panel-accent/10 text-panel-accent hover:bg-panel-accent hover:text-white transition-colors">
+            className="flex items-center gap-1 px-2 py-1 rounded-lg border border-panel-accent/40 bg-panel-accent/10 text-panel-accent hover:bg-panel-accent hover:text-white transition-colors">
             <Plus size={12} />{katalog[it.i].titel}
           </button>
         ))}
