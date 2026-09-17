@@ -12,8 +12,10 @@ import BelegeKarte from '../components/BelegeKarte';
 import UploadFreigabenKarte from '../components/UploadFreigabenKarte';
 import NachsortierungKarte from '../components/NachsortierungKarte';
 import OrdnerFeld from '../components/ui/OrdnerFeld';
+import InhaltsBuendel from '../components/InhaltsBuendel';
 import {
   KATEGORIEN, GRUENDE, filterLesen, filterText, passtZumFilter, aufschluesseln,
+  adresse, domainVon, stichwortVorschlag, mehrheitsVorschlag, inhaltsBuendel,
 } from '../components/ui/sortierHilfen';
 
 // Der Abmelde-Link stammt aus dem List-Unsubscribe-Kopf einer fremden Mail —
@@ -32,34 +34,6 @@ function sichererLink(roh) {
     return null; // Gar keine gültige Adresse — dann erst recht kein Verweis.
   }
 }
-
-// "Name <a@b.de>" -> "a@b.de" bzw. "b.de"
-const adresse = (von) => {
-  const roh = String(von || '').toLowerCase().trim();
-  const t = roh.match(/<([^>]+)>/);
-  return (t ? t[1] : roh).trim();
-};
-const domainVon = (von) => (adresse(von).split('@')[1] || '').trim();
-
-// Ein Stichwort aus Betreffzeilen vorschlagen.
-//
-// Gesucht wird das längste Wort, das in ALLEN markierten Betreffen vorkommt —
-// bei drei „easyJet Buchungsbestätigung"-Mails also „buchungsbestätigung".
-// Gibt es keins, steht das längste Wort des ersten Betreffs da. Der Vorschlag
-// ist nur ein Vorschlag: Das Feld bleibt zum Überschreiben da, und der Nutzer
-// weiß besser als jede Heuristik, woran er diese Sorte Mail erkennt.
-const WORT = /[\p{L}\p{N}]{4,}/gu;
-const stichwortVorschlag = (betreffe) => {
-  const listen = (betreffe || [])
-    .map((b) => String(b || '').toLowerCase().match(WORT) || [])
-    .filter((woerter) => woerter.length > 0);
-  if (listen.length === 0) return '';
-  const [erste, ...rest] = listen;
-  const gemeinsam = erste.filter((w) => rest.every((liste) => liste.includes(w)));
-  const auswahl = (gemeinsam.length > 0 ? gemeinsam : erste).slice()
-    .sort((a, b) => b.length - a.length);
-  return auswahl[0] || '';
-};
 
 const REGEL_TYPEN = {
   absender: 'Exakter Absender (E-Mail)',
@@ -153,13 +127,17 @@ export default function Sortierung() {
   // Der Filter der Sortier-Inbox steht ebenfalls in der Adresse. Anders als
   // setTab darf er die übrigen Parameter nicht wegwerfen — sonst spränge ein
   // Klick auf einen Chip zurück auf den ersten Reiter.
-  const inboxFilter = filterLesen(suchParams.get('filter'));
-  const setInboxFilter = (neu) => {
+  const parameterSetzen = (name, wert) => {
     const p = new URLSearchParams(suchParams);
-    const text = filterText(neu);
-    if (text) p.set('filter', text); else p.delete('filter');
+    if (wert) p.set(name, wert); else p.delete(name);
     setSuchParams(p, { replace: true });
   };
+  const inboxFilter = filterLesen(suchParams.get('filter'));
+  const setInboxFilter = (neu) => parameterSetzen('filter', filterText(neu));
+  // Absender-Ansicht (Standard, nach Domain) oder Inhalts-Ansicht (nach
+  // Betreff-Muster, quer über Absender).
+  const inboxAnsicht = suchParams.get('ansicht') === 'inhalt' ? 'inhalt' : 'absender';
+  const setInboxAnsicht = (neu) => parameterSetzen('ansicht', neu === 'inhalt' ? 'inhalt' : '');
   // Wie viele Dateien auf eine Freigabe warten. Steht am Tab-Knopf, damit man es
   // auch sieht, ohne den Tab zu öffnen — sonst wartet dort etwas und niemand
   // erfährt davon.
@@ -1357,6 +1335,20 @@ export default function Sortierung() {
     return [...map.values()].sort((a, b) => b.mails.length - a.mails.length);
   })();
 
+  // Nur ausrechnen, wenn die Ansicht wirklich offen ist — bei 1.700 Mails
+  // muss das nicht bei jedem Tastendruck im Ordnerfeld mitlaufen.
+  const inhalt = inboxAnsicht === 'inhalt' ? inhaltsBuendel(angezeigteInbox) : null;
+
+  const buendelVerschieben = (b, { zielordner, regel }) => {
+    if (!zielordner) return melden('Bitte einen Zielordner angeben.', 'hinweis');
+    if (regel && regel.muster.length < 3) {
+      return melden('Für eine Regel auf den Inhalt fehlt das Stichwort (mindestens 3 Zeichen).', 'hinweis');
+    }
+    return idsVerschieben({
+      kontoId: b.mails[0].konto_id, ids: b.mails.map(m => m.id), zielordner, regel, schluessel: b.schluessel,
+    });
+  };
+
   // Der Mehrheitsvorschlag der KI je Domain-Gruppe.
   //
   // Bisher musste das Zielordner-Feld für jede Gruppe von Hand getippt werden
@@ -1365,17 +1357,7 @@ export default function Sortierung() {
   // Hälfte der Mails einer Gruppe überein, ist das kein Vorschlag mehr, den
   // man erst suchen muss — er wird vorbelegt. Änderbar bleibt er trotzdem: Wer
   // tippt, überschreibt ihn, genau wie bei jedem anderen vorbelegten Feld.
-  const gruppenVorschlag = (gruppe) => {
-    const zaehler = new Map();
-    for (const m of gruppe.mails) {
-      const o = String(m.ki_ordner || '').trim();
-      if (!o) continue;
-      zaehler.set(o, (zaehler.get(o) || 0) + 1);
-    }
-    if (zaehler.size === 0) return null;
-    const [ordner, anzahl] = [...zaehler.entries()].sort((a, b) => b[1] - a[1])[0];
-    return anzahl >= Math.ceil(gruppe.mails.length / 2) ? ordner : null;
-  };
+  const gruppenVorschlag = (gruppe) => mehrheitsVorschlag(gruppe.mails);
 
   const stapelZuordnen = async (gruppe) => {
     // Dieselbe Vorbelegung wie im Feld: Wer den KI-Vorschlag stehen lässt und
@@ -1391,6 +1373,14 @@ export default function Sortierung() {
     if (gruppenBrauchtStichwort(wahl) && (gruppenStichwort[gruppe.domain] || '').trim().length < 3) {
       return melden('Für eine Regel auf den Inhalt fehlt das Stichwort (mindestens 3 Zeichen).', 'hinweis');
     }
+    // „Nur jetzt, keine Regel" verschiebt genau die angezeigten Mails. Über das
+    // Domain-Muster wären auch die mitgegangen, die ein Filter gerade ausblendet.
+    if (wahl === 'keine') {
+      await idsVerschieben({
+        kontoId, ids: gruppe.mails.map(m => m.id), zielordner, schluessel: gruppe.domain,
+      });
+      return;
+    }
     const { typ, muster, inhalt_muster } = gruppenRegelTeile(gruppe, wahl);
 
     setGruppeLaeuft(gruppe.domain);
@@ -1399,27 +1389,72 @@ export default function Sortierung() {
         konto_id: kontoId,
         typ, muster, inhalt_muster,
         zielordner,
-        regelMerken: wahl !== 'keine',
+        regelMerken: true,
       });
-      // Eine nackte Fehlerzahl hilft niemandem weiter — sie sagt nicht, was zu
-      // tun ist. Veraltete Eintraege sind ausserdem gar kein Fehler: Die Mail
-      // wurde vorher schon einsortiert, der Eintrag war nur noch ein Rest.
-      const teile = [`${data.verschoben} von ${data.treffer} Mail(s) nach „${zielordner}" verschoben.`];
-      if (data.veraltet) {
-        teile.push(`${data.veraltet} Eintrag/Einträge lagen nicht mehr im Posteingang `
-          + '(vorher schon einsortiert) und wurden aus der Liste entfernt.');
-      }
-      if (data.fehler?.length) {
-        const liste = data.fehler.slice(0, 5).map(f => `• ${f}`).join('\n');
-        const rest = data.fehler.length > 5 ? `\n… und ${data.fehler.length - 5} weitere` : '';
-        teile.push(`Nicht verschoben:\n${liste}${rest}`);
-      }
-      melden(teile.join('\n\n'));
+      verschiebeErgebnisMelden(data, zielordner);
       inboxLaden();
       regelnLaden(aktivesKonto);
       katalogLaden(aktivesKonto);
     } catch (err) {
       melden(err.response?.data?.error || 'Fehler beim Sortieren', 'fehler');
+    } finally {
+      setGruppeLaeuft('');
+    }
+  };
+
+  // Eine nackte Fehlerzahl hilft niemandem weiter — sie sagt nicht, was zu
+  // tun ist. Veraltete Eintraege sind ausserdem gar kein Fehler: Die Mail
+  // wurde vorher schon einsortiert, der Eintrag war nur noch ein Rest.
+  const verschiebeErgebnisMelden = (data, zielordner) => {
+    const teile = [`${data.verschoben} von ${data.treffer} Mail(s) nach „${zielordner}" verschoben.`];
+    if (data.veraltet) {
+      teile.push(`${data.veraltet} Eintrag/Einträge lagen nicht mehr im Posteingang `
+        + '(vorher schon einsortiert) und wurden aus der Liste entfernt.');
+    }
+    if (data.nichtMehrOffen) {
+      teile.push(`${data.nichtMehrOffen} Mail(s) waren schon nicht mehr offen — vermutlich hat ein Workflow-Lauf sie inzwischen einsortiert.`);
+    }
+    if (data.fehler?.length) {
+      const liste = data.fehler.slice(0, 5).map(f => `• ${f}`).join('\n');
+      const rest = data.fehler.length > 5 ? `\n… und ${data.fehler.length - 5} weitere` : '';
+      teile.push(`Nicht verschoben:\n${liste}${rest}`);
+    }
+    melden(teile.join('\n\n'), data.fehler?.length ? 'hinweis' : undefined);
+  };
+
+  // Genau diese Mails verschieben — für Inhalts-Bündel, gefilterte Stapel und
+  // „keine Regel". Gibt true zurück, wenn der Aufruf durchging.
+  const idsVerschieben = async ({ kontoId, ids, zielordner, regel = null, schluessel }) => {
+    setGruppeLaeuft(schluessel);
+    try {
+      const { data } = await api.post('/sortierung/inbox/verschieben', {
+        konto_id: kontoId, ids, zielordner, ...(regel ? { regel } : {}),
+      });
+      verschiebeErgebnisMelden(data, zielordner);
+      inboxLaden();
+      if (regel) regelnLaden(aktivesKonto);
+      katalogLaden(aktivesKonto);
+      return true;
+    } catch (err) {
+      melden(err.response?.data?.error || 'Fehler beim Verschieben', 'fehler');
+      return false;
+    } finally {
+      setGruppeLaeuft('');
+    }
+  };
+
+  // „Im Posteingang lassen" für ein ganzes Bündel — ohne Regel. Die Mails
+  // bleiben liegen und verschwinden nur aus dieser Liste.
+  const idsIgnorieren = async ({ ids, schluessel }) => {
+    setGruppeLaeuft(schluessel);
+    try {
+      const { data } = await api.post('/sortierung/ignorieren', { ids });
+      melden(`${data.ignoriert} Mail(s) bleiben im Posteingang und sind aus der Liste genommen.`);
+      inboxLaden();
+      return true;
+    } catch (err) {
+      melden(err.response?.data?.error || 'Fehler beim Ignorieren', 'fehler');
+      return false;
     } finally {
       setGruppeLaeuft('');
     }
@@ -2763,12 +2798,9 @@ export default function Sortierung() {
 
         {/* RECHTE SEITE: Sortier-Inbox */}
         <div className="card !p-0 overflow-hidden flex flex-col">
-          <div className="p-4 border-b border-panel-border bg-panel-card/50 flex justify-between items-center">
+          <div className="p-4 border-b border-panel-border bg-panel-card/50 flex flex-wrap gap-2 justify-between items-center">
             <h2 className="font-medium flex items-center gap-2">
               <Inbox size={18} className="text-panel-accent" /> Sortier-Inbox
-              <span className="text-[11px] font-normal text-panel-muted hidden sm:inline">
-                nach Absender-Domain gebündelt
-              </span>
               {gefilterteInbox.length > 0 && (
                 <span
                   className="bg-panel-accent text-white text-xs px-2 py-0.5 rounded-full"
@@ -2778,7 +2810,29 @@ export default function Sortierung() {
                 </span>
               )}
             </h2>
-            <button onClick={inboxLaden} className="btn-ghost text-xs">Aktualisieren</button>
+            <div className="flex items-center gap-2">
+              {/* Zwei Blickwinkel auf denselben Stapel. Der Filter darunter
+                  gilt für beide. */}
+              <div className="flex rounded-full border border-panel-border p-0.5 text-xs" role="group" aria-label="Bündeln nach">
+                {[
+                  { wert: 'absender', text: 'nach Absender', hilfe: 'Nach Absender-Domain gebündelt — mit Regel für Domain oder Absender' },
+                  { wert: 'inhalt', text: 'nach Inhalt', hilfe: 'Nach Betreff-Muster gebündelt, quer über alle Absender — standardmäßig ohne Regel' },
+                ].map(a => (
+                  <button
+                    key={a.wert}
+                    onClick={() => setInboxAnsicht(a.wert)}
+                    title={a.hilfe}
+                    aria-pressed={inboxAnsicht === a.wert}
+                    className={`px-2.5 py-1 rounded-full transition-colors whitespace-nowrap ${
+                      inboxAnsicht === a.wert ? 'bg-panel-accent text-white' : 'text-panel-muted hover:text-panel-text'
+                    }`}
+                  >
+                    {a.text}
+                  </button>
+                ))}
+              </div>
+              <button onClick={() => inboxLaden()} className="btn-ghost text-xs">Aktualisieren</button>
+            </div>
           </div>
 
           {/* Woraus besteht der Stapel? Jeder Chip ist zugleich ein Filter.
@@ -2828,6 +2882,35 @@ export default function Sortierung() {
               <div className="p-8 text-center text-panel-muted flex flex-col items-center gap-2">
                 <p className="text-sm">Keine wartende Mail passt zu diesem Filter.</p>
                 <button onClick={() => setInboxFilter({})} className="btn-ghost text-xs">Filter aufheben</button>
+              </div>
+            ) : inboxAnsicht === 'inhalt' ? (
+              <div className="divide-y divide-panel-border">
+                {inhalt.buendel.length === 0 && (
+                  <div className="p-6 text-center text-sm text-panel-muted">
+                    Kein Betreff kommt unter diesen Mails mehrfach vor — hier hilft die Absender-Ansicht weiter.
+                  </div>
+                )}
+                {inhalt.buendel.map(b => (
+                  <InhaltsBuendel
+                    key={b.schluessel}
+                    buendel={b}
+                    ordnerOptionen={alleOrdner}
+                    laeuft={gruppeLaeuft === b.schluessel}
+                    gesperrt={Boolean(gruppeLaeuft)}
+                    onVerschieben={(wahl) => buendelVerschieben(b, wahl)}
+                    onIgnorieren={() => idsIgnorieren({ ids: b.mails.map(m => m.id), schluessel: b.schluessel })}
+                    onAnsehen={mailAnsehen}
+                  />
+                ))}
+                {inhalt.einzeln > 0 && (
+                  <div className="p-4 text-xs text-panel-muted">
+                    {inhalt.einzeln} Mail{inhalt.einzeln === 1 ? '' : 's'} mit einem Betreff, der nur einmal vorkommt
+                    (oder fast nur aus Nummern besteht) — sie stehen in der{' '}
+                    <button onClick={() => setInboxAnsicht('absender')} className="text-panel-accent hover:underline">
+                      Absender-Ansicht
+                    </button>.
+                  </div>
+                )}
               </div>
             ) : (
               <div className="divide-y divide-panel-border">
@@ -2933,10 +3016,11 @@ export default function Sortierung() {
                           disabled={laeuft}
                           className="btn !py-1.5 !px-3 text-sm flex items-center justify-center gap-1 whitespace-nowrap disabled:opacity-50"
                         >
-                          {/* Domain und „keine Regel" arbeiten über die Domain
-                              und erfassen damit auch ausgefilterte Mails. */}
+                          {/* „Ganze Domain" arbeitet über das Muster und erfasst
+                              damit auch ausgefilterte Mails; „keine Regel"
+                              verschiebt genau die angezeigten. */}
                           <Layers size={14} /> {laeuft ? 'Läuft …'
-                            : `Alle ${typ === 'domain' || typ === 'keine' ? gruppe.gesamt : gruppe.mails.length} verschieben`}
+                            : `Alle ${typ === 'domain' ? gruppe.gesamt : gruppe.mails.length} verschieben`}
                         </button>
                         <button
                           onClick={() => inRuheLassen(gruppe)}

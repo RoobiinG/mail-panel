@@ -403,6 +403,7 @@ module.exports = {
   regelTreffer,
   istBehalten,
   bestandAnwenden,
+  stapelVerschieben,
   stichworteNachtragen,
   abgleichen,
   uidZahl,

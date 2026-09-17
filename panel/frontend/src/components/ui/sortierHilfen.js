@@ -6,6 +6,123 @@
 // ohne Thema liegen oder 300 Vorschläge für einen neuen Ordner, der nur noch
 // freigegeben werden müsste — und das sind zwei völlig verschiedene Aufgaben.
 
+// ─── Absender ────────────────────────────────────────────────────────────────
+
+// "Name <a@b.de>" -> "a@b.de" bzw. "b.de"
+export const adresse = (von) => {
+  const roh = String(von || '').toLowerCase().trim();
+  const t = roh.match(/<([^>]+)>/);
+  return (t ? t[1] : roh).trim();
+};
+export const domainVon = (von) => (adresse(von).split('@')[1] || '').trim();
+
+// ─── Vorschläge ──────────────────────────────────────────────────────────────
+
+// Ein Stichwort aus Betreffzeilen vorschlagen.
+//
+// Gesucht wird das längste Wort, das in ALLEN markierten Betreffen vorkommt —
+// bei drei „easyJet Buchungsbestätigung"-Mails also „buchungsbestätigung".
+// Gibt es keins, steht das längste Wort des ersten Betreffs da. Der Vorschlag
+// ist nur ein Vorschlag: Das Feld bleibt zum Überschreiben da, und der Nutzer
+// weiß besser als jede Heuristik, woran er diese Sorte Mail erkennt.
+const WORT = /[\p{L}\p{N}]{4,}/gu;
+export const stichwortVorschlag = (betreffe) => {
+  const listen = (betreffe || [])
+    .map((b) => String(b || '').toLowerCase().match(WORT) || [])
+    .filter((woerter) => woerter.length > 0);
+  if (listen.length === 0) return '';
+  const [erste, ...rest] = listen;
+  const gemeinsam = erste.filter((w) => rest.every((liste) => liste.includes(w)));
+  const auswahl = (gemeinsam.length > 0 ? gemeinsam : erste).slice()
+    .sort((a, b) => b.length - a.length);
+  return auswahl[0] || '';
+};
+
+// Der Mehrheitsvorschlag der KI für einen Stapel Mails.
+//
+// Die KI schlägt zu jeder einzelnen Mail einen Ordner vor. Stimmen mindestens
+// die Hälfte der Mails überein, ist das kein Vorschlag mehr, den man erst
+// suchen muss — er wird vorbelegt. Änderbar bleibt er trotzdem.
+export function mehrheitsVorschlag(mails) {
+  const zaehler = new Map();
+  for (const m of mails || []) {
+    const o = String(m.ki_ordner || '').trim();
+    if (!o) continue;
+    zaehler.set(o, (zaehler.get(o) || 0) + 1);
+  }
+  if (zaehler.size === 0) return null;
+  const [ordner, anzahl] = [...zaehler.entries()].sort((a, b) => b[1] - a[1])[0];
+  return anzahl >= Math.ceil(mails.length / 2) ? ordner : null;
+}
+
+// ─── Bündel nach Inhalt ──────────────────────────────────────────────────────
+//
+// Die Absender-Ansicht bündelt nach Domain. Bei persönlicher Post und bei
+// Anbietern, die alles über dieselbe Adresse schicken, hilft das wenig: viele
+// Gruppen mit ein, zwei Mails, und dieselbe Sorte Mail („Passwort
+// zurücksetzen", „Inkasso troy 28364…") von verschiedenen Absendern steht an
+// verschiedenen Stellen. Hier zählt der Betreff, nicht die Adresse.
+//
+// Zahlen werden zu #, Satzzeichen fallen weg — wie betreffMuster() in
+// services/klassifizierer.js. Zusätzlich fallen Antwort-Vorsilben weg, damit
+// „Re: Angebot" und „Angebot" in dasselbe Bündel kommen.
+const ANTWORT = /^(?:(?:re|aw|wg|fw|fwd|antw|sv|tr)\s+)+/;
+export function inhaltsSchluessel(betreff) {
+  const muster = String(betreff || '')
+    .toLowerCase()
+    .replace(/\d+/g, '#')
+    .replace(/[^a-zäöüß#\s]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(ANTWORT, '')
+    .slice(0, 60)
+    .trim();
+  // Nur Nummern oder ein kurzes Wort („#", „info") sind kein Inhalt, sondern
+  // Zufall — daraus entstünden Bündel aus Mails, die nichts gemeinsam haben.
+  const buchstaben = (muster.match(/[a-zäöüß]/g) || []).length;
+  return buchstaben >= 4 ? muster : '';
+}
+
+const zaehlen = (werte) => {
+  const map = new Map();
+  for (const w of werte) map.set(w, (map.get(w) || 0) + 1);
+  return [...map.entries()]
+    .map(([wert, anzahl]) => ({ wert, anzahl }))
+    .sort((a, b) => b.anzahl - a.anzahl || String(a.wert).localeCompare(String(b.wert)));
+};
+
+// Bündel ab zwei Mails; alles andere zählt als „einzeln" und bleibt in der
+// Absender-Ansicht zu entscheiden.
+export function inhaltsBuendel(mails) {
+  const map = new Map();
+  let einzeln = 0;
+  for (const m of mails || []) {
+    const muster = inhaltsSchluessel(m.betreff);
+    if (!muster) { einzeln += 1; continue; }
+    // Nie über Postfächer hinweg: Verschoben wird mit den Zugangsdaten EINES
+    // Kontos.
+    const schluessel = `${m.konto_id}|${muster}`;
+    if (!map.has(schluessel)) map.set(schluessel, { schluessel, muster, mails: [] });
+    map.get(schluessel).mails.push(m);
+  }
+  const buendel = [];
+  for (const b of map.values()) {
+    if (b.mails.length < 2) { einzeln += b.mails.length; continue; }
+    const domains = zaehlen(b.mails.map((m) => domainVon(m.von) || '(ohne Absender)'));
+    buendel.push({
+      ...b,
+      domains: { anzahl: domains.length, top: domains.slice(0, 3) },
+      beispiele: [...new Set(b.mails.map((m) => String(m.betreff || '').trim()).filter(Boolean))].slice(0, 3),
+      kiVorschlag: mehrheitsVorschlag(b.mails),
+      kategorie: zaehlen(b.mails.map(kategorieVon))[0]?.wert || 'unbekannt',
+    });
+  }
+  buendel.sort((a, b) => b.mails.length - a.mails.length || a.muster.localeCompare(b.muster));
+  return { buendel, einzeln };
+}
+
+// ─── Aufschlüsselung und Filter ──────────────────────────────────────────────
+
 // Dieselben Werte wie KATEGORIEN in services/klassifizierer.js.
 export const KATEGORIEN = [
   { wert: 'persoenlich', text: 'Persönlich' },

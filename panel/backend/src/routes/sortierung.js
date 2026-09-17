@@ -509,14 +509,91 @@ router.post('/mails-verschieben', async (req, res) => {
   }
 });
 
-// POST /api/sortierung/ignorieren — Mail aus Inbox entfernen ohne Regel
+// Eine ID-Liste aus dem Rumpf: nur positive ganze Zahlen, ohne Dubletten.
+// Die Obergrenze liegt über jedem realistischen Stapel — sie verhindert nur,
+// dass ein kaputter Aufruf eine Abfrage mit hunderttausend Parametern baut.
+const MAX_IDS = 5000;
+function idListe(roh) {
+  if (!Array.isArray(roh)) return null;
+  const ids = [...new Set(roh.map(Number).filter((n) => Number.isInteger(n) && n > 0))];
+  return ids.length > 0 && ids.length <= MAX_IDS ? ids : null;
+}
+
+// POST /api/sortierung/ignorieren — Mail(s) aus der Inbox nehmen, ohne Regel
+// { id } für eine Mail, { ids: [...] } für ein ganzes Bündel.
 router.post('/ignorieren', (req, res) => {
   try {
+    if (req.body?.ids !== undefined) {
+      const ids = idListe(req.body.ids);
+      if (!ids) return res.status(400).json({ error: `ids muss eine Liste mit 1 bis ${MAX_IDS} Einträgen sein.` });
+      const info = db.prepare(
+        "UPDATE sort_inbox SET status = 'ignoriert' WHERE status = 'offen'"
+        + ' AND id IN (SELECT value FROM json_each(?))',
+      ).run(JSON.stringify(ids));
+      uebersicht.cacheVerwerfen();
+      return res.json({ ok: true, ignoriert: info.changes });
+    }
     db.prepare("UPDATE sort_inbox SET status = 'ignoriert' WHERE id = ?").run(Number(req.body.id));
     uebersicht.cacheVerwerfen();
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/sortierung/inbox/verschieben — genau diese Mails in einen Ordner
+// { konto_id, ids: [...], zielordner, regel?: { typ, muster, inhalt_muster } }
+//
+// Der Unterschied zu /sammel-zuordnen ist Absicht: Dort wird über ein Muster
+// verschoben (Domain, Absender) und alles mitgenommen, was sonst noch passt.
+// Ein Bündel nach Inhalt geht quer über viele Absender, ein gefilterter Stapel
+// zeigt nur einen Teil — hier wird deshalb nur verschoben, was angezeigt
+// wurde, keine Mail mehr. Eine Regel entsteht nur, wenn ausdrücklich eine
+// mitgeschickt wird, und sie wirkt dann erst für künftige Mails.
+router.post('/inbox/verschieben', async (req, res) => {
+  const { konto_id } = req.body || {};
+  const ids = idListe(req.body?.ids);
+  const zielordner = String(req.body?.zielordner || '').trim();
+  if (!konto_id || !ids || !zielordner) {
+    return res.status(400).json({ error: `konto_id, ids (1 bis ${MAX_IDS}) und zielordner sind Pflicht.` });
+  }
+  const konto = kontoLaden(konto_id);
+  if (!konto) return res.status(400).json({ error: 'Das Konto existiert nicht.' });
+
+  let regel = null;
+  if (req.body?.regel) {
+    const geprueft = regelAusRumpf({ ...req.body.regel, zielordner });
+    if (geprueft.fehler) return res.status(400).json({ error: geprueft.fehler });
+    regel = geprueft.regel;
+  }
+
+  try {
+    // Konto-gebunden: Eine ID aus einem anderen Postfach wird schlicht nicht
+    // gefunden, statt mit den Zugangsdaten dieses Kontos verschoben zu werden.
+    const zeilen = db.prepare(
+      "SELECT * FROM sort_inbox WHERE konto_id = ? AND status = 'offen'"
+      + ' AND id IN (SELECT value FROM json_each(?))',
+    ).all(konto.id, JSON.stringify(ids));
+
+    try {
+      const neu = await imap.ordnerErstellen({ ...konto, ...themen.zugang(konto) }, zielordner);
+      if (neu) loggen('info', 'sortierung', `Ordner "${zielordner}" für ${konto.name} angelegt.`);
+    } catch (err) {
+      return res.status(400).json({ error: `Zielordner nicht nutzbar: ${err.message}` });
+    }
+
+    const regelId = regel ? regelMerken(konto.id, regel, req.user.id) : null;
+    const ergebnis = zeilen.length > 0
+      ? await sortierung.stapelVerschieben(konto, zeilen, zielordner, `Sortier-Inbox (${zeilen.length} ausgewählt)`)
+      : { treffer: 0, verschoben: 0, fehler: [], veraltet: 0 };
+    themen.cacheVerwerfen(konto.id);
+    uebersicht.cacheVerwerfen();
+
+    // „Nicht mehr offen" heißt: Jemand anders (ein Workflow-Lauf, ein zweites
+    // Fenster) war schneller. Das ist kein Fehler, aber es gehört gesagt.
+    res.json({ ok: true, regel_id: regelId, ...ergebnis, nichtMehrOffen: ids.length - zeilen.length });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 });
 
@@ -927,33 +1004,61 @@ const kontoLaden = (id) => db.prepare('SELECT * FROM accounts WHERE id = ?').get
 
 // POST /api/sortierung/sammel-zuordnen
 // { konto_id, typ: 'absender'|'domain'|'betreff'|'inhalt', muster, zielordner, inhalt_muster, regelMerken }
-router.post('/sammel-zuordnen', async (req, res) => {
-  const { konto_id, typ, muster, zielordner, regelMerken = true } = req.body || {};
-  // Die Zusatzbedingung fürs Sortier-Inbox-Handgriff: "diese Adresse, aber nur
-  // wenn das Stichwort in der Mail steht" — derselbe Mechanismus wie beim
-  // einzelnen Korrigieren (routes/sortierung.js, POST /korrigieren) und beim
-  // Anlegen einer Regel (POST /regeln). Bei typ='inhalt' steht das Stichwort
-  // schon im Muster, eine zweite Bedingung wäre doppelt gemoppelt.
-  const inhaltMuster = typ === 'inhalt' ? '' : String(req.body?.inhalt_muster || '').trim();
-  if (!konto_id || !typ || !muster || !zielordner) {
-    return res.status(400).json({ error: 'konto_id, typ, muster und zielordner sind Pflicht.' });
-  }
-  if (!['absender', 'domain', 'betreff', 'inhalt'].includes(typ)) {
-    return res.status(400).json({ error: 'Ungültiger Typ.' });
-  }
+// Eine Regel aus dem Rumpf einer Sammelaktion lesen und prüfen. Gebraucht von
+// /sammel-zuordnen und /inbox/verschieben — vorher stand die Prüfung nur in
+// der ersten, und eine zweite Kopie wäre beim nächsten neuen Regeltyp
+// auseinandergelaufen.
+//
+// Die Zusatzbedingung „diese Adresse, aber nur wenn das Stichwort in der Mail
+// steht" ist derselbe Mechanismus wie beim einzelnen Korrigieren (POST
+// /korrigieren) und beim Anlegen einer Regel (POST /regeln). Bei typ='inhalt'
+// steht das Stichwort schon im Muster, eine zweite Bedingung wäre doppelt.
+function regelAusRumpf({ typ, muster, zielordner, inhalt_muster: roh }) {
+  const inhaltMuster = typ === 'inhalt' ? '' : String(roh || '').trim();
+  if (!typ || !muster || !zielordner) return { fehler: 'typ, muster und zielordner sind Pflicht.' };
+  if (!['absender', 'domain', 'betreff', 'inhalt'].includes(typ)) return { fehler: 'Ungültiger Typ.' };
   if (typ === 'inhalt' && String(muster).trim().length < 3) {
-    return res.status(400).json({ error: 'Ein Stichwort für den Inhalt braucht mindestens 3 Zeichen.' });
+    return { fehler: 'Ein Stichwort für den Inhalt braucht mindestens 3 Zeichen.' };
   }
   if (inhaltMuster && inhaltMuster.length < 3) {
-    return res.status(400).json({ error: 'Ein Stichwort für den Inhalt braucht mindestens 3 Zeichen.' });
+    return { fehler: 'Ein Stichwort für den Inhalt braucht mindestens 3 Zeichen.' };
+  }
+  return {
+    regel: {
+      typ, muster: String(muster).trim().toLowerCase(), zielordner: String(zielordner).trim(),
+      inhalt_muster: inhaltMuster || null,
+    },
+  };
+}
+
+// Regel speichern, falls es sie nicht schon gibt; gibt die ID zurück. Die
+// Zusatzbedingung gehört zum Vergleich: Dieselbe Adresse mit UND ohne
+// Stichwort sind zwei verschiedene Regeln, keine Dublette.
+function regelMerken(kontoId, regel, userId) {
+  const schonDa = db.prepare(
+    'SELECT id FROM sort_rules WHERE konto_id = ? AND typ = ? AND muster = ?'
+    + " AND IFNULL(inhalt_muster, '') = ?",
+  ).get(kontoId, regel.typ, regel.muster, regel.inhalt_muster || '');
+  if (schonDa) return schonDa.id;
+  return db.prepare(`
+    INSERT INTO sort_rules (konto_id, typ, muster, zielordner, inhalt_muster, erstellt_von)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(kontoId, regel.typ, regel.muster, regel.zielordner, regel.inhalt_muster, userId).lastInsertRowid;
+}
+
+router.post('/sammel-zuordnen', async (req, res) => {
+  const { konto_id, regelMerken: merken = true } = req.body || {};
+  if (!konto_id) {
+    return res.status(400).json({ error: 'konto_id, typ, muster und zielordner sind Pflicht.' });
+  }
+  const { regel, fehler: ungueltig } = regelAusRumpf(req.body || {});
+  if (ungueltig) {
+    return res.status(400).json({
+      error: ungueltig.endsWith('Pflicht.') ? 'konto_id, typ, muster und zielordner sind Pflicht.' : ungueltig,
+    });
   }
   const konto = kontoLaden(konto_id);
   if (!konto) return res.status(400).json({ error: 'Das Konto existiert nicht.' });
-
-  const regel = {
-    typ, muster: String(muster).trim().toLowerCase(), zielordner: String(zielordner).trim(),
-    inhalt_muster: inhaltMuster || null,
-  };
 
   try {
     // 1. Zielordner sicherstellen — ohne ihn scheitert jedes Verschieben
@@ -965,22 +1070,7 @@ router.post('/sammel-zuordnen', async (req, res) => {
     }
 
     // 2. Regel merken, damit künftige Mails gar nicht erst hier landen
-    let regelId = null;
-    if (regelMerken) {
-      // Die Zusatzbedingung gehört zum Vergleich: Dieselbe Adresse mit UND
-      // ohne Stichwort sind zwei verschiedene Regeln, keine Dublette.
-      const schonDa = db.prepare(
-        'SELECT id FROM sort_rules WHERE konto_id = ? AND typ = ? AND muster = ?'
-        + " AND IFNULL(inhalt_muster, '') = ?",
-      ).get(konto.id, regel.typ, regel.muster, inhaltMuster);
-      if (schonDa) regelId = schonDa.id;
-      else {
-        regelId = db.prepare(`
-          INSERT INTO sort_rules (konto_id, typ, muster, zielordner, inhalt_muster, erstellt_von)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `).run(konto.id, regel.typ, regel.muster, regel.zielordner, inhaltMuster || null, req.user.id).lastInsertRowid;
-      }
-    }
+    const regelId = merken ? regelMerken(konto.id, regel, req.user.id) : null;
 
     // 3. Alles nachziehen, was schon wartet
     const ergebnis = await sortierung.bestandAnwenden(konto, regel);

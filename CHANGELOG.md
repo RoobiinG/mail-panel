@@ -2,6 +2,65 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [6.4.0.0] - 2026-09-17 (Build 230) — *Dieselbe Sorte Mail, egal von wem*
+
+Stufe 2 des Plans „vom Einzel-Zuordnen zum Stapel-Entscheiden". Die Sortier-Inbox bündelte nur nach
+Absender-Domain. Bei persönlicher Post und bei Anbietern, die alles über dieselbe Adresse schicken,
+entstehen so viele Gruppen mit ein, zwei Mails — und dieselbe Sorte Mail („Inkasso troy 28364…",
+„Passwort zurücksetzen") von verschiedenen Absendern steht an verschiedenen Stellen.
+
+### Features
+- **Umschalter „nach Absender | nach Inhalt"** im Kopf der Sortier-Inbox, gespeichert in der Adresse
+  (`?ansicht=inhalt`). Die Absender-Ansicht bleibt Standard und funktioniert wie bisher. Die Chips aus
+  Build 229 filtern beide Ansichten.
+- **Inhalts-Bündel:** Mails mit demselben Betreff-Muster, quer über alle Absender. Zahlen werden zu
+  `#`, Satzzeichen und Antwort-Vorsilben (Re, AW, WG, Fwd …) fallen weg — „Re: Angebot" und „Angebot"
+  landen im selben Bündel. Nur Bündel ab zwei Mails; Muster, die fast nur aus Nummern bestehen oder
+  kürzer als vier Buchstaben sind, werden nicht gebündelt (sie fassten Mails zusammen, die nichts
+  gemeinsam haben). Nie über Postfächer hinweg.
+- Jedes Bündel zeigt: Muster, Anzahl, Kategorie, von wie vielen Domains (die drei häufigsten), drei
+  Beispiel-Betreffe und den KI-Vorschlag (Mehrheit ≥ 50 %, damit vorbelegt). Aufgeklappt stehen alle
+  Mails mit „Ansehen" da.
+- **Standardmäßig keine Regel.** Ein Bündel geht quer über Absender — eine Absender- oder
+  Domain-Regel wäre hier fast immer falsch. Zur Wahl steht nur „Nur jetzt, keine Regel" (Standard)
+  oder „Regel: Stichwort im Inhalt" mit vorgeschlagenem Stichwort.
+- **„Im Posteingang lassen"** für ein ganzes Bündel: ohne Regel, die Mails bleiben liegen und
+  verschwinden nur aus der Liste.
+- Unten steht, wie viele Mails keinem Bündel angehören, mit Sprung in die Absender-Ansicht.
+
+### Änderungen
+- **Neu `POST /api/sortierung/inbox/verschieben`** `{konto_id, ids, zielordner, regel?}`: verschiebt
+  **genau diese Mails** (konto-gebunden, nur offene) über `stapelVerschieben()`. Anders als
+  `/sammel-zuordnen` wird nichts über ein Muster nachgezogen. Die Antwort nennt zusätzlich
+  `nichtMehrOffen` — Mails, die inzwischen ein Workflow-Lauf einsortiert hat.
+- **`POST /api/sortierung/ignorieren` nimmt auch `ids`** (Liste). Die bisherige Form mit `id` bleibt.
+- **„Nur jetzt, keine Regel" in der Absender-Ansicht verschiebt jetzt genau die angezeigten Mails**
+  statt über das Domain-Muster. Ohne Filter ist das dieselbe Menge; mit Filter wurden bisher auch
+  ausgeblendete Mails mitgenommen. Die Zahl am Knopf stimmt damit auch hier.
+- Regel-Prüfung und Regel-Speichern aus `/sammel-zuordnen` in zwei gemeinsame Helfer gezogen
+  (`regelAusRumpf`, `regelMerken`), die jetzt auch `/inbox/verschieben` nutzt — sonst gäbe es die
+  Einfüge-Logik ein drittes Mal. Verhalten und Fehlermeldungen von `/sammel-zuordnen` unverändert.
+- `stapelVerschieben` wird aus `services/sortierung.js` exportiert.
+- Neue Komponente `components/InhaltsBuendel.jsx`. `adresse`, `domainVon`, `stichwortVorschlag` und
+  der Mehrheitsvorschlag liegen jetzt in `components/ui/sortierHilfen.js` (der Schnell-Modus in
+  Stufe 4 braucht sie auch).
+- Neuer Test `test/inhalt-buendel.test.js`: nur übergebene IDs werden bewegt, fremdes Postfach
+  unangetastet, ohne Wahl keine Regel, ungültige Eingaben abgewiesen, `ignorieren` mit `ids`,
+  Muster-Normalisierung, Bündel über Absender und Trennung der Postfächer.
+
+### Bugfixes
+- **„Aktualisieren" in der Sortier-Inbox lud die Mails aller Postfächer.** Der Knopf reichte das
+  Klick-Ereignis als Konto-ID weiter, der Server las daraus „kein Konto". Angezeigt wurde zwar nur
+  das gewählte Postfach (die Seite filterte nach), geladen und mit IMAP abgeglichen wurden aber alle.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Datenbank:** keine Migration. `ignorieren` mit `ids` und `inbox/verschieben` nutzen `json_each`
+  (in SQLite/better-sqlite3 eingebaut).
+- **n8n-Workflows:** unberührt, kein Neuimport.
+- **Verhalten:** Die Absender-Ansicht ist unverändert Standard. Einzige spürbare Änderung dort:
+  „Nur jetzt, keine Regel" bewegt nur noch die angezeigten Mails.
+- **Neustart/Session:** nichts zu beachten; nach dem Update einmal Strg+F5.
+
 ## [6.3.0.0] - 2026-09-17 (Build 229) — *Woraus besteht der Stapel?*
 
 Stufe 1 des Plans „vom Einzel-Zuordnen zum Stapel-Entscheiden". Diagnosebericht vom 17.09.: **1.750
