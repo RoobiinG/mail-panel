@@ -12,6 +12,7 @@ const bestand = require('../services/bestand');
 const klassifizierer = require('../services/klassifizierer');
 const belegLeser = require('../services/belegLeser');
 const uploadFreigabe = require('../services/uploadFreigabe');
+const digest  = require('../services/digest');
 const settings = require('../services/settings');
 const themen  = require('../services/themen');
 const imap    = require('../services/imap');
@@ -880,53 +881,29 @@ router.post('/scan-anhaenge', express.json({ limit: '16kb' }), async (req, res) 
   }
 });
 
-// Liefert die Log-Daten der letzten 24 Stunden, gruppiert nach Kategorie, für Workflow 02
+// Liefert die Log-Daten der letzten 24 Stunden, gruppiert nach Kategorie.
+// Workflow 02 braucht sie seit Build 234 nicht mehr selbst (siehe
+// /digest-text) — der Endpunkt bleibt für eigene Workflows bestehen.
 router.get('/digest', (req, res) => {
   try {
-    const logs = db.prepare(`
-      SELECT konto, von, betreff, kategorie, spam_score, zielordner, kurzfassung, virus_name 
-      FROM quarantine_log 
-      WHERE created_at >= datetime('now', '-1 day')
-      ORDER BY created_at DESC
-    `).all();
-
-    const zusammenfassung = {
-      spam: [],
-      phishing: [],
-      newsletter: [],
-      sonstiges: [],
-      quarantaene: [],
-    };
-
-    let total = 0;
-    for (const row of logs) {
-      total++;
-      if (row.virus_name) {
-        zusammenfassung.quarantaene.push(row);
-      } else if (row.kategorie === 'spam') {
-        zusammenfassung.spam.push(row);
-      } else if (row.kategorie === 'phishing') {
-        zusammenfassung.phishing.push(row);
-      } else if (row.kategorie === 'newsletter') {
-        zusammenfassung.newsletter.push(row);
-      } else if (row.zielordner === 'Quarantine' || row.zielordner === 'Junk') {
-        zusammenfassung.quarantaene.push(row);
-      } else {
-        zusammenfassung.sonstiges.push(row);
-      }
-    }
-
-    res.json({ 
-      ok: true, 
-      total, 
-      spam: zusammenfassung.spam, 
-      phishing: zusammenfassung.phishing, 
-      newsletter: zusammenfassung.newsletter, 
-      quarantaene: zusammenfassung.quarantaene,
-      sonstiges: zusammenfassung.sonstiges
-    });
+    const { logs, ...d } = digest.daten();
+    res.json(d);
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Der fertige Text für den täglichen Digest (Workflow 02, Knoten
+// „KI zusammenfassen"). Das Feld heißt `response` wie bei Ollama — so liest
+// „Text extrahieren" ihn unverändert. Antwortet immer mit einem Text: Scheitert
+// die KI, fehlt nur der Absatz „Das Wichtigste".
+router.post('/digest-text', async (req, res) => {
+  try {
+    const e = await digest.erstellen();
+    res.json({ response: e.text, ki: e.ki, hinweis: e.hinweis, total: e.total });
+  } catch (err) {
+    loggen('error', 'digest', `Digest konnte nicht erstellt werden: ${err.message}`);
+    res.status(500).json({ error: err.message });
   }
 });
 

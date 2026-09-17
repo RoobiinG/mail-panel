@@ -2,6 +2,65 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [6.7.1.0] - 2026-09-17 (Build 234) — *Der Digest kommt an*
+
+Workflow 02 „Täglicher Digest", 17.09., 7:30: **„KI zusammenfassen — Gateway timed out (HTTP 504)",
+3 Min. 8 Sek., keine Telegram-Nachricht.**
+
+### Bugfixes
+- **Der Digest scheiterte am Reverse-Proxy vor Ollama.** Drei Ursachen griffen ineinander:
+  - n8n baute aus **allen** Mails der letzten 24 Stunden einen Prompt, eine Zeile je Mail. Seit die
+    Bestands-Triage läuft, sind das Hunderte am Tag — weit mehr, als ins Kontextfenster passt.
+    Ollama schneidet dann vorn ab, also genau die Anweisung.
+  - Der Knoten bekam beim Abgleich dieselben Einstellungen wie die Klassifizierung:
+    `format: 'json'` und höchstens 600 Token Antwort. Für einen Fließtext von bis zu 3.000 Zeichen
+    ist beides falsch — selbst eine rechtzeitige Antwort wäre als (womöglich abgeschnittenes) JSON
+    gekommen statt als lesbarer Text.
+  - Er fragte Ollama direkt, an Warteschlange und Messung des Panels vorbei, und lief zweimal in die
+    90-Sekunden-Grenze des Proxys (90 s + 5 s Pause + 90 s — rund die 3 Min. 8 Sek. des Laufs).
+    Ohne Antwort ging gar keine Nachricht hinaus.
+- **Mails im Ordner „Quarantaene" zählten im Digest als „sonstige".** Geprüft wurde nur auf
+  „Quarantine" und „Junk", der Standardname der Workflows ist aber „Quarantaene".
+- Die Ollama-Vorlage von Workflow 02 enthielt kaputte Zeichen („â€”" statt „—", „âœ…" am Knopf
+  „Alle freigeben"). Betrifft nur neue Importe — ein schon importierter Workflow behält den
+  Knopftext, bis er neu importiert wird.
+
+### Änderungen
+- **Das Panel erstellt den Digest selbst** (`services/digest.js`, neuer Endpunkt
+  `POST /api/internal/digest-text`). Zählen und Auflisten kann es exakt und ohne KI:
+  - Kopf mit Datum und Zählerzeile (sonstige, Newsletter, Spam/Quarantäne),
+  - **„Das Wichtigste"** — 2 bis 5 Stichpunkte der KI,
+  - persönliche Mails, Rechnungen und Bestellungen (die zehn neuesten, Absender mit Namen),
+  - wohin einsortiert wurde (die acht häufigsten Ordner),
+  - Quarantäne/Spam mit Score oder Virusname (zehn),
+  - was im Panel wartet: Sortier-Inbox, Ordner-Vorschläge, Dateien zur Freigabe.
+  Längere Listen enden mit „… und N weitere"; der Text bleibt unter 3.900 Zeichen.
+- **Die KI schreibt nur noch den Absatz „Das Wichtigste"** — aus höchstens 25 Mails (persönlich,
+  Rechnung, Bestellung) mit Kurzfassung, über den normalen Weg (`kiText.frageJson`: Warteschlange,
+  Schema, Kürzung, Messung inklusive 504), mit höchstens 90 s und 400 Token. **Scheitert sie, kommt
+  der Digest trotzdem** — ohne diesen Absatz, mit einer Zeile, warum. Gibt es keine wichtigen Mails,
+  wird die KI gar nicht gefragt. Bei Gemini zählt der Aufruf wie jede andere Anfrage im Tagesbudget.
+- **Workflow-Abgleich:** Der Knoten „KI zusammenfassen" wird zu einem Panel-Aufruf umgebaut — id,
+  Name, Position und Verbindungen bleiben, die Antwort trägt das Feld `response` wie Ollama, „Text
+  extrahieren" liest also unverändert. Zeitlimit 120 s, keine Wiederholung (das Panel liefert immer
+  einen Text). Der Abgleich hängt dort das Panel-Credential an und keinen Google-Zugang mehr, und
+  `geminiRequestReparieren()` fasst den Knoten nicht mehr an.
+- `GET /api/internal/digest` bleibt für eigene Workflows bestehen und nutzt dieselbe Auswertung.
+- Neuer Test `test/digest.test.js`: mit und ohne KI (504), 800 Mails (KI sieht 25, Text passt in
+  eine Nachricht), keine KI-Anfrage ohne wichtige Mails, Quarantäne-Ordner, wartende Arbeit; Umbau
+  des Knotens samt aller übrigen Abgleich-Schritte (bleibt Panel-Aufruf, Credential, Zeitlimit,
+  Verbindungen).
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Datenbank:** keine Migration.
+- **n8n-Workflows:** **kein Neuimport nötig.** Der automatische Abgleich beim Containerstart baut den
+  Knoten in Workflow 02 um (oder „Workflows → Synchronisieren"). Die Knoten „Daten vom Panel holen"
+  und „Digest zusammenstellen" laufen weiter mit, ihr Ergebnis wird nur nicht mehr gebraucht.
+- **Verhalten:** Der Digest sieht anders aus (siehe oben) und kommt auch dann, wenn Ollama nicht
+  antwortet. Läuft um 7:30 gleichzeitig eine Bestands-Triage, wartet der KI-Absatz in der
+  Warteschlange — reicht die Zeit nicht, fehlt nur er.
+- **Neustart/Session:** nichts zu beachten.
+
 ## [6.7.0.0] - 2026-09-17 (Build 233) — *Neueste zuerst*
 
 Stufe 5 und letzte des Plans „vom Einzel-Zuordnen zum Stapel-Entscheiden". Die Bestands-Triage

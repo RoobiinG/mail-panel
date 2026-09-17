@@ -948,7 +948,9 @@ function panelZeitlimitSetzen(workflow) {
     const url = String(knoten.parameters?.url || '');
     if (!url.includes('panel:3002')) continue;
 
-    const grenze = url.includes('scan-anhaenge') ? PANEL_ZEITLIMIT_LANG : PANEL_ZEITLIMIT;
+    // Der Digest wartet auf die KI (höchstens 90 s, siehe services/digest.js).
+    const grenze = url.includes('scan-anhaenge') || url.includes('digest-text')
+      ? PANEL_ZEITLIMIT_LANG : PANEL_ZEITLIMIT;
     knoten.parameters.options = knoten.parameters.options || {};
     if (knoten.parameters.options.timeout !== grenze) {
       knoten.parameters.options.timeout = grenze;
@@ -1363,6 +1365,48 @@ function kiKnotenNeutralBenennen(workflow) {
     }
   }
   return geaendert;
+}
+
+// ─── Workflow 02: der Digest kommt fertig vom Panel ──────────────────────────
+//
+// Der Zusammenfasser rief die KI direkt auf, mit einem Prompt aus ALLEN Mails
+// der letzten 24 Stunden. Seit die Bestands-Triage Hunderte Mails am Tag
+// protokolliert, passte der weder ins Kontextfenster noch in die 90 Sekunden
+// des Reverse-Proxys vor Ollama. Am 17.09., 7:30: zweimal 504, 3 Min. 8 Sek.,
+// keine Nachricht. Dazu bekam der Knoten von geminiRequestReparieren() die
+// Einstellungen der Klassifizierung (JSON-Format, 600 Token) — für einen
+// Fließtext beides falsch.
+//
+// Jetzt erstellt das Panel den Text (services/digest.js) und der Knoten holt
+// ihn nur ab. Name, id und Position bleiben, damit alle Verbindungen gelten;
+// die Antwort trägt das Feld `response` wie Ollama, damit „Text extrahieren"
+// unverändert weiterliest. Das Credential hängt panelKnotenVerdrahten() an —
+// deshalb muss dieser Umbau VOR dem Verdrahten laufen.
+const DIGEST_URL = 'http://panel:3002/api/internal/digest-text';
+const istDigestKnoten = (knoten) => String(knoten?.parameters?.url || '') === DIGEST_URL;
+
+function digestKnotenUmbauen(workflow) {
+  const i = (workflow.nodes || []).findIndex((k) => KI_ZUSAMMENFASSER.includes(k.name));
+  if (i < 0) return false;
+  const alt = workflow.nodes[i];
+  if (alt.type === 'n8n-nodes-base.httpRequest' && istDigestKnoten(alt)) return false;
+
+  workflow.nodes[i] = {
+    parameters: {
+      method: 'POST',
+      url: DIGEST_URL,
+      options: { timeout: PANEL_ZEITLIMIT_LANG },
+    },
+    id: alt.id,
+    name: alt.name,
+    type: 'n8n-nodes-base.httpRequest',
+    typeVersion: 4.2,
+    position: alt.position,
+    // Keine Wiederholung: Das Panel liefert auch ohne KI einen Text. Scheitert
+    // der Aufruf trotzdem, ist das Panel selbst weg — dann hilft ein zweiter
+    // Versuch fünf Sekunden später nicht.
+  };
+  return true;
 }
 
 // Wie lange der Buendel-Knoten auf das Panel wartet: dessen Frist plus 40 s
@@ -1793,6 +1837,9 @@ async function kiUndBenachrichtigungenSynchronisieren() {
       const workflow = await n8n.workflowHolen(wfInfo.id);
 
       if (reservierteIdsUmbenennen(workflow)) geaendert = true;
+      // Vor dem Verdrahten: Der umgebaute Digest-Knoten ruft das Panel auf und
+      // braucht dessen Credential.
+      if (digestKnotenUmbauen(workflow)) geaendert = true;
       if (panelKnotenVerdrahten(workflow, panelCredId)) geaendert = true;
       // Auch hier, nicht nur in 01 und 04: Sonst bleibt der Digest-Workflow auf
       // dem abgekündigten Gemini-Modell stehen, weil ihn sonst niemand anfasst.
@@ -1810,7 +1857,10 @@ async function kiUndBenachrichtigungenSynchronisieren() {
         // ist aber ein Code-Knoten und ruft Google gar nicht mehr selbst auf.
         // Ohne diese Prüfung bekäme er bei jedem Rundgang Zugangsdaten
         // angeheftet, die er nicht braucht — und würde jedes Mal neu gespeichert.
-        if (knoten.type === 'n8n-nodes-base.httpRequest'
+        // Der Digest-Knoten heißt zwar noch „KI zusammenfassen", fragt aber
+        // das Panel — ein Google-Zugang würde dort das Panel-Credential
+        // überschreiben.
+        if (knoten.type === 'n8n-nodes-base.httpRequest' && !istDigestKnoten(knoten)
           && (istKiKnoten(knoten.name) || KI_ZUSAMMENFASSER.includes(knoten.name))) {
           // Mit Ollama darf hier kein Google-Zugang mehr hängen: Der Knoten
           // zeigt dann auf den lokalen Server, und ein Header mit einem
@@ -2115,6 +2165,7 @@ module.exports = {
   geminiModellNachziehen,
   geminiBuendelEinbauen, BUENDEL_MARKE, panelZeitlimitSetzen,
   kiKnotenNeutralBenennen, KI_NAME, KI_ZUSAMMENFASSER_NAME,
+  digestKnotenUmbauen, panelKnotenVerdrahten, DIGEST_URL,
   KI_ZEITLIMIT_GEMINI, KI_ZEITLIMIT_OLLAMA,
   kiAntwortLesenAngleichen, istKiKnoten,
   absenderpruefungFuellen, bedingungBrauchtChatId,
