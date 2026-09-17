@@ -2,6 +2,47 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [6.5.0.0] - 2026-09-17 (Build 231) — *Alle Vorschläge auf einmal*
+
+Stufe 3 des Plans „vom Einzel-Zuordnen zum Stapel-Entscheiden". Zu vielen wartenden Mails hat die KI
+einen Ordner genannt, der im Katalog längst existiert — sie war sich nur zu unsicher, um selbst zu
+verschieben (in der Aufschlüsselung meist „Zu unsicher"). Übernehmen ließ sich das bisher nur Gruppe
+für Gruppe.
+
+### Features
+- **Knopf „Alle Vorschläge übernehmen (N)"** im Kopf der Sortier-Inbox, sichtbar nur, wenn es
+  solche Vorschläge gibt. Er öffnet eine Vorschau:
+  - Tabelle je Ordner mit Häkchen (alle vorausgewählt, eins für alle), Anzahl, durchschnittlicher
+    Sicherheit der KI und drei Beispiel-Betreffen.
+  - Darunter, was **nicht** enthalten ist: Vorschläge für neue Ordner, mit Sprung in den Reiter
+    „Vorschläge", wo sie freigegeben werden.
+  - Der Knopf nennt die Gesamtzahl der gewählten Mails. Im Dialog steht ausdrücklich: keine Regeln,
+    kein Rückgängig, Korrekturen über den Reiter „Ordner", gilt fürs ganze Postfach unabhängig vom
+    Filter.
+
+### Änderungen
+- **Neu `GET /api/sortierung/inbox/vorschlaege-vorschau?konto_id=`**: offene Mails mit KI-Vorschlag,
+  gruppiert nach dem Katalog-Ordner, den `themen.imKatalog()` dazu findet (gleiche Auflösung wie
+  beim Einsortieren: Groß-/Kleinschreibung, Pfad, Umleitungen, Wortstamm). Gesperrte Ordner zählen
+  nicht als Katalog. Alles ohne Katalog-Treffer steht getrennt unter `neueOrdner`.
+- **Neu `POST /api/sortierung/inbox/vorschlaege-uebernehmen`** `{konto_id, ordner: [...]}`: rechnet
+  den Stapel auf dem Server neu (IDs vom Client werden nicht angenommen — zwischen Vorschau und
+  Klick kann ein Workflow-Lauf etwas verändert haben), ermittelt je Ordner die Schreibweise des
+  Servers (`INBOX.Reisen`), legt einen fehlenden Ordner an und verschiebt über
+  `stapelVerschieben()`. **Keine Regeln.** Antwort je Ordner mit verschoben/veraltet/Fehler.
+- Die Vorschau wird mit jedem Laden der Sortier-Inbox mitgeholt (der IMAP-Abgleich ist gedrosselt,
+  die zweite Anfrage kostet keine weitere Verbindung).
+- Neuer Test `test/vorschlaege-uebernehmen.test.js`: nur Katalog-Ordner in der Vorschau, gesperrte
+  und neue getrennt; Übernehmen bewegt genau die Vorschläge des gewählten Ordners; Client-IDs
+  wirkungslos; neue Ordner nie übernommen; keine Regeln.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Datenbank:** keine Migration.
+- **n8n-Workflows:** unberührt, kein Neuimport.
+- **Verhalten:** Nichts geschieht ohne Bestätigung im Dialog. Die Treffer-Zähler der Themen-Ordner
+  ändern sich durch das Übernehmen nicht — wie bei jedem anderen Verschieben aus der Sortier-Inbox.
+- **Neustart/Session:** nichts zu beachten; nach dem Update einmal Strg+F5.
+
 ## [6.4.0.0] - 2026-09-17 (Build 230) — *Dieselbe Sorte Mail, egal von wem*
 
 Stufe 2 des Plans „vom Einzel-Zuordnen zum Stapel-Entscheiden". Die Sortier-Inbox bündelte nur nach

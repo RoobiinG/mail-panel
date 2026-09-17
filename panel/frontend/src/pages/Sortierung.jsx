@@ -160,6 +160,11 @@ export default function Sortierung() {
   // Merker würde der Abbruch trotzdem speichern.
   const inlineAbbruch = useRef(false);
   const [inbox, setInbox] = useState([]);
+  // „Alle Vorschläge übernehmen": Vorschau vom Server (nur Katalog-Ordner) und
+  // die Häkchen im Dialog. konto_id steht mit drin, damit eine späte Antwort
+  // für ein inzwischen gewechseltes Postfach nicht angezeigt wird.
+  const [vorschlagsVorschau, setVorschlagsVorschau] = useState(null);
+  const [vorschlagsDialog, setVorschlagsDialog] = useState({ offen: false, auswahl: {}, laeuft: false });
   const [laedt, setLaedt] = useState(false);
 
   // Modal: Regel anlegen ODER ändern. Mit `id` wird daraus eine Änderung —
@@ -1145,6 +1150,55 @@ export default function Sortierung() {
       const { data } = await api.get(`/sortierung/inbox?konto_id=${kontoId}`);
       setInbox(data || []);
     } catch { /* leer */ }
+    vorschlagsVorschauLaden(kontoId);
+  };
+
+  const vorschlagsVorschauLaden = async (kontoId = aktivesKonto) => {
+    if (!kontoId) return null;
+    try {
+      const { data } = await api.get(`/sortierung/inbox/vorschlaege-vorschau?konto_id=${kontoId}`);
+      const stand = { ...data, konto_id: kontoId };
+      setVorschlagsVorschau(stand);
+      return stand;
+    } catch {
+      return null;
+    }
+  };
+
+  const vorschlagsDialogOeffnen = async () => {
+    const stand = await vorschlagsVorschauLaden();
+    if (!stand || stand.gesamt === 0) {
+      return melden('Gerade gibt es keine KI-Vorschläge für vorhandene Ordner.', 'hinweis');
+    }
+    setVorschlagsDialog({
+      offen: true, laeuft: false,
+      auswahl: Object.fromEntries(stand.ordner.map(o => [o.ordner, true])),
+    });
+  };
+
+  const vorschlaegeUebernehmen = async () => {
+    const ordner = Object.entries(vorschlagsDialog.auswahl).filter(([, an]) => an).map(([name]) => name);
+    if (ordner.length === 0) return;
+    setVorschlagsDialog(p => ({ ...p, laeuft: true }));
+    try {
+      const { data } = await api.post('/sortierung/inbox/vorschlaege-uebernehmen', {
+        konto_id: aktivesKonto, ordner,
+      });
+      const teile = [`${data.verschoben} Mail(s) in ${ordner.length} Ordner verschoben.`];
+      if (data.veraltet) teile.push(`${data.veraltet} Eintrag/Einträge lagen nicht mehr im Posteingang und wurden aus der Liste entfernt.`);
+      if (data.fehler?.length) {
+        const liste = data.fehler.slice(0, 5).map(f => `• ${f}`).join('\n');
+        const rest = data.fehler.length > 5 ? `\n… und ${data.fehler.length - 5} weitere` : '';
+        teile.push(`Nicht verschoben:\n${liste}${rest}`);
+      }
+      melden(teile.join('\n\n'), data.fehler?.length ? 'hinweis' : undefined);
+      setVorschlagsDialog({ offen: false, auswahl: {}, laeuft: false });
+      inboxLaden();
+      katalogLaden(aktivesKonto);
+    } catch (err) {
+      melden(err.response?.data?.error || 'Fehler beim Übernehmen', 'fehler');
+      setVorschlagsDialog(p => ({ ...p, laeuft: false }));
+    }
   };
 
   // ─── REGELN ──────────────────────────────────────────────────────────────────
@@ -2833,6 +2887,15 @@ export default function Sortierung() {
               </div>
               <button onClick={() => inboxLaden()} className="btn-ghost text-xs">Aktualisieren</button>
             </div>
+            {vorschlagsVorschau?.konto_id === aktivesKonto && vorschlagsVorschau.gesamt > 0 && (
+              <button
+                onClick={vorschlagsDialogOeffnen}
+                className="btn !py-1.5 !px-3 text-xs flex items-center gap-1.5 w-full sm:w-auto justify-center"
+                title="Alle Mails, zu denen die KI einen vorhandenen Ordner genannt hat, in einem Schritt verschieben — mit Vorschau"
+              >
+                <Wand2 size={14} /> Alle Vorschläge übernehmen ({vorschlagsVorschau.gesamt})
+              </button>
+            )}
           </div>
 
           {/* Woraus besteht der Stapel? Jeder Chip ist zugleich ein Filter.
@@ -3246,6 +3309,105 @@ export default function Sortierung() {
         </div>
       </div>
       )}
+
+      {/* MODAL: Alle KI-Vorschläge übernehmen */}
+      {vorschlagsDialog.offen && vorschlagsVorschau && (() => {
+        const summe = vorschlagsVorschau.ordner
+          .filter(o => vorschlagsDialog.auswahl[o.ordner])
+          .reduce((s, o) => s + o.anzahl, 0);
+        const alleAn = vorschlagsVorschau.ordner.every(o => vorschlagsDialog.auswahl[o.ordner]);
+        const neuSumme = vorschlagsVorschau.neueOrdner.reduce((s, o) => s + o.anzahl, 0);
+        const schliessen = () => !vorschlagsDialog.laeuft && setVorschlagsDialog({ offen: false, auswahl: {}, laeuft: false });
+        return (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="card w-full max-w-2xl space-y-4 shadow-2xl max-h-[90vh] flex flex-col">
+              <h2 className="text-xl font-semibold">Alle KI-Vorschläge übernehmen</h2>
+              <p className="text-xs text-panel-muted">
+                Zu diesen Mails hat die KI einen <b>vorhandenen</b> Ordner genannt, war sich aber zu unsicher,
+                um selbst zu verschieben. Es entstehen <b>keine Regeln</b>. Es gibt kein Rückgängig — eine
+                falsch einsortierte Mail holt man über den Reiter „Ordner" zurück. Gilt für das ganze
+                Postfach, unabhängig vom Filter.
+              </p>
+
+              <div className="overflow-auto flex-1 min-h-0 border border-panel-border rounded-xl">
+                <table className="w-full text-sm">
+                  <thead className="text-xs text-panel-muted sticky top-0 bg-panel-surface">
+                    <tr className="text-left">
+                      <th className="p-2 w-8">
+                        <input
+                          type="checkbox"
+                          checked={alleAn}
+                          onChange={() => setVorschlagsDialog(p => ({
+                            ...p,
+                            auswahl: Object.fromEntries(vorschlagsVorschau.ordner.map(o => [o.ordner, !alleAn])),
+                          }))}
+                          aria-label="Alle auswählen"
+                        />
+                      </th>
+                      <th className="p-2">Ordner</th>
+                      <th className="p-2 text-right">Mails</th>
+                      <th className="p-2 text-right hidden sm:table-cell" title="Durchschnittliche Sicherheit der KI">Ø sicher</th>
+                      <th className="p-2 hidden sm:table-cell">Beispiele</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-panel-border">
+                    {vorschlagsVorschau.ordner.map(o => (
+                      <tr key={o.ordner} className="align-top">
+                        <td className="p-2">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(vorschlagsDialog.auswahl[o.ordner])}
+                            onChange={e => setVorschlagsDialog(p => ({
+                              ...p, auswahl: { ...p.auswahl, [o.ordner]: e.target.checked },
+                            }))}
+                            aria-label={`${o.ordner} übernehmen`}
+                          />
+                        </td>
+                        <td className="p-2 font-mono break-all">{o.ordner}</td>
+                        <td className="p-2 text-right">{o.anzahl}</td>
+                        <td className="p-2 text-right text-panel-muted hidden sm:table-cell">
+                          {o.sicherheit != null ? `${Math.round(o.sicherheit * 100)} %` : '—'}
+                        </td>
+                        <td className="p-2 text-xs text-panel-muted hidden sm:table-cell">
+                          {o.beispiele.map(b => <div key={b} className="truncate max-w-[260px]" title={b}>{b}</div>)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {neuSumme > 0 && (
+                <p className="text-xs text-panel-muted">
+                  Nicht enthalten: {neuSumme} Mail{neuSumme === 1 ? '' : 's'} mit Vorschlag für einen <b>neuen</b> Ordner
+                  ({vorschlagsVorschau.neueOrdner.slice(0, 4).map(o => `${o.name} (${o.anzahl})`).join(', ')}
+                  {vorschlagsVorschau.neueOrdner.length > 4 ? ', …' : ''}) — neue Ordner laufen über den Reiter{' '}
+                  <button
+                    onClick={() => { schliessen(); setTab('vorschlaege'); }}
+                    className="text-panel-accent hover:underline"
+                  >
+                    „Vorschläge"
+                  </button>.
+                </p>
+              )}
+
+              <div className="flex gap-2 pt-2">
+                <button type="button" onClick={schliessen} disabled={vorschlagsDialog.laeuft} className="btn-ghost flex-1">
+                  Abbrechen
+                </button>
+                <button
+                  type="button"
+                  onClick={vorschlaegeUebernehmen}
+                  disabled={vorschlagsDialog.laeuft || summe === 0}
+                  className="btn flex-1 disabled:opacity-50"
+                >
+                  {vorschlagsDialog.laeuft ? 'Läuft …' : `${summe} Mail${summe === 1 ? '' : 's'} verschieben`}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* MODAL: Themen-Ordner aufnehmen */}
       {katalogModal.offen && (

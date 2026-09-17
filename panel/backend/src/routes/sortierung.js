@@ -597,6 +597,135 @@ router.post('/inbox/verschieben', async (req, res) => {
   }
 });
 
+// ─── ALLE VORSCHLÄGE AUF EINMAL ──────────────────────────────────────────────
+//
+// Zu vielen wartenden Mails hat die KI einen Ordner genannt, der im Katalog
+// längst existiert — nur war sie sich zu unsicher, um selbst zu verschieben.
+// Bisher ließ sich das nur Gruppe für Gruppe übernehmen. Hier geht es in einem
+// Schritt, mit Vorschau und Häkchen je Ordner.
+//
+// Übernommen wird ausschließlich in Ordner, die im Katalog stehen (und nicht
+// gesperrt sind). Neue Ordner, die die KI vorschlägt, werden nur genannt — sie
+// laufen weiter über die Freigabe im Reiter „Ordner". Es entstehen keine
+// Regeln: Die Vorschläge sind unsicher, eine Regel daraus würde den Fehler
+// für jede künftige Mail wiederholen.
+
+function vorschlagsStapel(konto) {
+  const zeilen = db.prepare(
+    "SELECT * FROM sort_inbox WHERE konto_id = ? AND status = 'offen'"
+    + " AND TRIM(IFNULL(ki_ordner, '')) <> '' ORDER BY created_at DESC",
+  ).all(konto.id);
+
+  // imKatalog liest bei jedem Aufruf den Katalog und die Umleitungen — je
+  // Vorschlagsname genügt einmal.
+  const aufgeloest = new Map();
+  const ordner = new Map();
+  const neu = new Map();
+  for (const z of zeilen) {
+    const name = String(z.ki_ordner).trim();
+    const schluessel = name.toLowerCase();
+    if (!aufgeloest.has(schluessel)) aufgeloest.set(schluessel, themen.imKatalog(konto.id, name));
+    const eintrag = aufgeloest.get(schluessel);
+    if (!eintrag) {
+      if (!neu.has(schluessel)) neu.set(schluessel, { name, anzahl: 0 });
+      neu.get(schluessel).anzahl += 1;
+      continue;
+    }
+    if (!ordner.has(eintrag.ordner)) ordner.set(eintrag.ordner, { ordner: eintrag.ordner, mails: [] });
+    ordner.get(eintrag.ordner).mails.push(z);
+  }
+  return {
+    ordner: [...ordner.values()].sort((a, b) => b.mails.length - a.mails.length || a.ordner.localeCompare(b.ordner)),
+    neueOrdner: [...neu.values()].sort((a, b) => b.anzahl - a.anzahl),
+  };
+}
+
+// GET /api/sortierung/inbox/vorschlaege-vorschau?konto_id=1
+router.get('/inbox/vorschlaege-vorschau', async (req, res) => {
+  const konto = kontoLaden(req.query.konto_id);
+  if (!konto) return res.status(400).json({ error: 'Das Konto existiert nicht.' });
+  try {
+    await inboxAbgleichen();
+    const { ordner, neueOrdner } = vorschlagsStapel(konto);
+    const sicherheit = (mails) => {
+      const werte = mails.map((m) => m.ki_konfidenz).filter((k) => k != null);
+      return werte.length ? werte.reduce((a, b) => a + b, 0) / werte.length : null;
+    };
+    res.json({
+      ordner: ordner.map((o) => ({
+        ordner: o.ordner,
+        anzahl: o.mails.length,
+        sicherheit: sicherheit(o.mails),
+        beispiele: [...new Set(o.mails.map((m) => String(m.betreff || '').trim()).filter(Boolean))].slice(0, 3),
+      })),
+      neueOrdner,
+      gesamt: ordner.reduce((s, o) => s + o.mails.length, 0),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/sortierung/inbox/vorschlaege-uebernehmen { konto_id, ordner: [...] }
+//
+// Bewusst ohne IDs vom Client: Der Stapel wird hier neu berechnet. Zwischen
+// Vorschau und Klick kann ein Workflow-Lauf Mails einsortiert oder neue
+// Vorschläge gebracht haben — verschoben wird, was JETZT zu den gewählten
+// Ordnern vorgeschlagen ist.
+router.post('/inbox/vorschlaege-uebernehmen', async (req, res) => {
+  const konto = kontoLaden(req.body?.konto_id);
+  if (!konto) return res.status(400).json({ error: 'Das Konto existiert nicht.' });
+  const gewaehlt = Array.isArray(req.body?.ordner)
+    ? [...new Set(req.body.ordner.map((o) => String(o).trim()).filter(Boolean))]
+    : [];
+  if (gewaehlt.length === 0) return res.status(400).json({ error: 'Kein Ordner ausgewählt.' });
+
+  try {
+    const { ordner } = vorschlagsStapel(konto);
+    const ergebnisse = [];
+    for (const name of gewaehlt) {
+      const gruppe = ordner.find((o) => o.ordner === name);
+      // Nicht (mehr) im Stapel — etwa weil der Ordner inzwischen gesperrt ist
+      // oder die Mails schon einsortiert sind. Kein Fehler, nur nichts zu tun.
+      if (!gruppe) { ergebnisse.push({ ordner: name, treffer: 0, verschoben: 0, veraltet: 0, fehler: [] }); continue; }
+
+      // Die Schreibweise des Servers: Wo alles unter dem Posteingang liegt,
+      // heißt der Ordner „INBOX.Reisen". Fehlt er, wird er angelegt.
+      let ziel = await themen.ordnerPfad(konto, gruppe.ordner);
+      if (!ziel) {
+        try {
+          await imap.ordnerErstellen({ ...konto, ...themen.zugang(konto) }, gruppe.ordner);
+          themen.cacheVerwerfen(konto.id);
+          ziel = (await themen.ordnerPfad(konto, gruppe.ordner)) || gruppe.ordner;
+        } catch (err) {
+          ergebnisse.push({
+            ordner: name, treffer: gruppe.mails.length, verschoben: 0, veraltet: 0,
+            fehler: [`Ordner nicht nutzbar: ${err.message}`],
+          });
+          continue;
+        }
+      }
+      const r = await sortierung.stapelVerschieben(konto, gruppe.mails, ziel, 'Alle KI-Vorschläge übernommen');
+      ergebnisse.push({ ordner: name, ...r });
+    }
+    themen.cacheVerwerfen(konto.id);
+    uebersicht.cacheVerwerfen();
+
+    const summe = (feld) => ergebnisse.reduce((s, e) => s + (e[feld] || 0), 0);
+    loggen('info', 'sortierung',
+      `${konto.name}: KI-Vorschläge für ${gewaehlt.length} Ordner übernommen — ${summe('verschoben')} Mail(s) verschoben.`);
+    res.json({
+      ok: true,
+      ergebnisse,
+      verschoben: summe('verschoben'),
+      veraltet: summe('veraltet'),
+      fehler: ergebnisse.flatMap((e) => e.fehler.map((f) => `${e.ordner}: ${f}`)),
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // ─── LETZTE ENTSCHEIDUNGEN UND KORREKTUR ─────────────────────────────────────
 //
 // Bisher sah man eine Fehlentscheidung, korrigierte sie von Hand im
