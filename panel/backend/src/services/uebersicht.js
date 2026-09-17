@@ -98,6 +98,7 @@ async function laden({ mitPosteingang = true } = {}) {
     zuordnungen: zahl("SELECT COUNT(*) n FROM sort_inbox WHERE status='offen'"),
     themenVorschlaege: zahl("SELECT COUNT(*) n FROM ordner_vorschlaege WHERE status='offen'"),
     freigaben: zahl("SELECT COUNT(*) n FROM upload_freigaben WHERE status='offen'"),
+    aufProbe: zahl("SELECT COUNT(*) n FROM konto_ordner WHERE auf_probe = 1"),
     // Nur ein Trockenlauf wartet auf eine Entscheidung. Lief die Nachsortierung
     // scharf, ist sie damit fertig und hat nichts offen.
     nachsortierung: nachsortierungLauf?.trockenlauf ? (nachsortierungLauf.treffer || 0) : 0,

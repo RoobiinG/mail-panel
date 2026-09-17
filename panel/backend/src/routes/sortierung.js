@@ -1315,18 +1315,20 @@ router.post('/katalog', async (req, res) => {
   }
 });
 
-// PUT /api/sortierung/katalog/:id — Beschreibung pflegen, sperren/entsperren
+// PUT /api/sortierung/katalog/:id — Beschreibung pflegen, sperren/entsperren, Probe aufheben
 router.put('/katalog/:id', (req, res) => {
-  const { beschreibung, gesperrt } = req.body || {};
+  const { beschreibung, gesperrt, auf_probe } = req.body || {};
   try {
     const info = db.prepare(`
       UPDATE konto_ordner
       SET beschreibung = COALESCE(?, beschreibung),
-          gesperrt = COALESCE(?, gesperrt)
+          gesperrt = COALESCE(?, gesperrt),
+          auf_probe = COALESCE(?, auf_probe)
       WHERE id = ?
     `).run(
       beschreibung !== undefined ? String(beschreibung).slice(0, 200) : null,
       gesperrt !== undefined ? (gesperrt ? 1 : 0) : null,
+      auf_probe !== undefined ? (auf_probe ? 1 : 0) : null,
       Number(req.params.id),
     );
     if (info.changes === 0) return res.status(404).json({ error: 'Eintrag nicht gefunden.' });
@@ -1337,12 +1339,53 @@ router.put('/katalog/:id', (req, res) => {
 });
 
 // DELETE /api/sortierung/katalog/:id — nur aus dem Katalog nehmen.
-// Der Ordner im Postfach bleibt stehen: Es wird nie gelöscht, nur verschoben.
+// (Das tatsächliche Löschen im Postfach passiert hier bewusst nicht.)
 router.delete('/katalog/:id', (req, res) => {
   try {
-    const info = db.prepare('DELETE FROM konto_ordner WHERE id = ?').run(Number(req.params.id));
-    if (info.changes === 0) return res.status(404).json({ error: 'Eintrag nicht gefunden.' });
-    res.json({ ok: true, hinweis: 'Aus dem Katalog entfernt. Der Ordner im Postfach bleibt bestehen.' });
+    db.prepare('DELETE FROM konto_ordner WHERE id = ?').run(Number(req.params.id));
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// POST /api/sortierung/katalog/:id/probe-rueckgaengig
+router.post('/katalog/:id/probe-rueckgaengig', async (req, res) => {
+  try {
+    const eintrag = db.prepare('SELECT * FROM konto_ordner WHERE id = ?').get(Number(req.params.id));
+    if (!eintrag) return res.status(404).json({ error: 'Ordner nicht gefunden.' });
+    if (!eintrag.auf_probe) return res.status(400).json({ error: 'Ordner ist nicht auf Probe.' });
+
+    const konto = kontoHolen(eintrag.konto_id);
+    if (!konto) return res.status(404).json({ error: 'Konto nicht gefunden.' });
+
+    const imapService = require('../services/imap');
+    
+    // 1. Alle Mails in diesem Ordner finden
+    const uidsSet = await imapService.uidsAuflisten({ ...konto, ordner: eintrag.ordner });
+    const mails = Array.from(uidsSet).map(u => ({ uid: u }));
+    
+    // 2. Zurückschieben in INBOX
+    if (mails.length > 0) {
+      await imapService.mailsVerschieben({
+        ...konto,
+        mails,
+        von: eintrag.ordner,
+        nach: 'INBOX'
+      });
+      // Quarantine Log bereinigen? Wir belassen es besser, oder markieren es, 
+      // aber INBOX ist ja der Ursprung.
+    }
+
+    // 3. Aus dem Katalog werfen
+    db.prepare('DELETE FROM konto_ordner WHERE id = ?').run(eintrag.id);
+
+    // 4. (Optional) Ordner per IMAP löschen? Das Panel löscht eigentlich nie Ordner, 
+    // aber bei "Probe" ist das genau der Sinn. Doch das Risiko, was falsches zu löschen, 
+    // ist hoch. Wir nehmen ihn nur aus dem Katalog und verschieben die Mails.
+    // Der leere Ordner bleibt im Postfach, stört aber nicht weiter.
+
+    res.json({ ok: true, verschoben: mails.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

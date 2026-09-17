@@ -434,6 +434,8 @@ const migrations = [
   // Wir korrigieren die historischen Daten jetzt sauber auf Datenbankebene.
   "UPDATE quarantine_log SET konto = 'g.robin.2002' WHERE konto = 'Web.de'",
   "UPDATE sort_inbox SET konto = 'g.robin.2002' WHERE konto = 'Web.de'",
+  // Stufe 6: Probe-Lauf für neue KI-Ordner
+  'ALTER TABLE konto_ordner ADD COLUMN auf_probe INTEGER NOT NULL DEFAULT 0',
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch { /* Spalte existiert schon */ }

@@ -935,13 +935,14 @@ async function ordnerAnlegen(konto, name) {
   return angelegt;
 }
 
-function inKatalog(kontoId, pfad, quelle, beschreibung = null) {
+function inKatalog(kontoId, pfad, quelle, beschreibung = null, aufProbe = 0) {
   db.prepare(`
-    INSERT INTO konto_ordner (konto_id, ordner, beschreibung, quelle)
-    VALUES (?, ?, ?, ?)
+    INSERT INTO konto_ordner (konto_id, ordner, beschreibung, quelle, auf_probe)
+    VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(konto_id, ordner) DO UPDATE SET
-      beschreibung = COALESCE(excluded.beschreibung, beschreibung)
-  `).run(kontoId, pfad, beschreibung, quelle);
+      beschreibung = COALESCE(excluded.beschreibung, beschreibung),
+      auf_probe = excluded.auf_probe
+  `).run(kontoId, pfad, beschreibung, quelle, aufProbe ? 1 : 0);
   return db.prepare('SELECT * FROM konto_ordner WHERE konto_id = ? AND ordner = ?')
     .get(kontoId, pfad);
 }
@@ -1182,9 +1183,10 @@ async function aufloesen({ konto, vorschlag, konfidenz, von, betreff }) {
   // 3. Vollautomatik: anlegen und einsortieren
   try {
     const pfad = await ordnerAnlegen(konto, name);
-    inKatalog(konto.id, pfad, 'ki');
-    loggen('info', 'themen', `Neuer Themen-Ordner "${pfad}" für Konto ${konto.name} angelegt (KI).`);
-    return { ordner: pfad, neu_angelegt: true, grund: 'Neuer Themen-Ordner angelegt' };
+    // (Stufe 6) Der Ordner wird angelegt, aber als "auf Probe" markiert
+    inKatalog(konto.id, pfad, 'ki', null, 1);
+    loggen('info', 'themen', `Neuer Themen-Ordner "${pfad}" für Konto ${konto.name} angelegt (KI, auf Probe).`);
+    return { ordner: pfad, neu_angelegt: true, grund: 'Neuer Themen-Ordner (auf Probe) angelegt' };
   } catch (err) {
     loggen('warn', 'themen', `Ordner "${name}" konnte nicht angelegt werden: ${err.message}`);
     return { ordner: null, neu_angelegt: false, grund: `Anlegen fehlgeschlagen: ${err.message}` };

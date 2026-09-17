@@ -2,6 +2,17 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [6.9.0.0] - 2026-09-18 (Build 238) — *Probe-Lauf für neue Ordner*
+
+### Features
+- **Probe-Lauf für KI-Ordner (Stufe 6):** Wenn die KI völlig selbstständig einen neuen Ordner vorschlägt und anlegt, wird dieser nun im Katalog als "Auf Probe" markiert.
+- Auf dem Dashboard gibt es einen neuen "Zu Tun"-Hinweis, falls solche Ordner existieren.
+- Mit nur einem Klick auf "Rückgängig" im Katalog kann die Idee verworfen werden: Das Panel holt dabei alle Mails, die in diesem Ordner liegen, automatisch zurück in den Posteingang und löscht den Ordner aus dem Katalog.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Datenbank:** `konto_ordner` um `auf_probe` erweitert.
+- **Workflow-Kompatibilität:** Keine Änderungen an n8n-Workflows nötig.
+
 ## [6.8.1.0] - 2026-09-18 (Build 237) — *Regel-Aufräumer*
 
 ### Features

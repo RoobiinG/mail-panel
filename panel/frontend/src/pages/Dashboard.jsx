@@ -318,6 +318,12 @@ export default function Dashboard() {
           ziel: '/sortierung?tab=nachsortierung',
         },
         {
+          schluessel: 'aufProbe', icon: Sparkles, zahl: z.aufProbe,
+          titel: 'Ordner "auf Probe"',
+          unter: 'Die KI hat diese neuen Ordner angelegt. Prüfe sie kurz, bevor sie fest werden.',
+          ziel: '/sortierung?tab=themen', // Zeigt auf die Ordnerverwaltung
+        },
+        {
           schluessel: 'freigaben', icon: CloudUpload, zahl: z.freigaben,
           titel: 'Dateien warten auf Freigabe',
           unter: 'Anhänge, die erst nach deinem Ja in die Ablage wandern.',

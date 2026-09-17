@@ -786,6 +786,30 @@ export default function Sortierung() {
     }
   };
 
+  const probeRueckgaengig = async (o) => {
+    if (!(await nachfragen({
+      titel: 'Ordner-Idee rückgängig machen?',
+      text: `Alle Mails im Ordner "${o.ordner}" werden zurück in den Posteingang geschoben, und der Ordner wird aus der Liste genommen.`,
+      bestaetigen: 'Rückgängig machen', gefaehrlich: true,
+    }))) return;
+    try {
+      const { data } = await api.post(`/sortierung/katalog/${o.id}/probe-rueckgaengig`);
+      melden(`${data.verschoben} Mails zurück in den Posteingang verschoben. Ordner-Idee verworfen.`);
+      katalogLaden(aktivesKonto);
+    } catch (err) {
+      melden(err.response?.data?.error || 'Fehler beim Zurückschieben', 'fehler');
+    }
+  };
+
+  const probeAufheben = async (o) => {
+    try {
+      await katalogAendern(o.id, { auf_probe: 0 });
+      melden(`Ordner "${o.ordner}" fest übernommen.`);
+    } catch (err) {
+      // Fehler wird schon in katalogAendern gemeldet
+    }
+  };
+
   const ordnerEinlesen = async () => {
     setEinleseMeldung('Lese …');
     try {
@@ -2517,8 +2541,17 @@ export default function Sortierung() {
               </thead>
               <tbody>
                 {katalog.map(o => (
-                  <tr key={o.id} className={`border-b border-panel-border/50 hover:bg-panel-bg/30 transition-colors ${o.gesperrt ? 'opacity-50' : ''}`}>
-                    <td className="py-2 px-4 font-mono text-panel-accent whitespace-nowrap">{o.ordner}</td>
+                  <tr key={o.id} className={`border-b border-panel-border/50 hover:bg-panel-bg/30 transition-colors ${o.gesperrt ? 'opacity-50' : ''} ${o.auf_probe ? 'bg-panel-accent/10' : ''}`}>
+                    <td className="py-2 px-4 font-mono text-panel-accent whitespace-nowrap">
+                      {o.ordner}
+                      {o.auf_probe === 1 && (
+                        <div className="mt-1 flex items-center gap-2">
+                          <span className="text-[10px] uppercase font-bold text-panel-orange border border-panel-orange/50 px-1.5 rounded-sm">
+                            Auf Probe
+                          </span>
+                        </div>
+                      )}
+                    </td>
                     <td className="py-2 px-4">
                       <input
                         type="text"
@@ -2571,24 +2604,37 @@ export default function Sortierung() {
                     </td>
                     <td className="py-2 px-4 text-center text-xs text-panel-muted">{o.treffer}</td>
                     <td className="py-2 px-4 text-right whitespace-nowrap">
-                      <button
-                        onClick={() => beschreibungVorschlagen(o)}
-                        disabled={beschreibungLaeuft === o.id}
-                        className="btn-ghost !px-2"
-                        title="Beschreibung von der KI vorschlagen lassen — aus den Absendern, die hier gelandet sind"
-                      >
-                        <Wand2 size={16} className={beschreibungLaeuft === o.id ? 'animate-pulse text-panel-accent' : 'text-panel-muted'} />
-                      </button>
-                      <button
-                        onClick={() => katalogAendern(o.id, { gesperrt: !o.gesperrt })}
-                        className="btn-ghost !px-2"
-                        title={o.gesperrt ? 'Wieder freigeben' : 'Sperren — hier nie einsortieren'}
-                      >
-                        {o.gesperrt ? <Lock size={16} /> : <Unlock size={16} className="text-panel-muted" />}
-                      </button>
-                      <button onClick={() => katalogEntfernen(o.id)} className="btn-ghost !px-2 text-panel-red" title="Aus dem Katalog nehmen">
-                        <Trash2 size={16} />
-                      </button>
+                      {o.auf_probe === 1 ? (
+                        <div className="flex justify-end items-center gap-2">
+                          <button onClick={() => probeAufheben(o)} className="btn !py-1 !px-2 text-[11px]" title="Diesen Ordner endgültig in den Katalog aufnehmen">
+                            <Check size={14} className="mr-1" /> Behalten
+                          </button>
+                          <button onClick={() => probeRueckgaengig(o)} className="btn-ghost !py-1 !px-2 text-[11px] text-panel-red" title="Mails zurück in Posteingang, Ordner verwerfen">
+                            <Undo2 size={14} className="mr-1" /> Rückgängig
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => beschreibungVorschlagen(o)}
+                            disabled={beschreibungLaeuft === o.id}
+                            className="btn-ghost !px-2"
+                            title="Beschreibung von der KI vorschlagen lassen — aus den Absendern, die hier gelandet sind"
+                          >
+                            <Wand2 size={16} className={beschreibungLaeuft === o.id ? 'animate-pulse text-panel-accent' : 'text-panel-muted'} />
+                          </button>
+                          <button
+                            onClick={() => katalogAendern(o.id, { gesperrt: !o.gesperrt })}
+                            className="btn-ghost !px-2"
+                            title={o.gesperrt ? 'Wieder freigeben' : 'Sperren — hier nie einsortieren'}
+                          >
+                            {o.gesperrt ? <Lock size={16} /> : <Unlock size={16} className="text-panel-muted" />}
+                          </button>
+                          <button onClick={() => katalogEntfernen(o.id)} className="btn-ghost !px-2 text-panel-red" title="Aus dem Katalog nehmen">
+                            <Trash2 size={16} />
+                          </button>
+                        </>
+                      )}
                     </td>
                   </tr>
                 ))}
