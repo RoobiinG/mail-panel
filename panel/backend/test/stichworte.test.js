@@ -156,14 +156,16 @@ describe('Zusammenspiel mit der KI-Einordnung', () => {
     assert.equal(t.ordner, 'Anbieter');
   });
 
-  test('ein sicherer KI-Vorschlag auf einen vorhandenen Ordner geht vor', async () => {
+  test('ein sicherer KI-Vorschlag auf einen vorhandenen Ordner wird vom Stichwort überschrieben', async () => {
+    einstellung('sichere_ordner', 'rechnungen privat');
     ordner(konto, 'Anbieter', 'Telekom');
     ordner(konto, 'Rechnungen Privat');
     const t = await themen.aufloesen({
       konto: kontoZeile(), vorschlag: 'Rechnungen Privat', konfidenz: 0.95,
       von: 'info@telekom.de', betreff: 'x',
     });
-    assert.equal(t.ordner, 'Rechnungen Privat', 'die KI hat die Mail gelesen, das Stichwort nicht');
+    // Ab Stufe 6 sticht das Stichwort (harte Nutzervorgabe) immer die KI!
+    assert.equal(t.ordner, 'Anbieter', 'Stichwort ist eine harte Vorgabe und sticht KI');
   });
 
   test('ohne Treffer bleibt es beim alten Verhalten', async () => {
@@ -221,12 +223,14 @@ describe('Gelerntes aus der KI-Zuordnung', () => {
     einstellung('themen_ordner_anlegen', 'freigabe');
   });
 
-  test('ein vorhandener Ordner genuegt weniger Sicherheit als ein neuer', async () => {
+  test('ein vorhandener Ordner, der NICHT als sicher markiert ist, geht in die Sortier-Inbox', async () => {
     ordner(konto, 'Anbieter', 'Vodafone, Sky');
+    einstellung('sichere_ordner', 'games'); // Anbieter ist NICHT sicher
     const t = await themen.aufloesen({
-      konto: kontoZeile(), vorschlag: 'Anbieter', konfidenz: 0.5, von: 'info@o2.de', betreff: 'x',
+      konto: kontoZeile(), vorschlag: 'Anbieter', konfidenz: 0.95, von: 'info@o2.de', betreff: 'x',
     });
-    assert.equal(t.ordner, 'Anbieter', '0,5 reicht fuer einen Ordner, den es schon gibt');
+    assert.equal(t.ordner, null, 'es ist kein sicherer Ordner, daher null für Sortier-Inbox');
+    assert.match(t.grund, /Kritischer Ordner/);
   });
 
   test('fuer einen neuen Ordner reicht dieselbe Sicherheit nicht', async () => {
