@@ -4,7 +4,7 @@ import {
   Plus, Trash2, CheckCircle2, XCircle, AlertCircle, Inbox, Tag, ArrowRight,
   FolderTree, Sparkles, Lock, Unlock, RefreshCw, Check, Wand2,
   ChevronRight, ChevronLeft, ChevronDown, Layers, AtSign, History, Undo2, Search,
-  CloudUpload, Repeat
+  CloudUpload, Repeat, Zap
 } from 'lucide-react';
 import api from '../api';
 import { useMelden } from '../components/ui/Meldungen';
@@ -13,6 +13,8 @@ import UploadFreigabenKarte from '../components/UploadFreigabenKarte';
 import NachsortierungKarte from '../components/NachsortierungKarte';
 import OrdnerFeld from '../components/ui/OrdnerFeld';
 import InhaltsBuendel from '../components/InhaltsBuendel';
+import SchnellModus from '../components/SchnellModus';
+import { useIsMobile } from '../hooks/useIsMobile';
 import {
   KATEGORIEN, GRUENDE, filterLesen, filterText, passtZumFilter, aufschluesseln,
   adresse, domainVon, stichwortVorschlag, mehrheitsVorschlag, inhaltsBuendel,
@@ -165,6 +167,10 @@ export default function Sortierung() {
   // für ein inzwischen gewechseltes Postfach nicht angezeigt wird.
   const [vorschlagsVorschau, setVorschlagsVorschau] = useState(null);
   const [vorschlagsDialog, setVorschlagsDialog] = useState({ offen: false, auswahl: {}, laeuft: false });
+  // Schnell-Modus: null oder die beim Öffnen festgehaltenen Gruppen. Am Handy
+  // gibt es ihn nicht — ohne Tastatur ist er nur eine umständlichere Liste.
+  const [schnellGruppen, setSchnellGruppen] = useState(null);
+  const istHandy = useIsMobile();
   const [laedt, setLaedt] = useState(false);
 
   // Modal: Regel anlegen ODER ändern. Mit `id` wird daraus eine Änderung —
@@ -1529,6 +1535,34 @@ export default function Sortierung() {
     ...regeln.map(r => r.zielordner)
   ])).filter(Boolean).sort();
 
+  // Die Gruppen der gerade offenen Ansicht, unter dem gewählten Filter — in
+  // einer Form, die der Schnell-Modus für beide Ansichten gleich lesen kann.
+  const schnellModusOeffnen = () => {
+    const liste = inboxAnsicht === 'inhalt'
+      ? inhaltsBuendel(angezeigteInbox).buendel.map(b => ({
+        schluessel: b.schluessel,
+        titel: b.muster,
+        info: b.domains.anzahl === 1 ? `von ${b.domains.top[0].wert}` : `von ${b.domains.anzahl} Domains`,
+        mails: b.mails,
+        kiVorschlag: b.kiVorschlag,
+      }))
+      : gruppen.map(g => ({
+        schluessel: g.domain,
+        titel: g.domain,
+        info: g.absender.size > 1 ? `${g.absender.size} Absender` : [...g.absender][0],
+        mails: g.mails,
+        kiVorschlag: gruppenVorschlag(g),
+      }));
+    if (liste.length === 0) return melden('Keine Gruppe zu entscheiden.', 'hinweis');
+    setSchnellGruppen(liste);
+  };
+  // Die neun Ziffern-Ordner: die meistgenutzten Themen-Ordner, aufgefüllt mit
+  // den üblichen Kategorie-Ordnern.
+  const schnellOrdner = [...new Set([
+    ...katalog.filter(o => !o.gesperrt).slice().sort((a, b) => (b.treffer || 0) - (a.treffer || 0)).map(o => o.ordner),
+    'Rechnungen', 'Bestellungen', 'Newsletter', 'Archiv',
+  ])].slice(0, 9);
+
   return (
     <div className="space-y-6">
       {/* ══ Registerkarten und Postfach-Auswahl ══
@@ -2885,6 +2919,15 @@ export default function Sortierung() {
                   </button>
                 ))}
               </div>
+              {!istHandy && angezeigteInbox.length > 0 && (
+                <button
+                  onClick={schnellModusOeffnen}
+                  className="btn-ghost text-xs flex items-center gap-1"
+                  title="Eine Gruppe nach der anderen per Tastatur entscheiden — ohne Regeln"
+                >
+                  <Zap size={13} /> Schnell-Modus
+                </button>
+              )}
               <button onClick={() => inboxLaden()} className="btn-ghost text-xs">Aktualisieren</button>
             </div>
             {vorschlagsVorschau?.konto_id === aktivesKonto && vorschlagsVorschau.gesamt > 0 && (
@@ -3308,6 +3351,16 @@ export default function Sortierung() {
           </table>
         </div>
       </div>
+      )}
+
+      {schnellGruppen && (
+        <SchnellModus
+          gruppen={schnellGruppen}
+          schnellOrdner={schnellOrdner}
+          ordnerOptionen={alleOrdner}
+          melden={melden}
+          onSchliessen={() => { setSchnellGruppen(null); inboxLaden(); katalogLaden(aktivesKonto); }}
+        />
       )}
 
       {/* MODAL: Alle KI-Vorschläge übernehmen */}

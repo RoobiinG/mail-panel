@@ -2,6 +2,44 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [6.6.0.0] - 2026-09-17 (Build 232) — *Ein Tastendruck je Gruppe*
+
+Stufe 4 des Plans „vom Einzel-Zuordnen zum Stapel-Entscheiden". Auch mit Bündeln und Filtern bleiben
+bei über tausend offenen Mails viele Gruppen zu entscheiden, und jede kostete Maus, Feld, Auswahl,
+Knopf.
+
+### Features
+- **Schnell-Modus** — Knopf im Kopf der Sortier-Inbox. Ein Vollbild-Dialog zeigt eine Gruppe nach
+  der anderen: Domain bzw. Betreff-Muster, Anzahl, bis zu fünf Betreffe, KI-Vorschlag.
+  - **Enter** übernimmt den KI-Vorschlag.
+  - **1–9** verschiebt in einen der neun meistgenutzten Themen-Ordner (nach Treffern, aufgefüllt mit
+    Rechnungen, Bestellungen, Newsletter, Archiv) — als anklickbare Liste mit Ziffern sichtbar.
+  - **/** öffnet ein Ordnerfeld mit Vorschlagsliste; Enter verschiebt, Esc bricht ab.
+  - **P** lässt die Mails im Posteingang (ohne Regel, aus der Liste genommen).
+  - **Leertaste / →** überspringt, **←** geht zurück, **Esc** schließt.
+  - Jede Taste hat einen Knopf daneben — es geht auch mit der Maus.
+- Fortschrittsbalken und „Gruppe 12 von 84 · 340 Mails erledigt"; schon entschiedene Gruppen sind
+  beim Zurückblättern markiert und lassen sich nicht ein zweites Mal abschicken. Am Ende eine
+  Zusammenfassung.
+
+### Änderungen
+- Der Schnell-Modus nimmt die Gruppen der **gerade offenen Ansicht** (nach Absender oder nach Inhalt)
+  **unter dem gewählten Filter** und hält sie beim Öffnen fest — würde nach jeder Aktion neu
+  gebündelt, verrutschten die Karten unter dem Finger. Die Sortier-Inbox lädt beim Schließen neu.
+- Verschoben wird über `POST /inbox/verschieben` (Build 230) **genau die Mails der Karte**, „im
+  Posteingang lassen" über `ignorieren` mit `ids`. **Es entstehen keine Regeln.**
+- Während eine Aktion läuft, werden alle Tasten verschluckt — ein zweites Enter trifft sonst die
+  nächste Karte, bevor man sie gesehen hat. Scheitert das Verschieben ganz, bleibt die Karte stehen
+  und die Meldung nennt den Grund; teilweise Fehler stehen an der erledigten Karte.
+- Am Handy ist der Knopf ausgeblendet — ohne Tastatur ist der Modus nur eine umständlichere Liste.
+- Neue Komponente `components/SchnellModus.jsx`, neue CSS-Klasse `.kbd` für Tastenkürzel.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Datenbank:** keine Migration.
+- **n8n-Workflows:** unberührt, kein Neuimport.
+- **Backend:** unverändert — der Modus nutzt nur vorhandene Endpunkte.
+- **Neustart/Session:** nichts zu beachten; nach dem Update einmal Strg+F5.
+
 ## [6.5.0.0] - 2026-09-17 (Build 231) — *Alle Vorschläge auf einmal*
 
 Stufe 3 des Plans „vom Einzel-Zuordnen zum Stapel-Entscheiden". Zu vielen wartenden Mails hat die KI

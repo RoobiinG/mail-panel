@@ -81,6 +81,12 @@ input[type='checkbox'], input[type='radio'] {
            transition-colors duration-150;
   }
 
+  /* Tastenkürzel, z. B. im Schnell-Modus der Sortier-Inbox */
+  .kbd {
+    @apply inline-flex items-center justify-center min-w-[1.4rem] px-1.5 py-px rounded-md
+           border border-panel-border border-b-2 bg-panel-card font-mono text-[11px] text-panel-text;
+  }
+
   /* Abschnittsbeschriftungen in der Seitenleiste */
   .section-label {
     @apply block text-[9px] font-bold text-panel-muted/50 uppercase tracking-widest px-3 pt-4 pb-1.5 select-none;
