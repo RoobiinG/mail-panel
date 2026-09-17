@@ -211,6 +211,11 @@ tls.starten(app, PORT, (art) => {
   // faellig ist. Standardmaessig aus — wer ihn einschaltet, bewegt damit
   // unbeaufsichtigt Mails, und das soll eine bewusste Entscheidung sein.
   require('./services/nachsortierung').zeitplanStarten();
+  
+  // Regel-Aufräumer: bündelt regelmäßig (nachts) Einzelregeln derselben Domain
+  // zu großen Domain-Regeln, damit die Liste sauber bleibt.
+  require('./services/regelAufraeumer').zeitplanStarten();
+
   // Workflows selbsttätig auf Stand bringen. Bis hierher musste man nach jeder
   // Änderung „Workflows → Synchronisieren" drücken — und wer es vergaß, betrieb
   // eine Konfiguration, die nur im Panel stand. Siehe services/autoSync.js.

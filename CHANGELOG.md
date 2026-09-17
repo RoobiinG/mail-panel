@@ -2,6 +2,14 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [6.8.1.0] - 2026-09-18 (Build 237) — *Regel-Aufräumer*
+
+### Features
+- **Regeln automatisch aufräumen:** Ein neuer Hintergrunddienst prüft einmal täglich (und 5 Minuten nach Serverstart), ob es für denselben Dienst (z.B. `@amazon.de`) mindestens 3 isolierte Absender-Regeln gibt, die alle in denselben Zielordner leiten. Ist das der Fall, werden diese zu einer einzigen Domain-Regel gebündelt und die überflüssigen Einzelregeln gelöscht. Große Freemail-Anbieter (Gmail, GMX, Web.de etc.) sind davon ausgenommen, um fatale Fehl-Klassifizierungen zu vermeiden.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Verhalten:** Die Regelliste im Panel bleibt zukünftig deutlich aufgeräumter, da sich die durch die Lern-Automatik angesammelten Einzelregeln regelmäßig selbst konsolidieren.
+
 ## [6.8.0.0] - 2026-09-18 (Build 236) — *Autonome & Sichere Sortierung (Stufe 6)*
 
 ### Features
