@@ -586,6 +586,31 @@ router.post('/inbox/verschieben', async (req, res) => {
     const ergebnis = zeilen.length > 0
       ? await sortierung.stapelVerschieben(konto, zeilen, zielordner, `Sortier-Inbox (${zeilen.length} ausgewählt)`)
       : { treffer: 0, verschoben: 0, fehler: [], veraltet: 0 };
+      
+    // (Stufe 6) Lern-Automatik: Wenn Mails aus der Inbox verschoben werden, 
+    // protokollieren wir das im quarantine_log (als haetten sie direkt diesen Zielordner gehabt)
+    // und loesen die Lern-Pruefung aus. Wenn es fuer den Absender das dritte Mal in Folge ist,
+    // entsteht automatisch eine harte Regel.
+    if (ergebnis.verschoben > 0) {
+      const updateLog = db.prepare(`
+        UPDATE quarantine_log SET zielordner = ?, korrigiert_zu = ? 
+        WHERE konto = ? AND uid = ? AND (zielordner IS NULL OR zielordner = '')
+      `);
+      for (const z of zeilen) {
+        updateLog.run(zielordner, zielordner, konto.name, z.uid);
+        
+        // KI-Auto-Regeln (Lern-Automatik) - Wenn keine explizite Regel uebergeben wurde
+        if (!regel && themen.einstellungen().regelLernen) {
+           try {
+             const gelernt = themen.regelLernen(konto.id, z.von, zielordner);
+             if (gelernt) {
+               sortierung.bestandAnwenden(konto, gelernt).catch(() => {});
+             }
+           } catch { /* nicht blockieren */ }
+        }
+      }
+    }
+
     themen.cacheVerwerfen(konto.id);
     uebersicht.cacheVerwerfen();
 
@@ -706,6 +731,28 @@ router.post('/inbox/vorschlaege-uebernehmen', async (req, res) => {
         }
       }
       const r = await sortierung.stapelVerschieben(konto, gruppe.mails, ziel, 'Alle KI-Vorschläge übernommen');
+      
+      // (Stufe 6) Lern-Automatik: Beim massenhaften "KI-Abnicken" protokollieren wir das 
+      // und prüfen, ob ein Absender schon zum dritten Mal in diesem Ordner landet.
+      if (r.verschoben > 0) {
+        const updateLog = db.prepare(`
+          UPDATE quarantine_log SET zielordner = ?, korrigiert_zu = ? 
+          WHERE konto = ? AND uid = ? AND (zielordner IS NULL OR zielordner = '')
+        `);
+        for (const z of gruppe.mails) {
+          updateLog.run(ziel, ziel, konto.name, z.uid);
+          
+          if (themen.einstellungen().regelLernen) {
+             try {
+               const gelernt = themen.regelLernen(konto.id, z.von, ziel);
+               if (gelernt) {
+                 sortierung.bestandAnwenden(konto, gelernt).catch(() => {});
+               }
+             } catch {}
+          }
+        }
+      }
+      
       ergebnisse.push({ ordner: name, ...r });
     }
     themen.cacheVerwerfen(konto.id);

@@ -8,6 +8,7 @@
 const db = require('../db');
 const imap = require('./imap');
 const sortierung = require('./sortierung');
+const settings = require('./settings');
 const { entschluesseln } = require('./crypto');
 const { loggen } = require('./panelLog');
 
@@ -1068,37 +1069,45 @@ async function aufloesen({ konto, vorschlag, konfidenz, von, betreff }) {
   // hatte.
   const stich = stichwortTreffer(konto.id, von, betreff);
 
-  // 1. Die KI meint einen Ordner, den es schon gibt. Dafür genügt die niedrigere
-  //    Schwelle: Diese Entscheidung ist in einem Klick korrigiert, und sie ist
-  //    genau die, die wir wollen — lieber in einen vorhandenen Ordner als ein
-  //    neuer Vorschlag mehr.
-  if (vorschlag && sicherheit >= e.konfidenzVorhanden) {
-    const bekannt = imKatalog(konto.id, vorschlag);
-    if (bekannt) {
-      // Hat die KI etwas erkannt, das nicht in der Beschreibung steht, wird der
-      // Absender vermerkt — beim nächsten Mal trifft schon das Stichwort, ohne
-      // KI und ohne Budget.
-      // Festgeschrieben wird erst, wenn dieser Absender mehrfach und
-      // einheitlich hier gelandet ist — siehe gelerntBelegt(). Eine einzelne
-      // Einordnung eines kleinen Modells ist kein Beleg, sondern eine Vermutung.
-      if ((!stich || stich.ordner !== bekannt.ordner) && gelerntBelegt(konto, bekannt.ordner, von)) {
-        gelerntMerken(bekannt.id, von);
-      }
-      return benutzen(bekannt, 'Vorhandener Themen-Ordner');
-    }
-  }
-
-  // 2. Die Stichworte aus der Ordner-Beschreibung. Sie hängen nicht am Urteil
-  //    der KI — deshalb greifen sie auch dann, wenn die kein Thema erkannt hat
-  //    (bei Newslettern der Normalfall) oder zu unsicher war. Ohne diesen
-  //    Schritt zog in beiden Fällen der Kategorie-Ordner, und die gepflegte
-  //    Beschreibung war wirkungslos.
+  // 1. Die Stichworte aus der Ordner-Beschreibung. Sie hängen nicht am Urteil
+  //    der KI, deshalb greifen sie auch dann, wenn die kein Thema erkannt hat.
+  //    Da dies harte Vorgaben des Nutzers sind, haben sie ab Stufe 6 Vorrang vor 
+  //    der KI-Einschaetzung.
   if (stich) {
     return benutzen(
       { id: stich.id, ordner: stich.ordner },
       `Stichwort „${stich.wort}" aus der Ordner-Beschreibung (${stich.wo === 'absender' ? 'Absender' : 'Betreff'})`,
     );
   }
+
+  // 2. Die KI meint einen Ordner, den es schon gibt.
+  //    (Stufe 6: Risikobasierte Automatik).
+  if (vorschlag && sicherheit >= e.konfidenzVorhanden) {
+    const bekannt = imKatalog(konto.id, vorschlag);
+    if (bekannt) {
+      if (gelerntBelegt(konto, bekannt.ordner, von)) {
+        gelerntMerken(bekannt.id, von);
+      }
+      
+      const sichereOrdnerRaw = settings.hole('sichere_ordner') || '';
+      const sichereOrdner = sichereOrdnerRaw.split(',').map(s => s.trim().toLowerCase());
+      const ordnerName = bekannt.ordner.split(/[/.]/).pop().toLowerCase();
+      const istSicher = sichereOrdner.includes(ordnerName);
+
+      if (istSicher && sicherheit >= 0.85) {
+        return benutzen(bekannt, 'Sicherer Ordner (automatisch sortiert)');
+      } else {
+        return {
+          ordner: null,
+          neu_angelegt: false,
+          grund: istSicher 
+            ? `Konfidenz (${sicherheit}) zu gering für sicheren Ordner` 
+            : 'Kritischer Ordner (wartet auf Freigabe in Sortier-Inbox)',
+        };
+      }
+    }
+  }
+
 
   // 3. Passt der Vorschlag zu einem der Kategorie-Ordner des Kontos?
   // (z. B. KI schlägt "Rechnungen", "Rechnungen und Zahlungsaufträge", "Bestellungen" vor).

@@ -2,6 +2,17 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [6.8.0.0] - 2026-09-18 (Build 236) — *Autonome & Sichere Sortierung (Stufe 6)*
+
+### Features
+- **Risikobasierte Automatik ("Safe Folders"):** Die KI darf ab sofort "unbedenkliche" Mails (wie Werbung oder Newsletter) bei einer Konfidenz von >= 0.85 komplett autonom einsortieren, ohne dass sie in der Sortier-Inbox aufscheinen. Kritische Post wie Rechnungen warten stattdessen weiterhin in der Inbox auf Freigabe. Die Liste der sicheren Ordner ist konfigurierbar (Standard: `werbung, newsletter, social media, entertainment, spiele, games`).
+- **Automatische Regelerstellung aus Beständigkeit (Lern-Automatik):** Wenn im Panel in der Sortier-Inbox Mails verschoben werden oder KI-Vorschläge abgenickt werden, merkt sich das Panel diese manuellen Zuordnungen. Werden Mails eines Absenders drei Mal hintereinander in denselben Ordner sortiert, legt das Panel fortan selbstständig eine feste Absender-Regel an. Die KI muss dann in Zukunft gar nicht mehr befragt werden.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **DB-Migrationen:** Keine Strukturänderungen, neuer Eintrag `sichere_ordner` in `settings` wird implizit verwendet.
+- **n8n-Workflow-Kompatibilität:** Keine Änderungen an den Workflows nötig.
+- **Verhalten:** Massenhafte KI-Zuordnungen, die nicht kritisch sind, reduzieren ab sofort den Füllstand der Sortier-Inbox drastisch, während wichtige Rechnungen garantiert zur Kontrolle aufgeschoben werden.
+
 ## [6.7.1.1] - 2026-09-17 (Build 235) — *Verschlüsselter Link gefixt*
 
 ### Bugfixes

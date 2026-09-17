@@ -155,6 +155,10 @@ const FELDER = {
   nachsortierung_takt:        { geheim: false, standard: '24' },
   nachsortierung_max:         { geheim: false, standard: '500' },
   nachsortierung_letzter_lauf: { geheim: false },
+  // Sichere Ordner fuer automatisches Einsortieren durch die KI (Stufe 6).
+  // Mails, die fuer diese Ordner vorgeschlagen werden, fliegen sofort dorthin,
+  // wenn die Konfidenz >= 0.85 ist. Andere landen in der Sortier-Inbox.
+  sichere_ordner:         { geheim: false, standard: 'werbung, newsletter, social media, entertainment, spiele, games' },
   // Aufsicht: prueft, ob die Workflows tatsaechlich laufen (services/aufsicht.js)
   aufsicht_aktiv:         { env: 'AUFSICHT_AKTIV', geheim: false },
   aufsicht_reparieren:    { env: 'AUFSICHT_REPARIEREN', geheim: false },
