@@ -2,6 +2,11 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [6.7.1.1] - 2026-09-17 (Build 235) — *Verschlüsselter Link gefixt*
+
+### Bugfixes
+- **Diagnose- und Log-Links gaben 404 zurück.** Die React-Route für verschlüsselte Logs (`/paste/:id`) hat irrtümlich den Präfix `/api` an den `api.get`-Aufruf angehängt, was durch den Basis-Pfad von axios zu einer Anfrage auf `/api/api/paste/:id` führte. Der Präfix wurde entfernt.
+
 ## [6.7.1.0] - 2026-09-17 (Build 234) — *Der Digest kommt an*
 
 Workflow 02 „Täglicher Digest", 17.09., 7:30: **„KI zusammenfassen — Gateway timed out (HTTP 504)",

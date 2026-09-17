@@ -44,7 +44,7 @@ export default function Paste() {
   useEffect(() => {
     const fetchAndDecrypt = async () => {
       try {
-        const res = await api.get(`/api/paste/${id}`);
+        const res = await api.get(`/paste/${id}`);
         const hash = window.location.hash.substring(5); // "#key=..."
         if (!hash) {
           throw new Error('Der Schlüssel fehlt im URL-Hash.');
