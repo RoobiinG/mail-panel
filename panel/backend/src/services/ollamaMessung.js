@@ -31,6 +31,16 @@ const zahlOderNull = (wert) => {
   return Number.isFinite(n) && n >= 0 ? n : null;
 };
 
+// Die Mailzahl einer Anfrage — oder null, wenn der Aufrufer keine nennt.
+// Nicht über zahlOderNull(): Number(null) ist 0, und eine Anfrage "mit 0
+// Mails" (Beleg-Leser, Aktions-Entwurf) zählte sonst für jede Bündelgröße mit
+// und verfälschte die Schätzung.
+const mailzahl = (wert) => {
+  if (wert == null) return null;
+  const n = Number(wert);
+  return Number.isInteger(n) && n > 0 ? n : null;
+};
+
 /** Nanosekunden → Sekunden mit einer Nachkommastelle. */
 function sekunden(ns) {
   const n = zahlOderNull(ns);
@@ -50,7 +60,7 @@ function proSekunde(token, sek) {
  * `null`, nicht zu 0: Eine Null würde später als „ging unendlich schnell"
  * durch den Mittelwert laufen.
  */
-function kennzahlen(daten, modell) {
+function kennzahlen(daten, modell, mails = null) {
   const promptToken = zahlOderNull(daten?.prompt_eval_count);
   const promptSekunden = sekunden(daten?.prompt_eval_duration);
   const antwortToken = zahlOderNull(daten?.eval_count);
@@ -58,6 +68,11 @@ function kennzahlen(daten, modell) {
   return {
     modell: String(modell || ''),
     abgebrochen: false,
+    // Wie viele Mails in der Anfrage steckten. Ohne diese Zahl lässt sich aus
+    // "langsamste Anfrage: 90 s" nicht ablesen, ob das ein Fünfer-Bündel war
+    // oder eine einzelne Mail — und genau davon hängt ab, ob die nächste,
+    // kleinere Anfrage noch in die Restzeit passt.
+    mails: mailzahl(mails),
     sekunden: sekunden(daten?.total_duration),
     ladenSekunden: sekunden(daten?.load_duration),
     promptToken,
@@ -84,11 +99,12 @@ function kennzahlen(daten, modell) {
  * (Einstellungen → KI), bei 'gateway' nur eine Änderung am Reverse-Proxy
  * selbst oder ein kleineres Bündel.
  */
-function abbruch(modell, dauerSekunden, grund, art = 'netzwerk') {
+function abbruch(modell, dauerSekunden, grund, art = 'netzwerk', mails = null) {
   return {
     modell: String(modell || ''),
     abgebrochen: true,
     art,
+    mails: mailzahl(mails),
     sekunden: zahlOderNull(dauerSekunden),
     grund: String(grund || '').slice(0, 200),
     promptToken: null,
@@ -149,6 +165,10 @@ function stand() {
     // hätte warten wollen. Vorher stand das nirgends — die Statistik zeigte
     // "davonAbgebrochen: 0", obwohl im Log mehrfach am Tag "504" stand.
     davonGatewayTimeout: eintraege.filter((e) => e.abgebrochen && e.art === 'gateway').length,
+    // Was daraus folgt: die gemessene Proxy-Grenze und die Bündelgröße, auf
+    // die der Klassifizierer deshalb gerade kappt (null = keine Kappung).
+    gatewayGrenzeSekunden: gatewayGrenzeMs() == null ? null : gatewayGrenzeMs() / 1000,
+    sichereBuendelGroesse: sichereBuendelGroesse(),
     mittel: {
       sekunden: mittel(dauern),
       promptToken: mittel(fertige.map((e) => e.promptToken)),
@@ -161,6 +181,7 @@ function stand() {
     letzte: eintraege.slice(-5).map((e) => ({
       zeitpunkt: e.zeitpunkt,
       modell: e.modell,
+      mails: e.mails ?? null,
       sekunden: e.sekunden,
       promptToken: e.promptToken,
       antwortToken: e.antwortToken,
@@ -193,14 +214,60 @@ function stand() {
  * Ohne Messwerte (frischer Start) kommt `null` zurück; dann gilt wieder der
  * feste Mindestwert des Aufrufers.
  */
-function erwarteteDauerMs() {
+//
+// Mit `mails` zählen nur Anfragen, die höchstens so groß waren wie die
+// nächste. Der Grund steht im Diagnosebericht vom 17.09.: Ein Fünfer-Bündel
+// brauchte 89,9 s, danach lief ein Bündel in den 504 des Reverse-Proxys, und
+// der Lauf sollte die fünf Mails einzeln nachholen — jede davon 5 bis 30 s.
+// Gerechnet wurde aber mit den 89,9 s des Bündels: 108 s wären nötig gewesen,
+// 88 s waren übrig, also startete gar keine Einzelanfrage mehr. Im Log stand
+// „versuche die Mails einzeln" und in derselben Sekunde „12 von 247".
+//
+// Ohne `mails` bleibt es beim alten Verhalten (alle fertigen Anfragen).
+function erwarteteDauerMs(mails) {
+  const passend = (e) => mails == null
+    || (typeof e.mails === 'number' && e.mails <= mails);
   const dauern = eintraege
-    .filter((e) => !e.abgebrochen && typeof e.sekunden === 'number' && e.sekunden > 0)
+    .filter((e) => !e.abgebrochen && typeof e.sekunden === 'number' && e.sekunden > 0 && passend(e))
     .map((e) => e.sekunden);
   if (dauern.length < 2) return null;   // ein einzelner Wert ist noch kein Maß
   return Math.round(Math.max(...dauern) * 1000);
 }
 
+/**
+ * Nach wie vielen Millisekunden bricht ein Reverse-Proxy vor Ollama ab?
+ *
+ * Gemessen, nicht eingestellt: die kürzeste Dauer, nach der ein sauberer
+ * 504/502 zurückkam. Länger als das kann keine Anfrage dauern — entweder die
+ * Antwort ist vorher da, oder der Proxy gibt auf. `null`, solange kein
+ * Gateway-Abbruch bekannt ist.
+ */
+function gatewayGrenzeMs() {
+  const dauern = eintraege
+    .filter((e) => e.abgebrochen && e.art === 'gateway' && typeof e.sekunden === 'number' && e.sekunden > 0)
+    .map((e) => e.sekunden);
+  return dauern.length ? Math.round(Math.min(...dauern) * 1000) : null;
+}
+
+/**
+ * Wie groß darf das nächste Bündel höchstens sein?
+ *
+ * Ist ein Bündel mit N Mails in den 504 des Proxys gelaufen, ist N zu groß —
+ * dann gilt die Hälfte (5 → 2 → 1). Die Messung hält nur die letzten
+ * zwanzig Anfragen: Kommt eine Weile kein Gateway-Abbruch mehr vor, fällt die
+ * Kappung von selbst wieder weg. `null` heißt: keine Kappung bekannt.
+ */
+function sichereBuendelGroesse() {
+  const zuGross = eintraege
+    .filter((e) => e.abgebrochen && e.art === 'gateway' && typeof e.mails === 'number' && e.mails > 1)
+    .map((e) => e.mails);
+  if (zuGross.length === 0) return null;
+  return Math.max(1, Math.floor(Math.min(...zuGross) / 2));
+}
+
 function _zuruecksetzen() { eintraege = []; }
 
-module.exports = { kennzahlen, abbruch, satz, merken, stand, erwarteteDauerMs, _zuruecksetzen, MAX };
+module.exports = {
+  kennzahlen, abbruch, satz, merken, stand, erwarteteDauerMs, gatewayGrenzeMs, sichereBuendelGroesse,
+  _zuruecksetzen, MAX,
+};

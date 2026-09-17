@@ -2,6 +2,50 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [6.2.1.1] - 2026-09-17 (Build 228) — *Ein 504 vom Proxy ist kein hängendes Modell*
+
+Diagnosebericht vom 17.09., 12:17: Die KI schaffte pro Lauf nur noch **12, 20, 31, 44 von rund 245
+Mails**, die offenen Zuordnungen stiegen an einem Tag von 1.551 auf 1.750. Ollama läuft hinter einem
+Reverse-Proxy, der nach ~90 s mit „504 Gateway Time-out" abbricht (seit Build 227 messbar:
+`davonGatewayTimeout: 4`, Abbruch bei genau 90 s). Fünfer-Bündel brauchen 67–90 s, einzelne Mails
+dank Prompt-Cache 5–30 s. Drei Fehler griffen ineinander.
+
+### Bugfixes
+- **Nach einem 504 wurden die Mails nicht mehr einzeln nachgeholt.** Die Restzeit-Prüfung aus
+  Build 220 rechnete für eine einzelne Mail mit der Dauer des langsamsten Fünfer-Bündels (89,9 s →
+  108 s nötig, 88 s übrig). Im Log: „versuche die Mails einzeln" und in derselben Sekunde „12 von
+  247 klassifiziert". Jede Messung merkt sich jetzt, wie viele Mails die Anfrage hatte, und die
+  Prüfung schätzt **für die Größe der nächsten Anfrage**. Mehr als die gemessene Proxy-Grenze wird
+  nie verlangt — länger kann keine Anfrage dauern.
+- **Ein 504 bei einem Bündel zählte wie ein hängendes Modell** — zwei davon beendeten den Lauf. Jetzt
+  heißt ein 504 bei einem Bündel „zu groß für den Proxy": Der Lauf geht weiter, nur echte Ausfälle
+  (keine Antwort, oder selbst eine einzelne Mail im 504) beenden ihn nach zweimal in Folge.
+- **Die Abbruch-Meldung nannte falsche Zahlen und die falsche Ursache** („nicht innerhalb von 173 s
+  … Modell zu groß" bei einem 504 nach 90 s). Jetzt mit der echten Dauer, und bei einem 504 mit dem
+  Proxy als Ursache.
+
+### Änderungen
+- **Das Bündel passt sich an.** Nach einem 504 werden die restlichen Mails des Laufs mit der halben
+  Größe neu gebündelt (5 → 2 → 1). Über Läufe hinweg kappt die Bündelgröße auf die Hälfte der
+  Größe, die zuletzt am Proxy scheiterte — **nur nach unten**, `ollama_buendel` bleibt die
+  Obergrenze. Einmalige Logzeile: „Bündel auf 2 verkleinert (eingestellt: 5) — der Reverse-Proxy vor
+  Ollama bricht nach ~90 s ab." Kommen eine Weile keine 504 mehr vor (die Messung hält die letzten
+  zwanzig Anfragen), fällt die Kappung von selbst weg.
+- **Diagnosebericht:** `gatewayGrenzeSekunden`, `sichereBuendelGroesse` und die Mailzahl je Anfrage
+  in `letzte`.
+- Neue Tests: `test/klassifizierer-proxy.test.js` (Einzelmails trotz großer Bündel-Messung, zwei 504
+  bei Bündeln beenden den Lauf nicht, Kappung nie über der Einstellung) und Erweiterungen in
+  `test/ollama-messung.test.js`.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Datenbank:** keine Änderung — die Messung lebt im Speicher. Nach einem Neustart ist die
+  Proxy-Grenze erst nach dem nächsten 504 wieder bekannt.
+- **n8n-Workflows:** unberührt, kein Neuimport.
+- **Verhalten:** Bei einem Ollama hinter einem Proxy mit kurzer Zeitgrenze werden Bündel automatisch
+  kleiner. Die Einstellung `ollama_buendel` wird dabei nicht verändert.
+- **Empfehlung weiterhin:** `N8N_PARALLEL=1` in der `.env` — laut Bericht laufen zwei Workflows
+  gleichzeitig und rechnen auf derselben Maschine gegeneinander.
+
 ## [6.2.1.0] - 2026-09-17 (Build 227) — *Ein sauberer 504 ist auch eine Messung*
 
 Aus dem Diagnosebericht vom 17.09.: sechsmal „504 Gateway Time-out" von openresty im Log binnen

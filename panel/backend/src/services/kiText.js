@@ -274,7 +274,7 @@ async function frageJson(prompt, opt = {}) {
           messung.merken(messung.abbruch(
             ollamaModell, Math.round((Date.now() - angefangen) / 100) / 10,
             `Gateway-Zeitüberschreitung (${res.status}) — vermutlich ein Reverse-Proxy vor Ollama`,
-            'gateway',
+            'gateway', opt.mails,
           ));
         }
         return {
@@ -294,13 +294,13 @@ async function frageJson(prompt, opt = {}) {
       // Ollamas eigene Kennzahlen mitnehmen — siehe services/ollamaMessung.js.
       // Ohne sie steht am Ende wieder nur „hat nicht geantwortet" im Log, und
       // die Frage, ob es am Prompt oder am Modell liegt, bleibt offen.
-      const k = messung.kennzahlen(daten, ollamaModell);
+      const k = messung.kennzahlen(daten, ollamaModell, opt.mails);
       messung.merken(k);
       loggen('info', quelle, messung.satz(k));
     } catch (err) {
       if (angefangen) {
         messung.merken(messung.abbruch(
-          ollamaModell, Math.round((Date.now() - angefangen) / 100) / 10, err.message,
+          ollamaModell, Math.round((Date.now() - angefangen) / 100) / 10, err.message, 'netzwerk', opt.mails,
         ));
       }
       loggen('warn', quelle, `Ollama nicht erreichbar: ${err.message}`);

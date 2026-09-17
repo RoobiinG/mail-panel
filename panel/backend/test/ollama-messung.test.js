@@ -204,3 +204,74 @@ describe('Die erwartete Dauer', () => {
     assert.equal(messung.erwarteteDauerMs(), 50_000);
   });
 });
+
+// ─── Größe der Anfrage und Proxy-Grenze ──────────────────────────────────────
+//
+// Diagnosebericht 17.09.: Ein Fünfer-Bündel mit 89,9 s bestimmte die
+// Restzeit-Prüfung auch für einzelne Mails (5–30 s) — die wurden nach einem 504
+// deshalb gar nicht mehr gestartet. Die Messung muss wissen, wie groß eine
+// Anfrage war.
+describe('Messungen kennen die Größe der Anfrage', () => {
+  const fertig = (sek, mails) => messung.merken(
+    messung.kennzahlen({ ...ANTWORT, total_duration: sek * 1e9 }, 'a', mails),
+  );
+
+  test('erwarteteDauerMs(1) übersieht große Bündel', () => {
+    fertig(90, 5);
+    fertig(85, 5);
+    fertig(12, 1);
+    fertig(9, 1);
+    assert.equal(messung.erwarteteDauerMs(1), 12_000);
+    assert.equal(messung.erwarteteDauerMs(5), 90_000);
+  });
+
+  test('ohne Angabe gilt wie bisher die langsamste überhaupt', () => {
+    fertig(90, 5);
+    fertig(12, 1);
+    assert.equal(messung.erwarteteDauerMs(), 90_000);
+  });
+
+  test('Messungen ohne Größe zählen nur, wenn nach keiner Größe gefragt ist', () => {
+    fertig(40);
+    fertig(30);
+    assert.equal(messung.erwarteteDauerMs(1), null);
+    assert.equal(messung.erwarteteDauerMs(), 40_000);
+  });
+
+  test('letzte nennt die Größe', () => {
+    fertig(12, 3);
+    assert.equal(messung.stand().letzte.at(-1).mails, 3);
+  });
+});
+
+describe('Die Proxy-Grenze und was daraus folgt', () => {
+  test('ohne Gateway-Abbruch keine Grenze und keine Kappung', () => {
+    messung.merken(messung.abbruch('a', 240, 'aborted', 'netzwerk', 5));
+    assert.equal(messung.gatewayGrenzeMs(), null);
+    assert.equal(messung.sichereBuendelGroesse(), null);
+  });
+
+  test('die Grenze ist der kürzeste Gateway-Abbruch', () => {
+    messung.merken(messung.abbruch('a', 92, '504', 'gateway', 5));
+    messung.merken(messung.abbruch('a', 90, '504', 'gateway', 4));
+    assert.equal(messung.gatewayGrenzeMs(), 90_000);
+    assert.equal(messung.stand().gatewayGrenzeSekunden, 90);
+  });
+
+  test('ein 504 bei fünf Mails heißt: höchstens zwei', () => {
+    messung.merken(messung.abbruch('a', 90, '504', 'gateway', 5));
+    assert.equal(messung.sichereBuendelGroesse(), 2);
+    assert.equal(messung.stand().sichereBuendelGroesse, 2);
+  });
+
+  test('ein 504 bei zwei Mails heißt: einzeln', () => {
+    messung.merken(messung.abbruch('a', 90, '504', 'gateway', 5));
+    messung.merken(messung.abbruch('a', 90, '504', 'gateway', 2));
+    assert.equal(messung.sichereBuendelGroesse(), 1);
+  });
+
+  test('ein 504 bei einer einzelnen Mail kappt nichts — kleiner geht es nicht', () => {
+    messung.merken(messung.abbruch('a', 90, '504', 'gateway', 1));
+    assert.equal(messung.sichereBuendelGroesse(), null);
+  });
+});

@@ -58,11 +58,35 @@ function zahl(schluessel, standard, min, max) {
 // nach 240 s abgeschnitten werden — dort ist das Ergebnis null, und genau das
 // stand tagelang im Log. Deshalb jetzt einstellbar statt fest verdrahtet.
 const OLLAMA_BUENDEL_STANDARD = 2;
+
+// Zuletzt gemeldete Kappung — damit die Logzeile einmal erscheint und nicht vor
+// jedem Bündel.
+let gemeldeteKappung = null;
+
 const buendelGroesse = () => {
   const gewuenscht = zahl('gemini_buendel', 20, 1, 60);
   try {
     if ((settings.hole('ki_anbieter') || 'gemini') === 'ollama') {
-      return Math.min(gewuenscht, zahl('ollama_buendel', OLLAMA_BUENDEL_STANDARD, 1, 10));
+      const eingestellt = Math.min(gewuenscht, zahl('ollama_buendel', OLLAMA_BUENDEL_STANDARD, 1, 10));
+      // Liegt vor Ollama ein Reverse-Proxy mit eigener Zeitgrenze, entscheidet
+      // nicht die Einstellung, sondern der Proxy, wie groß ein Bündel sein
+      // darf: Ein Bündel, das länger braucht, kommt als 504 zurück, und seine
+      // Rechenzeit ist verloren. Die Messung weiß, welche Größe schon einmal
+      // daran gescheitert ist — dann gilt die Hälfte. Nur nach unten:
+      // `ollama_buendel` bleibt die Obergrenze.
+      const sicher = require('./ollamaMessung').sichereBuendelGroesse();
+      if (sicher != null && sicher < eingestellt) {
+        if (gemeldeteKappung !== sicher) {
+          gemeldeteKappung = sicher;
+          const grenze = require('./ollamaMessung').gatewayGrenzeMs();
+          loggen('info', 'klassifizierer',
+            `Bündel auf ${sicher} verkleinert (eingestellt: ${eingestellt}) — der Reverse-Proxy vor `
+            + `Ollama bricht nach ~${Math.round((grenze || 0) / 1000)} s ab.`);
+        }
+        return sicher;
+      }
+      gemeldeteKappung = null;
+      return eingestellt;
     }
   } catch { /* dann eben der eingestellte Wert */ }
   return gewuenscht;
@@ -252,8 +276,9 @@ function plaetzeFuer(gruppe, bekannt) {
   return PLAETZE_VERDACHT;
 }
 
-function buendeln(gruppen, bekannt) {
-  const grenze = buendelGroesse();
+// `grenze` ist nur mitten im Lauf gesetzt: Nach einem 504 werden die restlichen
+// Gruppen mit der halben Größe neu gebündelt.
+function buendeln(gruppen, bekannt, grenze = buendelGroesse()) {
   const buendel = [];
   let aktuell = [];
   let plaetze = 0;
@@ -591,12 +616,25 @@ const ANFRAGE_MIN_MS = 20000;
 // Die Obergrenze verhindert den Stillstand: Ist das Modell so langsam, dass
 // selbst die halbe Frist nicht reicht, wird trotzdem eine Anfrage gewagt —
 // sonst geschähe gar nichts mehr, und niemand sähe, woran es liegt.
-function mindestRestMs() {
+//
+// `mails` ist die Größe der NÄCHSTEN Anfrage. Ohne sie galt die langsamste
+// Anfrage überhaupt — ein Fünfer-Bündel mit 90 s — auch für eine einzelne Mail,
+// die 5 bis 30 s braucht. Nach einem 504 wurden die Mails deshalb gar nicht
+// mehr einzeln nachgeholt (Diagnosebericht 17.09.: „versuche die Mails
+// einzeln" und in derselben Sekunde „12 von 247").
+//
+// Und länger als die gemessene Proxy-Grenze kann keine Anfrage dauern: Dann
+// ist entweder die Antwort da oder der 504. Mehr Restzeit zu verlangen, wäre
+// Warten auf etwas, das nicht kommt.
+function mindestRestMs(mails) {
   try {
     if ((settings.hole('ki_anbieter') || 'gemini') !== 'ollama') return ANFRAGE_MIN_MS;
-    const erwartet = require('./ollamaMessung').erwarteteDauerMs();
+    const messung = require('./ollamaMessung');
+    const erwartet = messung.erwarteteDauerMs(mails);
     if (!erwartet) return ANFRAGE_MIN_MS;
-    const noetig = Math.round(erwartet * 1.15) + 5000;
+    let noetig = Math.round(erwartet * 1.15) + 5000;
+    const proxy = messung.gatewayGrenzeMs();
+    if (proxy) noetig = Math.min(noetig, proxy + 5000);
     return Math.min(Math.max(ANFRAGE_MIN_MS, noetig), Math.round(frist() / 2));
   } catch {
     return ANFRAGE_MIN_MS;
@@ -702,6 +740,8 @@ function fragen(teil, konto, bekannt, zeitlimit = 180000) {
     zeitlimit,
     maxZeichen: 200000,
     schema: antwortSchema(teil.length, themenKtx.namen, themenKtx.neuErlaubt),
+    // Für die Messung: Wie groß war diese Anfrage? Siehe mindestRestMs().
+    mails: teil.length,
     maxAntwort,
   });
 }
@@ -741,6 +781,9 @@ async function klassifizieren(mails) {
   let hinweis = '';
 
   let timeoutsInFolge = 0;
+  // Gesetzt, sobald der Reverse-Proxy ein Bündel mit 504 abweist: Ab dann gilt
+  // für den Rest des Laufs — auch für die nächsten Konten — die kleinere Größe.
+  let laufGrenze = null;
 
   for (const [kontoName, kontoMails] of proKonto) {
     if (abgebrochen) break;
@@ -813,17 +856,19 @@ async function klassifizieren(mails) {
 
     const bekannt = bekannteDomains(kontoName);
     const gruppen = gruppieren(nochZuKlassifizieren, bekannt);
-    const buendel = buendeln(gruppen, bekannt);
+    let buendel = buendeln(gruppen, bekannt, laufGrenze ?? buendelGroesse());
 
-    for (const teil of buendel) {
+    for (let i = 0; i < buendel.length; i += 1) {
+      const teil = buendel[i];
       // Reicht die Zeit noch für ein weiteres Bündel? Sonst lieber jetzt
       // zurückgeben, was fertig ist, als von n8n mitten im Satz abgeschnitten
       // zu werden — dann wäre auch das Fertige verloren.
       const verbleibend = frist() - (Date.now() - begonnen);
       // Unter dem Mindestmaß lohnt keine Anfrage mehr — sie käme nach dem Ende
       // des Laufs zurück und wäre für nichts gestellt. Was „Mindestmaß" heißt,
-      // sagt bei der lokalen KI die Messung, nicht eine geratene Konstante.
-      if (verbleibend < mindestRestMs()) {
+      // sagt bei der lokalen KI die Messung, nicht eine geratene Konstante —
+      // und zwar für genau diese Bündelgröße.
+      if (verbleibend < mindestRestMs(teil.length)) {
         abgebrochen = true;
         hinweis = `Zeitbudget des Laufs erreicht — ${klassifiziert} von ${liste.length} Mails `
           + 'klassifiziert. Der Rest kommt im nächsten Lauf zuerst wieder dran.';
@@ -834,18 +879,41 @@ async function klassifizieren(mails) {
       // Vor jedem Bündel außer dem ersten kurz Luft holen — siehe pause().
       if (anfragen > 0) await schlafen(pause());
 
+      const gefragtUm = Date.now();
       let antwort = await fragen(teil, konto, bekannt, anfrageZeitlimit(verbleibend));
+      // Die echte Dauer — nicht das Zeitlimit, das der Anfrage erlaubt war. Die
+      // Meldung „nicht innerhalb von 173 s" stand vorher bei einem 504, der nach
+      // 90 s kam.
+      const dauerSek = Math.round((Date.now() - gefragtUm) / 1000);
       anfragen += 1;
+
+      // Ein 504 vom Reverse-Proxy bei einem Bündel heißt: Das Bündel war zu
+      // groß für dessen Zeitgrenze. Das Modell hängt nicht — es hätte nur länger
+      // gebraucht, als der Proxy wartet. Also die restlichen Gruppen dieses
+      // Laufs kleiner bündeln, statt jedes weitere Bündel in dieselbe Wand
+      // laufen zu lassen.
+      const proxyZuGross = Boolean(antwort.gatewayTimeout) && teil.length > 1;
+      if (proxyZuGross) {
+        const kleiner = Math.max(1, Math.floor(teil.length / 2));
+        if (laufGrenze == null || kleiner < laufGrenze) {
+          laufGrenze = kleiner;
+          const rest = buendel.slice(i + 1).flat();
+          buendel = [...buendel.slice(0, i + 1), ...buendeln(rest, bekannt, laufGrenze)];
+          loggen('info', 'klassifizierer',
+            `Der Reverse-Proxy vor Ollama hat ein Bündel mit ${teil.length} Mails nach ${dauerSek} s `
+            + `abgebrochen (504) — der Rest dieses Laufs geht in Bündeln zu ${laufGrenze}.`);
+        }
+      }
 
       // Antwortet die KI gar nicht oder lief ein Mehrfach-Bündel ins Zeitlimit (z. B. 504 Gateway Timeout):
       // Falls das Bündel mehr als 1 Gruppe hatte, versuchen wir die Mails einzeln, bevor wir abbrechen.
       if (istZeitueberschreitung(antwort) && teil.length > 1) {
         loggen('info', 'klassifizierer',
-          `Bündel mit ${teil.length} Mails lief ins Zeitlimit (504/Timeout) — versuche die Mails einzeln.`);
+          `Bündel mit ${teil.length} Mails lief ins Zeitlimit (${antwort.gatewayTimeout ? '504 vom Reverse-Proxy' : 'Timeout'}) — versuche die Mails einzeln.`);
         let gerettet = false;
         for (const einzelGruppe of teil) {
           const restFrist = frist() - (Date.now() - begonnen);
-          if (restFrist < mindestRestMs()) break;
+          if (restFrist < mindestRestMs(1)) break;
           const einzelAntwort = await fragen([einzelGruppe], konto, bekannt, anfrageZeitlimit(restFrist));
           anfragen += 1;
           if (einzelAntwort.ok) {
@@ -866,16 +934,24 @@ async function klassifizieren(mails) {
 
       // Prüfen, ob das Bündel (oder der Einzelversuch) ins Zeitlimit lief
       if (istZeitueberschreitung(antwort)) {
-        timeoutsInFolge += 1;
+        // Ein zu großes Bündel für den Proxy zählt nicht als Ausfall: Der Lauf
+        // geht mit kleineren Bündeln weiter. Nur echte Ausfälle — das Modell
+        // antwortet gar nicht, oder selbst eine einzelne Mail läuft in den 504 —
+        // beenden ihn nach zweimal in Folge.
+        if (!proxyZuGross) timeoutsInFolge += 1;
         const rest = frist() - (Date.now() - begonnen);
+        const naechsteGroesse = buendel[i + 1]?.length ?? 1;
         // Erst nach zwei Timeouts in Folge abbrechen, oder wenn keine Zeit mehr da ist:
-        if (timeoutsInFolge >= 2 || rest < mindestRestMs()) {
+        if (timeoutsInFolge >= 2 || rest < mindestRestMs(naechsteGroesse)) {
           abgebrochen = true;
-          hinweis = `Die KI hat auf ein Bündel nicht innerhalb von `
-            + `${Math.round(anfrageZeitlimit(verbleibend) / 1000)} s geantwortet — `
-            + `${klassifiziert} von ${liste.length} Mails klassifiziert. `
-            + 'Bei einer lokalen KI heißt das meist: Das Modell ist für diese Maschine zu groß '
-            + 'oder es laufen zu viele Anfragen gleichzeitig.';
+          hinweis = antwort.gatewayTimeout
+            ? `Der Reverse-Proxy vor Ollama hat nach ${dauerSek} s abgebrochen (504) — `
+              + `${klassifiziert} von ${liste.length} Mails klassifiziert. Helfen würde eine höhere `
+              + 'Zeitgrenze am Proxy oder eine kleinere Bündelgröße (Einstellungen → KI).'
+            : `Die KI hat nach ${dauerSek} s nicht geantwortet — `
+              + `${klassifiziert} von ${liste.length} Mails klassifiziert. `
+              + 'Bei einer lokalen KI heißt das meist: Das Modell ist für diese Maschine zu groß '
+              + 'oder es laufen zu viele Anfragen gleichzeitig.';
           loggen('warn', 'klassifizierer', hinweis);
           break;
         } else {
@@ -954,6 +1030,7 @@ module.exports = {
   // fuer die Tests, die Einstellungsseite und den Buendel-Knoten in
   // workflowPatcher.js, dessen Zeitlimit sich nach der Frist richtet
   frist,
+  mindestRestMs,
   FRIST_STANDARD,
   buendelGroesse,
   OLLAMA_BUENDEL_STANDARD,
