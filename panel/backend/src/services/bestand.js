@@ -92,6 +92,26 @@ function ruheVergessen(kontoId) {
 
 const zeigerSchluessel = (kontoId, ordner) => `bestand_zeiger_${kontoId}_${Buffer.from(ordner).toString('base64')}`;
 
+// Neueste oder älteste Mails zuerst?
+//
+// Bis Build 232 ging es immer bei den ältesten UIDs los. Diagnosebericht vom
+// 17.09.: rund 50 Mails je Stunde bei zigtausend im Bestand — Tage für Jahre
+// alte Post, während die der letzten Wochen wartete und von Hand zugeordnet
+// werden musste. Jetzt ist „neueste zuerst" der Standard.
+//
+// Jede Reihenfolge hat ihren EIGENEN Zeiger. Mit einem gemeinsamen stünde der
+// Zeiger nach dem Umschalten am falschen Ende: „älteste" bei UID 30.000 hieße
+// für „neueste" plötzlich „alles unter 30.000" — und die Mails darüber wären
+// eine ganze Runde lang übersprungen.
+function reihenfolge() {
+  try {
+    return settings.hole('bestand_reihenfolge') === 'aelteste' ? 'aelteste' : 'neueste';
+  } catch { return 'neueste'; }
+}
+const zeigerSchluesselFuer = (kontoId, ordner, folge) => (folge === 'neueste'
+  ? `${zeigerSchluessel(kontoId, ordner)}:neueste`
+  : zeigerSchluessel(kontoId, ordner));
+
 // Welchen Ordner der letzte Lauf für dieses Konto ausgesucht hat.
 //
 // Gebraucht wird das beim Vermerken: erledigtMerken() will den Ordner wissen, der
@@ -212,7 +232,10 @@ function fensterGroesse(anzahlKonten) {
 async function kandidaten(grenze = 0) {
   const konten = db.prepare('SELECT * FROM accounts').all();
   const proKonto = grenze > 0 ? Math.min(FENSTER, grenze) : fensterGroesse(konten.length);
-  const raus = { konten: {}, offen: {}, fenster: proKonto };
+  const folge = reihenfolge();
+  const neueste = folge === 'neueste';
+  const ordnen = (liste) => liste.sort((a, b) => (neueste ? b - a : a - b));
+  const raus = { konten: {}, offen: {}, fenster: proKonto, reihenfolge: folge };
 
   for (const konto of konten) {
     raus.konten[konto.name] = KEINE;
@@ -238,7 +261,7 @@ async function kandidaten(grenze = 0) {
       for (const o of scanOrdner) {
         da = await imap.uidsAuflisten({ ...zugang, ordner: o.pfad });
         erledigt = erledigteUids(konto.id, o.pfad);
-        offen = [...da].filter((u) => !erledigt.has(u)).sort((a, b) => a - b);
+        offen = ordnen([...da].filter((u) => !erledigt.has(u)));
         if (offen.length > 0) {
           aktuellerOrdner = o.pfad;
           break;
@@ -248,7 +271,12 @@ async function kandidaten(grenze = 0) {
       raus.offen[konto.name] = offen.length;
       if (offen.length === 0) continue;
 
-      const zeiger = Number(settings.hole(zeigerSchluessel(konto.id, aktuellerOrdner))) || 0;
+      // Der Zeiger steht auf der letzten UID des vorigen Fensters. Bei
+      // „älteste zuerst" kommt danach alles darüber, bei „neueste zuerst"
+      // alles darunter. Kein Zeiger: alles.
+      const zSchluessel = zeigerSchluesselFuer(konto.id, aktuellerOrdner, folge);
+      const zeiger = Number(settings.hole(zSchluessel)) || 0;
+      const jenseits = (u) => (zeiger === 0 ? true : neueste ? u < zeiger : u > zeiger);
       const offenSet = new Set(offen);
       const vorherige = letztesFenster(konto.id, aktuellerOrdner);
       const davor = letztesFenster(konto.id, aktuellerOrdner, true);
@@ -258,20 +286,21 @@ async function kandidaten(grenze = 0) {
       const haengen = vorherige.filter((u) => offenSet.has(u));
 
       const nachzuegler = haengen.filter((u) => offenSet.has(u));
-      const frisch = offen.filter((u) => u > zeiger && !vorherige.includes(u));
+      const frisch = offen.filter((u) => jenseits(u) && !vorherige.includes(u));
       let fenster = [...nachzuegler, ...frisch].slice(0, proKonto);
-      // Nichts mehr über dem Zeiger: neue Runde. Dann bekommen auch die
+      // Nichts mehr jenseits des Zeigers: neue Runde. Dann bekommen auch die
       // geparkten Mails wieder eine Chance — „unklar" heisst zurückgestellt,
-      // nicht aufgegeben.
+      // nicht aufgegeben. Was während der Runde neu eingetroffen ist, kommt
+      // dabei ebenfalls dran (laufende Post erledigt ohnehin Workflow 01).
       if (fenster.length === 0) {
         unklarVergessen(konto.id);
         const neueRunde = erledigteUids(konto.id, aktuellerOrdner);
-        fenster = [...da].filter((u) => !neueRunde.has(u)).sort((a, b) => a - b).slice(0, proKonto);
+        fenster = ordnen([...da].filter((u) => !neueRunde.has(u))).slice(0, proKonto);
       }
       if (fenster.length === 0) continue;
 
       raus.konten[konto.name] = { ordner: aktuellerOrdner, uids: fenster.join(',') };
-      settings.setze(zeigerSchluessel(konto.id, aktuellerOrdner), String(Math.max(...fenster)));
+      settings.setze(zSchluessel, String(neueste ? Math.min(...fenster) : Math.max(...fenster)));
       fensterMerken(konto.id, aktuellerOrdner, fenster);
       ordnerMerken(konto.id, aktuellerOrdner);
     } catch (err) {

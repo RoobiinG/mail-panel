@@ -113,6 +113,10 @@ router.put('/', (req, res) => {
       && (!Number.isInteger(Number(value)) || Number(value) < 1 || Number(value) > 250)) {
       return res.status(400).json({ error: 'bestand_fenster: ganze Zahl zwischen 1 und 250' });
     }
+    if (key === 'bestand_reihenfolge' && String(value).trim()
+      && !['neueste', 'aelteste'].includes(String(value).trim())) {
+      return res.status(400).json({ error: 'bestand_reihenfolge: neueste oder aelteste' });
+    }
     // Leer ist erlaubt und heisst 240000 (siehe klassifizierer.frist()).
     if (key === 'ki_lauf_frist_ms' && String(value).trim()
       && (!Number.isInteger(Number(value)) || Number(value) < 30000 || Number(value) > 3600000)) {

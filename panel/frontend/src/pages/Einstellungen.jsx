@@ -972,6 +972,23 @@ export default function Einstellungen() {
                 className={inputCls} />
             </div>
 
+            <div className="pt-3 border-t border-panel-border/30 space-y-1">
+              <label className="block text-xs text-panel-muted">Reihenfolge</label>
+              <p className="text-[10px] text-panel-muted/60">
+                In welcher Reihenfolge der Bestandslauf das Postfach abarbeitet. „Neueste zuerst"
+                kümmert sich um die Post der letzten Wochen, bevor es an Jahre alte Mails geht.
+                Beim Umschalten geht nichts verloren — jede Reihenfolge merkt sich ihren eigenen Stand.
+              </p>
+              <select
+                value={settings.bestand_reihenfolge || 'neueste'}
+                onChange={e => set('bestand_reihenfolge', e.target.value)}
+                className={inputCls}
+              >
+                <option value="neueste">Neueste zuerst</option>
+                <option value="aelteste">Älteste zuerst (Verhalten bis Build 232)</option>
+              </select>
+            </div>
+
             <SpeichernBtn onSpeichern={() => speichern('post')} meldung={meldung.post} />
           </Karte>
 

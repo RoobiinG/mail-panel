@@ -2,6 +2,43 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [6.7.0.0] - 2026-09-17 (Build 233) — *Neueste zuerst*
+
+Stufe 5 und letzte des Plans „vom Einzel-Zuordnen zum Stapel-Entscheiden". Die Bestands-Triage
+(Workflow 04) arbeitete das Postfach immer von den ältesten UIDs an ab. Bei rund 50 Mails je Stunde
+und zigtausend im Bestand gingen Tage für Jahre alte Post drauf, während die der letzten Wochen
+wartete.
+
+### Features
+- **Neue Einstellung „Reihenfolge"** unter Einstellungen → „Umgang mit neuer Post", direkt unter
+  „Mails je Lauf und Konto": **Neueste zuerst** (Standard) oder **Älteste zuerst** (Verhalten bis Build 232).
+
+### Änderungen
+- `services/bestand.js`, `kandidaten()`: Bei „neueste zuerst" werden die offenen UIDs absteigend
+  angeboten, der Zeiger wandert abwärts (nächstes Fenster = alles **unter** der kleinsten UID des
+  vorigen), und eine neue Runde beginnt wieder oben — einschließlich dessen, was während der Runde
+  neu eingetroffen ist.
+- **Jede Reihenfolge hat ihren eigenen Zeiger** (`bestand_zeiger_…:neueste` neben dem bisherigen
+  Schlüssel). Mit einem gemeinsamen stünde er nach dem Umschalten am falschen Ende, und eine ganze
+  Runde lang würden Mails übersprungen. Umschalten in beide Richtungen setzt dort fort, wo die
+  jeweilige Reihenfolge stand.
+- Unverändert: Nachzügler aus dem letzten Lauf kommen zuerst, Sortier-Inbox und „in Ruhe gelassen"
+  werden nicht erneut angeboten, INBOX vor anderen Ordnern, Fenstergröße und Budget-Deckel.
+- Die Antwort von `/api/internal/bestand-kandidaten` nennt zusätzlich `reihenfolge`.
+- `bestand_reihenfolge` wird in `PUT /api/einstellungen` geprüft (nur `neueste`/`aelteste`) und
+  steht im Diagnosebericht — zusammen mit `bestand_fenster`, das dort bisher fehlte.
+- Tests in `test/bestand-auswahl.test.js`: Standard neueste zuerst, Zeiger wandert abwärts,
+  Nachzügler zuerst, neue Runde nimmt neu eingetroffene Mails mit, Umschalten überspringt in keiner
+  Richtung etwas. Die bisherigen Tests laufen unverändert mit „älteste zuerst".
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Datenbank:** keine Migration. Die neue Einstellung gilt ohne Eintrag als „neueste".
+- **Verhalten nach dem Update:** Der nächste Bestandslauf beginnt bei den **neuesten** Mails. Der
+  alte Zeiger bleibt erhalten; wer auf „älteste zuerst" zurückstellt, macht dort weiter. Die
+  Nachzügler des letzten Laufs (noch mit dem alten Fenster) kommen einmal zuerst dran.
+- **n8n-Workflows:** unberührt, kein Neuimport — Workflow 04 holt die UIDs wie bisher vom Panel.
+- **Neustart/Session:** nichts zu beachten; nach dem Update einmal Strg+F5 für die Einstellungsseite.
+
 ## [6.6.0.0] - 2026-09-17 (Build 232) — *Ein Tastendruck je Gruppe*
 
 Stufe 4 des Plans „vom Einzel-Zuordnen zum Stapel-Entscheiden". Auch mit Bündeln und Filtern bleiben

@@ -174,6 +174,11 @@ const FELDER = {
   // angesehen werden, hat mit der Buendelgroesse aber nichts zu tun: Regeln,
   // Stichwoerter und Dubletten kosten gar keine KI.
   bestand_fenster:        { env: 'BESTAND_FENSTER', geheim: false, standard: '' },
+  // In welcher Reihenfolge der Bestandslauf das Postfach abarbeitet:
+  // 'neueste' (Standard) oder 'aelteste'. Bis Build 232 ging es immer bei den
+  // ältesten UIDs los — bei ~50 Mails je Stunde vergingen Tage mit Jahre alter
+  // Post, während die der letzten Wochen wartete.
+  bestand_reihenfolge:    { geheim: false, standard: 'neueste' },
   // Wann lief die Bestands-Triage (Workflow 04) zuletzt und wie viel kam durch?
   // Gesetzt beim Aufruf von /api/internal/budget — den ruft nur der Sammel-Knoten
   // von WF04, jeder Aufruf ist also ein Bestandslauf. Reine Anzeige fuers Dashboard.

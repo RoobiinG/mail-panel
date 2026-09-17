@@ -39,6 +39,11 @@ beforeEach(() => {
 });
 
 describe('Auswahl der Bestands-Mails', () => {
+  // Diese Regeln gelten für beide Reihenfolgen; festgehalten sind sie mit
+  // „älteste zuerst", dem Verhalten bis Build 232. Die gespiegelte Richtung
+  // steht weiter unten.
+  beforeEach(() => settings.setze('bestand_reihenfolge', 'aelteste'));
+
   test('bietet die offenen UIDs an, aufsteigend', async () => {
     kontoAnlegen();
     postfachMit([5, 1, 3]);
@@ -142,6 +147,70 @@ describe('Auswahl der Bestands-Mails', () => {
     bestand.ruheVergessen(id);
     postfachMit([1, 2]);
     assert.equal((await bestand.kandidaten()).konten.K?.uids, '1,2');
+  });
+});
+
+// Diagnosebericht vom 17.09.: rund 50 Mails je Stunde bei zigtausend im
+// Bestand, und die Triage begann immer bei den ältesten. Die Post der letzten
+// Wochen wartete — und landete zu Hunderten zum Zuordnen in der Sortier-Inbox.
+describe('Neueste zuerst', () => {
+  test('ist der Standard und bietet die höchsten UIDs zuerst an', async () => {
+    kontoAnlegen();
+    postfachMit([5, 1, 3]);
+    const a = await bestand.kandidaten();
+    assert.equal(a.reihenfolge, 'neueste');
+    assert.equal(a.konten.K?.uids, '5,3,1');
+  });
+
+  test('der Zeiger wandert abwärts, Lauf für Lauf', async () => {
+    const id = kontoAnlegen();
+    postfachMit([1, 2, 3, 4, 5, 6]);
+    assert.equal((await bestand.kandidaten(2)).konten.K?.uids, '6,5');
+    bestand.erledigtMerken(id, 'INBOX', 6, 'ruhe');
+    bestand.erledigtMerken(id, 'INBOX', 5, 'ruhe');
+    assert.equal((await bestand.kandidaten(2)).konten.K?.uids, '4,3');
+    bestand.erledigtMerken(id, 'INBOX', 4, 'ruhe');
+    bestand.erledigtMerken(id, 'INBOX', 3, 'ruhe');
+    assert.equal((await bestand.kandidaten(2)).konten.K?.uids, '2,1');
+  });
+
+  test('was liegen blieb, kommt auch hier zuerst wieder dran', async () => {
+    const id = kontoAnlegen();
+    postfachMit([1, 2, 3, 4, 5, 6]);
+    assert.equal((await bestand.kandidaten(3)).konten.K?.uids, '6,5,4');
+    bestand.erledigtMerken(id, 'INBOX', 6, 'ruhe');
+    bestand.erledigtMerken(id, 'INBOX', 4, 'ruhe');
+    assert.equal((await bestand.kandidaten(3)).konten.K?.uids, '5,3,2');
+  });
+
+  test('ist unten nichts mehr, beginnt oben eine neue Runde', async () => {
+    const id = kontoAnlegen();
+    postfachMit([1, 2, 3]);
+    assert.equal((await bestand.kandidaten(3)).konten.K?.uids, '3,2,1');
+    for (const u of [3, 2, 1]) bestand.erledigtMerken(id, 'INBOX', u, 'ruhe');
+    // Inzwischen ist neue Post eingetroffen.
+    postfachMit([1, 2, 3, 7, 8]);
+    assert.equal((await bestand.kandidaten(3)).konten.K?.uids, '8,7');
+  });
+
+  test('Umschalten überspringt nichts — jede Reihenfolge hat ihren eigenen Zeiger', async () => {
+    const id = kontoAnlegen();
+    postfachMit([1, 2, 3, 4, 5, 6]);
+
+    settings.setze('bestand_reihenfolge', 'aelteste');
+    assert.equal((await bestand.kandidaten(2)).konten.K?.uids, '1,2');
+    bestand.erledigtMerken(id, 'INBOX', 1, 'ruhe');
+    bestand.erledigtMerken(id, 'INBOX', 2, 'ruhe');
+
+    // Mit einem gemeinsamen Zeiger (2) hieße „neueste" jetzt „alles unter 2".
+    settings.setze('bestand_reihenfolge', 'neueste');
+    assert.equal((await bestand.kandidaten(2)).konten.K?.uids, '6,5');
+    bestand.erledigtMerken(id, 'INBOX', 6, 'ruhe');
+    bestand.erledigtMerken(id, 'INBOX', 5, 'ruhe');
+
+    // Und zurück: „älteste" macht dort weiter, wo sie stand.
+    settings.setze('bestand_reihenfolge', 'aelteste');
+    assert.equal((await bestand.kandidaten(2)).konten.K?.uids, '3,4');
   });
 });
 

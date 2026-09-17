@@ -182,7 +182,8 @@ function konfiguration() {
     'gemini_text_lang', 'gemini_lauf_frist_ms', 'ollama_url', 'ollama_modell',
     'ollama_kontext', 'ollama_buendel', 'ki_lauf_frist_ms',
     'auto_sync', 'neue_mails_ungelesen', 'spam_schwellwert', 'clamav_aktiv',
-    'safebrowsing_aktiv', 'bestand_intervall', 'beleg_lese_tagesbudget',
+    'safebrowsing_aktiv', 'bestand_intervall', 'bestand_fenster', 'bestand_reihenfolge',
+    'beleg_lese_tagesbudget',
     'themen_sortierung_aktiv', 'themen_ordner_max', 'themen_konfidenz', 'n8n_url',
     'beleg_ocr_aktiv',
   ];
