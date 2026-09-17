@@ -2,6 +2,41 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [6.2.1.0] - 2026-09-17 (Build 227) — *Ein sauberer 504 ist auch eine Messung*
+
+Aus dem Diagnosebericht vom 17.09.: sechsmal „504 Gateway Time-out" von openresty im Log binnen
+70 Minuten — aber `davonAbgebrochen: 0` in der KI-Statistik. Ein Reverse-Proxy vor einem entfernten
+Ollama-Server (der Normalfall, wenn der Server nicht im selben Docker-Netz steht) hat oft eine
+eigene, kürzere Zeitgrenze als das Panel selbst bereit wäre zu warten — die Antwort kommt dann als
+sauberer 504 zurück, bevor das Panel je an sein eigenes Zeitlimit stößt. Dieser Fall landete bisher
+nirgends in der Messung: Nur ein Netzwerkfehler (Verbindung weg, eigenes Zeitlimit) zählte als
+Abbruch, ein regulär beantworteter 504 dagegen gar nicht.
+
+### Änderungen
+- **Ein 504/502 von Ollama wird jetzt in `services/ollamaMessung.js` mitgezählt** — als Abbruch,
+  aber mit eigener Kennzeichnung (`art: 'gateway'` statt `'netzwerk'`), weil die Abhilfe eine andere
+  ist: Bei einem Netzwerk-Abbruch hilft eine längere Frist (Einstellungen → KI); bei einem
+  Gateway-Timeout nur eine Änderung am Reverse-Proxy selbst oder ein kleineres Bündel — eine
+  längere Frist im Panel ändert daran nichts, der Proxy gibt vorher auf.
+- **Neues Feld `davonGatewayTimeout`** im Diagnosebericht, neben dem vorhandenen
+  `davonAbgebrochen`. Zeigt der nächste Bericht dort eine Zahl größer 0, ist das der Beleg: Der
+  Reverse-Proxy vor Ollama braucht eine höhere Zeitgrenze für diesen Pfad, oder `ollama_buendel`
+  eine kleinere Zahl.
+- **`letzte` (die letzten fünf Anfragen im Bericht) nennt jetzt auch Art und Grund** eines
+  Abbruchs, nicht mehr nur `abgebrochen: true`. Vorher stand dort nur, DASS etwas schiefging, nie
+  WORAN es lag.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Datenbank:** keine Änderung — die Messung lebt weiterhin nur im Speicher (Betriebsanzeige,
+  kein Archiv).
+- **n8n-Workflows:** unberührt.
+- **Verhalten:** rein diagnostisch, ändert nichts am Sortier- oder Klassifizierverhalten selbst.
+- **Empfehlung, kein Code-Fix:** Läuft Ollama hinter einem eigenen Reverse-Proxy (wie
+  `ollama.robin-glaser.de`), dessen `proxy_read_timeout`/`send_timeout` prüfen — 5er-Bündel
+  brauchen laut Messung teils 45–65 s, nah an gängigen Standardwerten (60 s). Das liegt außerhalb
+  des Panels und lässt sich von hier aus nicht beheben.
+- **Neustart/Sitzung:** normaler Neustart genügt.
+
 ## [6.2.0.0] - 2026-09-17 (Build 226) — *Weniger Vertrauen in Adresse und Domain, mehr in den Inhalt*
 
 Nutzerhinweis: Nicht zu viel darf über E-Mail-Adresse oder Domain laufen — manche Anbieter

@@ -21,11 +21,48 @@ require('./umgebung');
 const settings = require('../src/services/settings');
 const kiText = require('../src/services/kiText');
 const k = require('../src/services/klassifizierer');
+const messung = require('../src/services/ollamaMessung');
 
 beforeEach(() => {
   settings.setze('ki_anbieter', 'ollama');
   settings.setze('ollama_url', 'http://ollama:11434');
   settings.setze('ollama_modell', 'llama3.2:1b');
+  messung._zuruecksetzen();
+});
+
+// Diagnosebericht vom 17.09.: sechsmal "504 Gateway Time-out" von openresty
+// binnen 70 Minuten im Log, aber "davonAbgebrochen: 0" in der Statistik — ein
+// sauberer 504 (Reverse-Proxy vor Ollama gibt vor dem Panel selbst auf) wurde
+// gar nicht erst gezählt.
+describe('Ein sauberer 504/502 zählt als Gateway-Timeout, nicht als Stille', () => {
+  const alsGateway = async (status) => {
+    const alt = global.fetch;
+    global.fetch = async () => ({
+      ok: false, status, text: async () => '<html>504 Gateway Time-out</html>',
+    });
+    try { return await kiText.frageJson('frage', {}); } finally { global.fetch = alt; }
+  };
+
+  test('504 wird als Gateway-Timeout gemessen', async () => {
+    const antwort = await alsGateway(504);
+    assert.equal(antwort.ok, false);
+    assert.equal(antwort.gatewayTimeout, true);
+    const s = messung.stand();
+    assert.equal(s.davonAbgebrochen, 1);
+    assert.equal(s.davonGatewayTimeout, 1);
+  });
+
+  test('502 zählt genauso', async () => {
+    await alsGateway(502);
+    assert.equal(messung.stand().davonGatewayTimeout, 1);
+  });
+
+  test('ein anderer Fehlerstatus (z. B. 500) ist kein Gateway-Timeout und wird nicht mitgezählt', async () => {
+    const antwort = await alsGateway(500);
+    assert.equal(antwort.gatewayTimeout, false);
+    const s = messung.stand();
+    assert.equal(s.davonAbgebrochen, 0, 'ein 500 ist kein Netzwerk- oder Proxy-Problem, das die Messung braucht');
+  });
 });
 
 describe('Das Schema geht an Ollama mit', () => {

@@ -261,6 +261,22 @@ async function frageJson(prompt, opt = {}) {
         const text = (await res.text()).slice(0, 400);
         loggen('warn', quelle, `Ollama antwortete mit ${res.status}: ${text}`);
         const istGateway = res.status === 504 || res.status === 502;
+        // Ein Gateway-Timeout ist kein leerer Fehlschlag, sondern eine echte
+        // Messung: Ein Reverse-Proxy vor Ollama (bei einem entfernten Server
+        // der Normalfall) hat oft eine eigene, kürzere Zeitgrenze als das
+        // Panel selbst bereit wäre zu warten — die Antwort kommt dann als
+        // sauberer 504 zurück, bevor überhaupt ein eigenes Zeitlimit greift.
+        // Ohne diesen Eintrag blieb "davonAbgebrochen" bei 0, obwohl im Log
+        // mehrfach am Tag "504" stand: Die Statistik zählte ausgerechnet die
+        // Fälle nicht, um die es ging, und der Diagnosebericht sah sauberer
+        // aus, als der Betrieb tatsächlich war.
+        if (istGateway) {
+          messung.merken(messung.abbruch(
+            ollamaModell, Math.round((Date.now() - angefangen) / 100) / 10,
+            `Gateway-Zeitüberschreitung (${res.status}) — vermutlich ein Reverse-Proxy vor Ollama`,
+            'gateway',
+          ));
+        }
         return {
           ok: false,
           gatewayTimeout: istGateway,

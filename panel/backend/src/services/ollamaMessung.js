@@ -75,11 +75,20 @@ function kennzahlen(daten, modell) {
  * Die gehört unbedingt mitgezählt — sonst misst die Statistik ausgerechnet die
  * Fälle nicht, um die es geht, und der Mittelwert sieht umso besser aus, je
  * öfter es schiefgeht.
+ *
+ * `art` unterscheidet WARUM: 'netzwerk' (AbortSignal, Verbindung weg — das
+ * Panel selbst hat aufgegeben) gegen 'gateway' (ein sauberer 504/502 — ein
+ * Reverse-Proxy vor Ollama hat aufgegeben, bevor das Panel es überhaupt
+ * durfte). Beides sieht für den Aufrufer wie "abgebrochen" aus, aber die
+ * Abhilfe ist eine andere: bei 'netzwerk' hilft eine längere Frist
+ * (Einstellungen → KI), bei 'gateway' nur eine Änderung am Reverse-Proxy
+ * selbst oder ein kleineres Bündel.
  */
-function abbruch(modell, dauerSekunden, grund) {
+function abbruch(modell, dauerSekunden, grund, art = 'netzwerk') {
   return {
     modell: String(modell || ''),
     abgebrochen: true,
+    art,
     sekunden: zahlOderNull(dauerSekunden),
     grund: String(grund || '').slice(0, 200),
     promptToken: null,
@@ -134,6 +143,12 @@ function stand() {
   return {
     anfragen: eintraege.length,
     davonAbgebrochen: eintraege.filter((e) => e.abgebrochen).length,
+    // Eigene Zeile, weil die Abhilfe eine andere ist als bei einem gewöhnlichen
+    // Abbruch: Ein Reverse-Proxy vor Ollama, der nach seiner eigenen, meist
+    // kürzeren Frist einen 504 zurückgibt, bevor das Panel überhaupt so lange
+    // hätte warten wollen. Vorher stand das nirgends — die Statistik zeigte
+    // "davonAbgebrochen: 0", obwohl im Log mehrfach am Tag "504" stand.
+    davonGatewayTimeout: eintraege.filter((e) => e.abgebrochen && e.art === 'gateway').length,
     mittel: {
       sekunden: mittel(dauern),
       promptToken: mittel(fertige.map((e) => e.promptToken)),
@@ -149,7 +164,12 @@ function stand() {
       sekunden: e.sekunden,
       promptToken: e.promptToken,
       antwortToken: e.antwortToken,
-      ...(e.abgebrochen ? { abgebrochen: true } : {}),
+      // Der Grund gehört dazu, sobald abgebrochen wurde — sonst steht im
+      // Bericht nur "abgebrochen: true" und die Frage "woran?" bleibt offen.
+      // Ein Netzwerkfehler (AbortSignal, Verbindung weg) und ein sauberer 504
+      // vom Reverse-Proxy sehen für den Aufrufer gleich aus, sind aber zwei
+      // ganz verschiedene Ursachen mit zwei ganz verschiedenen Abhilfen.
+      ...(e.abgebrochen ? { abgebrochen: true, art: e.art || 'netzwerk', grund: e.grund || null } : {}),
     })),
   };
 }

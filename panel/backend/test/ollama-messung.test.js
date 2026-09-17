@@ -105,6 +105,32 @@ describe('Die Statistik zählt auch das, was nicht geklappt hat', () => {
     assert.equal(s.davonAbgebrochen, 1);
   });
 
+  // Ein Reverse-Proxy vor Ollama antwortet nach seiner eigenen, meist kürzeren
+  // Frist mit einem sauberen 504/502 — das Panel hätte noch gewartet, durfte
+  // aber nicht. Das sieht aus wie ein Abbruch, ist aber eine andere Ursache
+  // mit einer anderen Abhilfe (Reverse-Proxy anpassen statt Frist verlängern)
+  // und braucht deshalb eine eigene Zählung.
+  test('Gateway-Timeouts zählen extra, nicht nur als Abbruch', () => {
+    messung.merken(messung.abbruch('a', 60, '504', 'gateway'));
+    messung.merken(messung.abbruch('a', 240, 'aborted', 'netzwerk'));
+    const s = messung.stand();
+    assert.equal(s.davonAbgebrochen, 2, 'beide sind Abbrüche');
+    assert.equal(s.davonGatewayTimeout, 1, 'aber nur einer davon ein Gateway-Timeout');
+  });
+
+  test('ohne Angabe gilt ein Abbruch als "netzwerk", nicht als Gateway-Timeout', () => {
+    messung.merken(messung.abbruch('a', 240, 'aborted'));
+    assert.equal(messung.stand().davonGatewayTimeout, 0);
+  });
+
+  test('letzte nennt bei einem Abbruch auch die Art und den Grund', () => {
+    messung.merken(messung.abbruch('a', 60, 'Gateway-Zeitüberschreitung (504)', 'gateway'));
+    const eintrag = messung.stand().letzte.at(-1);
+    assert.equal(eintrag.abgebrochen, true);
+    assert.equal(eintrag.art, 'gateway');
+    assert.equal(eintrag.grund, 'Gateway-Zeitüberschreitung (504)');
+  });
+
   test('der Mittelwert rechnet nur mit den fertigen', () => {
     messung.merken(messung.kennzahlen({ ...ANTWORT, total_duration: 100_000_000_000 }, 'a'));
     messung.merken(messung.kennzahlen({ ...ANTWORT, total_duration: 200_000_000_000 }, 'a'));
