@@ -375,6 +375,9 @@ const migrations = [
   'ALTER TABLE sort_inbox ADD COLUMN ki_ordner TEXT',
   'ALTER TABLE sort_inbox ADD COLUMN ki_konfidenz REAL',
   'ALTER TABLE sort_inbox ADD COLUMN ki_grund TEXT',
+  // Welche Kategorie die KI der wartenden Mail gab — für die Aufschlüsselung
+  // und die Filter in der Sortier-Inbox (persönlich, sonstiges, …).
+  'ALTER TABLE sort_inbox ADD COLUMN kategorie TEXT',
   'ALTER TABLE quarantine_log ADD COLUMN thema TEXT',
   'ALTER TABLE quarantine_log ADD COLUMN konfidenz REAL',
   // Ohne die UID laesst sich eine falsch einsortierte Mail im Postfach nicht

@@ -653,20 +653,26 @@ router.post('/einsortieren', async (req, res) => {
           + ' AND CAST(uid AS INTEGER) = CAST(? AS INTEGER)',
         ).get(konto.id, uidText)
         : null;
+      // Die Kategorie der KI kommt mit — daraus entstehen in der Sortier-Inbox
+      // die Zähler und Filter ("612 persönlich, 540 sonstiges …"). Ohne sie
+      // war nicht zu sehen, woraus der Stapel eigentlich besteht. Bestehende
+      // Einträge bekommen sie beim nächsten Bestandslauf über das UPDATE.
+      const kategorie = b.kategorie ? String(b.kategorie).slice(0, 40) : null;
       if (schonDa) {
         db.prepare(
-          'UPDATE sort_inbox SET betreff = ?, ki_ordner = ?, ki_konfidenz = ?, ki_grund = ? WHERE id = ?',
+          'UPDATE sort_inbox SET betreff = ?, ki_ordner = ?, ki_konfidenz = ?, ki_grund = ?,'
+          + ' kategorie = COALESCE(?, kategorie) WHERE id = ?',
         ).run(
           b.betreff ?? null, b.thema ?? null,
-          b.konfidenz != null ? Number(b.konfidenz) : null, grund || null, schonDa.id,
+          b.konfidenz != null ? Number(b.konfidenz) : null, grund || null, kategorie, schonDa.id,
         );
       } else {
         db.prepare(`
-          INSERT INTO sort_inbox (konto, konto_id, von, betreff, uid, ki_ordner, ki_konfidenz, ki_grund)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO sort_inbox (konto, konto_id, von, betreff, uid, ki_ordner, ki_konfidenz, ki_grund, kategorie)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           String(b.konto), konto.id, String(b.von), b.betreff ?? null, uidText,
-          b.thema ?? null, b.konfidenz != null ? Number(b.konfidenz) : null, grund || null,
+          b.thema ?? null, b.konfidenz != null ? Number(b.konfidenz) : null, grund || null, kategorie,
         );
       }
     }

@@ -2,6 +2,55 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [6.3.0.0] - 2026-09-17 (Build 229) — *Woraus besteht der Stapel?*
+
+Stufe 1 des Plans „vom Einzel-Zuordnen zum Stapel-Entscheiden". Diagnosebericht vom 17.09.: **1.750
+offene Zuordnungen**, häufigster Grund „Kein Thema erkannt". In der Sortier-Inbox war davon nur eine
+lange Liste nach Absender-Domain zu sehen — ob darin 600 persönliche Mails ohne Thema stecken oder
+300 Vorschläge für einen neuen Ordner, der nur freigegeben werden müsste, blieb verborgen. Das sind
+aber zwei völlig verschiedene Aufgaben.
+
+### Features
+- **Aufschlüsselung im Kopf der Sortier-Inbox.** Zwei Zeilen mit Zähl-Chips:
+  - **Kategorie** — Persönlich, Sonstiges, Newsletter, Rechnung, Bestellung, Spam und „noch nicht
+    erfasst" (Einträge von vor diesem Build).
+  - **Grund** — Kein Thema erkannt · Neuer Ordner vorgeschlagen (wartet auf Freigabe oder
+    Trockenlauf) · Ordnername abgelehnt · Zu unsicher · Anderer Grund (Obergrenze, neue Ordner aus,
+    Ordner fehlt im Postfach) · ohne Angabe. Die Texte aus `themen.aufloesen()` werden dafür zu
+    Klassen zusammengefasst; der Tooltip am Chip erklärt, was dahinter steckt.
+- **Jeder Chip ist ein Filter**, ein zweiter Klick hebt ihn auf. Kategorie und Grund lassen sich
+  kombinieren (je einer). Die Zahlen jeder Zeile gelten unter dem Filter der jeweils anderen — wer
+  „Kein Thema erkannt" wählt, sieht, wie sich genau diese Mails auf die Kategorien verteilen. Ohne
+  Filter ergeben die Zahlen einer Zeile zusammen die Gesamtzahl.
+- **Der Filter steht in der Adresse** (`/sortierung?filter=k:persoenlich,g:kein-thema`) und übersteht
+  damit ein Neuladen. Unbekannte Werte in der Adresse werden ignoriert.
+- Der Zähler am Titel zeigt bei aktivem Filter „angezeigt / gesamt". Passt nichts, steht dort ein
+  Hinweis mit „Filter aufheben" statt „Nichts offen".
+
+### Änderungen
+- **`/einsortieren` schreibt die Kategorie der KI in die Sortier-Inbox** — beim neuen Eintrag und
+  beim Aktualisieren eines schon wartenden. Kommt bei einem späteren Lauf keine Kategorie mit, bleibt
+  die alte stehen (`COALESCE`).
+- **Ehrliche Zahl am Knopf „Alle … verschieben".** Er arbeitet über das Muster (Domain bzw.
+  Absender) und erfasst damit auch Mails, die der Filter gerade ausblendet. Bei „ganze Domain" und
+  „keine Regel" nennt der Knopf deshalb die Gesamtzahl der Domain, und die Gruppe zeigt in Orange
+  „+ N ausgeblendet". Ein genaues Verschieben nur der angezeigten Mails folgt mit Stufe 2.
+- Neue Datei `components/ui/sortierHilfen.js` (Kategorien, Grund-Klassen, Filter lesen/schreiben,
+  Aufschlüsselung) — die späteren Stufen (Inhalts-Bündel, Schnell-Modus) brauchen dieselben Hilfen.
+- Neuer Test `test/inbox-aufschluesselung.test.js`: Kategorie bei Neu-Eintrag und Aktualisierung,
+  keine Dublette; Grund-Klassen für alle Texte aus `themen.aufloesen()`; Filter übersteht den Weg
+  durch die Adresse; Summen der Aufschlüsselung.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Datenbank:** Migration `ALTER TABLE sort_inbox ADD COLUMN kategorie TEXT` (läuft beim Start von
+  selbst). Bestehende Einträge haben zunächst keine Kategorie und stehen unter „noch nicht erfasst";
+  sie füllt sich beim nächsten Bestandslauf, der dieselbe Mail erneut vorlegt.
+- **n8n-Workflows:** unberührt, kein Neuimport — Workflow 01 und 04 schicken `kategorie` schon
+  bisher an `/einsortieren`, sie wurde dort nur nicht gespeichert.
+- **Verhalten:** Ohne gewählten Chip sieht die Sortier-Inbox aus wie bisher, nur mit der
+  Aufschlüsselung darüber. Keine Aktion verschiebt oder entscheidet etwas anders als vorher.
+- **Neustart/Session:** nichts zu beachten; nach dem Update einmal Strg+F5.
+
 ## [6.2.1.1] - 2026-09-17 (Build 228) — *Ein 504 vom Proxy ist kein hängendes Modell*
 
 Diagnosebericht vom 17.09., 12:17: Die KI schaffte pro Lauf nur noch **12, 20, 31, 44 von rund 245

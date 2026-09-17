@@ -12,6 +12,9 @@ import BelegeKarte from '../components/BelegeKarte';
 import UploadFreigabenKarte from '../components/UploadFreigabenKarte';
 import NachsortierungKarte from '../components/NachsortierungKarte';
 import OrdnerFeld from '../components/ui/OrdnerFeld';
+import {
+  KATEGORIEN, GRUENDE, filterLesen, filterText, passtZumFilter, aufschluesseln,
+} from '../components/ui/sortierHilfen';
 
 // Der Abmelde-Link stammt aus dem List-Unsubscribe-Kopf einer fremden Mail —
 // also aus der Hand dessen, der sie geschickt hat. Ohne Prüfung stünde dort
@@ -147,6 +150,16 @@ export default function Sortierung() {
   const [suchParams, setSuchParams] = useSearchParams();
   const tab = suchParams.get('tab') || 'sortieren';
   const setTab = (neu) => setSuchParams(neu === 'sortieren' ? {} : { tab: neu }, { replace: true });
+  // Der Filter der Sortier-Inbox steht ebenfalls in der Adresse. Anders als
+  // setTab darf er die übrigen Parameter nicht wegwerfen — sonst spränge ein
+  // Klick auf einen Chip zurück auf den ersten Reiter.
+  const inboxFilter = filterLesen(suchParams.get('filter'));
+  const setInboxFilter = (neu) => {
+    const p = new URLSearchParams(suchParams);
+    const text = filterText(neu);
+    if (text) p.set('filter', text); else p.delete('filter');
+    setSuchParams(p, { replace: true });
+  };
   // Wie viele Dateien auf eine Freigabe warten. Steht am Tab-Knopf, damit man es
   // auch sieht, ohne den Tab zu öffnen — sonst wartet dort etwas und niemand
   // erfährt davon.
@@ -1310,19 +1323,37 @@ export default function Sortierung() {
   // Die offenen Mails nach Absender-Domain buendeln. Genau hier liegt die
   // Arbeitsersparnis: 20 Mails von accounts.google.com sind ein Handgriff,
   // nicht zwanzig.
-  const gefilterteInbox = aktivesKonto 
-    ? inbox.filter(m => m.konto_id === aktivesKonto) 
+  const gefilterteInbox = aktivesKonto
+    ? inbox.filter(m => m.konto_id === aktivesKonto)
     : inbox;
+
+  // Die Aufschlüsselung zählt über das ganze Postfach; angezeigt und gebündelt
+  // wird nur, was zum gewählten Chip passt.
+  const aufschluesselung = aufschluesseln(gefilterteInbox, inboxFilter);
+  const filterAktiv = Boolean(inboxFilter.kategorie || inboxFilter.grund);
+  const angezeigteInbox = filterAktiv
+    ? gefilterteInbox.filter(m => passtZumFilter(m, inboxFilter))
+    : gefilterteInbox;
 
   const gruppen = (() => {
     const map = new Map();
-    for (const mail of gefilterteInbox) {
+    for (const mail of angezeigteInbox) {
       const d = domainVon(mail.von) || '(ohne Absender)';
-      if (!map.has(d)) map.set(d, { domain: d, mails: [], absender: new Set() });
+      if (!map.has(d)) map.set(d, { domain: d, mails: [], absender: new Set(), gesamt: 0 });
       const g = map.get(d);
       g.mails.push(mail);
       g.absender.add(adresse(mail.von));
     }
+    // Wie viele Mails der Domain insgesamt warten. „Alle verschieben" arbeitet
+    // über das Muster (Domain bzw. Absender) und erfasst deshalb auch Mails,
+    // die der Filter gerade ausblendet — das muss am Knopf ehrlich stehen.
+    if (filterAktiv) {
+      for (const mail of gefilterteInbox) {
+        const g = map.get(domainVon(mail.von) || '(ohne Absender)');
+        if (g) g.gesamt += 1;
+      }
+    }
+    for (const g of map.values()) g.gesamt = Math.max(g.gesamt, g.mails.length);
     return [...map.values()].sort((a, b) => b.mails.length - a.mails.length);
   })();
 
@@ -2739,19 +2770,64 @@ export default function Sortierung() {
                 nach Absender-Domain gebündelt
               </span>
               {gefilterteInbox.length > 0 && (
-                <span className="bg-panel-accent text-white text-xs px-2 py-0.5 rounded-full">
-                  {gefilterteInbox.length}
+                <span
+                  className="bg-panel-accent text-white text-xs px-2 py-0.5 rounded-full"
+                  title={filterAktiv ? `${angezeigteInbox.length} passen zum Filter, ${gefilterteInbox.length} warten insgesamt` : undefined}
+                >
+                  {filterAktiv ? `${angezeigteInbox.length} / ${gefilterteInbox.length}` : gefilterteInbox.length}
                 </span>
               )}
             </h2>
             <button onClick={inboxLaden} className="btn-ghost text-xs">Aktualisieren</button>
           </div>
-          
+
+          {/* Woraus besteht der Stapel? Jeder Chip ist zugleich ein Filter.
+              Ein zweiter Klick auf denselben Chip hebt ihn wieder auf. */}
+          {gefilterteInbox.length > 0 && (
+            <div className="px-4 py-3 border-b border-panel-border space-y-2">
+              {[
+                { art: 'kategorie', titel: 'Kategorie', liste: KATEGORIEN, zahlen: aufschluesselung.kategorien },
+                { art: 'grund', titel: 'Grund', liste: GRUENDE, zahlen: aufschluesselung.gruende },
+              ].map(zeile => (
+                <div key={zeile.art} className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] uppercase tracking-wide text-panel-muted w-16 shrink-0">{zeile.titel}</span>
+                  {zeile.liste.filter(x => zeile.zahlen[x.wert] || inboxFilter[zeile.art] === x.wert).map(x => {
+                    const aktiv = inboxFilter[zeile.art] === x.wert;
+                    return (
+                      <button
+                        key={x.wert}
+                        onClick={() => setInboxFilter({ ...inboxFilter, [zeile.art]: aktiv ? null : x.wert })}
+                        title={x.hilfe}
+                        className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                          aktiv
+                            ? 'bg-panel-accent text-white border-panel-accent'
+                            : 'border-panel-border text-panel-muted hover:text-panel-text'
+                        }`}
+                      >
+                        {x.text} <span className={aktiv ? 'text-white/80' : 'text-panel-text/70'}>{zeile.zahlen[x.wert] || 0}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
+              {filterAktiv && (
+                <button onClick={() => setInboxFilter({})} className="text-xs text-panel-accent hover:underline">
+                  Filter aufheben
+                </button>
+              )}
+            </div>
+          )}
+
           <div className="flex-1 overflow-auto max-h-[500px]">
             {gefilterteInbox.length === 0 ? (
               <div className="p-8 text-center text-panel-muted flex flex-col items-center gap-2">
                 <CheckCircle2 size={32} className="text-green-500/50" />
                 <p className="text-sm">Nichts offen — alle Mails wurden automatisch einsortiert.</p>
+              </div>
+            ) : angezeigteInbox.length === 0 ? (
+              <div className="p-8 text-center text-panel-muted flex flex-col items-center gap-2">
+                <p className="text-sm">Keine wartende Mail passt zu diesem Filter.</p>
+                <button onClick={() => setInboxFilter({})} className="btn-ghost text-xs">Filter aufheben</button>
               </div>
             ) : (
               <div className="divide-y divide-panel-border">
@@ -2785,6 +2861,14 @@ export default function Sortierung() {
                         {gruppe.absender.size > 1 && (
                           <span className="text-[11px] text-panel-muted whitespace-nowrap">
                             {gruppe.absender.size} Absender
+                          </span>
+                        )}
+                        {gruppe.gesamt > gruppe.mails.length && (
+                          <span
+                            className="text-[11px] text-panel-orange whitespace-nowrap"
+                            title="Der Filter blendet weitere Mails dieser Domain aus. Wer die ganze Domain verschiebt, verschiebt sie mit."
+                          >
+                            + {gruppe.gesamt - gruppe.mails.length} ausgeblendet
                           </span>
                         )}
                         {vorschlag && gruppenOrdner[gruppe.domain] === undefined && (
@@ -2849,7 +2933,10 @@ export default function Sortierung() {
                           disabled={laeuft}
                           className="btn !py-1.5 !px-3 text-sm flex items-center justify-center gap-1 whitespace-nowrap disabled:opacity-50"
                         >
-                          <Layers size={14} /> {laeuft ? 'Läuft …' : `Alle ${gruppe.mails.length} verschieben`}
+                          {/* Domain und „keine Regel" arbeiten über die Domain
+                              und erfassen damit auch ausgefilterte Mails. */}
+                          <Layers size={14} /> {laeuft ? 'Läuft …'
+                            : `Alle ${typ === 'domain' || typ === 'keine' ? gruppe.gesamt : gruppe.mails.length} verschieben`}
                         </button>
                         <button
                           onClick={() => inRuheLassen(gruppe)}
