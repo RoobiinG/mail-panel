@@ -55,23 +55,53 @@ export default function SchnellModus({ gruppen: start, schnellOrdner, ordnerOpti
     setHinweis('');
     try {
       if (aktion === 'verschieben') {
-        const { data } = await api.post('/sortierung/inbox/verschieben', {
-          konto_id: gruppe.mails[0].konto_id, ids, zielordner: ziel,
-        });
-        // Nichts bewegt, aber Fehler: Die Karte bleibt stehen, damit man
-        // einen anderen Ordner wählen kann.
-        if (data.verschoben === 0 && data.fehler?.length) {
-          melden(`Nicht verschoben:\n${data.fehler.slice(0, 5).map((f) => `• ${f}`).join('\n')}`, 'fehler');
+        const nachKonto = {};
+        for (const m of gruppe.mails) {
+          if (!nachKonto[m.konto_id]) nachKonto[m.konto_id] = [];
+          nachKonto[m.konto_id].push(m.id);
+        }
+
+        let gesamtVerschoben = 0;
+        let gesamtFehler = [];
+        let gesamtSchonWeg = 0;
+
+        for (const [kId, kIds] of Object.entries(nachKonto)) {
+          const { data } = await api.post('/sortierung/inbox/verschieben', {
+            konto_id: Number(kId), ids: kIds, zielordner: ziel,
+          });
+          gesamtVerschoben += data.verschoben || 0;
+          if (data.fehler?.length) gesamtFehler.push(...data.fehler);
+          gesamtSchonWeg += (data.veraltet || 0) + (data.nichtMehrOffen || 0);
+        }
+
+        if (gesamtVerschoben === 0 && gesamtFehler.length === 0 && gesamtSchonWeg === 0) {
+          melden('Aktion ohne Wirkung (0 verschoben).', 'fehler');
           return;
         }
-        const teile = [`→ ${ziel}: ${data.verschoben} verschoben`];
-        if (data.veraltet || data.nichtMehrOffen) teile.push(`${(data.veraltet || 0) + (data.nichtMehrOffen || 0)} schon weg`);
-        if (data.fehler?.length) teile.push(`${data.fehler.length} Fehler`);
-        setStatus((s) => ({ ...s, [gruppe.schluessel]: { art: 'verschoben', text: teile.join(' · '), mails: data.verschoben } }));
+
+        if (gesamtVerschoben === 0 && gesamtFehler.length > 0) {
+          melden(`Nicht verschoben:\n${gesamtFehler.slice(0, 5).map((f) => `• ${f}`).join('\n')}`, 'fehler');
+          return;
+        }
+
+        const teile = [`→ ${ziel}: ${gesamtVerschoben} verschoben`];
+        if (gesamtSchonWeg > 0) teile.push(`${gesamtSchonWeg} schon weg`);
+        if (gesamtFehler.length > 0) teile.push(`${gesamtFehler.length} Fehler`);
+
+        setStatus((s) => ({ ...s, [gruppe.schluessel]: { art: 'verschoben', text: teile.join(' · '), mails: gesamtVerschoben } }));
       } else {
-        const { data } = await api.post('/sortierung/ignorieren', { ids });
+        const nachKonto = {};
+        for (const m of gruppe.mails) {
+          if (!nachKonto[m.konto_id]) nachKonto[m.konto_id] = [];
+          nachKonto[m.konto_id].push(m.id);
+        }
+        let gesamtIgnoriert = 0;
+        for (const kIds of Object.values(nachKonto)) {
+          const { data } = await api.post('/sortierung/ignorieren', { ids: kIds });
+          gesamtIgnoriert += data.ignoriert || 0;
+        }
         setStatus((s) => ({
-          ...s, [gruppe.schluessel]: { art: 'ignoriert', text: 'bleibt im Posteingang', mails: data.ignoriert || 0 },
+          ...s, [gruppe.schluessel]: { art: 'ignoriert', text: 'bleibt im Posteingang', mails: gesamtIgnoriert },
         }));
       }
       setTippen(false);

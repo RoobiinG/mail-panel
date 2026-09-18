@@ -526,10 +526,10 @@ router.post('/ignorieren', (req, res) => {
     if (req.body?.ids !== undefined) {
       const ids = idListe(req.body.ids);
       if (!ids) return res.status(400).json({ error: `ids muss eine Liste mit 1 bis ${MAX_IDS} Einträgen sein.` });
+      const platzhalter = ids.map(() => '?').join(',');
       const info = db.prepare(
-        "UPDATE sort_inbox SET status = 'ignoriert' WHERE status = 'offen'"
-        + ' AND id IN (SELECT value FROM json_each(?))',
-      ).run(JSON.stringify(ids));
+        `UPDATE sort_inbox SET status = 'ignoriert' WHERE status = 'offen' AND id IN (${platzhalter})`,
+      ).run(...ids);
       uebersicht.cacheVerwerfen();
       return res.json({ ok: true, ignoriert: info.changes });
     }
@@ -570,10 +570,10 @@ router.post('/inbox/verschieben', async (req, res) => {
   try {
     // Konto-gebunden: Eine ID aus einem anderen Postfach wird schlicht nicht
     // gefunden, statt mit den Zugangsdaten dieses Kontos verschoben zu werden.
+    const platzhalter = ids.map(() => '?').join(',');
     const zeilen = db.prepare(
-      "SELECT * FROM sort_inbox WHERE konto_id = ? AND status = 'offen'"
-      + ' AND id IN (SELECT value FROM json_each(?))',
-    ).all(konto.id, JSON.stringify(ids));
+      `SELECT * FROM sort_inbox WHERE konto_id = ? AND status = 'offen' AND id IN (${platzhalter})`
+    ).all(konto.id, ...ids);
 
     try {
       const neu = await imap.ordnerErstellen({ ...konto, ...themen.zugang(konto) }, zielordner);

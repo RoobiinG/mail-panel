@@ -2,6 +2,16 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [6.9.1.1] - 2026-09-18 (Build 240) — *Bugfixes für Alle Konten und Schnell-Modus*
+
+### Bugfixes
+- **Schnell-Modus & Alle Konten:** Wenn die Ansicht auf "Alle Konten" stand, wurden gemischte Gruppen (ein Absender, mehrere Konten) bisher nicht korrekt verschoben. Sowohl der Schnell-Modus als auch die "Spam/Newsletter"-Buttons haben die Aktion fälschlicherweise nur für das Konto der ersten Mail ausgeführt; der Rest blieb im Posteingang liegen. Nun werden die Konten intern getrennt und die Aktion für alle betroffenen Postfächer ausgeführt.
+- **Silent Fail bei Schnell-Modus:** Ein Typisierungs-Fehler im SQLite Backend (`json_each`) führte dazu, dass beim Drücken von Tasten im Schnell-Modus gar nichts verschoben wurde, aber trotzdem kein Fehler angezeigt wurde und das Panel zur nächsten Gruppe sprang. Die Datenbankabfrage wurde nun vollständig auf sichere, parametrisierte Befehle (`IN (?, ?)`) umgebaut. Das Frontend bricht nun zudem sauber ab, wenn 0 Mails verschoben wurden.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Datenbank:** Keine Struktur-Änderungen. Die `json_each` Funktion wurde durch sicherere, nativ-parametrisierte SQL-Befehle ersetzt.
+- **Workflow-Kompatibilität:** Keine Änderungen an n8n-Workflows nötig.
+
 ## [6.9.1.0] - 2026-09-18 (Build 239) — *Schnellaktionen für Spam und Newsletter*
 
 ### Features

@@ -1444,20 +1444,24 @@ export default function Sortierung() {
   const gruppenVorschlag = (gruppe) => mehrheitsVorschlag(gruppe.mails);
 
   const schnellZuordnen = async (gruppe, zielordner) => {
-    const kontoId = gruppe.mails[0]?.konto_id;
-    if (!kontoId) return melden('Zu diesen Mails ist kein Konto hinterlegt.', 'hinweis');
+    const konten = [...new Set(gruppe.mails.map(m => m.konto_id))];
+    if (konten.length === 0) return melden('Zu diesen Mails ist kein Konto hinterlegt.', 'hinweis');
     const wahl = gruppe.absender.size > 1 ? 'domain' : 'absender';
     const { typ, muster, inhalt_muster } = gruppenRegelTeile(gruppe, wahl);
     
     setGruppeLaeuft(gruppe.domain);
     try {
-      const { data } = await api.post('/sortierung/sammel-zuordnen', {
-        konto_id: kontoId,
-        typ, muster, inhalt_muster,
-        zielordner,
-        regelMerken: true,
-      });
-      verschiebeErgebnisMelden(data, zielordner);
+      let gesamtVerschoben = 0;
+      for (const kId of konten) {
+        const { data } = await api.post('/sortierung/sammel-zuordnen', {
+          konto_id: kId,
+          typ, muster, inhalt_muster,
+          zielordner,
+          regelMerken: true,
+        });
+        gesamtVerschoben += data.verschoben || 0;
+      }
+      melden(`Es wurden ${gesamtVerschoben} Mail(s) in "${zielordner}" verschoben.`);
       inboxLaden();
       regelnLaden(aktivesKonto);
       katalogLaden(aktivesKonto);
@@ -1474,33 +1478,44 @@ export default function Sortierung() {
     // visuell längst ausgefüllt aussah.
     const zielordner = (gruppenOrdner[gruppe.domain] ?? gruppenVorschlag(gruppe) ?? '').trim();
     if (!zielordner) return melden('Bitte einen Zielordner angeben.', 'hinweis');
-    const kontoId = gruppe.mails[0]?.konto_id;
-    if (!kontoId) return melden('Zu diesen Mails ist kein Konto hinterlegt.', 'hinweis');
+    const konten = [...new Set(gruppe.mails.map(m => m.konto_id))];
+    if (konten.length === 0) return melden('Zu diesen Mails ist kein Konto hinterlegt.', 'hinweis');
 
     // Standard: Domain-Regel, wenn mehrere Absender darin stecken
     const wahl = gruppenTyp[gruppe.domain] || (gruppe.absender.size > 1 ? 'domain' : 'absender');
     if (gruppenBrauchtStichwort(wahl) && (gruppenStichwort[gruppe.domain] || '').trim().length < 3) {
       return melden('Für eine Regel auf den Inhalt fehlt das Stichwort (mindestens 3 Zeichen).', 'hinweis');
     }
-    // „Nur jetzt, keine Regel" verschiebt genau die angezeigten Mails. Über das
+    // "Nur jetzt, keine Regel" verschiebt genau die angezeigten Mails. Über das
     // Domain-Muster wären auch die mitgegangen, die ein Filter gerade ausblendet.
     if (wahl === 'keine') {
-      await idsVerschieben({
-        kontoId, ids: gruppe.mails.map(m => m.id), zielordner, schluessel: gruppe.domain,
-      });
+      const nachKonto = {};
+      for (const m of gruppe.mails) {
+        if (!nachKonto[m.konto_id]) nachKonto[m.konto_id] = [];
+        nachKonto[m.konto_id].push(m.id);
+      }
+      for (const [kId, kIds] of Object.entries(nachKonto)) {
+        await idsVerschieben({
+          kontoId: Number(kId), ids: kIds, zielordner, schluessel: gruppe.domain,
+        });
+      }
       return;
     }
     const { typ, muster, inhalt_muster } = gruppenRegelTeile(gruppe, wahl);
 
     setGruppeLaeuft(gruppe.domain);
     try {
-      const { data } = await api.post('/sortierung/sammel-zuordnen', {
-        konto_id: kontoId,
-        typ, muster, inhalt_muster,
-        zielordner,
-        regelMerken: true,
-      });
-      verschiebeErgebnisMelden(data, zielordner);
+      let gesamtVerschoben = 0;
+      for (const kId of konten) {
+        const { data } = await api.post('/sortierung/sammel-zuordnen', {
+          konto_id: kId,
+          typ, muster, inhalt_muster,
+          zielordner,
+          regelMerken: true,
+        });
+        gesamtVerschoben += data.verschoben || 0;
+      }
+      melden(`Es wurden ${gesamtVerschoben} Mail(s) in "${zielordner}" verschoben.`);
       inboxLaden();
       regelnLaden(aktivesKonto);
       katalogLaden(aktivesKonto);
