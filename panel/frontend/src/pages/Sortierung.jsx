@@ -1443,6 +1443,31 @@ export default function Sortierung() {
   // tippt, überschreibt ihn, genau wie bei jedem anderen vorbelegten Feld.
   const gruppenVorschlag = (gruppe) => mehrheitsVorschlag(gruppe.mails);
 
+  const schnellZuordnen = async (gruppe, zielordner) => {
+    const kontoId = gruppe.mails[0]?.konto_id;
+    if (!kontoId) return melden('Zu diesen Mails ist kein Konto hinterlegt.', 'hinweis');
+    const wahl = gruppe.absender.size > 1 ? 'domain' : 'absender';
+    const { typ, muster, inhalt_muster } = gruppenRegelTeile(gruppe, wahl);
+    
+    setGruppeLaeuft(gruppe.domain);
+    try {
+      const { data } = await api.post('/sortierung/sammel-zuordnen', {
+        konto_id: kontoId,
+        typ, muster, inhalt_muster,
+        zielordner,
+        regelMerken: true,
+      });
+      verschiebeErgebnisMelden(data, zielordner);
+      inboxLaden();
+      regelnLaden(aktivesKonto);
+      katalogLaden(aktivesKonto);
+    } catch (err) {
+      melden(err.response?.data?.error || 'Fehler beim Sortieren', 'fehler');
+    } finally {
+      setGruppeLaeuft('');
+    }
+  };
+
   const stapelZuordnen = async (gruppe) => {
     // Dieselbe Vorbelegung wie im Feld: Wer den KI-Vorschlag stehen lässt und
     // direkt auf "verschieben" klickt, darf nicht an einem Feld scheitern, das
@@ -3168,11 +3193,24 @@ export default function Sortierung() {
                           disabled={laeuft}
                           className="btn !py-1.5 !px-3 text-sm flex items-center justify-center gap-1 whitespace-nowrap disabled:opacity-50"
                         >
-                          {/* „Ganze Domain" arbeitet über das Muster und erfasst
-                              damit auch ausgefilterte Mails; „keine Regel"
-                              verschiebt genau die angezeigten. */}
                           <Layers size={14} /> {laeuft ? 'Läuft …'
                             : `Alle ${typ === 'domain' ? gruppe.gesamt : gruppe.mails.length} verschieben`}
+                        </button>
+                        <button
+                          onClick={() => schnellZuordnen(gruppe, 'Junk')}
+                          disabled={laeuft}
+                          className="btn-ghost !py-1.5 !px-3 text-sm text-panel-orange whitespace-nowrap disabled:opacity-50"
+                          title="Als Spam markieren und in den Junk-Ordner verschieben"
+                        >
+                          Spam
+                        </button>
+                        <button
+                          onClick={() => schnellZuordnen(gruppe, 'Newsletter')}
+                          disabled={laeuft}
+                          className="btn-ghost !py-1.5 !px-3 text-sm whitespace-nowrap disabled:opacity-50"
+                          title="In den Newsletter-Ordner verschieben"
+                        >
+                          Newsletter
                         </button>
                         <button
                           onClick={() => inRuheLassen(gruppe)}

@@ -2,6 +2,16 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [6.9.1.0] - 2026-09-18 (Build 239) — *Schnellaktionen für Spam und Newsletter*
+
+### Features
+- **Spam/Newsletter markieren:** Im Schnell-Modus gibt es nun neue Tastenkürzel (`S` für Spam / Junk-Ordner, `N` für Newsletter).
+- In der normalen Sortier-Ansicht wurden direkte Knöpfe "Spam" und "Newsletter" neben "In Ruhe lassen" hinzugefügt. Sie verschieben den Stapel sofort und legen eine passende harte Regel an.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Datenbank:** Keine Änderungen.
+- **Workflow-Kompatibilität:** Keine Änderungen an n8n-Workflows nötig.
+
 ## [6.9.0.0] - 2026-09-18 (Build 238) — *Probe-Lauf für neue Ordner*
 
 ### Features

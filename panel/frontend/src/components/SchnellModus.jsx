@@ -111,6 +111,12 @@ export default function SchnellModus({ gruppen: start, schnellOrdner, ordnerOpti
       } else if (e.key === 'p' || e.key === 'P') {
         e.preventDefault();
         ausfuehren('ignorieren');
+      } else if (e.key === 's' || e.key === 'S') {
+        e.preventDefault();
+        ausfuehren('verschieben', 'Junk'); // Spam-Ordner
+      } else if (e.key === 'n' || e.key === 'N') {
+        e.preventDefault();
+        ausfuehren('verschieben', 'Newsletter');
       } else if (e.key === ' ' || e.key === 'ArrowRight') {
         e.preventDefault();
         weiter();
@@ -236,7 +242,13 @@ export default function SchnellModus({ gruppen: start, schnellOrdner, ordnerOpti
                 <kbd className="kbd">/</kbd> Ordner tippen
               </button>
               <button onClick={() => ausfuehren('ignorieren')} disabled={laeuft} className="hover:text-panel-text flex items-center gap-1">
-                <kbd className="kbd">P</kbd> <Inbox size={12} /> Im Posteingang lassen
+                <kbd className="kbd">P</kbd> <Inbox size={12} /> Posteingang
+              </button>
+              <button onClick={() => ausfuehren('verschieben', 'Junk')} disabled={laeuft} className="hover:text-panel-text flex items-center gap-1 text-panel-orange">
+                <kbd className="kbd border-panel-orange text-panel-orange">S</kbd> Spam
+              </button>
+              <button onClick={() => ausfuehren('verschieben', 'Newsletter')} disabled={laeuft} className="hover:text-panel-text flex items-center gap-1">
+                <kbd className="kbd">N</kbd> Newsletter
               </button>
               <button onClick={zurueck} disabled={laeuft || pos === 0} className="hover:text-panel-text flex items-center gap-1">
                 <kbd className="kbd">←</kbd> <ArrowLeft size={12} /> zurück
