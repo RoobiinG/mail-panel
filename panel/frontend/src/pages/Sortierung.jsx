@@ -1406,9 +1406,6 @@ export default function Sortierung() {
       g.mails.push(mail);
       g.absender.add(adresse(mail.von));
     }
-    // Wie viele Mails der Domain insgesamt warten. „Alle verschieben" arbeitet
-    // über das Muster (Domain bzw. Absender) und erfasst deshalb auch Mails,
-    // die der Filter gerade ausblendet — das muss am Knopf ehrlich stehen.
     if (filterAktiv) {
       for (const mail of gefilterteInbox) {
         const g = map.get(domainVon(mail.von) || '(ohne Absender)');
@@ -1419,8 +1416,30 @@ export default function Sortierung() {
     return [...map.values()].sort((a, b) => b.mails.length - a.mails.length);
   })();
 
-  // Nur ausrechnen, wenn die Ansicht wirklich offen ist — bei 1.700 Mails
-  // muss das nicht bei jedem Tastendruck im Ordnerfeld mitlaufen.
+  const gruppenVorschlag = (gMails) => mehrheitsVorschlag(gMails);
+
+  const sichereGruppen = useMemo(() => {
+    return gruppen.filter(g => {
+      const ziel = gruppenVorschlag(g.mails);
+      if (!ziel) return false;
+      // Stufe 2: Nur extrem sichere Vorschläge (>90%)
+      return g.mails.every(m => m.ki_konfidenz != null && m.ki_konfidenz >= 0.90);
+    });
+  }, [gruppen]);
+
+  const sichereVorschlaegeUebernehmen = async () => {
+    if (!sichereGruppen.length) return;
+    if (!(await nachfragen({
+      titel: `${sichereGruppen.length} absolut sichere Vorschläge absegnen?`,
+      text: 'Die KI ist sich bei diesen Absendern über 90 % sicher. Wenn du zustimmst, werden sie sofort verschoben und harte Regeln gelernt.'
+    }))) return;
+
+    for (const g of sichereGruppen) {
+      const ziel = gruppenVorschlag(g.mails);
+      if (ziel) await schnellZuordnen(g, ziel);
+    }
+  };
+
   const inhalt = inboxAnsicht === 'inhalt' ? inhaltsBuendel(angezeigteInbox) : null;
 
   const buendelVerschieben = (b, { zielordner, regel }) => {
@@ -3061,6 +3080,18 @@ export default function Sortierung() {
                   Filter aufheben
                 </button>
               )}
+            </div>
+          )}
+
+          {sichereGruppen.length > 0 && (
+            <div className="p-3 border-b border-panel-border bg-green-900/20 flex justify-between items-center flex-wrap gap-2">
+              <span className="text-sm text-green-200">
+                <Sparkles size={16} className="inline mr-2 text-green-400" />
+                Die KI ist sich bei {sichereGruppen.length} Absender{sichereGruppen.length > 1 ? 'n' : ''} sehr sicher ({'>'}90%).
+              </span>
+              <button onClick={sichereVorschlaegeUebernehmen} className="btn-primary text-xs px-3 py-1.5 bg-green-700 hover:bg-green-600 border-none">
+                Alle absegnen & Regeln lernen
+              </button>
             </div>
           )}
 

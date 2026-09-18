@@ -722,7 +722,7 @@ async function systemordnerSperren(konto) {
 // Ab wie vielen gleichen Treffern eine feste Regel entsteht. Danach laeuft der
 // Absender ohne KI durch — das schont das Gemini-Kontingent und macht die
 // Sortierung mit der Zeit vorhersagbar.
-const LERNSCHWELLE = 3;
+const LERNSCHWELLE = 1;
 // Ab wie vielen VERSCHIEDENEN Absendern derselben Domain eine Domain-Regel
 // entsteht statt weiterer Einzelregeln.
 const DOMAIN_SCHWELLE = 2;

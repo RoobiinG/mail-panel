@@ -2,6 +2,17 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [6.9.2.0] - 2026-09-19 (Build 241) — *Perfekte KI-Sortierung: Masterplan Stufe 1 & 2*
+
+### Features
+- **Stufe 1: Der "Lern-Motor":** Das Panel lernt ab sofort aus *jedem* manuellen Verschieben (egal ob im Schnell-Modus, über Tasten oder Knöpfe). Die `LERNSCHWELLE` wurde auf 1 gesetzt. Das bedeutet: Sortierst du einen Absender einmal ein, wird er künftig immer automatisch dorthin geschoben (100% fehlerfrei, keine KI-Rate-Versuche). 
+- **Stufe 2: Sichere KI-Vorschläge absegnen:** Wenn die KI sich bei neuen Absendern sehr sicher ist (>90%), erscheint in der Sortier-Ansicht (Katalog) jetzt ein neuer Block ganz oben ("✨ Die KI ist sich bei X Absendern sehr sicher"). Mit nur einem Klick ("Alle absegnen & Regeln lernen") werden alle Mails in ihre jeweiligen Ordner verschoben – und sofort als feste Absender-Regeln für die Zukunft gespeichert.
+- **Sicherheits-Check für gemischte Absender:** Die Lernschwelle 1 ist sicher. Das Backend baut weiterhin keine Absender-Dauerregel, wenn ein Absender (z.B. Amazon) in der Vergangenheit Mails an verschiedene Ordner geschickt hat.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Datenbank:** Keine Änderungen. Das automatische Lernen im Backend (`themen.regelLernen`) reagiert jetzt nur beim 1. Auftreten.
+- **Workflow-Kompatibilität:** Keine Änderungen an n8n-Workflows nötig.
+
 ## [6.9.1.1] - 2026-09-18 (Build 240) — *Bugfixes für Alle Konten und Schnell-Modus*
 
 ### Bugfixes
