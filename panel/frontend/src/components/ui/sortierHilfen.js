@@ -20,22 +20,53 @@ export const domainVon = (von) => (adresse(von).split('@')[1] || '').trim();
 
 // Ein Stichwort aus Betreffzeilen vorschlagen.
 //
-// Gesucht wird das längste Wort, das in ALLEN markierten Betreffen vorkommt —
-// bei drei „easyJet Buchungsbestätigung"-Mails also „buchungsbestätigung".
-// Gibt es keins, steht das längste Wort des ersten Betreffs da. Der Vorschlag
-// ist nur ein Vorschlag: Das Feld bleibt zum Überschreiben da, und der Nutzer
-// weiß besser als jede Heuristik, woran er diese Sorte Mail erkennt.
+// Gesucht wird das Wort, das in möglichst vielen der markierten Betreffe
+// vorkommt — bei drei „easyJet Buchungsbestätigung"-Mails also
+// „buchungsbestätigung". Bei Gleichstand gewinnt das längere Wort: Es ist das
+// kennzeichnendere.
+//
+// Die frühere Fassung nahm, wenn kein Wort in ALLEN Betreffen vorkam, das
+// längste Wort des ERSTEN Betreffs. Das ergab Vorschläge wie
+// „datenschutzerklärung" für sieben Finanzguru-Mails, von denen nur eine so
+// hieß — als Regel also ein Wort, das mit den anderen sechs nichts zu tun hat.
+// Deshalb jetzt: Ein Stichwort muss in mindestens der Hälfte der Betreffe
+// stehen (dieselbe Schwelle wie beim Ordner-Vorschlag), sonst bleibt das Feld
+// leer. Kein Vorschlag ist besser als ein falscher — der Nutzer weiß ohnehin
+// besser als jede Heuristik, woran er diese Sorte Mail erkennt.
 const WORT = /[\p{L}\p{N}]{4,}/gu;
+
+// Wörter, die in fast jedem Betreff stehen können und nichts über das Thema
+// sagen. Als Regel wären sie die schlechteste Wahl: Sie greifen früher oder
+// später auf alles, was dieser Absender schickt.
+const FUELLWOERTER = new Set([
+  'dein', 'deine', 'deinem', 'deinen', 'deiner', 'ihre', 'ihrem', 'ihren', 'ihrer',
+  'unser', 'unsere', 'unserem', 'unseren', 'unserer', 'eine', 'einem', 'einen', 'einer', 'eines',
+  'diese', 'diesem', 'diesen', 'dieser', 'dieses', 'denen', 'deren',
+  'oder', 'aber', 'auch', 'dass', 'damit', 'dabei', 'sowie', 'nach', 'noch', 'nicht',
+  'sind', 'sich', 'über', 'unter', 'wird', 'werden', 'wurde', 'wurden',
+  'haben', 'hatte', 'hatten', 'kann', 'können', 'hier', 'jetzt', 'heute', 'mehr', 'alle', 'allen',
+  'bitte', 'mail', 'email', 'nachricht', 'the', 'your', 'you', 'for', 'and', 'with', 'from',
+]);
+
 export const stichwortVorschlag = (betreffe) => {
   const listen = (betreffe || [])
     .map((b) => String(b || '').toLowerCase().match(WORT) || [])
+    .map((woerter) => woerter.filter((w) => !FUELLWOERTER.has(w)))
     .filter((woerter) => woerter.length > 0);
   if (listen.length === 0) return '';
-  const [erste, ...rest] = listen;
-  const gemeinsam = erste.filter((w) => rest.every((liste) => liste.includes(w)));
-  const auswahl = (gemeinsam.length > 0 ? gemeinsam : erste).slice()
-    .sort((a, b) => b.length - a.length);
-  return auswahl[0] || '';
+
+  // In wie vielen Betreffen kommt das Wort vor? Mehrfach in derselben Zeile
+  // zählt einmal, sonst gewänne ein Wort, das ein einziger Betreff wiederholt.
+  const treffer = new Map();
+  for (const liste of listen) {
+    for (const w of new Set(liste)) treffer.set(w, (treffer.get(w) || 0) + 1);
+  }
+
+  const noetig = Math.ceil(listen.length / 2);
+  const auswahl = [...treffer.entries()]
+    .filter(([, anzahl]) => anzahl >= noetig)
+    .sort((a, b) => b[1] - a[1] || b[0].length - a[0].length || a[0].localeCompare(b[0]));
+  return auswahl[0]?.[0] || '';
 };
 
 // Der Mehrheitsvorschlag der KI für einen Stapel Mails.

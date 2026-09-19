@@ -2,6 +2,22 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [7.0.1.0] - 2026-09-20 (Build 243) — *Sichere Vorschläge einsehen und ändern*
+
+### Änderungen
+- **Der grüne "sehr sicher"-Kasten zeigt jetzt, was er vorschlägt.** Bisher stand dort nur eine Zahl ("Die KI ist sich bei 2 Absendern sehr sicher") — abgesegnet hätte man damit etwas, das man nie gesehen hat. Der Kasten ist jetzt aufklappbar (standardmäßig offen) und listet je Absender: Domain, Anzahl der Mails, die niedrigste Konfidenz der Gruppe und den Zielordner.
+- **Der Zielordner ist dort direkt änderbar.** Das Feld nutzt dieselbe Ordner-Auswahl wie die Gruppen darunter und schreibt in denselben Zustand — eine Änderung im grünen Kasten steht also auch in der Gruppenzeile und umgekehrt. Weicht das Ziel vom KI-Vorschlag ab, steht "geändert" daneben (mit dem ursprünglichen Vorschlag im Tooltip).
+- **Einzeln abwählen und einzeln ausführen.** Jede Zeile hat einen Haken (abgewählte Absender bleiben liegen und werden unten normal entschieden) und einen Knopf "Nur diesen". Der große Knopf heißt entsprechend "Alle absegnen" bzw. "N absegnen" und verschiebt nur die angehakten Zeilen — mit dem Ziel aus dem Feld, nicht zwingend dem der KI.
+- **Die Rückfrage nennt die Zuordnungen im Klartext** (`domain → Ordner (7 Mails)`), statt nur ihre Anzahl. Fehlt bei einer angehakten Zeile der Zielordner, wird sie benannt, statt still übersprungen zu werden.
+
+### Bugfixes
+- **Unsinnige Stichwort-Vorschläge bei "Regel: Absender + Stichwort".** Fand sich kein Wort, das in *allen* Betreffen der Gruppe vorkam, nahm der Vorschlag das längste Wort des *ersten* Betreffs — bei sieben Finanzguru-Mails also "datenschutzerklärung", obwohl nur eine einzige Mail so hieß. Als Regel hätte das mit den übrigen sechs nichts zu tun gehabt. Jetzt zählt, in wie vielen Betreffen ein Wort vorkommt: Es muss in mindestens der Hälfte stehen (dieselbe Schwelle wie beim Ordner-Vorschlag), bei Gleichstand gewinnt das längere. Reine Füllwörter ("deine", "unsere", "wurde", "bitte", "mail" …) fallen vorher weg. Gibt es keinen tragfähigen Kandidaten, bleibt das Feld leer — kein Vorschlag ist besser als ein falscher.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Datenbank-Migrationen:** Keine.
+- **n8n-Workflow:** Keine Änderungen, kein Neu-Import nötig.
+- **Neustart-/Session:** Reine Frontend-Änderung, kein Logout erforderlich.
+
 ## [7.0.0.0] - 2026-09-19 (Build 242) — *Einzel-Mail-Workflow & KI-Stichwörter*
 
 ### Features

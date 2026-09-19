@@ -244,6 +244,13 @@ export default function Sortierung() {
   const [gruppenStichwort, setGruppenStichwort] = useState({});
   const [gruppeLaeuft, setGruppeLaeuft] = useState('');
 
+  // Der grüne Kasten "sehr sicher" nannte bisher nur eine Zahl — abgesegnet
+  // hätte man damit etwas, das man nie gesehen hat. Aufgeklappt zeigt er jede
+  // Zuordnung einzeln, mit änderbarem Ziel und Haken zum Abwählen. Abgewählte
+  // Absender bleiben liegen und werden unten ganz normal entschieden.
+  const [sichereOffen, setSichereOffen] = useState(true);
+  const [sichereAus, setSichereAus] = useState({});         // domain -> abgewählt?
+
   // Einzelregeln, die sich zu einer Domain-Regel zusammenfassen lassen
   const [zusammenfassbar, setZusammenfassbar] = useState([]);
   // Das vorgeschlagene Ziel je Zusammenfassen-Karte, wenn abweichend vom
@@ -1440,6 +1447,15 @@ export default function Sortierung() {
   // tippt, überschreibt ihn, genau wie bei jedem anderen vorbelegten Feld.
   const gruppenVorschlag = (gruppe) => mehrheitsVorschlag(gruppe.mails);
 
+  // Das Ziel, das für diese Gruppe wirklich gilt: was im Feld steht, sonst der
+  // Vorschlag der KI. ?? statt ||, sonst würde ein bewusst geleertes Feld
+  // wieder den Vorschlag hervorholen.
+  const gruppenZiel = (gruppe) => (gruppenOrdner[gruppe.domain] ?? gruppenVorschlag(gruppe) ?? '').trim();
+
+  // Wie sicher ist die KI bei dieser Gruppe? Der schwächste Wert zählt — er
+  // ist der, an dem die Gruppe als Ganzes hängt.
+  const gruppenSicherheit = (gruppe) => Math.min(...gruppe.mails.map(m => m.ki_konfidenz ?? 0));
+
   const sichereGruppen = useMemo(() => {
     return gruppen.filter(g => {
       const ziel = gruppenVorschlag(g);
@@ -1449,15 +1465,30 @@ export default function Sortierung() {
     });
   }, [gruppen]);
 
+  // Abgesegnet wird nur, was angehakt ist — und mit dem Ziel, das im Feld
+  // steht, nicht zwingend mit dem der KI.
+  const sichereAuswahl = sichereGruppen.filter(g => !sichereAus[g.domain]);
+
   const sichereVorschlaegeUebernehmen = async () => {
-    if (!sichereGruppen.length) return;
+    if (!sichereAuswahl.length) return melden('Kein Absender ausgewählt.', 'hinweis');
+
+    const ohneZiel = sichereAuswahl.filter(g => !gruppenZiel(g));
+    if (ohneZiel.length) {
+      return melden(`Für ${ohneZiel.map(g => g.domain).join(', ')} fehlt der Zielordner.`, 'hinweis');
+    }
+
+    // Die Rückfrage zeigt jede Zuordnung im Klartext. Wer hier zustimmt, weiß,
+    // wohin was geht — ohne den Kasten aufklappen zu müssen.
+    const liste = sichereAuswahl
+      .map(g => `• ${g.domain} → ${gruppenZiel(g)}  (${g.mails.length} Mail${g.mails.length === 1 ? '' : 's'})`)
+      .join('\n');
     if (!(await nachfragen({
-      titel: `${sichereGruppen.length} absolut sichere Vorschläge absegnen?`,
-      text: 'Die KI is sich bei diesen Absendern über 90 % sicher. Wenn du zustimmst, werden sie sofort verschoben und harte Regeln gelernt.'
+      titel: `${sichereAuswahl.length} sichere Vorschläge absegnen?`,
+      text: `Diese Zuordnungen werden sofort ausgeführt und als Regel gelernt:\n\n${liste}`
     }))) return;
 
-    for (const g of sichereGruppen) {
-      const ziel = gruppenVorschlag(g);
+    for (const g of sichereAuswahl) {
+      const ziel = gruppenZiel(g);
       if (ziel) await schnellZuordnen(g, ziel);
     }
   };
@@ -1507,7 +1538,7 @@ export default function Sortierung() {
     // Dieselbe Vorbelegung wie im Feld: Wer den KI-Vorschlag stehen lässt und
     // direkt auf "verschieben" klickt, darf nicht an einem Feld scheitern, das
     // visuell längst ausgefüllt aussah.
-    const zielordner = (gruppenOrdner[gruppe.domain] ?? gruppenVorschlag(gruppe) ?? '').trim();
+    const zielordner = gruppenZiel(gruppe);
     if (!zielordner) return melden('Bitte einen Zielordner angeben.', 'hinweis');
     const konten = [...new Set(gruppe.mails.map(m => m.konto_id))];
     if (konten.length === 0) return melden('Zu diesen Mails ist kein Konto hinterlegt.', 'hinweis');
@@ -3185,14 +3216,105 @@ export default function Sortierung() {
           )}
 
           {sichereGruppen.length > 0 && (
-            <div className="p-3 border-b border-panel-border bg-green-900/20 flex justify-between items-center flex-wrap gap-2">
-              <span className="text-sm text-green-200">
-                <Sparkles size={16} className="inline mr-2 text-green-400" />
-                Die KI ist sich bei {sichereGruppen.length} Absender{sichereGruppen.length > 1 ? 'n' : ''} sehr sicher ({'>'}90%).
-              </span>
-              <button onClick={sichereVorschlaegeUebernehmen} className="btn-primary text-xs px-3 py-1.5 bg-green-700 hover:bg-green-600 border-none">
-                Alle absegnen & Regeln lernen
-              </button>
+            <div className="p-3 border-b border-panel-border bg-green-900/20 space-y-2">
+              <div className="flex justify-between items-center flex-wrap gap-2">
+                <button
+                  onClick={() => setSichereOffen(o => !o)}
+                  className="text-sm text-green-200 flex items-center gap-1.5 text-left hover:text-green-100 transition-colors"
+                  title={sichereOffen ? 'Liste einklappen' : 'Anzeigen, was die KI genau vorschlägt'}
+                >
+                  {sichereOffen ? <ChevronDown size={14} className="shrink-0" /> : <ChevronRight size={14} className="shrink-0" />}
+                  <Sparkles size={16} className="text-green-400 shrink-0" />
+                  Die KI ist sich bei {sichereGruppen.length} Absender{sichereGruppen.length > 1 ? 'n' : ''} sehr sicher ({'>'}90%).
+                  {!sichereOffen && <span className="text-green-400/70 underline">Ansehen</span>}
+                </button>
+                <button
+                  onClick={sichereVorschlaegeUebernehmen}
+                  disabled={!sichereAuswahl.length || Boolean(gruppeLaeuft)}
+                  className="btn-primary text-xs px-3 py-1.5 bg-green-700 hover:bg-green-600 border-none disabled:opacity-50"
+                  title="Die angehakten Zuordnungen ausführen und als Regel merken"
+                >
+                  {sichereAuswahl.length === sichereGruppen.length
+                    ? 'Alle absegnen & Regeln lernen'
+                    : `${sichereAuswahl.length} absegnen & Regeln lernen`}
+                </button>
+              </div>
+
+              {/* Erst hier steht, WAS abgesegnet wird: Absender, Menge,
+                  Sicherheit und das Ziel — änderbar wie überall sonst. Das Feld
+                  schreibt in denselben Zustand wie die Gruppe weiter unten,
+                  beide Stellen zeigen also immer dasselbe. */}
+              {sichereOffen && (
+                <div className="max-h-56 overflow-auto rounded-xl border border-green-900/50 divide-y divide-green-900/40">
+                  {sichereGruppen.map(g => {
+                    const vorschlag = gruppenVorschlag(g);
+                    const ziel = gruppenZiel(g);
+                    const abgewaehlt = Boolean(sichereAus[g.domain]);
+                    const laeuft = gruppeLaeuft === g.domain;
+                    return (
+                      <div
+                        key={g.domain}
+                        className={`px-2 py-2 flex flex-wrap items-center gap-2 bg-panel-bg/30 ${abgewaehlt ? 'opacity-50' : ''}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={!abgewaehlt}
+                          onChange={() => setSichereAus(p => ({ ...p, [g.domain]: !abgewaehlt }))}
+                          className="shrink-0"
+                          title={abgewaehlt
+                            ? 'Wieder mit absegnen'
+                            : 'Diesen Absender auslassen — er bleibt in der Liste unten liegen'}
+                        />
+                        <span className="font-mono text-xs truncate max-w-[180px]" title={g.domain}>{g.domain}</span>
+                        <span className="bg-panel-border/60 text-[11px] px-1.5 py-0.5 rounded whitespace-nowrap">
+                          {g.mails.length} Mail{g.mails.length === 1 ? '' : 's'}
+                        </span>
+                        {g.gesamt > g.mails.length && (
+                          <span
+                            className="text-[11px] text-panel-orange whitespace-nowrap"
+                            title="Der Filter blendet weitere Mails dieser Domain aus. Die Regel nimmt sie mit."
+                          >
+                            + {g.gesamt - g.mails.length} ausgeblendet
+                          </span>
+                        )}
+                        <span
+                          className="text-[11px] text-green-300 whitespace-nowrap"
+                          title="Der niedrigste Wert in dieser Gruppe"
+                        >
+                          {Math.round(gruppenSicherheit(g) * 100)} % sicher
+                        </span>
+                        <ArrowRight size={13} className="text-panel-muted shrink-0" />
+                        <OrdnerFeld
+                          value={gruppenOrdner[g.domain] ?? vorschlag ?? ''}
+                          onChange={v => setGruppenOrdner(p => ({ ...p, [g.domain]: v }))}
+                          optionen={alleOrdner}
+                          placeholder="Zielordner"
+                          title="Vorschlag der KI — überschreibbar, bevor du absegnest"
+                          className="flex-1 min-w-0 sm:min-w-[9rem] text-xs !py-1"
+                        />
+                        {vorschlag && ziel && ziel !== vorschlag && (
+                          <span
+                            className="text-[11px] text-panel-orange whitespace-nowrap"
+                            title={`Die KI schlug „${vorschlag}" vor.`}
+                          >
+                            geändert
+                          </span>
+                        )}
+                        <button
+                          onClick={() => (ziel
+                            ? schnellZuordnen(g, ziel)
+                            : melden('Bitte einen Zielordner angeben.', 'hinweis'))}
+                          disabled={laeuft || Boolean(gruppeLaeuft)}
+                          className="btn-ghost !py-1 !px-2 text-xs whitespace-nowrap disabled:opacity-50"
+                          title="Nur diesen Absender verschieben und die Regel lernen"
+                        >
+                          {laeuft ? 'Läuft …' : 'Nur diesen'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 
