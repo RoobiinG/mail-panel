@@ -2,6 +2,21 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [7.0.1.1] - 2026-09-20 (Build 244) — *Ehrliche Zahl auf dem Verschieben-Knopf*
+
+### Bugfixes
+- **"Alle N verschieben" nannte fast nie die Zahl, die dann bewegt wurde.** Auf dem Knopf stand die Größe der angezeigten Gruppe, verschoben wird aber alles, was zur gewählten Regel passt — das ist etwas anderes:
+  - **Regel "ganze Domain"** erfasst laut Backend (`passt()` in `services/sortierung.js`) auch die Unterdomains. Mails von `mail.arbeitsagentur.de` stehen in der Liste als eigene Gruppe, gehen bei einer Regel auf `arbeitsagentur.de` aber mit — der Knopf sagte 5, bewegt wurden mehr.
+  - **Regel "nur dieser Absender"** bei einer Gruppe mit mehreren Absendern nimmt nur die Adresse der ersten Mail (`gruppenRegelTeile`). Der Knopf sagte 5, bewegt wurden weniger.
+  - **Regeln mit Stichwort** greifen zusätzlich nur, wenn das Wort im Betreff steht.
+  - Der Knopf zählt jetzt vor dem Klick genauso, wie das Backend gleich auswählt (`regelTrifft`/`gruppenTreffer` im Frontend, Nachbau von `passt()` — inklusive Punktgrenze bei Domains und Betreff-Prüfung bei Inhalts-Regeln), über alle wartenden Mails des Postfachs, nicht nur über die gerade angezeigten. Solange bei einer Stichwort-Regel das Stichwort fehlt, steht "Verschieben" ohne Zahl statt einer falschen.
+- **Auch der grüne "sehr sicher"-Kasten zählt jetzt so.** Je Zeile steht die Zahl, die das Absegnen wirklich verschiebt; weicht sie von der Gruppengröße ab, erklärt der Tooltip warum. Dieselbe Zahl steht in der Rückfrage.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Datenbank-Migrationen:** Keine.
+- **n8n-Workflow:** Keine Änderungen, kein Neu-Import nötig.
+- **Neustart-/Session:** Reine Frontend-Änderung, kein Logout erforderlich. Am Verschieben selbst ändert sich nichts — nur die angezeigte Zahl stimmt jetzt mit ihm überein.
+
 ## [7.0.1.0] - 2026-09-20 (Build 243) — *Sichere Vorschläge einsehen und ändern*
 
 ### Änderungen

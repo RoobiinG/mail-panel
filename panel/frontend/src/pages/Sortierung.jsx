@@ -1314,6 +1314,52 @@ export default function Sortierung() {
   };
   const gruppenBrauchtStichwort = (wahl) => wahl === 'absender_inhalt' || wahl === 'inhalt';
 
+  // Trifft diese Regel auf diese wartende Mail zu? Nachbau von passt() aus
+  // services/sortierung.js — mit denselben Grenzen, damit die Zahl auf dem
+  // Knopf die ist, die nachher wirklich bewegt wird. Wie dort wird bei den
+  // Inhalts-Regeln nur der Betreff geprüft: Der Text der wartenden Mails liegt
+  // gar nicht in der Datenbank.
+  const regelTrifft = ({ typ, muster, inhalt_muster }, mail) => {
+    const m = String(muster || '').toLowerCase().trim();
+    if (!m) return false;
+    const email = adresse(mail.von);
+    const betreff = String(mail.betreff || '').toLowerCase();
+    const zusatz = String(inhalt_muster || '').toLowerCase().trim();
+    if (zusatz && !betreff.includes(zusatz)) return false;
+    if (typ === 'domain') {
+      // Punktgrenze wie im Backend: "arbeitsagentur.de" trifft auch
+      // "mail.arbeitsagentur.de", aber nicht "boesearbeitsagentur.de".
+      const d = m.replace(/^@/, '');
+      return email.endsWith(`@${d}`) || email.endsWith(`.${d}`);
+    }
+    if (typ === 'absender') {
+      if (email === m) return true;
+      if (m.endsWith('@')) return email.startsWith(m);
+      if (!m.includes('@')) return email.includes(m);
+      return false;
+    }
+    if (typ === 'betreff' || typ === 'inhalt') return betreff.includes(m);
+    return false;
+  };
+
+  // Wie viele wartende Mails nimmt dieser Griff wirklich mit?
+  //
+  // Auf dem Knopf stand bisher die Größe der angezeigten Gruppe — die stimmte
+  // fast nie. Der Sammelaufruf verschiebt nicht die gezeigten Mails, sondern
+  // alles, was zur Regel passt: eine Domain-Regel nimmt die Unterdomains mit
+  // (eigene Gruppen in der Liste), eine Absender-Regel bei einer Gruppe mit
+  // mehreren Absendern dagegen nur den ersten. Deshalb wird hier genauso
+  // gezählt, wie das Backend gleich auswählt. `null` heißt "noch nicht zu
+  // sagen" — dann steht keine Zahl auf dem Knopf statt einer falschen.
+  const gruppenTreffer = (gruppe, wahl) => {
+    // "Nur jetzt": Es gehen genau die Mails, die in der Gruppe stehen.
+    if (wahl === 'keine') return gruppe.mails.length;
+    if (gruppenBrauchtStichwort(wahl) && (gruppenStichwort[gruppe.domain] || '').trim().length < 3) return null;
+    const teile = gruppenRegelTeile(gruppe, wahl);
+    const konten = new Set(gruppe.mails.map(m => m.konto_id));
+    return inbox.filter(m => konten.has(m.konto_id) && regelTrifft(teile, m)).length;
+  };
+
   // "In Ruhe lassen": eine Regel, die nichts verschiebt. Die Mails bleiben im
   // Posteingang und werden nicht mehr zur Zuordnung vorgelegt — für alles, was
   // man weder sortiert noch ständig wiedersehen möchte.
@@ -1469,6 +1515,12 @@ export default function Sortierung() {
   // steht, nicht zwingend mit dem der KI.
   const sichereAuswahl = sichereGruppen.filter(g => !sichereAus[g.domain]);
 
+  // Absegnen läuft über schnellZuordnen — und das legt dieselbe Regel an wie
+  // ein Klick auf "Alle … verschieben". Also wird auch hier gezählt, was diese
+  // Regel erfasst, nicht was die Gruppe zeigt.
+  const sichereTreffer = (gruppe) =>
+    gruppenTreffer(gruppe, gruppe.absender.size > 1 ? 'domain' : 'absender') ?? gruppe.mails.length;
+
   const sichereVorschlaegeUebernehmen = async () => {
     if (!sichereAuswahl.length) return melden('Kein Absender ausgewählt.', 'hinweis');
 
@@ -1480,7 +1532,10 @@ export default function Sortierung() {
     // Die Rückfrage zeigt jede Zuordnung im Klartext. Wer hier zustimmt, weiß,
     // wohin was geht — ohne den Kasten aufklappen zu müssen.
     const liste = sichereAuswahl
-      .map(g => `• ${g.domain} → ${gruppenZiel(g)}  (${g.mails.length} Mail${g.mails.length === 1 ? '' : 's'})`)
+      .map((g) => {
+        const anzahl = sichereTreffer(g);
+        return `• ${g.domain} → ${gruppenZiel(g)}  (${anzahl} Mail${anzahl === 1 ? '' : 's'})`;
+      })
       .join('\n');
     if (!(await nachfragen({
       titel: `${sichereAuswahl.length} sichere Vorschläge absegnen?`,
@@ -3251,6 +3306,9 @@ export default function Sortierung() {
                     const ziel = gruppenZiel(g);
                     const abgewaehlt = Boolean(sichereAus[g.domain]);
                     const laeuft = gruppeLaeuft === g.domain;
+                    // Dieselbe Regel, die das Absegnen gleich anlegt — und
+                    // damit dieselbe Zahl, die dabei wirklich bewegt wird.
+                    const treffer = sichereTreffer(g);
                     return (
                       <div
                         key={g.domain}
@@ -3266,17 +3324,15 @@ export default function Sortierung() {
                             : 'Diesen Absender auslassen — er bleibt in der Liste unten liegen'}
                         />
                         <span className="font-mono text-xs truncate max-w-[180px]" title={g.domain}>{g.domain}</span>
-                        <span className="bg-panel-border/60 text-[11px] px-1.5 py-0.5 rounded whitespace-nowrap">
-                          {g.mails.length} Mail{g.mails.length === 1 ? '' : 's'}
+                        <span
+                          className="bg-panel-border/60 text-[11px] px-1.5 py-0.5 rounded whitespace-nowrap"
+                          title={treffer === g.mails.length
+                            ? 'So viele wartende Mails werden verschoben'
+                            : `In der Liste stehen ${g.mails.length} — die Regel erfasst ${treffer}`
+                              + ' (Unterdomains und vom Filter ausgeblendete Mails zählen mit).'}
+                        >
+                          {treffer} Mail{treffer === 1 ? '' : 's'}
                         </span>
-                        {g.gesamt > g.mails.length && (
-                          <span
-                            className="text-[11px] text-panel-orange whitespace-nowrap"
-                            title="Der Filter blendet weitere Mails dieser Domain aus. Die Regel nimmt sie mit."
-                          >
-                            + {g.gesamt - g.mails.length} ausgeblendet
-                          </span>
-                        )}
                         <span
                           className="text-[11px] text-green-300 whitespace-nowrap"
                           title="Der niedrigste Wert in dieser Gruppe"
@@ -3369,6 +3425,9 @@ export default function Sortierung() {
                   const typ = gruppenTyp[gruppe.domain] || (gruppe.absender.size > 1 ? 'domain' : 'absender');
                   const laeuft = gruppeLaeuft === gruppe.domain;
                   const vorschlag = gruppenVorschlag(gruppe);
+                  // Die Zahl auf dem Knopf: was die gewählte Regel wirklich
+                  // erfasst, nicht was die Gruppe gerade zeigt.
+                  const treffer = gruppenTreffer(gruppe, typ);
                   // Solange niemand ins Feld getippt hat, gilt der Vorschlag —
                   // ?? statt ||, sonst würde ein bewusst geleertes Feld sofort
                   // wieder den Vorschlag zeigen.
@@ -3465,9 +3524,14 @@ export default function Sortierung() {
                           onClick={() => stapelZuordnen(gruppe)}
                           disabled={laeuft}
                           className="btn !py-1.5 !px-3 text-sm flex items-center justify-center gap-1 whitespace-nowrap disabled:opacity-50"
+                          title={treffer === null
+                            ? 'Sobald das Stichwort steht, zeigt der Knopf, wie viele Mails es trifft.'
+                            : `So viele wartende Mails dieses Postfachs passen zu "${
+                              typ === 'keine' ? 'nur jetzt' : gruppenRegelTeile(gruppe, typ).muster}" — `
+                              + 'bei einer Domain-Regel auch die aus Unterdomains, die hier als eigene Gruppe stehen.'}
                         >
                           <Layers size={14} /> {laeuft ? 'Läuft …'
-                            : `Alle ${typ === 'domain' ? gruppe.gesamt : gruppe.mails.length} verschieben`}
+                            : treffer === null ? 'Verschieben' : `Alle ${treffer} verschieben`}
                         </button>
                         <button
                           onClick={() => schnellZuordnen(gruppe, 'Junk')}
