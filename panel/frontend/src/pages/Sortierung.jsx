@@ -1416,11 +1416,19 @@ export default function Sortierung() {
     return [...map.values()].sort((a, b) => b.mails.length - a.mails.length);
   })();
 
-  const gruppenVorschlag = (gMails) => mehrheitsVorschlag(gMails);
+  // Der Mehrheitsvorschlag der KI je Domain-Gruppe.
+  //
+  // Bisher musste das Zielordner-Feld für jede Gruppe von Hand getippt werden
+  // — obwohl die KI schon zu jeder einzelnen Mail einen Ordner vorgeschlagen
+  // hatte (Spalte "Wer", zu sehen beim Aufklappen). Stimmen mindestens die
+  // Hälfte der Mails einer Gruppe überein, ist das kein Vorschlag mehr, den
+  // man erst suchen muss — er wird vorbelegt. Änderbar bleibt er trotzdem: Wer
+  // tippt, überschreibt ihn, genau wie bei jedem anderen vorbelegten Feld.
+  const gruppenVorschlag = (gruppe) => mehrheitsVorschlag(gruppe.mails);
 
   const sichereGruppen = useMemo(() => {
     return gruppen.filter(g => {
-      const ziel = gruppenVorschlag(g.mails);
+      const ziel = gruppenVorschlag(g);
       if (!ziel) return false;
       // Stufe 2: Nur extrem sichere Vorschläge (>90%)
       return g.mails.every(m => m.ki_konfidenz != null && m.ki_konfidenz >= 0.90);
@@ -1431,11 +1439,11 @@ export default function Sortierung() {
     if (!sichereGruppen.length) return;
     if (!(await nachfragen({
       titel: `${sichereGruppen.length} absolut sichere Vorschläge absegnen?`,
-      text: 'Die KI ist sich bei diesen Absendern über 90 % sicher. Wenn du zustimmst, werden sie sofort verschoben und harte Regeln gelernt.'
+      text: 'Die KI is sich bei diesen Absendern über 90 % sicher. Wenn du zustimmst, werden sie sofort verschoben und harte Regeln gelernt.'
     }))) return;
 
     for (const g of sichereGruppen) {
-      const ziel = gruppenVorschlag(g.mails);
+      const ziel = gruppenVorschlag(g);
       if (ziel) await schnellZuordnen(g, ziel);
     }
   };
@@ -1451,16 +1459,6 @@ export default function Sortierung() {
       kontoId: b.mails[0].konto_id, ids: b.mails.map(m => m.id), zielordner, regel, schluessel: b.schluessel,
     });
   };
-
-  // Der Mehrheitsvorschlag der KI je Domain-Gruppe.
-  //
-  // Bisher musste das Zielordner-Feld für jede Gruppe von Hand getippt werden
-  // — obwohl die KI schon zu jeder einzelnen Mail einen Ordner vorgeschlagen
-  // hatte (Spalte "Wer", zu sehen beim Aufklappen). Stimmen mindestens die
-  // Hälfte der Mails einer Gruppe überein, ist das kein Vorschlag mehr, den
-  // man erst suchen muss — er wird vorbelegt. Änderbar bleibt er trotzdem: Wer
-  // tippt, überschreibt ihn, genau wie bei jedem anderen vorbelegten Feld.
-  const gruppenVorschlag = (gruppe) => mehrheitsVorschlag(gruppe.mails);
 
   const schnellZuordnen = async (gruppe, zielordner) => {
     const konten = [...new Set(gruppe.mails.map(m => m.konto_id))];
