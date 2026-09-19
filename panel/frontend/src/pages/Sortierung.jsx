@@ -138,8 +138,9 @@ export default function Sortierung() {
   const setInboxFilter = (neu) => parameterSetzen('filter', filterText(neu));
   // Absender-Ansicht (Standard, nach Domain) oder Inhalts-Ansicht (nach
   // Betreff-Muster, quer über Absender).
-  const inboxAnsicht = suchParams.get('ansicht') === 'inhalt' ? 'inhalt' : 'absender';
-  const setInboxAnsicht = (neu) => parameterSetzen('ansicht', neu === 'inhalt' ? 'inhalt' : '');
+  const urlAnsicht = suchParams.get('ansicht');
+  const inboxAnsicht = urlAnsicht === 'inhalt' ? 'inhalt' : urlAnsicht === 'einzeln' ? 'einzeln' : 'absender';
+  const setInboxAnsicht = (neu) => parameterSetzen('ansicht', neu === 'absender' ? '' : neu);
   // Wie viele Dateien auf eine Freigabe warten. Steht am Tab-Knopf, damit man es
   // auch sieht, ohne den Tab zu öffnen — sonst wartet dort etwas und niemand
   // erfährt davon.
@@ -183,6 +184,7 @@ export default function Sortierung() {
   // State für die Zuordnung in der Inbox (welcher Ordner ist im Dropdown gewählt)
   const [ordnerWahl, setOrdnerWahl] = useState({});
   const [regelAnlegenWahl, setRegelAnlegenWahl] = useState({});
+  const [stichwortWahl, setStichwortWahl] = useState({});
   
   const [ansicht, setAnsicht] = useState({ offen: false, laedt: false, text: '', unsubscribe: null });
 
@@ -1360,23 +1362,35 @@ export default function Sortierung() {
   const zuordnen = async (mailId) => {
     const zielordner = ordnerWahl[mailId];
     if (!zielordner) return melden('Bitte einen Zielordner angeben.', 'hinweis');
-    // '' | 'absender' | 'domain' — das Backend versteht beide Regeltypen
     const anlegen = regelAnlegenWahl[mailId] || false;
+    const mail = inbox.find(m => m.id === mailId);
+    if (!mail) return;
 
-    try {
-      await api.post('/sortierung/zuordnen', {
-        id: mailId,
+    if (anlegen === 'inhalt') {
+      const muster = stichwortWahl[mailId];
+      if (!muster || muster.length < 3) return melden('Für eine Inhalts-Regel braucht es ein Stichwort ab 3 Zeichen.', 'hinweis');
+      await idsVerschieben({
+        kontoId: mail.konto_id,
+        ids: [mailId],
         zielordner,
-        regelAnlegen: anlegen
+        regel: { typ: 'inhalt', muster },
+        schluessel: mailId
       });
-      // Wenn eine Regel angelegt wurde, laden wir die Regeln neu (falls das selbe Konto aktiv ist)
-      const mail = inbox.find(m => m.id === mailId);
-      if (anlegen && mail && mail.konto_id === aktivesKonto) {
-        regelnLaden(aktivesKonto);
-      }
-      inboxLaden();
-    } catch (err) {
-      melden(err.response?.data?.error || 'Fehler beim Zuordnen', 'fehler');
+    } else if (anlegen === 'absender' || anlegen === 'domain') {
+      await idsVerschieben({
+        kontoId: mail.konto_id,
+        ids: [mailId],
+        zielordner,
+        regel: { typ: anlegen, muster: anlegen === 'domain' ? domainVon(mail.von) : adresse(mail.von) },
+        schluessel: mailId
+      });
+    } else {
+      await idsVerschieben({
+        kontoId: mail.konto_id,
+        ids: [mailId],
+        zielordner,
+        schluessel: mailId
+      });
     }
   };
 
@@ -1643,6 +1657,94 @@ export default function Sortierung() {
     ...katalog.filter(o => !o.gesperrt).slice().sort((a, b) => (b.treffer || 0) - (a.treffer || 0)).map(o => o.ordner),
     'Rechnungen', 'Bestellungen', 'Newsletter', 'Archiv',
   ])].slice(0, 9);
+
+  const renderEinzelMail = (mail) => (
+    <div key={mail.id} className="p-4 hover:bg-panel-bg/30 transition-colors">
+      <div className="flex justify-between items-start gap-4 mb-3">
+        <div className="truncate">
+          <div className="text-xs text-panel-muted mb-1 flex items-center gap-2">
+            <span className="bg-panel-border/50 px-1.5 py-0.5 rounded">{mail.account_name || mail.konto}</span>
+            {zeitpunkt(mail.created_at)}
+          </div>
+          <div className="font-medium truncate" title={mail.von}>{mail.von}</div>
+          <div className="text-sm text-panel-muted truncate" title={mail.betreff}>{mail.betreff || '(Kein Betreff)'}</div>
+          {(mail.ki_ordner || mail.ki_grund) && (
+            <div className="mt-1.5 text-xs flex items-start gap-1.5 text-panel-muted">
+              <Wand2 size={13} className="text-panel-accent mt-0.5 shrink-0" />
+              <span>
+                {mail.ki_ordner
+                  ? <>KI schlug <span className="font-mono text-panel-accent">{mail.ki_ordner}</span> vor
+                      {mail.ki_konfidenz != null && ` (${Math.round(mail.ki_konfidenz * 100)} % sicher)`} — </>
+                  : null}
+                {mail.ki_grund}
+              </span>
+            </div>
+          )}
+        </div>
+        <button onClick={() => mailAnsehen(mail.id)} className="btn-ghost !py-1 !px-2 text-xs flex items-center gap-1 shrink-0 mt-1 h-fit">
+          <Search size={14} /> Ansehen
+        </button>
+      </div>
+      
+      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center bg-panel-bg/50 p-3 rounded-lg border border-panel-border">
+        <div className="flex-1 w-full">
+          <OrdnerFeld
+            placeholder="Zielordner (z.B. Rechnungen)"
+            value={ordnerWahl[mail.id] ?? ''}
+            onChange={v => setOrdnerWahl(p => ({ ...p, [mail.id]: v }))}
+            optionen={alleOrdner}
+            className="w-full text-sm"
+          />
+          {mail.ki_ordner && !ordnerWahl[mail.id] && (
+            <button
+              type="button"
+              onClick={() => setOrdnerWahl(p => ({ ...p, [mail.id]: mail.ki_ordner }))}
+              className="mt-1 text-xs text-panel-accent hover:underline"
+            >
+              Vorschlag "{mail.ki_ordner}" übernehmen
+            </button>
+          )}
+        </div>
+        <select
+          value={regelAnlegenWahl[mail.id] || ''}
+          onChange={e => {
+            const val = e.target.value;
+            setRegelAnlegenWahl(p => ({ ...p, [mail.id]: val }));
+            if (val === 'inhalt' && !stichwortWahl[mail.id]) {
+              setStichwortWahl(p => ({ ...p, [mail.id]: stichwortVorschlag([mail.betreff]) }));
+            }
+          }}
+          className="text-xs bg-panel-bg whitespace-nowrap w-full sm:!w-auto shrink-0"
+          title="Was soll sich das Panel für die Zukunft merken?"
+        >
+          <option value="">Keine Regel merken</option>
+          <option value="absender">Regel: {adresse(mail.von)}</option>
+          <option value="domain">Regel: alles von @{domainVon(mail.von)}</option>
+          <option value="inhalt">Regel: Betreff-Stichwort</option>
+        </select>
+
+        {regelAnlegenWahl[mail.id] === 'inhalt' && (
+            <input
+              type="text"
+              placeholder="Stichwort..."
+              className="text-xs w-full sm:w-auto mt-2 sm:mt-0 px-2 py-1 bg-panel-bg border border-panel-border rounded"
+              value={stichwortWahl[mail.id] || ''}
+              onChange={e => setStichwortWahl(p => ({ ...p, [mail.id]: e.target.value }))}
+              title="Mindestens 3 Zeichen, die im Betreff vorkommen müssen."
+            />
+        )}
+        
+        <div className="flex gap-2 w-full sm:w-auto mt-2 sm:mt-0">
+          <button onClick={() => ignorieren(mail.id)} className="btn-ghost !px-2 flex-1 sm:flex-none text-panel-muted hover:text-panel-red" title="Ignorieren">
+            <XCircle size={18} />
+          </button>
+          <button onClick={() => zuordnen(mail.id)} className="btn !py-1.5 !px-3 flex-1 sm:flex-none flex items-center justify-center gap-1">
+            Verschieben <ArrowRight size={14} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-6">
@@ -3006,8 +3108,9 @@ export default function Sortierung() {
                   gilt für beide. */}
               <div className="flex rounded-full border border-panel-border p-0.5 text-xs" role="group" aria-label="Bündeln nach">
                 {[
-                  { wert: 'absender', text: 'nach Absender', hilfe: 'Nach Absender-Domain gebündelt — mit Regel für Domain oder Absender' },
-                  { wert: 'inhalt', text: 'nach Inhalt', hilfe: 'Nach Betreff-Muster gebündelt, quer über alle Absender — standardmäßig ohne Regel' },
+                  { wert: 'absender', text: 'nach Absender', hilfe: 'Nach Absender-Domain gebündelt' },
+                  { wert: 'inhalt', text: 'nach Inhalt', hilfe: 'Nach Betreff-Muster gebündelt' },
+                  { wert: 'einzeln', text: 'einzeln', hilfe: 'Flache Liste ohne Gruppierung' },
                 ].map(a => (
                   <button
                     key={a.wert}
@@ -3132,6 +3235,10 @@ export default function Sortierung() {
                     </button>.
                   </div>
                 )}
+              </div>
+            ) : inboxAnsicht === 'einzeln' ? (
+              <div className="divide-y divide-panel-border">
+                {angezeigteInbox.map(renderEinzelMail)}
               </div>
             ) : (
               <div className="divide-y divide-panel-border">
@@ -3267,74 +3374,7 @@ export default function Sortierung() {
                       </div>
 
                       {/* Einzelne Mails erst auf Wunsch */}
-                      {offen && gruppe.mails.map(mail => (
-                  <div key={mail.id} className="p-4 hover:bg-panel-bg/30 transition-colors">
-                    <div className="flex justify-between items-start gap-4 mb-3">
-                      <div className="truncate">
-                        <div className="text-xs text-panel-muted mb-1 flex items-center gap-2">
-                          <span className="bg-panel-border/50 px-1.5 py-0.5 rounded">{mail.account_name || mail.konto}</span>
-                          {zeitpunkt(mail.created_at)}
-                        </div>
-                        <div className="font-medium truncate" title={mail.von}>{mail.von}</div>
-                        <div className="text-sm text-panel-muted truncate" title={mail.betreff}>{mail.betreff || '(Kein Betreff)'}</div>
-                        {(mail.ki_ordner || mail.ki_grund) && (
-                          <div className="mt-1.5 text-xs flex items-start gap-1.5 text-panel-muted">
-                            <Wand2 size={13} className="text-panel-accent mt-0.5 shrink-0" />
-                            <span>
-                              {mail.ki_ordner
-                                ? <>KI schlug <span className="font-mono text-panel-accent">{mail.ki_ordner}</span> vor
-                                    {mail.ki_konfidenz != null && ` (${Math.round(mail.ki_konfidenz * 100)} % sicher)`} — </>
-                                : null}
-                              {mail.ki_grund}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                      <button onClick={() => mailAnsehen(mail.id)} className="btn-ghost !py-1 !px-2 text-xs flex items-center gap-1 shrink-0 mt-1 h-fit">
-                        <Search size={14} /> Ansehen
-                      </button>
-                    </div>
-                    
-                    <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center bg-panel-bg/50 p-3 rounded-lg border border-panel-border">
-                      <div className="flex-1 w-full">
-                        <OrdnerFeld
-                          placeholder="Zielordner (z.B. Rechnungen)"
-                          value={ordnerWahl[mail.id] ?? ''}
-                          onChange={v => setOrdnerWahl(p => ({ ...p, [mail.id]: v }))}
-                          optionen={alleOrdner}
-                          className="w-full text-sm"
-                        />
-                        {mail.ki_ordner && !ordnerWahl[mail.id] && (
-                          <button
-                            type="button"
-                            onClick={() => setOrdnerWahl(p => ({ ...p, [mail.id]: mail.ki_ordner }))}
-                            className="mt-1 text-xs text-panel-accent hover:underline"
-                          >
-                            Vorschlag „{mail.ki_ordner}“ übernehmen
-                          </button>
-                        )}
-                      </div>
-                      <select
-                        value={regelAnlegenWahl[mail.id] || ''}
-                        onChange={e => setRegelAnlegenWahl(p => ({ ...p, [mail.id]: e.target.value }))}
-                        className="text-xs bg-panel-bg whitespace-nowrap w-full sm:!w-auto shrink-0"
-                        title="Was soll sich das Panel für die Zukunft merken?"
-                      >
-                        <option value="">Keine Regel merken</option>
-                        <option value="absender">Regel: {adresse(mail.von)}</option>
-                        <option value="domain">Regel: alles von @{domainVon(mail.von)}</option>
-                      </select>
-                      <div className="flex gap-2 w-full sm:w-auto mt-2 sm:mt-0">
-                        <button onClick={() => ignorieren(mail.id)} className="btn-ghost !px-2 flex-1 sm:flex-none text-panel-muted hover:text-panel-red" title="Ignorieren">
-                          <XCircle size={18} />
-                        </button>
-                        <button onClick={() => zuordnen(mail.id)} className="btn !py-1.5 !px-3 flex-1 sm:flex-none flex items-center justify-center gap-1">
-                          Verschieben <ArrowRight size={14} />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                      ))}
+                      {offen && gruppe.mails.map(renderEinzelMail)}
                     </div>
                   );
                 })}

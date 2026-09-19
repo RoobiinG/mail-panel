@@ -2,6 +2,17 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [7.0.0.0] - 2026-09-19 (Build 242) — *Einzel-Mail-Workflow & KI-Stichwörter*
+
+### Features
+- **Ansicht "Einzeln" (Flache Liste):** Neue Tab-Option in der Posteingangs-Ansicht. Alle offenen Mails werden direkt als flache Liste ohne Absender-Gruppierung angezeigt und können wie am Fließband abgearbeitet werden.
+- **Einzel-Mail-Regeln:** Auch direkt auf Einzel-Mail-Ebene lassen sich jetzt Inhalts-Regeln (Stichwort) anlegen (vorher nur Absender/Domain).
+- **KI-Stichwort-Assistent:** Wählt man bei einer Einzel-Mail "Regel: Betreff-Stichwort", schlägt die KI sofort das wahrscheinlichste Stichwort aus dem Betreff vor. Kein langes Überlegen oder Tippen mehr nötig.
+- **System-Auswirkungen & Nachwirken (Impact Analysis):**
+  - **Datenbank-Migrationen:** Keine.
+  - **n8n-Workflow:** Keine Änderungen.
+  - **Neustart-/Session:** Kein Logout erforderlich.
+
 ## [6.9.2.0] - 2026-09-19 (Build 241) — *Perfekte KI-Sortierung: Masterplan Stufe 1 & 2*
 
 ### Features
