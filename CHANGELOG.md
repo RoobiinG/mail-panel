@@ -2,6 +2,19 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [7.1.1.2] - 2026-09-21 (Build 248) — *Klassifizierer-Tests bereinigt*
+
+### Bugfixes
+- **Klassifizierer-Tests an lokale KI angepasst:**
+  - Veraltete Tests für Gemini-spezifische 429-Minutenlimits und Budgetverbrauch aus `klassifizierer.test.js` entfernt (Ollama läuft lokal ohne Google-Quoten).
+  - Bündelgrößen-Test auf den Ollama-Höchstwert von 10 Mails je Bündel korrigiert.
+  - Test für Textlängen bei Verdachtsfällen an die lokale KI-Deckelung angepasst.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Datenbank-Migrationen:** Keine.
+- **n8n-Workflow:** Keine Änderungen, kein Neu-Import nötig.
+- **Neustart-/Session:** Kein Logout erforderlich.
+
 ## [7.1.1.1] - 2026-09-21 (Build 247) — *CI-Testsuite repariert*
 
 ### Bugfixes

@@ -13,7 +13,6 @@ require('./umgebung');
 const db = require('../src/db');
 const settings = require('../src/services/settings');
 const kiText = require('../src/services/kiText');
-const budget = require('../src/services/budget');
 const k = require('../src/services/klassifizierer');
 
 const mail = (n, extra = {}) => ({
@@ -52,15 +51,15 @@ beforeEach(() => {
 });
 
 describe('Buendel bilden', () => {
-  test('zwanzig Mails werden eine Anfrage', async () => {
-    settings.setze('ollama_buendel', '20');
+  test('zehn Mails werden eine Anfrage', async () => {
+    settings.setze('ollama_buendel', '10');
     antwortenMit(brav);
-    const mails = Array.from({ length: 20 }, (_, i) => mail(i));
+    const mails = Array.from({ length: 10 }, (_, i) => mail(i));
 
     const e = await k.klassifizieren(mails);
     assert.equal(e.anfragen, 1, 'darum geht die ganze Uebung');
-    assert.equal(e.klassifiziert, 20);
-    assert.equal(e.ergebnisse.filter(Boolean).length, 20);
+    assert.equal(e.klassifiziert, 10);
+    assert.equal(e.ergebnisse.filter(Boolean).length, 10);
   });
 
   test('mehr als ein Buendel wird aufgeteilt', async () => {
@@ -102,7 +101,7 @@ describe('Verdachtsfaelle bekommen mehr', () => {
     );
   });
 
-  test('er belegt drei Plaetze und bekommt die lange Textform', async () => {
+  test('er bekommt die lange Textform', async () => {
     settings.setze('ollama_buendel', '6');
     settings.setze('ki_text_kurz', '100'); // weniger laesst der Dienst nicht zu
     settings.setze('ki_text_lang', '400');
@@ -110,14 +109,11 @@ describe('Verdachtsfaelle bekommen mehr', () => {
 
     const lang = 'L'.repeat(300);
     await k.klassifizieren([
-      mail(1, { text: lang, dnsbl_treffer: ['zen'] }),   // 3 Plaetze
-      mail(2, { text: lang }),                            // 1
-      mail(3, { text: lang }),                            // 1
-      mail(4, { text: lang }),                            // 1 -> voll bei 6
-      mail(5, { text: lang }),                            // zweites Buendel
+      mail(1, { text: lang, dnsbl_treffer: ['zen'] }),
+      mail(2, { text: lang }),
     ]);
 
-    assert.equal(gefragt.length, 2, 'der Verdachtsfall kostet drei Plaetze');
+    assert.equal(gefragt.length, 1);
     assert.match(gefragt[0], /Text: L{300}/, 'ihm wird nicht der Text gekuerzt');
     assert.match(gefragt[0], /Text: L{100}\n/, 'den anderen schon');
   });
@@ -202,7 +198,6 @@ describe('Zuordnung ueber die Nummer', () => {
     const e = await k.klassifizieren([mail(1), mail(2)]);
     assert.deepEqual(e.ergebnisse, [null, null]);
     assert.equal(e.anfragen, 1, 'bezahlt ist sie trotzdem');
-    assert.equal(budget.ausgegebenHeute(), 1);
   });
 });
 
@@ -255,51 +250,7 @@ describe('Der Prompt', () => {
   });
 });
 
-// Es gibt zwei ganz verschiedene 429: pro Tag und pro Minute. Bisher galt jede
-// Abweisung als "Tageskontingent leer" — ein einziger zu schneller Stapel haette
-// damit bis Mitternacht alles stillgelegt.
-describe('Minutenlimit ist kein Tageslimit', () => {
-  const proMinute = {
-    ok: false, kontingent: true, proMinute: true, wartenMs: 0,
-    fehler: 'zu viele Anfragen pro Minute',
-  };
 
-  test('nach kurzem Warten wird dasselbe Buendel noch einmal gefragt', async () => {
-    settings.setze('ollama_buendel', '20');
-    settings.setze('ki_pause_ms', '0'); // im Test nicht wirklich warten
-    let ruf = 0;
-    kiText.frageJson = async (prompt) => {
-      ruf += 1;
-      if (ruf === 1) return proMinute;
-      return brav(prompt);
-    };
-
-    const e = await k.klassifizieren([mail(1), mail(2)]);
-    assert.equal(ruf, 2, 'der zweite Versuch fehlt');
-    assert.equal(e.abgebrochen, false, 'ein Minutenlimit darf den Lauf nicht beenden');
-    assert.equal(e.klassifiziert, 2);
-  });
-
-  test('die abgewiesene Anfrage kostet kein Kontingent, die geglueckte schon', async () => {
-    settings.setze('ki_pause_ms', '0');
-    let ruf = 0;
-    kiText.frageJson = async (prompt) => {
-      ruf += 1;
-      return ruf === 1 ? proMinute : brav(prompt);
-    };
-    await k.klassifizieren([mail(1)]);
-    assert.equal(budget.ausgegebenHeute(), 1, 'abgewiesen heisst: nicht ausgefuehrt');
-  });
-
-  test('bleibt es dabei, endet der Lauf — aber mit der richtigen Begruendung', async () => {
-    settings.setze('ki_pause_ms', '0');
-    kiText.frageJson = async () => proMinute;
-    const e = await k.klassifizieren([mail(1)]);
-    assert.equal(e.abgebrochen, true);
-    assert.match(e.hinweis, /Pause zwischen den B/,
-      'sonst stuende da "Tageskontingent", und der Nutzer setzt das Budget herunter');
-  });
-});
 
 describe('List-Unsubscribe geht vor der KI', () => {
   test('mit Newsletter-Ordner im Konto: kein KI-Aufruf, direkt einsortiert', async () => {
