@@ -114,6 +114,18 @@ services:
       # Standardmäßig nur lokal erreichbar — davor gehört ein Reverse Proxy.
       # Wer ohne Proxy direkt aufs Gerät zugreift, setzt N8N_BIND=0.0.0.0.
       - "${N8N_BIND:-127.0.0.1}:${N8N_PORT:-5678}:5678"
+    # "restart: unless-stopped" merkt nur, wenn der Prozess stirbt — nicht,
+    # wenn er noch läuft, aber (z.B. nach einem hängenden Lauf) nicht mehr
+    # antwortet. Der eingebaute /healthz-Endpunkt deckt genau das ab.
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:5678/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    # Harte Obergrenze wie bei Ollama — ohne sie reißt ein außer Kontrolle
+    # geratener Lauf sonst die Nachbarcontainer mit (Exit 137, „OOMKilled").
+    mem_limit: ${N8N_RAM:-2g}
     networks:
       - internal
 
@@ -167,6 +179,19 @@ services:
       - "${PANEL_BIND:-127.0.0.1}:${PANEL_PORT:-3002}:3002"
     depends_on:
       - n8n
+    # "restart: unless-stopped" merkt nur einen abgestürzten Prozess — nicht
+    # einen, der noch läuft, aber (z.B. durch eine blockierte Event-Loop)
+    # nicht mehr antwortet. /api/health prüft genau das, ohne Auth oder DB.
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3002/api/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    # Harte Obergrenze wie bei Ollama — ohne sie reißt ein außer Kontrolle
+    # geratener Lauf (z.B. ein zu großer OCR-Batch) sonst die Nachbarcontainer
+    # mit (Exit 137, „OOMKilled").
+    mem_limit: ${PANEL_RAM:-1g}
     networks:
       - internal
       # Zusätzlich ein optionales, bereits vorhandenes Netz (z.B. das von Mailcow),
@@ -242,6 +267,14 @@ services:
     # sonst die Nachbarcontainer mit — genau so stirbt ein kleiner Server
     # (Exit 137, „OOMKilled").
     mem_limit: ${OLLAMA_RAM:-4g}
+    # "ollama list" nutzt denselben Client wie das Panel — schlägt er fehl,
+    # antwortet der Server nicht mehr, auch wenn der Prozess noch läuft.
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     networks:
       - internal
 

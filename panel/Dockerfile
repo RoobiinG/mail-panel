@@ -3,8 +3,8 @@
 # ─── Stufe 1: Frontend bauen ─────────────────────────────────────────────────
 FROM node:22-alpine AS frontend
 WORKDIR /build
-COPY panel/frontend/package.json ./
-RUN npm install --no-audit --no-fund
+COPY panel/frontend/package.json panel/frontend/package-lock.json ./
+RUN npm ci --no-audit --no-fund
 COPY panel/frontend/ ./
 COPY version.json ./
 RUN npm run build
@@ -14,7 +14,7 @@ FROM node:22-alpine
 ENV NODE_ENV=production \
     DATA_DIR=/app/data
 WORKDIR /app/backend
-COPY panel/backend/package.json ./
+COPY panel/backend/package.json panel/backend/package-lock.json ./
 # better-sqlite3 wird beim Installieren uebersetzt und braucht dafuer eine
 # Werkzeugkette. Die bleibt NICHT im fertigen Abbild liegen — sonst traegt jeder
 # Container dauerhaft einen Compiler mit sich herum, ohne ihn je zu brauchen.
@@ -32,7 +32,7 @@ COPY panel/backend/package.json ./
 # entscheidet Scans wie bisher per Heuristik.
 RUN apk add --no-cache su-exec openssl poppler-utils tesseract-ocr tesseract-ocr-data-deu \
  && apk add --no-cache --virtual .bauwerkzeug python3 make g++ \
- && npm install --omit=dev --no-audit --no-fund \
+ && npm ci --omit=dev --no-audit --no-fund \
  && apk del .bauwerkzeug
 COPY panel/backend/ ./
 COPY workflows/ /app/workflows/

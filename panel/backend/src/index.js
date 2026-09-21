@@ -108,6 +108,10 @@ app.use((req, _res, next) => {
 });
 
 // ─── Routen ──────────────────────────────────────────────────────────────────
+// Ohne Auth und ohne DB-Zugriff — für den Docker-Healthcheck. Antwortet der
+// Server ueberhaupt noch (statt in einer blockierten Event-Loop zu haengen),
+// genuegt das als Lebenszeichen.
+app.get('/api/health', (req, res) => res.json({ ok: true }));
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/konten', auth, rechtErforderlich('konten'), require('./routes/konten'));
 app.use('/api/listen', auth, rechtErforderlich('listen'), require('./routes/listen'));

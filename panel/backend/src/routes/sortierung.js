@@ -1470,17 +1470,19 @@ router.post('/vorschlaege/:id/freigeben', async (req, res) => {
     db.prepare("UPDATE ordner_vorschlaege SET status = 'freigegeben' WHERE id = ?").run(vorschlag.id);
 
     const zugang = themen.zugang(konto);
-    let verschoben = 0;
-    for (const mail of wartend) {
-      if (!mail.uid) continue;
-      try {
-        await imap.mailVerschieben({ ...zugang, uid: mail.uid, von: 'INBOX', nach: pfad });
-        db.prepare("UPDATE sort_inbox SET status = 'zugeordnet', vorschlag = ? WHERE id = ?").run(pfad, mail.id);
-        verschoben++;
-      } catch (err) {
-        loggen('warn', 'sortierung', `Mail ${mail.uid} konnte nicht nach "${pfad}" verschoben werden: ${err.message}`);
-      }
+    // Gebündelt über EINE Verbindung statt je Mail eine eigene — bei vielen
+    // wartenden Mails sonst schnell am mail_max_userip_connections-Limit des
+    // Mailservers vorbei (siehe imap.js: mailsVerschieben).
+    const ergebnisVerschieben = await imap.mailsVerschieben({
+      ...zugang, mails: wartend.filter((m) => m.uid), von: 'INBOX', nach: pfad,
+    });
+    for (const mail of ergebnisVerschieben.verschoben) {
+      db.prepare("UPDATE sort_inbox SET status = 'zugeordnet', vorschlag = ? WHERE id = ?").run(pfad, mail.id);
     }
+    for (const f of ergebnisVerschieben.fehler) {
+      loggen('warn', 'sortierung', `Mail ${f.uid} konnte nicht nach "${pfad}" verschoben werden: ${f.grund}`);
+    }
+    const verschoben = ergebnisVerschieben.verschoben.length;
     loggen('info', 'sortierung', `Ordner "${pfad}" freigegeben, ${verschoben} wartende Mail(s) nachsortiert.`);
     res.json({ ok: true, ordner: pfad, verschoben, wartend: wartend.length });
   } catch (err) {
@@ -1535,20 +1537,24 @@ router.post('/vorschlaege/zusammenfassen', async (req, res) => {
       ).all(konto.id, v.ordner);
       wartend += mails.length;
 
-      for (const mail of mails) {
-        if (!mail.uid) continue;
-        try {
-          await imap.mailVerschieben({ ...zugang, uid: mail.uid, von: 'INBOX', nach: pfad });
-          db.prepare("UPDATE sort_inbox SET status = 'zugeordnet', vorschlag = ? WHERE id = ?")
-            .run(pfad, mail.id);
-          // Die Absender dieser Mails gehören ab jetzt sichtbar zu diesem
-          // Ordner — damit greift beim nächsten Mal schon das Stichwort.
-          if (katalogEintrag) themen.gelerntMerken(katalogEintrag.id, mail.von);
-          verschoben += 1;
-        } catch (err) {
-          loggen('warn', 'sortierung',
-            `Mail ${mail.uid} konnte nicht nach "${pfad}" verschoben werden: ${err.message}`);
-        }
+      // Gebündelt über EINE Verbindung statt je Mail eine eigene (siehe
+      // imap.js: mailsVerschieben — verhindert, dass viele wartende Mails das
+      // Verbindungslimit des Mailservers sprengen).
+      const mailsMitUid = mails.filter((mail) => mail.uid);
+      const ergebnisVerschieben = await imap.mailsVerschieben({
+        ...zugang, mails: mailsMitUid, von: 'INBOX', nach: pfad,
+      });
+      for (const mail of ergebnisVerschieben.verschoben) {
+        db.prepare("UPDATE sort_inbox SET status = 'zugeordnet', vorschlag = ? WHERE id = ?")
+          .run(pfad, mail.id);
+        // Die Absender dieser Mails gehören ab jetzt sichtbar zu diesem
+        // Ordner — damit greift beim nächsten Mal schon das Stichwort.
+        if (katalogEintrag) themen.gelerntMerken(katalogEintrag.id, mail.von);
+        verschoben += 1;
+      }
+      for (const f of ergebnisVerschieben.fehler) {
+        loggen('warn', 'sortierung',
+          `Mail ${f.uid} konnte nicht nach "${pfad}" verschoben werden: ${f.grund}`);
       }
 
       // Der Name des Vorschlags wird zur Umleitung — auch der, der zum Ordner
@@ -1620,18 +1626,20 @@ router.post('/vorschlaege/:id/umleiten', async (req, res) => {
     if (nurEinzelne) wartend = wartend.filter((m) => auswahl.includes(m.id));
 
     const zugang = themen.zugang(konto);
-    let verschoben = 0;
-    for (const mail of wartend) {
-      if (!mail.uid) continue;
-      try {
-        await imap.mailVerschieben({ ...zugang, uid: mail.uid, von: 'INBOX', nach: ziel });
-        db.prepare("UPDATE sort_inbox SET status = 'zugeordnet', vorschlag = ? WHERE id = ?")
-          .run(ziel, mail.id);
-        verschoben += 1;
-      } catch (err) {
-        loggen('warn', 'sortierung', `Mail ${mail.uid} konnte nicht nach "${ziel}" verschoben werden: ${err.message}`);
-      }
+    // Gebündelt über EINE Verbindung statt je Mail eine eigene (siehe
+    // imap.js: mailsVerschieben — verhindert, dass viele wartende Mails das
+    // Verbindungslimit des Mailservers sprengen).
+    const ergebnisVerschieben = await imap.mailsVerschieben({
+      ...zugang, mails: wartend.filter((m) => m.uid), von: 'INBOX', nach: ziel,
+    });
+    for (const mail of ergebnisVerschieben.verschoben) {
+      db.prepare("UPDATE sort_inbox SET status = 'zugeordnet', vorschlag = ? WHERE id = ?")
+        .run(ziel, mail.id);
     }
+    for (const f of ergebnisVerschieben.fehler) {
+      loggen('warn', 'sortierung', `Mail ${f.uid} konnte nicht nach "${ziel}" verschoben werden: ${f.grund}`);
+    }
+    const verschoben = ergebnisVerschieben.verschoben.length;
 
     // Den Namen nur dann dauerhaft umleiten, wenn der ganze Vorschlag gemeint
     // war. Wer drei von zwanzig Mails woandershin schiebt, trifft keine
