@@ -1360,6 +1360,15 @@ export default function Sortierung() {
     return inbox.filter(m => konten.has(m.konto_id) && regelTrifft(teile, m)).length;
   };
 
+  const resolveKontoId = (m) => {
+    if (m?.konto_id) return Number(m.konto_id);
+    if (m?.konto) {
+      const k = konten.find(x => x.name === m.konto);
+      if (k) return k.id;
+    }
+    return Number(aktivesKonto) || null;
+  };
+
   // "In Ruhe lassen": eine Regel, die nichts verschiebt. Die Mails bleiben im
   // Posteingang und werden nicht mehr zur Zuordnung vorgelegt — für alles, was
   // man weder sortiert noch ständig wiedersehen möchte.
@@ -1373,7 +1382,7 @@ export default function Sortierung() {
       : typ === 'domain' ? `Mails von @${gruppe.domain}`
       : inhalt_muster ? `Mails von ${muster} mit „${inhalt_muster}" im Inhalt`
       : `Mails von ${muster}`;
-    const kontoId = gruppe.mails[0]?.konto_id;
+    const kontoId = resolveKontoId(gruppe.mails[0]);
     if (!kontoId) return melden('Zu diesen Mails ist kein Konto hinterlegt.', 'hinweis');
     if (!(await nachfragen({
       titel: 'In Ruhe lassen?',
@@ -1423,7 +1432,7 @@ export default function Sortierung() {
       const muster = stichwortWahl[mailId];
       if (!muster || muster.length < 3) return melden('Für eine Inhalts-Regel braucht es ein Stichwort ab 3 Zeichen.', 'hinweis');
       await idsVerschieben({
-        kontoId: mail.konto_id,
+        kontoId: resolveKontoId(mail),
         ids: [mailId],
         zielordner,
         regel: { typ: 'inhalt', muster },
@@ -1431,7 +1440,7 @@ export default function Sortierung() {
       });
     } else if (anlegen === 'absender' || anlegen === 'domain') {
       await idsVerschieben({
-        kontoId: mail.konto_id,
+        kontoId: resolveKontoId(mail),
         ids: [mailId],
         zielordner,
         regel: { typ: anlegen, muster: anlegen === 'domain' ? domainVon(mail.von) : adresse(mail.von) },
@@ -1439,7 +1448,7 @@ export default function Sortierung() {
       });
     } else {
       await idsVerschieben({
-        kontoId: mail.konto_id,
+        kontoId: resolveKontoId(mail),
         ids: [mailId],
         zielordner,
         schluessel: mailId
@@ -1555,23 +1564,25 @@ export default function Sortierung() {
     if (regel && regel.muster.length < 3) {
       return melden('Für eine Regel auf den Inhalt fehlt das Stichwort (mindestens 3 Zeichen).', 'hinweis');
     }
+    const kId = resolveKontoId(b.mails[0]);
+    if (!kId) return melden('Zu diesen Mails ist kein Konto hinterlegt.', 'hinweis');
     return idsVerschieben({
-      kontoId: b.mails[0].konto_id, ids: b.mails.map(m => m.id), zielordner, regel, schluessel: b.schluessel,
+      kontoId: kId, ids: b.mails.map(m => m.id), zielordner, regel, schluessel: b.schluessel,
     });
   };
 
   const schnellZuordnen = async (gruppe, zielordner) => {
-    const konten = [...new Set(gruppe.mails.map(m => m.konto_id))];
-    if (konten.length === 0) return melden('Zu diesen Mails ist kein Konto hinterlegt.', 'hinweis');
+    const zielKonten = [...new Set(gruppe.mails.map(resolveKontoId).filter(Boolean))];
+    if (zielKonten.length === 0) return melden('Zu diesen Mails ist kein Konto hinterlegt.', 'hinweis');
     const wahl = gruppe.absender.size > 1 ? 'domain' : 'absender';
     const { typ, muster, inhalt_muster } = gruppenRegelTeile(gruppe, wahl);
     
     setGruppeLaeuft(gruppe.domain);
     try {
       let gesamtVerschoben = 0;
-      for (const kId of konten) {
+      for (const kId of zielKonten) {
         const { data } = await api.post('/sortierung/sammel-zuordnen', {
-          konto_id: kId,
+          konto_id: Number(kId),
           typ, muster, inhalt_muster,
           zielordner,
           regelMerken: true,
@@ -1595,8 +1606,8 @@ export default function Sortierung() {
     // visuell längst ausgefüllt aussah.
     const zielordner = gruppenZiel(gruppe);
     if (!zielordner) return melden('Bitte einen Zielordner angeben.', 'hinweis');
-    const konten = [...new Set(gruppe.mails.map(m => m.konto_id))];
-    if (konten.length === 0) return melden('Zu diesen Mails ist kein Konto hinterlegt.', 'hinweis');
+    const zielKonten = [...new Set(gruppe.mails.map(resolveKontoId).filter(Boolean))];
+    if (zielKonten.length === 0) return melden('Zu diesen Mails ist kein Konto hinterlegt.', 'hinweis');
 
     // Standard: Domain-Regel, wenn mehrere Absender darin stecken
     const wahl = gruppenTyp[gruppe.domain] || (gruppe.absender.size > 1 ? 'domain' : 'absender');
@@ -1608,8 +1619,10 @@ export default function Sortierung() {
     if (wahl === 'keine') {
       const nachKonto = {};
       for (const m of gruppe.mails) {
-        if (!nachKonto[m.konto_id]) nachKonto[m.konto_id] = [];
-        nachKonto[m.konto_id].push(m.id);
+        const kId = resolveKontoId(m);
+        if (!kId) continue;
+        if (!nachKonto[kId]) nachKonto[kId] = [];
+        nachKonto[kId].push(m.id);
       }
       for (const [kId, kIds] of Object.entries(nachKonto)) {
         await idsVerschieben({
@@ -1623,9 +1636,9 @@ export default function Sortierung() {
     setGruppeLaeuft(gruppe.domain);
     try {
       let gesamtVerschoben = 0;
-      for (const kId of konten) {
+      for (const kId of zielKonten) {
         const { data } = await api.post('/sortierung/sammel-zuordnen', {
-          konto_id: kId,
+          konto_id: Number(kId),
           typ, muster, inhalt_muster,
           zielordner,
           regelMerken: true,

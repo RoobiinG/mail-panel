@@ -2,6 +2,29 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [7.1.2.0] - 2026-09-21 (Build 251) — *Konten-Sichtbarkeit & Sortierungs-Optimierung*
+
+### Verbesserungen & Features
+- **Konten-Filter & Statistik:**
+  - `dashboard.js`: Im Statistik-Endpunkt (`/stats`) werden nun alle aktiven Konten aus der `accounts`-Tabelle mit den Konten aus dem `quarantine_log` zusammengeführt. Konten wie `Robglasi006` erscheinen nun verlässlich im Dropdown-Filter, auch wenn in den letzten 30 Tagen keine Quarantäne-Ereignisse stattfanden.
+  - `statistik.js`: Auch die Hauptstatistik (`/statistik`) listet nun alle aktiven Konten im Dropdown-Filter.
+- **Echtzeit-Zählung für den Posteingang:**
+  - `imap.js`: Neue, leichtgewichtige Hilfsfunktion `inboxZaehlen(konto)` implementiert (führt nur einen schnellen `mailboxOpen('INBOX', { readOnly: true })` IMAP-Roundtrip durch und liest `mailbox.exists` aus, ohne Umschläge oder Nachrichtenkörper zu laden).
+  - `uebersicht.js`: Wenn für ein Konto noch keine Absender-Analyse (`absender_stat`) durchgeführt wurde, greift `posteingangStaende()` transparent auf `inboxZaehlen()` zurück und puffert den Wert für 10 Minuten. Dadurch zeigt das Dashboard auch bei frisch angelegten oder bisher unanalysierten Konten sofort den tatsächlichen Posteingangsstand und die Fortschrittsanzeige an.
+- **Gmail-Spezialordner im Bestands-Scan ausgeschlossen:**
+  - `bestand.js`: Gmail-spezifische virtuelle Ordner (`all` / `[Gmail]/Alle Nachrichten`, `flagged` / `[Gmail]/Markiert`) werden bei `scanOrdner` nun ignoreriert. Dadurch wird verhindert, dass archivierte Mails aus dem Gesamtspeicher in die Sortierprüfung geraten.
+  - INBOX wird beim Scan prioritär behandelt (durch Prüfung auf `spezial === 'inbox'` und case-insensitive `pfad === 'INBOX'`).
+
+### Bugfixes
+- **Sortier-Inbox & Stapelverarbeitung (`Sortierung.jsx`):**
+  - Kritischen Fehler bei `schnellZuordnen` und `stapelZuordnen` behoben: Bislang wurde über `konten` iteriert, welches ein Array von Konto-Objekten war, wodurch `konto_id: [object Object]` an das Backend geschickt wurde. Mit `resolveKontoId()` und explizitem `Number(kId)` wird nun sauber die echte numerische Konto-ID übermittelt.
+  - `inRuheLassen`, `buendelVerschieben` und manuelle Einzelzuordnungen ebenfalls mit `resolveKontoId()` gegen fehlende oder uneindeutige Konto-IDs abgesichert.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Datenbank-Migrationen:** Keine erforderlich.
+- **n8n-Workflow:** Keine Änderungen, kein Neu-Import nötig.
+- **Neustart-/Session:** Kein Logout erforderlich; die Aktualisierung wird direkt beim nächsten Container-Pull wirksam.
+
 ## [7.1.1.4] - 2026-09-21 (Build 250) — *themen.test.js Foreign-Key gefixt*
 
 ### Bugfixes

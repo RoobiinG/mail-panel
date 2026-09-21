@@ -31,6 +31,29 @@ async function posteingangStaende() {
     try {
       posteingangGesamt = db.prepare("SELECT SUM(anzahl) n FROM absender_stat WHERE konto_id = ?").get(konto.id)?.n || 0;
     } catch {}
+
+    // Fallback: Wenn noch keine Absender-Analyse lief, gespeicherten IMAP-Stand oder frischen Stand holen
+    if (!posteingangGesamt) {
+      try {
+        const gespeicherteZahl = Number(settings.hole(`inbox_count_${konto.id}`));
+        const gespeicherteZeit = Number(settings.hole(`inbox_count_zeit_${konto.id}`));
+        const jetzt = Date.now();
+        if (Number.isFinite(gespeicherteZahl) && gespeicherteZahl >= 0 && (jetzt - gespeicherteZeit < 10 * 60 * 1000)) {
+          posteingangGesamt = gespeicherteZahl;
+        } else if (konto.aktiv) {
+          const zugang = themen.zugang(konto);
+          const echt = await imap.inboxZaehlen(zugang).catch(() => null);
+          if (echt !== null) {
+            posteingangGesamt = echt;
+            settings.setze(`inbox_count_${konto.id}`, String(echt));
+            settings.setze(`inbox_count_zeit_${konto.id}`, String(jetzt));
+          } else if (Number.isFinite(gespeicherteZahl) && gespeicherteZahl >= 0) {
+            posteingangGesamt = gespeicherteZahl;
+          }
+        }
+      } catch {}
+    }
+
     raus.push({ konto: konto.name, konto_id: konto.id, wartend, posteingangGesamt, erreichbar: true });
   }
   return raus;

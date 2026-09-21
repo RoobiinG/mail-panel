@@ -23,13 +23,13 @@ router.get('/stats', (req, res) => {
       `).all();
     }
     
-    // Hole Liste der verfügbaren Konten für den Filter
-    const kontenRows = db.prepare(`
+    // Hole Liste aller aktiven Konten plus Konten aus den Logs für den Filter
+    const aktiveKonten = db.prepare('SELECT name FROM accounts WHERE aktiv = 1 ORDER BY name').all().map(r => r.name);
+    const logKonten = db.prepare(`
       SELECT DISTINCT konto FROM quarantine_log 
-      WHERE created_at >= date('now', '-30 days') 
-      ORDER BY konto
-    `).all();
-    const verfuegbareKonten = kontenRows.map(r => r.konto);
+      WHERE created_at >= date('now', '-30 days') AND konto IS NOT NULL AND konto != ''
+    `).all().map(r => r.konto);
+    const verfuegbareKonten = Array.from(new Set([...aktiveKonten, ...logKonten])).sort();
 
     const stats = {
       total: logs.length,

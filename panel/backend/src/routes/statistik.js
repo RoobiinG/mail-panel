@@ -180,10 +180,12 @@ router.get('/', (req, res) => {
       }
     })();
 
-    const konten = alle(
-      "SELECT DISTINCT konto FROM quarantine_log WHERE created_at >= datetime('now', ?) AND konto IS NOT NULL ORDER BY konto",
+    const aktiveKonten = alle('SELECT name FROM accounts WHERE aktiv = 1 ORDER BY name').map((z) => z.name);
+    const logKonten = alle(
+      "SELECT DISTINCT konto FROM quarantine_log WHERE created_at >= datetime('now', ?) AND konto IS NOT NULL AND konto != ''",
       [`-${tage} days`],
     ).map((z) => z.konto);
+    const konten = Array.from(new Set([...aktiveKonten, ...logKonten])).sort();
 
     res.json({
       ok: true,

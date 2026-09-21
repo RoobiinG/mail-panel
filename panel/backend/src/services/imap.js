@@ -673,6 +673,19 @@ async function ordnerInhaltLaden({ ordner, suche, limit = 100, seite = 1, mitUns
   }
 }
 
+// Schnelles Zählen der Nachrichten im Posteingang (ohne Umschläge/Bodies herunterzuladen).
+// Braucht nur einen einzigen IMAP-Roundtrip (EXAMINE INBOX).
+async function inboxZaehlen(konto) {
+  const client = verbindung(konto);
+  try {
+    await client.connect();
+    const mb = await client.mailboxOpen('INBOX', { readOnly: true });
+    return Number(mb?.exists) || 0;
+  } finally {
+    try { await client.logout(); } catch { /* Verbindung war schon zu */ }
+  }
+}
+
 module.exports = {
   testVerbindung,
   uidsAuflisten,
@@ -682,6 +695,7 @@ module.exports = {
   ordnerAnlegenPfad,
   ordnerAbonnieren,
   absenderZaehlen,
+  inboxZaehlen,
   ordnerDetails,
   mailVerschieben,
   mailsVerschieben,

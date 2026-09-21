@@ -228,12 +228,14 @@ async function kandidaten(grenze = 0) {
     try {
       const zugang = themen.zugang(konto);
       const ordnerDetails = await imap.ordnerDetails(zugang);
-      const scanOrdner = ordnerDetails.filter(o => o.auswaehlbar && !['trash', 'sent', 'drafts', 'junk'].includes(o.spezial));
+      const scanOrdner = ordnerDetails.filter(o => o.auswaehlbar && !['trash', 'sent', 'drafts', 'junk', 'all', 'flagged'].includes(o.spezial));
       
       // Posteingang (INBOX) nach vorn ziehen, damit er als erstes gescannt wird
       scanOrdner.sort((a, b) => {
-        if (a.spezial === 'inbox') return -1;
-        if (b.spezial === 'inbox') return 1;
+        const aInbox = a.spezial === 'inbox' || String(a.pfad || '').toUpperCase() === 'INBOX';
+        const bInbox = b.spezial === 'inbox' || String(b.pfad || '').toUpperCase() === 'INBOX';
+        if (aInbox && !bInbox) return -1;
+        if (!aInbox && bInbox) return 1;
         return 0;
       });
 
