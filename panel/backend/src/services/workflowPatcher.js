@@ -1104,7 +1104,7 @@ async function triageSynchronisieren(konten, credentialId, aktionenWorkflowId) {
   altlastenEntfernen(workflow);
   if (credentialId) panelKnotenVerdrahten(workflow, credentialId);
   patchAntwortParsen(workflow);
-  geminiRequestReparieren(workflow);
+  kiRequestReparieren(workflow);
   kiAntwortLesenAngleichen(workflow);
   anhangKetteReparieren(workflow, NORMALISIERER['01']);
   absenderFallbackEinbauen(workflow, NORMALISIERER['01']);

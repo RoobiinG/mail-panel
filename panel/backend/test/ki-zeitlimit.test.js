@@ -43,7 +43,7 @@ describe('Der KI-Knoten bekommt ein Zeitlimit', () => {
   test('mit Ollama — und großzügiger, weil die eigene Maschine rechnet', () => {
     settings.setze('ki_anbieter', 'ollama');
     const wf = kiWorkflow('http://ollama:11434/api/generate');
-    patcher.geminiRequestReparieren(wf);
+    patcher.kiRequestReparieren(wf);
     const k = wf.nodes[0];
     assert.equal(k.parameters.options.timeout, patcher.KI_ZEITLIMIT_OLLAMA);
     assert.ok(patcher.KI_ZEITLIMIT_OLLAMA > patcher.KI_ZEITLIMIT_GEMINI);
@@ -55,7 +55,7 @@ describe('Der KI-Knoten bekommt ein Zeitlimit', () => {
   test('mit Ollama wird höchstens zweimal angesetzt', () => {
     settings.setze('ki_anbieter', 'ollama');
     const wf = kiWorkflow('http://ollama:11434/api/generate');
-    patcher.geminiRequestReparieren(wf);
+    patcher.kiRequestReparieren(wf);
     assert.equal(wf.nodes[0].maxTries, 2);
     assert.equal(wf.nodes[0].retryOnFail, true);
   });
@@ -63,8 +63,8 @@ describe('Der KI-Knoten bekommt ein Zeitlimit', () => {
   test('das Zeitlimit überlebt einen zweiten Abgleich unverändert', () => {
     settings.setze('ki_anbieter', 'ollama');
     const wf = kiWorkflow('http://ollama:11434/api/generate');
-    patcher.geminiRequestReparieren(wf);
-    const nochmal = patcher.geminiRequestReparieren(wf);
+    patcher.kiRequestReparieren(wf);
+    const nochmal = patcher.kiRequestReparieren(wf);
     assert.equal(nochmal, false, 'ein zweiter Lauf darf nichts mehr aendern');
     assert.equal(wf.nodes[0].parameters.options.timeout, patcher.KI_ZEITLIMIT_OLLAMA);
   });
@@ -76,7 +76,7 @@ describe('Der KI-Knoten bekommt ein Zeitlimit', () => {
     settings.setze('ki_anbieter', 'ollama');
     const wf = kiWorkflow('http://ollama:11434/api/generate');
     wf.nodes[0].parameters.options = { timeout: 30000 };
-    patcher.geminiRequestReparieren(wf);
+    patcher.kiRequestReparieren(wf);
     assert.equal(wf.nodes[0].parameters.options.timeout, 30000);
   });
 });

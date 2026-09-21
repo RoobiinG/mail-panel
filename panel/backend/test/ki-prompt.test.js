@@ -49,7 +49,7 @@ describe('Der Prompt-Ausdruck fragt beide Feldnamen ab', () => {
   test('Ollama: promptText mit text als Rückfall', () => {
     settings.setze('ki_anbieter', 'ollama');
     const wf = knotenMit(altesOllamaBody, OLLAMA_URL);
-    patcher.geminiRequestReparieren(wf);
+    patcher.kiRequestReparieren(wf);
     const body = wf.nodes[0].parameters.jsonBody;
     assert.match(body, /\$json\.promptText \|\| \$json\.text/,
       `ohne den Rückfall geht ein leerer Prompt hinaus: ${body}`);
@@ -58,9 +58,9 @@ describe('Der Prompt-Ausdruck fragt beide Feldnamen ab', () => {
   test('ein bereits umgestellter Knoten wird nicht doppelt umgebaut', () => {
     settings.setze('ki_anbieter', 'ollama');
     const wf = knotenMit(altesOllamaBody, OLLAMA_URL);
-    patcher.geminiRequestReparieren(wf);
+    patcher.kiRequestReparieren(wf);
     const einmal = wf.nodes[0].parameters.jsonBody;
-    patcher.geminiRequestReparieren(wf);
+    patcher.kiRequestReparieren(wf);
     assert.equal(wf.nodes[0].parameters.jsonBody, einmal, 'jeder Sync schriebe sonst dasselbe neu');
     assert.equal((einmal.match(/\$json\.text/g) || []).length, 1);
   });
@@ -71,7 +71,7 @@ describe('Der Prompt-Ausdruck fragt beide Feldnamen ab', () => {
     settings.setze('ki_anbieter', 'ollama');
     const eigen = "={{ JSON.stringify({ model: 'x', prompt: String($('Prüfung auswerten').item.json.promptText), stream: false }) }}";
     const wf = knotenMit(eigen, OLLAMA_URL);
-    patcher.geminiRequestReparieren(wf);
+    patcher.kiRequestReparieren(wf);
     assert.match(wf.nodes[0].parameters.jsonBody, /Prüfung auswerten/);
   });
 });
@@ -83,7 +83,7 @@ describe('Die Antwortlänge ist begrenzt', () => {
   test('der Ollama-Rumpf setzt num_predict', () => {
     settings.setze('ki_anbieter', 'ollama');
     const wf = knotenMit(altesOllamaBody, OLLAMA_URL);
-    patcher.geminiRequestReparieren(wf);
+    patcher.kiRequestReparieren(wf);
     const body = wf.nodes[0].parameters.jsonBody;
     assert.match(body, /num_predict:\s*\d+/, 'ohne Grenze schreibt Ollama bis zum Zeitlimit');
     const n = Number(body.match(/num_predict:\s*(\d+)/)[1]);

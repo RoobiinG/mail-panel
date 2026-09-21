@@ -132,7 +132,7 @@ describe('Workflow 02: der Knoten holt den fertigen Text vom Panel', () => {
     const wf = workflow();
     patcher.digestKnotenUmbauen(wf);
     patcher.panelKnotenVerdrahten(wf, 'cred-7');
-    patcher.geminiRequestReparieren(wf);
+    patcher.kiRequestReparieren(wf);
     patcher.kiKnotenNeutralBenennen(wf);
     patcher.panelZeitlimitSetzen(wf);
 

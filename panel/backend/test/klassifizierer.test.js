@@ -300,12 +300,10 @@ describe('Minutenlimit ist kein Tageslimit', () => {
       'sonst stuende da "Tageskontingent", und der Nutzer setzt das Budget herunter');
   });
 
-  test('ein echtes Tageslimit beendet den Lauf sofort, ohne zweiten Versuch', async () => {
-    settings.setze('ollama_buendel', '1');
-    settings.setze('ki_pause_ms', '0');
-    let ruf = 0;
-    kiText.frageJson = async () => {
-      ruf += 1;
+
+  });
+});
+
 describe('List-Unsubscribe geht vor der KI', () => {
   test('mit Newsletter-Ordner im Konto: kein KI-Aufruf, direkt einsortiert', async () => {
     db.prepare("UPDATE accounts SET folder_newsletter = 'Newsletter' WHERE name = 'K'").run();

@@ -90,7 +90,7 @@ describe('Der Prompt bekommt nur so viel Platz, wie übrig bleibt', () => {
 describe('Der Workflow-Knoten schickt num_ctx mit', () => {
   test('der Ollama-Rumpf nennt das Fenster', () => {
     const wf = knotenMit(altesOllamaBody, OLLAMA_URL);
-    patcher.geminiRequestReparieren(wf);
+    patcher.kiRequestReparieren(wf);
     const body = wf.nodes[0].parameters.jsonBody;
     assert.match(body, /num_ctx:\s*\d+/,
       'ohne num_ctx schneidet Ollama den Prompt vorne ab — dort steht die Anweisung');
@@ -99,17 +99,17 @@ describe('Der Workflow-Knoten schickt num_ctx mit', () => {
 
   test('eine geänderte Einstellung landet beim nächsten Abgleich im Knoten', () => {
     const wf = knotenMit(altesOllamaBody, OLLAMA_URL);
-    patcher.geminiRequestReparieren(wf);
+    patcher.kiRequestReparieren(wf);
     settings.setze('ollama_kontext', '16384');
-    assert.equal(patcher.geminiRequestReparieren(wf), true, 'der Abgleich muss das merken');
+    assert.equal(patcher.kiRequestReparieren(wf), true, 'der Abgleich muss das merken');
     assert.match(wf.nodes[0].parameters.jsonBody, /num_ctx:\s*16384/);
   });
 
   test('zweimal derselbe Abgleich ändert nichts mehr', () => {
     const wf = knotenMit(altesOllamaBody, OLLAMA_URL);
-    patcher.geminiRequestReparieren(wf);
+    patcher.kiRequestReparieren(wf);
     const einmal = wf.nodes[0].parameters.jsonBody;
-    patcher.geminiRequestReparieren(wf);
+    patcher.kiRequestReparieren(wf);
     assert.equal(wf.nodes[0].parameters.jsonBody, einmal);
   });
 

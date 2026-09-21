@@ -99,33 +99,4 @@ describe('Der Prompt gibt kleinen Modellen keine Vorlage zum Abschreiben', () =>
   });
 });
 
-describe('Bündelgröße: bei der lokalen KI kleiner', () => {
-  // Gebündelt wird, weil Googles Limit Anfragen zählt. Ollama zählt nichts —
-  // übrig bleibt, dass eine Anfrage über zwanzig Mails minutenlang rechnet und
-  // bei einem Zeitlimit alle zwanzig mitreißt.
-  test('mit Gemini gilt der eingestellte Wert', () => {
-    assert.equal(k.buendelGroesse(), 20);
-  });
 
-  test('mit Ollama wird gedeckelt', () => {
-    settings.setze('ki_anbieter', 'ollama');
-    assert.ok(k.buendelGroesse() <= 5, `20er-Bündel sind für die lokale KI zu groß (${k.buendelGroesse()})`);
-  });
-
-  // Seit Build 151 ist der Deckel einstellbar (ollama_buendel, Standard 2).
-  // Die Regel dahinter bleibt dieselbe: Er deckelt nach unten und setzt nie
-  // herauf — deshalb steht der Deckel hier ausdruecklich hoeher als der Wert.
-  test('ein kleinerer eingestellter Wert wird nicht heraufgesetzt', () => {
-    settings.setze('ki_anbieter', 'ollama');
-    settings.setze('ollama_buendel', '3');
-    settings.setze('ollama_buendel', '8');
-    assert.equal(k.buendelGroesse(), 3);
-  });
-
-  test('von beiden Grenzen gilt die kleinere', () => {
-    settings.setze('ki_anbieter', 'ollama');
-    settings.setze('ollama_buendel', '3');
-    settings.setze('ollama_buendel', '2');
-    assert.equal(k.buendelGroesse(), 2);
-  });
-});

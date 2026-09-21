@@ -149,7 +149,7 @@ describe('Nach dem Umbenennen findet der Patcher den Knoten weiter', () => {
   test('und der Rumpf wird auch danach noch repariert', () => {
     const wf = workflowMit('Gemini klassifizieren');
     patcher.kiKnotenNeutralBenennen(wf);
-    assert.equal(patcher.geminiRequestReparieren(wf), true);
+    assert.equal(patcher.kiRequestReparieren(wf), true);
     assert.match(wf.nodes.find((k) => k.name === patcher.KI_NAME).parameters.jsonBody, /num_ctx/);
   });
 });
