@@ -181,12 +181,12 @@ async function kontoDurchgehen(konto, { trockenlauf, rest }) {
     const fuerKI = [];
     const e = einstellungen();
     if (rest.uebrig > 0 && e.kiAktiv) {
-        for (const m of mails) {
-            const regel = regeln.find((r) => sortierung.passt(r, m.von, m.betreff));
-            if (!regel && !themen.istGelernt(konto.id, quelle, m.von)) {
-                fuerKI.push(m);
-            }
+      for (const m of mails) {
+        const regel = regeln.find((r) => sortierung.passt(r, m.von, m.betreff));
+        if (!regel && !themen.istGelernt(konto.id, quelle, m.von, m.betreff)) {
+          fuerKI.push(m);
         }
+      }
     }
 
     // KI-Vorschläge berechnen
@@ -195,9 +195,6 @@ async function kontoDurchgehen(konto, { trockenlauf, rest }) {
       const kiBuendelGroesse = zahl('ollama_buendel', 2, 1, 10);
       const batchKI = fuerKI.slice(0, kiBuendelGroesse);
       try {
-        const voll = await imap.ordnerInhaltLaden({ ...zugang, ordner: quelle, suche: batchKI.map(m => String(m.uid)).join(',') });
-        // Wir brauchen den Volltext! ordnerInhaltLaden bringt keinen Text.
-        // Also mailLaden
         const geladen = [];
         for (const m of batchKI) {
            try {

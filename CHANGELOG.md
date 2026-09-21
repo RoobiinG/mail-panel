@@ -2,6 +2,19 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [7.1.1.3] - 2026-09-21 (Build 249) — *themen.istGelernt implementiert*
+
+### Bugfixes
+- **Nachsortierung-Fehler behoben:**
+  - `themen.js`: Fehlende Funktion `istGelernt(kontoOderId, ordner, von, betreff)` implementiert und exportiert, damit die KI-Nachsortierung nicht mit `themen.istGelernt is not a function` abbricht.
+  - `nachsortierung.js`: Übergibt zusätzlich `betreff` an `istGelernt` und entfernt überflüssigen `ordnerInhaltLaden`-Aufruf.
+  - `themen.test.js`: Unit-Tests für `istGelernt()` ergänzt.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Datenbank-Migrationen:** Keine.
+- **n8n-Workflow:** Keine Änderungen, kein Neu-Import nötig.
+- **Neustart-/Session:** Kein Logout erforderlich.
+
 ## [7.1.1.2] - 2026-09-21 (Build 248) — *Klassifizierer-Tests bereinigt*
 
 ### Bugfixes

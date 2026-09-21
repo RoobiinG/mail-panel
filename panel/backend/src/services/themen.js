@@ -466,6 +466,42 @@ function gelerntLeeren(ordnerId) {
   } catch { return false; }
 }
 
+/**
+ * Prüft, ob ein Absender (oder seine Domain) für einen bestimmten Ordner bereits gelernt ist
+ * oder per StichwortTreffer diesem Ordner zugeordnet ist.
+ * @param {number|object} kontoOderId Konto-ID oder Konto-Objekt
+ * @param {string} ordner Name des Ordners
+ * @param {string} von Absender-Adresse
+ * @param {string} [betreff] Betreff der Mail
+ * @returns {boolean}
+ */
+function istGelernt(kontoOderId, ordner, von, betreff = '') {
+  const kontoId = typeof kontoOderId === 'object' && kontoOderId !== null ? kontoOderId.id : Number(kontoOderId);
+  const domain = typeof von === 'string' && von.includes('@') ? sortierung.domain(von) : String(von || '');
+  if (!kontoId || !ordner) return false;
+  try {
+    if (domain) {
+      const eintrag = db.prepare('SELECT id, gelernt FROM konto_ordner WHERE konto_id = ? AND ordner = ?')
+        .get(kontoId, ordner);
+      if (eintrag && eintrag.gelernt) {
+        const dom = domain.toLowerCase();
+        const treffer = gelernteListe(eintrag).some((d) => {
+          const k = d.toLowerCase();
+          return k === dom || dom.endsWith(`.${k}`);
+        });
+        if (treffer) return true;
+      }
+    }
+    const treffer = stichwortTreffer(kontoId, von, betreff);
+    if (treffer && treffer.ordner && treffer.ordner.toLowerCase() === ordner.toLowerCase()) {
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 const BETREFF_MINDESTLAENGE = 5;
 
 /**
@@ -1222,6 +1258,7 @@ module.exports = {
   gelerntBelegt,
   gelerntVergessen,
   gelerntLeeren,
+  istGelernt,
   aehnlich,
   levenshtein,
   stamm,
