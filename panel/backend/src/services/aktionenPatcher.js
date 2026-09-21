@@ -296,9 +296,9 @@ for (const mail of $('${quellKnotenName}').all()) {
       fileSize: groesse,
       mimeType: /\.pdf$/i.test(fn) ? 'application/pdf' : 'application/octet-stream',
     };
-    if (!istPdf(datei, fn)) continue;
-    if (BLOCK.test(fn)) continue;
-    if (groesse && groesse < 5000) continue;
+    if (!istPdf(datei, fn)) { console.log('Anhang "' + fn + '" übersprungen: kein PDF'); continue; }
+    if (BLOCK.test(fn)) { console.log('Anhang "' + fn + '" übersprungen: Dateiname passt auf die Sperrliste'); continue; }
+    if (groesse && groesse < 5000) { console.log('Anhang "' + fn + '" übersprungen: kleiner als 5 KB (' + groesse + ' Byte)'); continue; }
     let firma = firmaAus(mail.json.von);
     let datum = heute();
     let aktenzeichen = '';${leseBlock}
@@ -356,11 +356,48 @@ function nextcloudDateiKnoten(aktion, konfig, position, credentialId) {
     type: 'n8n-nodes-base.nextCloud',
     typeVersion: 1,
     position,
-    alwaysOutputData: true,
-    onError: 'continueRegularOutput',
+    // Ein fehlgeschlagener Upload (falsches Passwort, volle Quota, falscher
+    // Pfad) soll nicht den ganzen Lauf abbrechen — aber anders als bei den
+    // Ordner-Knoten ist hier JEDER Fehler ein echtes Problem, kein erwarteter
+    // Nebeneffekt. Deshalb kein alwaysOutputData/continueRegularOutput (das
+    // würde den Fehler wortlos verschlucken), sondern ein zweiter Ausgang
+    // nur für Fehler — der geht an nextcloudFehlerKnoten() und landet im
+    // Panel-Log, statt spurlos zu verschwinden.
+    onError: 'continueErrorOutput',
     credentials: credentialId
       ? { nextCloudApi: { id: String(credentialId), name: 'Mail-Panel: Nextcloud' } }
       : undefined,
+  };
+}
+
+// Fängt den Fehler-Ausgang von nextcloudDateiKnoten() ab und meldet ihn ans
+// Panel, damit ein fehlschlagender Upload im Log auftaucht statt nur in einem
+// n8n-Lauf zu verschwinden, den niemand ansieht.
+function nextcloudFehlerKnoten(aktion, position) {
+  const geheim = process.env.PANEL_SECRET || '';
+  const jsCode = String.raw`// Vom Mail-Panel gepflegt, bitte nicht von Hand ändern.
+const __geheim = ${JSON.stringify(geheim)};
+for (const item of $input.all()) {
+  const j = item.json || {};
+  const fehler = String((j.error && (j.error.message || j.error)) || j.message || 'unbekannter Fehler');
+  try {
+    await this.helpers.httpRequest({
+      method: 'POST', url: 'http://panel:3002/api/internal/nextcloud-fehler',
+      headers: { 'X-Panel-Secret': __geheim, 'Content-Type': 'application/json' },
+      body: { aktion_name: ${JSON.stringify(String(aktion.name || ''))}, dateiname: j.dateiname || '', fehler },
+      json: true,
+    });
+  } catch (e) { console.log('Nextcloud-Fehler nicht meldbar: ' + (e.message || e)); }
+}
+return [];`;
+
+  return {
+    parameters: { mode: 'runOnceForAllItems', jsCode },
+    id: `${PRAEFIX}aktion-${aktion.id}-fehler`,
+    name: `Nextcloud-Fehler melden: ${aktion.name}`,
+    type: 'n8n-nodes-base.code',
+    typeVersion: 2,
+    position,
   };
 }
 
@@ -625,9 +662,13 @@ async function synchronisieren() {
 
       const bereit = belegBereitstellenKnoten(a, beleg.name, [x, y]);
       const upload = nextcloudDateiKnoten(a, a.konfig, [x + 220, y], nextcloudCred);
-      workflow.nodes.push(bereit, upload);
+      const fehler = nextcloudFehlerKnoten(a, [x + 220, y + 150]);
+      workflow.nodes.push(bereit, upload, fehler);
       workflow.connections[vorheriger] = { main: [[{ node: bereit.name, type: 'main', index: 0 }]] };
       workflow.connections[bereit.name] = { main: [[{ node: upload.name, type: 'main', index: 0 }]] };
+      // Ausgang 0 = erfolgreich hochgeladen (nichts weiter zu tun), Ausgang 1 =
+      // fehlgeschlagen → an den Melde-Knoten.
+      workflow.connections[upload.name] = { main: [[], [{ node: fehler.name, type: 'main', index: 0 }]] };
     } else if (a.typ === 'google_kalender') {
       const token = googleTokenKnoten(a, [480, y], panelCred);
       const termin = googleKalenderKnoten(a, a.konfig, [720, y], wenn.name);
@@ -655,5 +696,6 @@ async function synchronisieren() {
 module.exports = {
   synchronisieren, veroeffentlichen, ausdruck, pfadSaeubern,
   belegDatenKnoten, belegBereitstellenKnoten, ordnerKnoten, bedingungsKnoten, freigabeKnoten,
+  nextcloudDateiKnoten, nextcloudFehlerKnoten,
   jsPlatzhalter,
 };

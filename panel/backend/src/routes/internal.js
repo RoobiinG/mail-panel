@@ -477,6 +477,20 @@ router.post('/log', (req, res) => {
   res.json({ ok: true });
 });
 
+// Der Nextcloud-Ordner-/Upload-Knoten in Workflow 07 läuft absichtlich mit
+// onError: continueErrorOutput weiter (ein einzelner fehlgeschlagener Beleg
+// soll nicht den ganzen Lauf stoppen). Damit ein echter Fehler (falsches
+// Passwort, volle Quota, falscher Pfad) trotzdem sichtbar wird, meldet der
+// nachgeschaltete Fehler-Knoten ihn hierüber ins Panel-Log.
+router.post('/nextcloud-fehler', (req, res) => {
+  const b = req.body || {};
+  const dateiname = String(b.dateiname || '').slice(0, 200);
+  const aktion = String(b.aktion_name || '').slice(0, 200);
+  const fehler = String(b.fehler || 'unbekannt').slice(0, 500);
+  loggen('error', 'aktionen:nextcloud', `Upload fehlgeschlagen (Aktion "${aktion}", Datei "${dateiname}"): ${fehler}`);
+  res.json({ ok: true });
+});
+
 // Letzter Schritt der Triage: protokollieren und den endgueltigen Zielordner
 // festlegen. Der Workflow liefert seine Kategorie-Entscheidung mit, das Panel
 // entscheidet darueber hinaus ueber das Thema — denn nur hier laesst sich der

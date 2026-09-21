@@ -88,3 +88,25 @@ describe('belegBereitstellenKnoten', () => {
     gueltig(code);
   });
 });
+
+// Ein fehlgeschlagener Nextcloud-Upload darf nicht mehr wortlos als Erfolg
+// durchgehen (das war der Grund, warum PDFs "verschwanden", ohne dass es
+// irgendwo auftauchte). Deshalb: eigener Fehler-Ausgang + Meldung ans Panel.
+describe('nextcloudDateiKnoten: Fehler werden nicht mehr verschluckt', () => {
+  const knoten = patcher.nextcloudDateiKnoten(AKTION, { ordner: 'Belege' }, [0, 0], null);
+  test('kein alwaysOutputData/continueRegularOutput mehr', () => {
+    assert.equal(knoten.onError, 'continueErrorOutput');
+    assert.notEqual(knoten.alwaysOutputData, true);
+  });
+});
+
+describe('nextcloudFehlerKnoten', () => {
+  const code = patcher.nextcloudFehlerKnoten(AKTION, [0, 0]).parameters.jsCode;
+  test('meldet den Fehler ans Panel', () => {
+    assert.match(code, /api\/internal\/nextcloud-fehler/);
+    assert.match(code, /X-Panel-Secret/);
+    assert.match(code, /test-geheim-xyz/);
+    assert.match(code, /\$input\.all\(\)/);
+  });
+  test('ist gültiges JavaScript', () => gueltig(code));
+});
