@@ -32,7 +32,7 @@ beforeEach(() => {
     + ' DELETE FROM accounts; DELETE FROM bestand_erledigt;');
   db.prepare("DELETE FROM settings WHERE key LIKE 'gemini_%' OR key LIKE 'ki_%'"
     + " OR key LIKE 'ollama_%' OR key LIKE 'bestand_%'").run();
-  settings.setze('gemini_buendel', '1');
+  settings.setze('ollama_buendel', '1');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -80,7 +80,7 @@ describe('Ein wiederholter Betreff ist keine schon gesehene Mail', () => {
   });
 
   test('entscheiden() reicht die UID durch', () => {
-    settings.setze('gemini_tagesbudget', '100');
+    settings.setze('ki_tagesbudget', '100');
     inbox('K', 'a@x.de', 'Newsletter', 1);
     const e = budget.entscheiden([
       { konto: 'K', von: 'a@x.de', betreff: 'Newsletter', uid: 1 },   // dieselbe

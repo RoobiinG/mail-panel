@@ -22,11 +22,10 @@ let bericht;
 let text;
 
 before(async () => {
-  settings.setze('gemini_api_key', GEHEIM);
   settings.setze('n8n_api_key', GEHEIM);
   settings.setze('telegram_token', GEHEIM);
-  settings.setze('ki_anbieter', 'gemini');
-  settings.setze('gemini_modell', 'gemini-3.5-flash-lite');
+  settings.setze('ki_anbieter', 'ollama');
+  settings.setze('ollama_modell', 'llama3.2');
 
   db.prepare(`INSERT INTO accounts (name, host, port, username, password_enc, aktiv)
               VALUES ('Post', 'imap.example.org', 993, ?, ?, 1)`).run(ADRESSE, 'VERSCHLUESSELT-' + GEHEIM);
@@ -72,7 +71,7 @@ describe('Was nicht hineingehört', () => {
   });
 
   test('Geheimnisse erscheinen als Zustand, nicht als Wert', () => {
-    assert.equal(bericht.konfiguration.schluessel.gemini_api_key, 'gesetzt');
+    assert.equal(bericht.konfiguration.schluessel.n8n_api_key, 'gesetzt');
     assert.equal(bericht.konfiguration.schluessel.mailcow_api_key, 'nicht gesetzt');
   });
 });

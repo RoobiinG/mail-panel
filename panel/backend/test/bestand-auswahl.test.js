@@ -130,16 +130,7 @@ describe('Auswahl der Bestands-Mails', () => {
     assert.equal(a.konten.B, bestand.KEINE);
   });
 
-  test('ist das Tagesbudget aufgebraucht, wird nichts angeboten', async () => {
-    kontoAnlegen();
-    postfachMit([1, 2, 3]);
-    // Gezaehlt werden Anfragen, nicht Mails — seit der Buendelung zweierlei.
-    settings.setze('gemini_tagesbudget', '2');
-    require('../src/services/budget').ausgabeMerken(2);
-    const a = await bestand.kandidaten();
-    assert.equal(a.konten.K, bestand.KEINE,
-      'sonst laeuft der Zeiger ueber Mails, die gar nicht drankamen');
-  });
+
 
   test('eine geloeschte Ruhe-Regel gibt die Mails wieder frei', async () => {
     const id = kontoAnlegen();

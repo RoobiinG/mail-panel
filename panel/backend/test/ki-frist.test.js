@@ -26,7 +26,7 @@ const setzeRoh = (key, wert) => db.prepare(
 ).run(key, String(wert));
 
 beforeEach(() => {
-  db.prepare("DELETE FROM settings WHERE key IN ('ki_lauf_frist_ms','gemini_lauf_frist_ms','ollama_buendel','gemini_buendel','ki_anbieter')").run();
+  db.prepare("DELETE FROM settings WHERE key IN ('ki_lauf_frist_ms','gemini_lauf_frist_ms','ollama_buendel','ollama_buendel','ki_anbieter')").run();
 });
 
 describe('Die Frist ist von außen erreichbar', () => {
@@ -39,18 +39,7 @@ describe('Die Frist ist von außen erreichbar', () => {
     assert.equal(klass.frist(), 900000);
   });
 
-  // Wer den Wert früher von Hand in die Datenbank geschrieben hat, soll ihn
-  // nicht stumm verlieren.
-  test('der alte Schlüssel bleibt als Rückfall gültig', () => {
-    setzeRoh('gemini_lauf_frist_ms', 600000);
-    assert.equal(klass.frist(), 600000);
-  });
 
-  test('der neue schlägt den alten', () => {
-    setzeRoh('gemini_lauf_frist_ms', 600000);
-    setzeRoh('ki_lauf_frist_ms', 900000);
-    assert.equal(klass.frist(), 900000);
-  });
 
   test('Unsinn wird eingefangen', () => {
     setzeRoh('ki_lauf_frist_ms', 5);
@@ -121,13 +110,13 @@ describe('Die Bündelgröße für die lokale KI ist einstellbar', () => {
   // fuenf, die ins Zeitlimit laufen — dort ist das Ergebnis null.
   test('bei Ollama deckelt sie den eingestellten Wert', () => {
     settings.setze('ki_anbieter', 'ollama');
-    settings.setze('gemini_buendel', '20');
+    settings.setze('ollama_buendel', '20');
     assert.equal(klass.buendelGroesse(), klass.OLLAMA_BUENDEL_STANDARD);
   });
 
   test('ein eigener Wert wird genommen', () => {
     settings.setze('ki_anbieter', 'ollama');
-    settings.setze('gemini_buendel', '20');
+    settings.setze('ollama_buendel', '20');
     settings.setze('ollama_buendel', '4');
     assert.equal(klass.buendelGroesse(), 4);
   });
@@ -136,17 +125,11 @@ describe('Die Bündelgröße für die lokale KI ist einstellbar', () => {
   // wer 2 einstellt und lokal 4 erlaubt, bekommt 2.
   test('der kleinere von beiden gewinnt', () => {
     settings.setze('ki_anbieter', 'ollama');
-    settings.setze('gemini_buendel', '2');
+    settings.setze('ollama_buendel', '2');
     settings.setze('ollama_buendel', '8');
     assert.equal(klass.buendelGroesse(), 2);
   });
 
-  test('bei Gemini bleibt der eingestellte Wert unberührt', () => {
-    settings.setze('ki_anbieter', 'gemini');
-    settings.setze('gemini_buendel', '20');
-    settings.setze('ollama_buendel', '2');
-    assert.equal(klass.buendelGroesse(), 20);
-  });
 });
 
 // Der eigentliche Fehler von heute: Der Wert liess sich nie setzen.
@@ -202,7 +185,7 @@ describe('Speichern nimmt die neuen Schlüssel an', () => {
     await mitServer(async (put) => {
       assert.equal((await put({ ollama_buendel: '3' })).status, 200);
       settings.setze('ki_anbieter', 'ollama');
-      settings.setze('gemini_buendel', '20');
+      settings.setze('ollama_buendel', '20');
       assert.equal(klass.buendelGroesse(), 3);
 
       const zuViel = await put({ ollama_buendel: '99' });

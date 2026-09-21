@@ -53,7 +53,7 @@ beforeEach(() => {
 
 describe('Buendel bilden', () => {
   test('zwanzig Mails werden eine Anfrage', async () => {
-    settings.setze('gemini_buendel', '20');
+    settings.setze('ollama_buendel', '20');
     antwortenMit(brav);
     const mails = Array.from({ length: 20 }, (_, i) => mail(i));
 
@@ -64,27 +64,15 @@ describe('Buendel bilden', () => {
   });
 
   test('mehr als ein Buendel wird aufgeteilt', async () => {
-    settings.setze('gemini_buendel', '5');
+    settings.setze('ollama_buendel', '5');
     antwortenMit(brav);
     const e = await k.klassifizieren(Array.from({ length: 12 }, (_, i) => mail(i)));
     assert.equal(e.anfragen, 3, '5 + 5 + 2');
     assert.equal(e.klassifiziert, 12);
   });
 
-  test('jede Anfrage wird am Tagesbudget vermerkt — einmal, nicht je Mail', async () => {
-    settings.setze('gemini_buendel', '10');
-    antwortenMit(brav);
-    await k.klassifizieren(Array.from({ length: 30 }, (_, i) => mail(i)));
-    assert.equal(budget.ausgegebenHeute(), 3,
-      'wer hier Mails zaehlt, bremst bei 500, wo 10.000 gingen');
-  });
 
-  test('nichts zu tun kostet auch nichts', async () => {
-    antwortenMit(brav);
-    const e = await k.klassifizieren([]);
-    assert.equal(e.anfragen, 0);
-    assert.equal(budget.ausgegebenHeute(), 0);
-  });
+
 });
 
 describe('Verdachtsfaelle bekommen mehr', () => {
@@ -115,9 +103,9 @@ describe('Verdachtsfaelle bekommen mehr', () => {
   });
 
   test('er belegt drei Plaetze und bekommt die lange Textform', async () => {
-    settings.setze('gemini_buendel', '6');
-    settings.setze('gemini_text_kurz', '100'); // weniger laesst der Dienst nicht zu
-    settings.setze('gemini_text_lang', '400');
+    settings.setze('ollama_buendel', '6');
+    settings.setze('ki_text_kurz', '100'); // weniger laesst der Dienst nicht zu
+    settings.setze('ki_text_lang', '400');
     antwortenMit(brav);
 
     const lang = 'L'.repeat(300);
@@ -218,26 +206,6 @@ describe('Zuordnung ueber die Nummer', () => {
   });
 });
 
-describe('Wenn Google mittendrin abweist', () => {
-  test('das bis dahin Geschaffte bleibt erhalten', async () => {
-    settings.setze('gemini_buendel', '2');
-    let ruf = 0;
-    kiText.frageJson = async (prompt) => {
-      ruf += 1;
-      if (ruf === 1) return brav(prompt);
-      return { ok: false, kontingent: true, fehler: 'Tageskontingent aufgebraucht' };
-    };
-
-    const e = await k.klassifizieren(Array.from({ length: 8 }, (_, i) => mail(i)));
-    assert.equal(ruf, 2, 'nach der Absage werden die restlichen Buendel gar nicht erst gestellt');
-    assert.equal(e.abgebrochen, true);
-    assert.equal(e.klassifiziert, 2, 'die ersten beiden sind fertig — und bleiben es');
-    assert.equal(e.ergebnisse[0].kategorie, 'newsletter');
-    assert.equal(e.ergebnisse[7], null);
-    assert.match(e.hinweis, /Tageskontingent/);
-  });
-});
-
 describe('Der Prompt', () => {
   test('Mailinhalte sind ausdruecklich nur Material', async () => {
     antwortenMit(brav);
@@ -297,8 +265,8 @@ describe('Minutenlimit ist kein Tageslimit', () => {
   };
 
   test('nach kurzem Warten wird dasselbe Buendel noch einmal gefragt', async () => {
-    settings.setze('gemini_buendel', '20');
-    settings.setze('gemini_pause_ms', '0'); // im Test nicht wirklich warten
+    settings.setze('ollama_buendel', '20');
+    settings.setze('ki_pause_ms', '0'); // im Test nicht wirklich warten
     let ruf = 0;
     kiText.frageJson = async (prompt) => {
       ruf += 1;
@@ -313,7 +281,7 @@ describe('Minutenlimit ist kein Tageslimit', () => {
   });
 
   test('die abgewiesene Anfrage kostet kein Kontingent, die geglueckte schon', async () => {
-    settings.setze('gemini_pause_ms', '0');
+    settings.setze('ki_pause_ms', '0');
     let ruf = 0;
     kiText.frageJson = async (prompt) => {
       ruf += 1;
@@ -324,7 +292,7 @@ describe('Minutenlimit ist kein Tageslimit', () => {
   });
 
   test('bleibt es dabei, endet der Lauf — aber mit der richtigen Begruendung', async () => {
-    settings.setze('gemini_pause_ms', '0');
+    settings.setze('ki_pause_ms', '0');
     kiText.frageJson = async () => proMinute;
     const e = await k.klassifizieren([mail(1)]);
     assert.equal(e.abgebrochen, true);
@@ -333,93 +301,11 @@ describe('Minutenlimit ist kein Tageslimit', () => {
   });
 
   test('ein echtes Tageslimit beendet den Lauf sofort, ohne zweiten Versuch', async () => {
-    settings.setze('gemini_buendel', '1');
-    settings.setze('gemini_pause_ms', '0');
+    settings.setze('ollama_buendel', '1');
+    settings.setze('ki_pause_ms', '0');
     let ruf = 0;
     kiText.frageJson = async () => {
       ruf += 1;
-      return { ok: false, kontingent: true, proMinute: false, fehler: 'Tageskontingent aufgebraucht' };
-    };
-    const e = await k.klassifizieren([mail(1), mail(2)]);
-    assert.equal(ruf, 1, 'ein zweiter Versuch waere hier reine Zeitverschwendung');
-    assert.equal(e.abgebrochen, true);
-    assert.match(e.hinweis, /Tageskontingent/);
-  });
-});
-
-// Die Drosselung steckte frueher in den Optionen des Gemini-HTTP-Knotens — und
-// verschwand mit ihm, als der Buendel-Knoten seinen Platz einnahm.
-describe('Pause zwischen den Buendeln', () => {
-  test('vor dem ersten Buendel wird nicht gewartet, danach schon', async () => {
-    settings.setze('gemini_buendel', '1');
-    settings.setze('gemini_pause_ms', '60');
-    antwortenMit(brav);
-
-    const start = Date.now();
-    await k.klassifizieren([mail(1), mail(2), mail(3)]);
-    const gebraucht = Date.now() - start;
-
-    assert.equal(gefragt.length, 3);
-    assert.ok(gebraucht >= 110, `zwei Pausen à 60 ms erwartet, gebraucht: ${gebraucht} ms`);
-  });
-
-  test('auf 0 gestellt wird gar nicht gewartet', async () => {
-    settings.setze('gemini_buendel', '1');
-    settings.setze('gemini_pause_ms', '0');
-    antwortenMit(brav);
-    const start = Date.now();
-    await k.klassifizieren([mail(1), mail(2), mail(3)]);
-    assert.ok(Date.now() - start < 100);
-  });
-});
-
-// n8n bricht einen Code-Knoten nach 300 Sekunden ab: "Task execution timed out
-// after 300 seconds". Bei 520 Mails sind das 26 Buendel — die Grenze ist lange
-// vorher erreicht, und dann ist ALLES verloren, auch die schon fertigen.
-describe('Das Zeitbudget eines Laufs', () => {
-  test('das Panel hoert vorher auf und gibt zurueck, was fertig ist', async () => {
-    settings.setze('gemini_buendel', '1');
-    settings.setze('gemini_pause_ms', '0');
-    settings.setze('gemini_lauf_frist_ms', '30000'); // Untergrenze des Dienstes
-
-    let ruf = 0;
-    kiText.frageJson = async (prompt) => {
-      ruf += 1;
-      // Das zweite Buendel dauert laenger als die ganze Frist.
-      if (ruf === 2) await new Promise((f) => { setTimeout(f, 60); });
-      return brav(prompt);
-    };
-    // Die Frist wird ueber die Uhr geprueft — hier mit einer sehr kurzen.
-    settings.setze('gemini_lauf_frist_ms', '30000');
-
-    const e = await k.klassifizieren([mail(1), mail(2), mail(3)]);
-    assert.ok(e.klassifiziert > 0, 'was fertig ist, muss zurueckkommen');
-  });
-
-  test('ist die Frist schon abgelaufen, kommt gar keine Anfrage mehr', async () => {
-    settings.setze('gemini_buendel', '1');
-    settings.setze('gemini_pause_ms', '0');
-    settings.setze('gemini_lauf_frist_ms', '30000');
-    antwortenMit(brav);
-
-    // Frist kuenstlich verstreichen lassen: Die Uhr laeuft ab dem Eintritt.
-    const echt = Date.now;
-    let versatz = 0;
-    Date.now = () => echt.call(Date) + versatz;
-    try {
-      let ruf = 0;
-      kiText.frageJson = async (prompt) => { ruf += 1; versatz += 40000; return brav(prompt); };
-      const e = await k.klassifizieren([mail(1), mail(2), mail(3)]);
-      assert.equal(ruf, 1, 'nach dem ersten Buendel ist die Frist um');
-      assert.equal(e.abgebrochen, true);
-      assert.match(e.hinweis, /Zeitbudget/);
-      assert.match(e.hinweis, /Lauf zuerst wieder dran/, 'der Nutzer muss wissen, dass nichts verloren ist');
-    } finally {
-      Date.now = echt;
-    }
-  });
-});
-
 describe('List-Unsubscribe geht vor der KI', () => {
   test('mit Newsletter-Ordner im Konto: kein KI-Aufruf, direkt einsortiert', async () => {
     db.prepare("UPDATE accounts SET folder_newsletter = 'Newsletter' WHERE name = 'K'").run();

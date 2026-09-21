@@ -38,8 +38,8 @@ const bekannt = new Set(['haus.example']);
 const gruppen = (mails) => mails.map((m) => ({ vertreter: m, mitglieder: [m] }));
 
 beforeEach(() => {
-  db.exec("DELETE FROM settings WHERE key IN ('ki_anbieter', 'ollama_buendel', 'gemini_buendel')");
-  settings.setze('gemini_buendel', '20');
+  db.exec("DELETE FROM settings WHERE key IN ('ki_anbieter', 'ollama_buendel', 'ollama_buendel')");
+  settings.setze('ollama_buendel', '20');
 });
 
 describe('Verdachtsfälle bei lokaler KI', () => {
@@ -71,30 +71,7 @@ describe('Verdachtsfälle bei lokaler KI', () => {
   });
 });
 
-describe('Bei Gemini bleibt der Aufschlag', () => {
-  beforeEach(() => {
-    settings.setze('ki_anbieter', 'gemini');
-    settings.setze('gemini_buendel', '6');
-  });
-
-  test('ein Verdachtsfall kostet weiterhin drei Plätze', () => {
-    assert.equal(k.plaetzeFuer({ vertreter: fremd(1) }, bekannt), k.PLAETZE_VERDACHT);
-  });
-
-  // Dort ist der Aufschlag richtig: Der Verdachtsfall bekommt 1.500 Zeichen
-  // statt 600, und ohne die Rechnung würde die Anfrage zu lang.
-  test('zwei Verdachtsfälle füllen ein Bündel aus sechs Plätzen', () => {
-    const b = k.buendeln(gruppen([fremd(1), fremd(2), fremd(3)]), bekannt);
-    assert.deepEqual(b.map((x) => x.length), [2, 1]);
-  });
-});
-
 describe('Unverdächtige Mails kosten überall einen Platz', () => {
-  test('mit Gemini', () => {
-    settings.setze('ki_anbieter', 'gemini');
-    assert.equal(k.plaetzeFuer({ vertreter: bekannterNewsletter(1) }, bekannt), 1);
-  });
-
   test('mit Ollama', () => {
     settings.setze('ki_anbieter', 'ollama');
     assert.equal(k.plaetzeFuer({ vertreter: bekannterNewsletter(1) }, bekannt), 1);

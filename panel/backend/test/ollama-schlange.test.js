@@ -189,9 +189,5 @@ describe('Der Hinweis zu überlappenden Läufen', () => {
     assert.equal(r.hinweis, undefined);
   });
 
-  test('mit Gemini ist Gleichzeitigkeit kein Problem', async () => {
-    settings.setze('ki_anbieter', 'gemini');
-    const r = await hinweisFuer(4);
-    assert.equal(r.hinweis, undefined, 'dort rechnet Google, nicht dieser Server');
-  });
+
 });

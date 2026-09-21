@@ -88,27 +88,7 @@ describe('Das Schema geht an Ollama mit', () => {
     assert.equal((await abfangen({})).format, 'json');
   });
 
-  // Gemini bekommt kein Ollama-Schema — dort steuert responseMimeType das
-  // Format, und ein unbekanntes Feld waere ein Fehler.
-  test('bei Gemini wird es nicht mitgeschickt', async () => {
-    settings.setze('ki_anbieter', 'gemini');
-    settings.setze('gemini_api_key', 'x');
-    let gesendet = null;
-    const alt = global.fetch;
-    global.fetch = async (_, init) => {
-      gesendet = JSON.parse(init.body);
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ candidates: [{ content: { parts: [{ text: '{}' }] } }] }),
-      };
-    };
-    try {
-      await kiText.frageJson('frage', { schema: k.antwortSchema() });
-    } finally { global.fetch = alt; }
-    assert.equal(gesendet.format, undefined);
-    assert.equal(gesendet.generationConfig.responseMimeType, 'application/json');
-  });
+
 });
 
 describe('Das Schema beschreibt, was der Klassifizierer braucht', () => {

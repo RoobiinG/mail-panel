@@ -18,8 +18,8 @@ const settings = require('../src/services/settings');
 const k = require('../src/services/klassifizierer');
 
 beforeEach(() => {
-  settings.setze('ki_anbieter', 'gemini');
-  settings.setze('gemini_buendel', '20');
+  settings.setze('ki_anbieter', 'ollama');
+  settings.setze('ollama_buendel', '20');
 });
 
 describe('kategoriePruefen() — nur gültige Kategorien kommen durch', () => {
@@ -117,14 +117,14 @@ describe('Bündelgröße: bei der lokalen KI kleiner', () => {
   // herauf — deshalb steht der Deckel hier ausdruecklich hoeher als der Wert.
   test('ein kleinerer eingestellter Wert wird nicht heraufgesetzt', () => {
     settings.setze('ki_anbieter', 'ollama');
-    settings.setze('gemini_buendel', '3');
+    settings.setze('ollama_buendel', '3');
     settings.setze('ollama_buendel', '8');
     assert.equal(k.buendelGroesse(), 3);
   });
 
   test('von beiden Grenzen gilt die kleinere', () => {
     settings.setze('ki_anbieter', 'ollama');
-    settings.setze('gemini_buendel', '3');
+    settings.setze('ollama_buendel', '3');
     settings.setze('ollama_buendel', '2');
     assert.equal(k.buendelGroesse(), 2);
   });

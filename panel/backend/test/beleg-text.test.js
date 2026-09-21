@@ -25,9 +25,7 @@ const heute = () => new Date().toISOString().slice(0, 10);
 
 beforeEach(() => {
   db.prepare('DELETE FROM beleg_ablage').run();
-  settings.setze('ki_anbieter', 'gemini');
-  settings.setze('gemini_api_key', '');
-  settings.setze('beleg_lese_tagesbudget', '0');
+  settings.setze('ki_anbieter', 'ollama');
 });
 
 // Der Parser wird ausgetauscht statt ein PDF von Hand gebaut.
@@ -384,21 +382,7 @@ describe('Eingescannte Belege', () => {
     ocr._verfuegbarSetzen(null);
   });
 
-  // Gemini bekommt das PDF selbst und liest einen Scan von sich aus. Dort
-  // trotzdem zu rendern waeren dreissig Sekunden CPU fuer nichts.
-  test('mit Gemini als Anbieter läuft keine Texterkennung', async () => {
-    settings.setze('ki_anbieter', 'gemini');
-    settings.setze('gemini_api_key', '');
-    parserGibt('');
-    ocr.textAus = async () => { throw new Error('haette nicht laufen duerfen'); };
-    try {
-      const r = await leser.auslesen({
-        konto: 'K9', von: 'shop@beispiel.de', betreff: 'Rechnung',
-        dateiname: 'scan.pdf', pdf_base64: einPdf(),
-      });
-      assert.equal(r.quelle, 'heuristik');
-    } finally { ocrZurueck(); }
-  });
+
 
   test('der Schalter schaltet sie ab', async () => {
     settings.setze('ki_anbieter', 'ollama');

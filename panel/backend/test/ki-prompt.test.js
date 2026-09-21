@@ -40,7 +40,7 @@ const altesOllamaBody = "={{ JSON.stringify({ model: 'llama3.2:latest', prompt: 
 const altesGeminiBody = "={{ JSON.stringify({ contents: [{ parts: [{ text: String($json.promptText || '') }] }], generationConfig: { responseMimeType: 'application/json', temperature: 0.1 } }) }}";
 
 beforeEach(() => {
-  settings.setze('ki_anbieter', 'gemini');
+  settings.setze('ki_anbieter', 'ollama');
   settings.setze('ollama_url', 'http://ollama:11434');
   settings.setze('ollama_modell', 'llama3.2:latest');
 });
@@ -53,12 +53,6 @@ describe('Der Prompt-Ausdruck fragt beide Feldnamen ab', () => {
     const body = wf.nodes[0].parameters.jsonBody;
     assert.match(body, /\$json\.promptText \|\| \$json\.text/,
       `ohne den Rückfall geht ein leerer Prompt hinaus: ${body}`);
-  });
-
-  test('Gemini: derselbe Rückfall', () => {
-    const wf = knotenMit(altesGeminiBody, GEMINI_URL);
-    patcher.geminiRequestReparieren(wf);
-    assert.match(wf.nodes[0].parameters.jsonBody, /\$json\.promptText \|\| \$json\.text/);
   });
 
   test('ein bereits umgestellter Knoten wird nicht doppelt umgebaut', () => {

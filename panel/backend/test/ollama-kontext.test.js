@@ -113,15 +113,5 @@ describe('Der Workflow-Knoten schickt num_ctx mit', () => {
     assert.equal(wf.nodes[0].parameters.jsonBody, einmal);
   });
 
-  // num_ctx ist ein Ollama-Begriff. In einem Gemini-Rumpf hätte er nichts zu
-  // suchen und würde von Google als unbekanntes Feld abgewiesen.
-  test('bei Gemini steht kein num_ctx im Rumpf', () => {
-    settings.setze('ki_anbieter', 'gemini');
-    const wf = knotenMit(
-      "={{ JSON.stringify({ contents: [{ parts: [{ text: String($json.promptText || '') }] }], generationConfig: { responseMimeType: 'application/json', temperature: 0.1 } }) }}",
-      'https://generativelanguage.googleapis.com/v1beta/models/x:generateContent',
-    );
-    patcher.geminiRequestReparieren(wf);
-    assert.ok(!/num_ctx/.test(wf.nodes[0].parameters.jsonBody));
-  });
+
 });

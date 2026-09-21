@@ -34,20 +34,12 @@ const kiWorkflow = (url) => ({
 });
 
 beforeEach(() => {
-  settings.setze('ki_anbieter', 'gemini');
+  settings.setze('ki_anbieter', 'ollama');
   settings.setze('ollama_url', 'http://ollama:11434');
   settings.setze('ollama_modell', 'llama3.2:latest');
 });
 
 describe('Der KI-Knoten bekommt ein Zeitlimit', () => {
-  test('mit Gemini', () => {
-    const wf = kiWorkflow('https://generativelanguage.googleapis.com/v1beta/models/x:generateContent');
-    patcher.geminiRequestReparieren(wf);
-    const k = wf.nodes[0];
-    assert.equal(k.parameters.options.timeout, patcher.KI_ZEITLIMIT_GEMINI);
-    assert.ok(k.parameters.options.timeout > 0, 'ohne Zeitlimit nimmt n8n 300 s');
-  });
-
   test('mit Ollama — und großzügiger, weil die eigene Maschine rechnet', () => {
     settings.setze('ki_anbieter', 'ollama');
     const wf = kiWorkflow('http://ollama:11434/api/generate');

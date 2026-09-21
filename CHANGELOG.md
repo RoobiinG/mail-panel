@@ -2,6 +2,15 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [7.1.1.0] - 2026-09-21 (Build 246) — *Tests an Ollama angepasst*
+
+### Wartung
+- **Test-Suite bereinigt:** Alle verbleibenden Unit-Tests, die noch auf das Vorhandensein der Gemini-API, Google-spezifische `format`-Prüfungen oder Gemini-Kontingente vertraut haben, wurden gelöscht oder auf die ausschließliche Nutzung von Ollama umgeschrieben. Die KI-Tests setzen nun überall `ollama` als Anbieter voraus.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Datenbank-Migrationen:** Keine.
+- **n8n-Workflow:** Keine Änderungen.
+- **Neustart-/Session:** Kein Logout erforderlich.
 ## [7.1.0.0] - 2026-09-21 (Build 245) — *Lokale KI-Nachsortierung*
 
 ### Features
