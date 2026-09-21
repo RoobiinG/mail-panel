@@ -2,6 +2,16 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [7.1.1.4] - 2026-09-21 (Build 250) — *themen.test.js Foreign-Key gefixt*
+
+### Bugfixes
+- **Test-Suite:** Test-Account in `themen.test.js` vor Anlegen der `konto_ordner`-Zeile eingefügt, um die SQLite-Fremdschlüsselbedingung zu erfüllen.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Datenbank-Migrationen:** Keine.
+- **n8n-Workflow:** Keine Änderungen.
+- **Neustart-/Session:** Kein Logout erforderlich.
+
 ## [7.1.1.3] - 2026-09-21 (Build 249) — *themen.istGelernt implementiert*
 
 ### Bugfixes
