@@ -145,7 +145,7 @@ export default function NachsortierungKarte({ ordner = [] }) {
     setZeileBusy(i);
     try {
       const { data } = await api.post('/sortierung/nachsortierung/verschieben', {
-        konto_id: b.kontoId, uid: b.uid, von: b.vonOrdner, nach: ziel.trim(), absender: b.von,
+        konto_id: b.kontoId, uid: b.uid, von: b.vonOrdner, nach: ziel.trim(), absender: b.von, isKI: b.isKI
       });
       melden(`Verschoben nach „${data.ordner}". Die Regel bleibt unverändert.`);
       setVersteckt((p) => ({ ...p, [i]: true }));
@@ -237,6 +237,16 @@ export default function NachsortierungKarte({ ordner = [] }) {
               disabled={!daten.aktiv} laedt={busy === 'trockenlauf'} />
           </div>
 
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="font-medium text-sm text-panel-accent flex items-center gap-1">KI-Nachsortierung aktivieren</div>
+              <div className="text-xs text-panel-muted mt-0.5">
+                Das gesamte Postfach wird schrittweise von der lokalen KI geprüft. Unbekannte Mails erhalten einen Vorschlag.
+              </div>
+            </div>
+            <Schalter an={daten.kiAktiv} onClick={() => setzen('kiAktiv', !daten.kiAktiv)} laedt={busy === 'kiAktiv'} />
+          </div>
+
           <div className="flex flex-wrap gap-2 pt-1">
             <button onClick={() => starten(true)} disabled={busy === 'start' || daten.laeuft}
               className="btn !py-1.5 !px-3 text-sm flex items-center gap-1">
@@ -282,7 +292,7 @@ export default function NachsortierungKarte({ ordner = [] }) {
                 : <ChevronRight size={16} className="text-panel-muted shrink-0" />
             )}
             <h2 className="font-medium">
-              {letzter?.trockenlauf === false ? 'Verschoben' : 'Vorschläge'}
+              {letzter?.trockenlauf === false ? 'Verschoben (KI: nur Vorschläge)' : 'Vorschläge'}
             </h2>
             {letzter?.beispiele?.length > 0 && (
               <span className="bg-panel-border/60 text-xs px-1.5 py-0.5 rounded whitespace-nowrap">
@@ -296,7 +306,7 @@ export default function NachsortierungKarte({ ordner = [] }) {
             <div className="p-8 text-center text-panel-muted flex flex-col items-center gap-2">
               <Repeat size={28} className="text-panel-muted/40" />
               <p className="text-sm">
-                {letzter ? 'Nichts zu tun — alle Mails liegen da, wo deine Regeln sie hinlegen.'
+                {letzter ? 'Nichts zu tun — alle Mails liegen da, wo sie hingehören.'
                   : 'Noch kein Lauf. „Jetzt prüfen" zeigt, was sich ändern würde, ohne etwas zu verschieben.'}
               </p>
             </div>
@@ -323,12 +333,12 @@ export default function NachsortierungKarte({ ordner = [] }) {
                             <span
                               className="font-mono bg-panel-bg/60 border border-panel-border/60 rounded
                                          px-1.5 py-0.5 text-[11px] text-panel-muted cursor-help"
-                              title={`Regel: ${b.regel}`}
+                              title={b.isKI ? `Grund: ${b.grund}` : `Regel: ${b.regel}`}
                             >
                               {b.vonOrdner}
                             </span>
-                            <ArrowRight size={12} className="text-panel-accent shrink-0" title={`Regel: ${b.regel}`} />
-                            <div className="w-36 shrink-0">
+                            <ArrowRight size={12} className="text-panel-accent shrink-0" title={b.isKI ? `KI-Vorschlag (${Math.round(b.konfidenz * 100)}%)` : `Regel: ${b.regel}`} />
+                            <div className="w-36 shrink-0 flex flex-col">
                               <OrdnerFeld
                                 value={ziel}
                                 onChange={(v) => setZielWahl((p) => ({ ...p, [i]: v }))}
@@ -336,6 +346,9 @@ export default function NachsortierungKarte({ ordner = [] }) {
                                 className="!py-0.5 !px-1.5 text-xs font-mono"
                                 title="Zielordner ändern"
                               />
+                              {b.isKI && b.konfidenz > 0 && (
+                                <span className="text-[10px] text-panel-muted/60 mt-0.5 ml-1">KI ({Math.round(b.konfidenz * 100)}%)</span>
+                              )}
                             </div>
 
                             <div className="flex items-center gap-1 pl-1 ml-1 border-l border-panel-border/50">

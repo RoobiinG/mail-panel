@@ -204,27 +204,11 @@ function unklareAnzahl(kontoId = null) {
 const FENSTER_LOKAL = 40;
 
 function fensterGroesse(anzahlKonten) {
-  const anbieter = settings.hole('ki_anbieter');
-  if (anbieter === 'ollama') {
-    const eigenes = Number(settings.hole('bestand_fenster'));
-    if (Number.isFinite(eigenes) && eigenes > 0) {
-      return Math.min(FENSTER, Math.round(eigenes));
-    }
-    return FENSTER_LOKAL;
+  const eigenes = Number(settings.hole('bestand_fenster'));
+  if (Number.isFinite(eigenes) && eigenes > 0) {
+    return Math.min(FENSTER, Math.round(eigenes));
   }
-
-  const grenze = budget.tagesbudget();
-  if (grenze === 0) {
-    return Math.floor(FENSTER / Math.max(1, anzahlKonten)); // kein Deckel gesetzt, z.B. Gemini Free
-  }
-  
-  // Grenze und Verbrauch stehen in ANFRAGEN, das Fenster in Mails. Eine Anfrage
-  // trägt seit der Bündelung mehrere Mails — ohne die Umrechnung bliebe das
-  // Fenster bei einem Bruchteil dessen, was der Tag noch hergibt.
-  const restAnfragen = Math.max(0, grenze - budget.heuteVerbraucht());
-  if (restAnfragen === 0) return 0;
-  const restMails = restAnfragen * budget.mailsJeAnfrage();
-  return Math.max(1, Math.min(FENSTER, Math.ceil(restMails / Math.max(1, anzahlKonten))));
+  return FENSTER_LOKAL;
 }
 
 // Die Antwort für den Auswahl-Knoten in Workflow 04: je Konto die UIDs, die

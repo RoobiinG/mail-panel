@@ -142,9 +142,6 @@ async function kiPunkte(mails) {
     .filter((p) => p.length > 3)
     .slice(0, 5);
   if (punkte.length === 0) return { punkte: [], hinweis: 'Die KI hat nichts Verwertbares geliefert.' };
-  if ((settings.hole('ki_anbieter') || 'gemini') !== 'ollama') {
-    try { require('./budget').ausgabeMerken(1); } catch { /* ein Vermerk darf nichts aufhalten */ }
-  }
   return { punkte, hinweis: '' };
 }
 

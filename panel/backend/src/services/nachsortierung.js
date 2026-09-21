@@ -28,6 +28,7 @@ const settings = require('./settings');
 const imap = require('./imap');
 const themen = require('./themen');
 const sortierung = require('./sortierung');
+const klassifizierer = require('./klassifizierer');
 const { loggen } = require('./panelLog');
 
 // Ordnerrollen, die nie angefasst werden.
@@ -54,6 +55,7 @@ function einstellungen() {
   return {
     aktiv: settings.hole('nachsortierung_aktiv') === '1',
     trockenlauf: settings.hole('nachsortierung_trockenlauf') !== '0',
+    kiAktiv: settings.hole('nachsortierung_kiAktiv') === '1',
     taktStunden: zahl('nachsortierung_takt', 24, 1, 720),
     max: zahl('nachsortierung_max', 500, 1, 20000),
   };
@@ -176,12 +178,75 @@ async function kontoDurchgehen(konto, { trockenlauf, rest }) {
       }
     }
 
+    const fuerKI = [];
+    const e = einstellungen();
+    if (rest.uebrig > 0 && e.kiAktiv) {
+        for (const m of mails) {
+            const regel = regeln.find((r) => sortierung.passt(r, m.von, m.betreff));
+            if (!regel && !themen.istGelernt(konto.id, quelle, m.von)) {
+                fuerKI.push(m);
+            }
+        }
+    }
+
+    // KI-Vorschläge berechnen
+    if (e.kiAktiv && rest.uebrig > 0 && fuerKI.length > 0) {
+      // Nur einen kleinen Bündel an KI übergeben
+      const kiBuendelGroesse = zahl('ollama_buendel', 2, 1, 10);
+      const batchKI = fuerKI.slice(0, kiBuendelGroesse);
+      try {
+        const voll = await imap.ordnerInhaltLaden({ ...zugang, ordner: quelle, suche: batchKI.map(m => String(m.uid)).join(',') });
+        // Wir brauchen den Volltext! ordnerInhaltLaden bringt keinen Text.
+        // Also mailLaden
+        const geladen = [];
+        for (const m of batchKI) {
+           try {
+             const inhalt = await imap.mailLaden({ ...zugang, ordner: quelle, uid: m.uid });
+             if (inhalt && inhalt.text) {
+               geladen.push({ ...m, konto: konto.name, text: inhalt.text });
+             }
+           } catch { /* ignorieren */ }
+        }
+
+        if (geladen.length > 0) {
+          const kiErgebnis = await klassifizierer.klassifizieren(geladen);
+          for (let i = 0; i < geladen.length; i++) {
+            const res = kiErgebnis.ergebnisse[i];
+            if (!res || !res.ordner || res.ordner === quelle) continue;
+            
+            const m = geladen[i];
+            const ziel = String(res.ordner).trim();
+            if (selberOrdner(quelle, ziel)) continue;
+
+            ergebnis.treffer += 1;
+            rest.uebrig -= 1;
+            if (ergebnis.beispiele.length < BEISPIELE_MAX) {
+              ergebnis.beispiele.push({
+                konto: konto.name,
+                kontoId: konto.id,
+                uid: m.uid,
+                regelId: null, // KI hat keine RegelId
+                von: m.von,
+                betreff: String(m.betreff || '').slice(0, 120),
+                vonOrdner: quelle,
+                nachOrdner: ziel,
+                regel: `KI-Vorschlag (${Math.round((res.konfidenz || 0) * 100)}%)`,
+                isKI: true,
+                konfidenz: res.konfidenz || 0,
+                grund: res.kurzfassung || 'KI-Vorschlag'
+              });
+            }
+          }
+        }
+      } catch (err) {
+         ergebnis.fehler.push(`${konto.name}/${quelle} (KI): ${err.message}`);
+      }
+    }
+
     if (trockenlauf) continue;
 
     for (const [ziel, liste] of nachZiel) {
       try {
-        // Die Schreibweise des Servers holen, sonst scheitert der Move an
-        // "INBOX.Rechnungen" vs. "Rechnungen".
         const pfad = (await themen.ordnerPfad(konto, ziel)) || ziel;
         if (selberOrdner(quelle, pfad)) continue;
         const r = await imap.mailsVerschieben({
@@ -191,11 +256,10 @@ async function kontoDurchgehen(konto, { trockenlauf, rest }) {
         for (const f of r.fehler.slice(0, 5)) {
           ergebnis.fehler.push(`${konto.name}/${quelle} UID ${f.uid}: ${f.grund}`);
         }
-        // Was die KI einmal in diesen Ordner gelernt hat, zieht die nächste Mail
-        // sonst wieder dorthin — ohne KI und ohne dass es auffiele. Dieselbe
-        // Aufräumarbeit macht die Korrektur von Hand (routes/sortierung.js).
         for (const m of liste) {
-          try { themen.gelerntVergessen(konto.id, quelle, m.von); } catch { /* nicht so wichtig */ }
+          if (!m.isKI) {
+             try { themen.gelerntVergessen(konto.id, quelle, m.von); } catch { /* nicht so wichtig */ }
+          }
         }
       } catch (err) {
         ergebnis.fehler.push(`${konto.name}/${quelle} → ${ziel}: ${err.message}`);

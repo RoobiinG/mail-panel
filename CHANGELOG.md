@@ -2,6 +2,19 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [7.1.0.0] - 2026-09-21 (Build 245) — *Lokale KI-Nachsortierung*
+
+### Features
+- **KI-Nachsortierung des gesamten Postfachs:** Die Nachsortierung kann nun unklassifizierte Mails an die lokale KI (Ollama) zur Prüfung geben. Die Mails werden im Hintergrund geprüft, aber *nicht* automatisch verschoben – die KI macht lediglich Vorschläge, die dann im UI der Nachsortierung gesammelt angezeigt werden.
+- **Lerneffekt bei Bestätigung:** Werden KI-Vorschläge in der Nachsortierungs-Ansicht über den Knopf "Nur diese Mail" vom Benutzer bestätigt, wird diese Aktion im `quarantine_log` festgehalten und die Sortierautomatik (`themen.regelLernen()`) lernt direkt daraus.
+- **Ausschließlich lokale KI:** Sämtliche Integrationen der Google Gemini API wurden restlos aus Backend und Frontend entfernt. Die KI-Verarbeitung erfolgt nun vollständig und exklusiv über die lokale Ollama-Instanz, inklusive Batching zur Hardware-Schonung.
+- **Nachsortierung-UI erweitert:** In den Einstellungen der Nachsortierung gibt es jetzt einen Schalter zum Aktivieren/Deaktivieren der KI-Nachsortierung. KI-Vorschläge werden in der Vorschlagsliste optisch abgehoben (mit "KI", Konfidenzwert und Begründung) und als solche im UI ausgewiesen.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Datenbank-Migrationen:** Keine direkten Schemaänderungen. KI-Zustände der Nachsortierung werden nahtlos als JSON in der bestehenden `settings`-Tabelle gespeichert. Die Lernfunktion baut auf der bestehenden Logik der `quarantine_log`-Tabelle auf.
+- **n8n-Workflow:** Keine Änderungen, kein Neu-Import nötig.
+- **Neustart-/Session:** Kein Logout erforderlich.
+
 ## [7.0.1.1] - 2026-09-20 (Build 244) — *Ehrliche Zahl auf dem Verschieben-Knopf*
 
 ### Bugfixes

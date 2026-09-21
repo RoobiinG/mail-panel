@@ -2296,6 +2296,7 @@ router.post('/nachsortierung', (req, res) => {
   try {
     if (b.aktiv !== undefined) settings.setze('nachsortierung_aktiv', b.aktiv ? '1' : '0');
     if (b.trockenlauf !== undefined) settings.setze('nachsortierung_trockenlauf', b.trockenlauf ? '1' : '0');
+    if (b.kiAktiv !== undefined) settings.setze('nachsortierung_kiAktiv', b.kiAktiv ? '1' : '0');
     if (b.takt !== undefined) {
       const takt = Math.min(720, Math.max(1, Math.round(Number(b.takt) || 24)));
       settings.setze('nachsortierung_takt', String(takt));
@@ -2343,6 +2344,19 @@ router.post('/nachsortierung/verschieben', async (req, res) => {
     // Was die KI einmal in den Quellordner gelernt hat, zoege die naechste Mail
     // sonst wieder dorthin — ohne KI und ohne dass es auffiele.
     try { themen.gelerntVergessen(konto.id, quelle, req.body?.absender || ''); } catch { /* egal */ }
+
+    // (KI-Nachsortierung) Lerneffekt: Wenn ein KI-Vorschlag übernommen wird,
+    // behandeln wir das als "bestätigt" und lassen die Automatik daraus lernen.
+    if (req.body?.isKI && req.body?.absender) {
+      try { 
+        const info = db.prepare('UPDATE quarantine_log SET zielordner = ?, korrigiert_zu = ? WHERE konto = ? AND uid = ?').run(pfad, pfad, konto.name, nummer);
+        if (info.changes === 0) {
+           db.prepare('INSERT INTO quarantine_log (konto, von, uid, zielordner, korrigiert_zu, ki) VALUES (?, ?, ?, ?, ?, 1)').run(konto.name, req.body.absender, nummer, pfad, pfad);
+        }
+        themen.regelLernen(konto.id, req.body.absender, pfad); 
+      } catch { /* best effort */ }
+    }
+
     loggen('info', 'nachsortierung', `Einzelne Mail von "${quelle}" nach "${pfad}" verschoben (${konto.name}).`);
     res.json({ ok: true, ordner: pfad });
   } catch (err) {

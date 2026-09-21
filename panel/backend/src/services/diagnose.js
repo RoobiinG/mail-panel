@@ -145,9 +145,7 @@ async function dienste() {
     erreichbar(process.env.UNBOUND_HOST || 'unbound', 53)
       .then((r) => ({ name: 'unbound (DNSBL)', ...r })),
   ];
-  if ((settings.hole('ki_anbieter') || 'gemini') === 'ollama') {
-    auftraege.push(auftrag('Ollama', settings.hole('ollama_url'), 11434));
-  }
+  auftraege.push(auftrag('Ollama', settings.hole('ollama_url'), 11434));
   const nc = settings.hole('nextcloud_url');
   if (nc) auftraege.push(auftrag('Nextcloud', nc, 443));
 
@@ -177,18 +175,15 @@ function urlOhneZugang(wert) {
 // erscheint hier nur als „gesetzt" — genau wie auf der Einstellungsseite.
 function konfiguration() {
   const offen = [
-    'ki_anbieter', 'gemini_modell', 'gemini_modell_ersatz', 'gemini_denkstufe',
-    'gemini_tagesbudget', 'gemini_pause_ms', 'gemini_buendel', 'gemini_text_kurz',
-    'gemini_text_lang', 'gemini_lauf_frist_ms', 'ollama_url', 'ollama_modell',
+    'ki_text_kurz', 'ki_text_lang', 'ollama_url', 'ollama_modell',
     'ollama_kontext', 'ollama_buendel', 'ki_lauf_frist_ms',
     'auto_sync', 'neue_mails_ungelesen', 'spam_schwellwert', 'clamav_aktiv',
     'safebrowsing_aktiv', 'bestand_intervall', 'bestand_fenster', 'bestand_reihenfolge',
-    'beleg_lese_tagesbudget',
     'themen_sortierung_aktiv', 'themen_ordner_max', 'themen_konfidenz', 'n8n_url',
     'beleg_ocr_aktiv',
   ];
   const geheim = [
-    'gemini_api_key', 'n8n_api_key', 'mailcow_api_key', 'safebrowsing_api_key',
+    'n8n_api_key', 'mailcow_api_key', 'safebrowsing_api_key',
     'telegram_token', 'nextcloud_passwort', 'smtp_passwort', 'sicherung_passwort',
     // Kein Geheimnis, steht aber trotzdem nur als „gesetzt" hier: Eine Chat-ID
     // zeigt auf einen realen Menschen, und ein Diagnose-Bericht ist zum
@@ -210,25 +205,10 @@ function kiStand() {
   const budget = require('./budget');
   const kontingent = require('./kiKontingent');
   const modell = require('./kiModell');
-  const anbieter = settings.hole('ki_anbieter') || 'gemini';
   return {
-    anbieter,
-    // Welches Modell wirklich arbeitet. kiModell.stand() kennt nur Googles
-    // Modelle samt Ersatzmodell — bei „ollama" stand dort trotzdem ein
-    // Gemini-Name, und das führt beim Lesen des Berichts genau in die
-    // Richtung, aus der das Problem nicht kommt.
-    modellInBenutzung: anbieter === 'ollama'
-      ? (settings.hole('ollama_modell') || '(nicht gesetzt)')
-      : (() => { try { return modell.stand().aktiv; } catch { return null; } })(),
-    geminiModelle: anbieter === 'ollama'
-      ? '(nicht in Benutzung — Anbieter ist Ollama)'
-      : (() => { try { return modell.stand(); } catch { return null; } })(),
-    // Nur bei Ollama aussagekräftig: Wie viel Prompt passt überhaupt hinein,
-    // und stauen sich die Anfragen? Neun gleichzeitig gescheiterte Bündel in
-    // derselben Sekunde waren im Bericht vom 8. September der einzige Hinweis
-    // darauf, dass mehrere Läufe parallel auf dieselbe CPU eingeredet haben —
-    // und der war nur zu erkennen, wenn man die Zeitstempel zählt.
-    lokal: anbieter === 'ollama' ? (() => {
+    anbieter: 'ollama',
+    modellInBenutzung: settings.hole('ollama_modell') || '(nicht gesetzt)',
+    lokal: (() => {
       const kiText = require('./kiText');
       const kontext = kiText.kontextFenster();
       return {
@@ -241,23 +221,10 @@ function kiStand() {
           try { return require('./klassifizierer').frist(); } catch { return null; }
         })(),
         schlange: require('./ollamaSchlange').stand(),
-        // Die Zahl, um die es geht: wie lange eine Anfrage wirklich dauert und
-        // wo die Zeit hingeht. Steckt sie im Prompt, hilft ein kleineres
-        // Bündel; steckt sie in der Antwort, ist das Modell zu groß.
         messung: require('./ollamaMessung').stand(),
       };
-    })() : '(nicht in Benutzung — Anbieter ist Gemini)',
-    tagesbudget: budget.tagesbudget(),
-    heuteAnfragen: budget.heuteVerbraucht(),
+    })(),
     heuteMails: budget.protokolliertHeute(),
-    beobachtet: (() => { try { return kontingent.stand().beobachtet; } catch { return null; } })(),
-    abweisung: {
-      tag: settings.hole('ki_429_tag') || null,
-      art: settings.hole('ki_429_art') || null,
-      bis: settings.hole('ki_429_bis') || null,
-      limit: settings.hole('ki_429_limit') || null,
-      modell: settings.hole('ki_429_modell') || null,
-    },
   };
 }
 
@@ -407,9 +374,7 @@ async function laeufe(anzahl = 15) {
   // wirksam — und das heißt fast immer: Die docker-compose.yml wurde beim
   // Update nicht mitgezogen. Der Hinweis gehört in den Bericht, weil genau das
   // beim letzten Mal untergegangen ist.
-  const lokal = (() => {
-    try { return (settings.hole('ki_anbieter') || 'gemini') === 'ollama'; } catch { return false; }
-  })();
+  const lokal = true;
   // Die Compose deckelt ab Werk auf 2. Zwei überlappende Läufe sind also der
   // eingestellte Zustand und kein Fund — den Verdacht „Compose nicht gezogen"
   // gibt es erst darüber. Ein früherer Entwurf meldete schon bei 2 Alarm und

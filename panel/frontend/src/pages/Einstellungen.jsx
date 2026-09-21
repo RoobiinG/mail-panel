@@ -264,7 +264,6 @@ const TABS = [
 const DIENSTE_TESTS = [
   { id: 'n8n',       label: 'n8n-API' },
   { id: 'mailcow',   label: 'Mailcow-API' },
-  { id: 'gemini',    label: 'Gemini-API (KI-Klassifizierung)' },
   { id: 'ollama',    label: 'Ollama-API (Lokale KI)' },
   { id: 'google',    label: 'Google-Kalender (OAuth2)' },
   { id: 'clamav',    label: 'ClamAV (clamd)' },
@@ -346,9 +345,7 @@ export default function Einstellungen() {
         .then(r => { setOllamaModelle(r.data.map(m => ({ name: m }))); setOllamaModellFehler(''); })
         .catch(err => { setOllamaModelle([]); setOllamaModellFehler(err.response?.data?.error || 'Fehler beim Laden'); });
     });
-    api.get('/einstellungen/ki-modelle')
-      .then(res => { setModelle(res.data.modelle || []); setModellFehler(res.data.fehler || ''); })
-      .catch(() => { setModelle([]); setModellFehler('Die Modellliste war nicht abrufbar.'); });
+
   }, []);
 
   const [ollamaModelle, setOllamaModelle] = useState(null);
@@ -569,11 +566,6 @@ export default function Einstellungen() {
               Prüft die Erreichbarkeit der Dienste aus Sicht des Panel-Backends.
             </p>
             {DIENSTE_TESTS
-              .filter(t => {
-                if (settings.ki_anbieter === 'ollama' && t.id === 'gemini') return false;
-                if (settings.ki_anbieter !== 'ollama' && t.id === 'ollama') return false;
-                return true;
-              })
               .map(({ id, label }) => (
                 <TestZeile key={id} id={id} label={label} onTest={testen} tests={tests} />
             ))}
@@ -591,27 +583,7 @@ export default function Einstellungen() {
               Die Werte werden bei der Konto-Synchronisierung an die n8n-Workflows verteilt.
             </p>
             <div className="pt-2 space-y-4">
-              <div className="space-y-2 pb-2 border-b border-panel-border/30">
-                <label className="block text-sm font-medium text-panel-text">KI-Anbieter wählen</label>
-                <div className="flex gap-4">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="radio" name="ki_anbieter" value="gemini"
-                      checked={(settings.ki_anbieter || 'gemini') === 'gemini'}
-                      onChange={() => set('ki_anbieter', 'gemini')}
-                      className="text-emerald-500 bg-panel-darker border-panel-border focus:ring-emerald-500/50" />
-                    <span className="text-sm">Google Gemini (Cloud)</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="radio" name="ki_anbieter" value="ollama"
-                      checked={settings.ki_anbieter === 'ollama'}
-                      onChange={() => set('ki_anbieter', 'ollama')}
-                      className="text-emerald-500 bg-panel-darker border-panel-border focus:ring-emerald-500/50" />
-                    <span className="text-sm">Lokale KI (Ollama)</span>
-                  </label>
-                </div>
-              </div>
 
-              {(settings.ki_anbieter === 'ollama') ? (
                 <div className="space-y-4 pt-2">
                   <p className="text-xs text-panel-muted">
                     Lokale KI ist zu 100% kostenlos und hat keine Rate-Limits. Es wird keine Pause zwischen den Mails benötigt.
@@ -780,109 +752,7 @@ export default function Einstellungen() {
                     )}
                   </div>
                 </div>
-              ) : (
-                <div className="space-y-4 pt-2">
-                  <PwFeld label="Gemini API-Key" value={settings.gemini_api_key} placeholder="AIza…"
-                    disabled={settings.gemini_api_key_per_env} onChange={v => set('gemini_api_key', v)} />
-                  <div className="space-y-1">
-                    <label className="block text-xs text-panel-muted">Erstes Modell</label>
-                    <p className="text-[10px] text-panel-muted/60">
-                      Das Modell, mit dem normalerweise klassifiziert wird. Ein Wechsel wirkt sofort —
-                      das Panel trägt ihn selbst in die Workflows ein.
-                    </p>
-                    <ModellWahl wert={settings.gemini_modell ?? ''} standard="gemini-3.5-flash-lite"
-                      modelle={modelle} fehler={modellFehler}
-                      gesperrt={settings.gemini_modell_per_env}
-                      onWahl={v => set('gemini_modell', v)} />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="block text-xs text-panel-muted">Ersatz-Modell bei vollem Kontingent</label>
-                    <p className="text-[10px] text-panel-muted/60">
-                      Googles Kontingente gelten <span className="text-panel-text">je Modell</span>: Ist das
-                      Tageslimit des ersten erreicht, hat ein anderes noch sein eigenes. Wählst du hier eines,
-                      schaltet das Panel bei einer Abweisung automatisch um und am nächsten Tag zurück.
-                      Bewusst nicht vorbelegt: Das Ersatzmodell ist meist das größere, und mit aktivierter
-                      Abrechnung kostet jede Anfrage dort mehr.
-                    </p>
-                    <ModellWahl wert={settings.gemini_modell_ersatz ?? ''} leerText="aus — kein Wechsel"
-                      modelle={modelle} fehler={modellFehler}
-                      gesperrt={settings.gemini_modell_ersatz_per_env}
-                      ausgeschlossen={settings.gemini_modell || 'gemini-3.5-flash-lite'}
-                      onWahl={v => set('gemini_modell_ersatz', v)} />
-                    {settings.gemini_modell_ersatz
-                      && settings.gemini_modell_ersatz === (settings.gemini_modell || 'gemini-3.5-flash-lite') && (
-                      <p className="text-[10px] text-panel-red">
-                        Das ist dasselbe Modell wie oben — dann gibt es kein zweites Kontingent und das Panel
-                        wechselt nie. Bitte ein anderes wählen oder auf „aus" stellen.
-                      </p>
-                    )}
-                  </div>
-                  <div className="space-y-1">
-                    <label className="block text-xs text-panel-muted">Pause zwischen KI-Anfragen (ms)</label>
-                    <p className="text-[10px] text-panel-muted/60">
-                      Der Gratis-Tarif begrenzt auch die Anfragen pro Minute — und Inbox- und
-                      Bestands-Triage teilen sich dieses Limit. 6000 = 10 Anfragen pro Minute. Ist die
-                      Pause zu kurz, bricht ein großer Lauf mit „too many requests“ ab.
-                      Wird erst beim Speichern & Synchronisieren in die Workflows übernommen.
-                    </p>
-                    <input type="number" min="0" step="500" value={settings.gemini_pause_ms ?? ''}
-                      placeholder="6000"
-                      disabled={settings.gemini_pause_ms_per_env}
-                      onChange={e => set('gemini_pause_ms', e.target.value)} className={inputCls} />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="block text-xs text-panel-muted">KI-Anfragen pro Tag</label>
-                    <p className="text-[10px] text-panel-muted/60">
-                      Googles Tageslimit zählt <span className="text-panel-text">Anfragen</span>, nicht Mails —
-                      in der Gratisstufe je nach Modell wenige hundert. Da das Panel bis zu 20 Mails in eine
-                      Anfrage bündelt, ist das ein Vielfaches an Mails. 0 = kein Deckel. Sinnvoll ist der Wert
-                      nur <span className="text-panel-text">unter</span> dem, was Google zulässt: Steht er
-                      höher, bremst nicht mehr das Panel, sondern Google — und dann bricht der Lauf mitten im
-                      Stapel mit „too many requests" ab, statt sauber zu enden.
-                    </p>
-                    <input type="number" min="0" step="10" value={settings.gemini_tagesbudget}
-                      disabled={settings.gemini_tagesbudget_per_env}
-                      onChange={e => set('gemini_tagesbudget', e.target.value)} className={inputCls} />
-                  </div>
-                  <div className="space-y-1 pt-2 border-t border-panel-border/30">
-                    <label className="block text-xs text-panel-muted">Wie viel darf die KI nachdenken?</label>
-                    <p className="text-[10px] text-panel-muted/60">
-                      Die neueren Modelle (Gemini 3.7/3.8 Flash) denken von Haus aus — und bezahlen das
-                      aus demselben Budget, aus dem die Antwort kommt. Beim Einsortieren bringt das
-                      nichts und kann alles kosten: Kam die Antwort leer zurück, meldete der Lauf
-                      trotzdem „erfolgreich" und sortierte keine einzige Mail. <b>Niedrig</b> ist hier
-                      richtig; „aus" schickt die Angabe gar nicht mit, falls ein Modell sie nicht kennt.
-                    </p>
-                    <select value={settings.gemini_denkstufe || 'low'}
-                      disabled={settings.gemini_denkstufe_per_env}
-                      onChange={e => set('gemini_denkstufe', e.target.value)} className={inputCls}>
-                      <option value="minimal">so wenig wie möglich</option>
-                      <option value="low">niedrig (empfohlen)</option>
-                      <option value="medium">mittel</option>
-                      <option value="high">hoch</option>
-                      <option value="aus">gar nicht mitschicken</option>
-                    </select>
-                  </div>
-                  <div className="space-y-1 pt-2 border-t border-panel-border">
-                    <label className="block text-xs text-panel-muted">Antwort von Google ansehen</label>
-                    <p className="text-[10px] text-panel-muted/60">
-                      Stellt <span className="text-panel-text">eine</span> echte Anfrage mit dem aktiven
-                      Modell und zeigt, was Google zurückgibt — bei einer Abweisung samt Kontingent-Kennung,
-                      Grenzwert und Modell. Genau das, was in der Fehlermeldung eines Workflows fehlt.
-                    </p>
-                    <button onClick={kiTesten} disabled={kiTest === 'laeuft'}
-                      className="btn !py-1 !px-3 text-xs flex items-center gap-1">
-                      <TestTube2 size={13} />
-                      {kiTest === 'laeuft' ? 'Frage Google …' : 'Eine Anfrage stellen'}
-                    </button>
-                    {kiTest && kiTest !== 'laeuft' && (
-                      <pre className="mt-2 text-[10px] whitespace-pre-wrap break-all bg-panel-surface border border-panel-border rounded-md p-2 max-h-64 overflow-auto">
-                        {kiTest}
-                      </pre>
-                    )}
-                  </div>
-                </div>
-              )}
+
 
               <div className="pt-4 border-t border-panel-border/30 space-y-4">
                 <label className="flex items-center gap-3 cursor-pointer">

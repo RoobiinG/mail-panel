@@ -64,35 +64,25 @@ const OLLAMA_BUENDEL_STANDARD = 2;
 let gemeldeteKappung = null;
 
 const buendelGroesse = () => {
-  const gewuenscht = zahl('gemini_buendel', 20, 1, 60);
+  const gewuenscht = zahl('ollama_buendel', OLLAMA_BUENDEL_STANDARD, 1, 10);
   try {
-    if ((settings.hole('ki_anbieter') || 'gemini') === 'ollama') {
-      const eingestellt = Math.min(gewuenscht, zahl('ollama_buendel', OLLAMA_BUENDEL_STANDARD, 1, 10));
-      // Liegt vor Ollama ein Reverse-Proxy mit eigener Zeitgrenze, entscheidet
-      // nicht die Einstellung, sondern der Proxy, wie groß ein Bündel sein
-      // darf: Ein Bündel, das länger braucht, kommt als 504 zurück, und seine
-      // Rechenzeit ist verloren. Die Messung weiß, welche Größe schon einmal
-      // daran gescheitert ist — dann gilt die Hälfte. Nur nach unten:
-      // `ollama_buendel` bleibt die Obergrenze.
-      const sicher = require('./ollamaMessung').sichereBuendelGroesse();
-      if (sicher != null && sicher < eingestellt) {
-        if (gemeldeteKappung !== sicher) {
-          gemeldeteKappung = sicher;
-          const grenze = require('./ollamaMessung').gatewayGrenzeMs();
-          loggen('info', 'klassifizierer',
-            `Bündel auf ${sicher} verkleinert (eingestellt: ${eingestellt}) — der Reverse-Proxy vor `
-            + `Ollama bricht nach ~${Math.round((grenze || 0) / 1000)} s ab.`);
-        }
-        return sicher;
+    const sicher = require('./ollamaMessung').sichereBuendelGroesse();
+    if (sicher != null && sicher < gewuenscht) {
+      if (gemeldeteKappung !== sicher) {
+        gemeldeteKappung = sicher;
+        const grenze = require('./ollamaMessung').gatewayGrenzeMs();
+        loggen('info', 'klassifizierer',
+          `Bündel auf ${sicher} verkleinert (eingestellt: ${gewuenscht}) — der Reverse-Proxy vor `
+          + `Ollama bricht nach ~${Math.round((grenze || 0) / 1000)} s ab.`);
       }
-      gemeldeteKappung = null;
-      return eingestellt;
+      return sicher;
     }
-  } catch { /* dann eben der eingestellte Wert */ }
-  return gewuenscht;
+    gemeldeteKappung = null;
+    return gewuenscht;
+  } catch { return gewuenscht; }
 };
-const textKurz = () => zahl('gemini_text_kurz', 600, 100, 4000);
-const textLang = () => zahl('gemini_text_lang', 1500, 200, 8000);
+const textKurz = () => zahl('ki_text_kurz', 600, 100, 4000);
+const textLang = () => zahl('ki_text_lang', 1500, 200, 8000);
 
 // Wie viele Plätze ein Verdachtsfall belegt. Er bekommt mehr Text, also darf er
 // auch mehr vom Bündel beanspruchen — sonst wird die Anfrage zu lang.
@@ -110,15 +100,7 @@ const LINKS_MAX = 5;
 // Nicht über zahl(): Das behandelt 0 als „nicht gesetzt" und gäbe den Standard
 // zurück — die Pause ließe sich dann nie abschalten. Hier ist 0 eine Ansage.
 function pause() {
-  // Eine lokal laufende KI kennt kein Minutenlimit — sie steht auf demselben
-  // Rechner. Sechs Sekunden zwischen zwei Buendeln waeren dort reine Wartezeit:
-  // Bei 26 Buendeln gingen zweieinhalb Minuten der Frist fuers Nichtstun drauf.
-  try {
-    if ((settings.hole('ki_anbieter') || 'gemini') === 'ollama') return 0;
-  } catch { /* dann eben die uebliche Pause */ }
-  const n = Number(settings.hole('gemini_pause_ms'));
-  if (!Number.isFinite(n) || n < 0) return 6000;
-  return Math.min(60000, Math.round(n));
+  return 0;
 }
 const schlafen = (ms) => (ms > 0 ? new Promise((f) => { setTimeout(f, ms); }) : Promise.resolve());
 
@@ -131,12 +113,9 @@ const WARTEN_MAX_MS = 90000;
 // ohnehin gerade andere Mails klassifiziert werden.
 function istBeschaeftigt() {
   try {
-    if ((settings.hole('ki_anbieter') || 'gemini') === 'ollama') {
-      const stand = require('./ollamaSchlange').stand();
-      return stand.inArbeit || stand.wartend > 0;
-    }
-  } catch { /* ignorieren */ }
-  return false;
+    const stand = require('./ollamaSchlange').stand();
+    return stand.inArbeit || stand.wartend > 0;
+  } catch { return false; }
 }
 
 // Wie lange darf eine Klassifizier-Anfrage insgesamt dauern?
@@ -179,9 +158,8 @@ function istBeschaeftigt() {
 // (Einstellungen → KI).
 const FRIST_STANDARD = 240000;
 const frist = () => {
-  const neu = zahl('ki_lauf_frist_ms', 0, 30000, 3600000);
-  if (neu > 0) return neu;
-  return zahl('gemini_lauf_frist_ms', FRIST_STANDARD, 30000, 3600000);
+  const neu = zahl('ki_lauf_frist_ms', FRIST_STANDARD, 30000, 3600000);
+  return neu;
 };
 
 // ─── Verdachtsfall oder Alltag? ──────────────────────────────────────────────
@@ -269,11 +247,7 @@ function gruppieren(mails, bekannt) {
 // darunter im Log „Zeitbudget des Laufs erreicht — 20 von 482 Mails
 // klassifiziert". Eine Mail je Anfrage, bei eingestellter Bündelgröße drei.
 function plaetzeFuer(gruppe, bekannt) {
-  if (!verdaechtig(gruppe.vertreter, bekannt)) return 1;
-  try {
-    if ((settings.hole('ki_anbieter') || 'gemini') === 'ollama') return 1;
-  } catch { /* im Zweifel der Aufschlag */ }
-  return PLAETZE_VERDACHT;
+  return 1;
 }
 
 // `grenze` ist nur mitten im Lauf gesetzt: Nach einem 504 werden die restlichen
@@ -329,23 +303,11 @@ function kurzGekappt(text, grenze) {
 function themenKontext(konto) {
   const e = themen.einstellungen();
   if (!e.aktiv) return { text: '', namen: null, neuErlaubt: false };
-  const istOllama = (settings.hole('ki_anbieter') || 'gemini') === 'ollama';
 
-  // Der Name in Anfuehrungszeichen, die Erklaerung hinter dem Doppelpunkt.
-  //
-  // Vorher stand hier `- Name — Beschreibung`. Ein kleines Modell gab diese
-  // Zeile komplett zurueck, und weil der Name vorne steht, fand die
-  // Ordnersuche trotzdem einen Treffer — irgendeinen. Anfuehrungszeichen
-  // markieren, was genau uebernommen werden soll; themen.vorschlagSaeubern()
-  // faengt den Rest ab.
-  //
-  // Die Obergrenze fuer die lokale KI gehoert in die Auswahl, nicht dahinter:
-  // fuerPrompt() gibt alphabetisch zurueck, ein Abschneiden danach wuerde nach
-  // Anfangsbuchstabe aussieben statt nach Bedeutung.
-  const eintraege = themen.fuerPrompt(konto && konto.id, istOllama ? 15 : undefined);
+  const eintraege = themen.fuerPrompt(konto && konto.id, 15);
   const liste = eintraege
     .map((o) => {
-      const desc = istOllama ? kurzGekappt(o.beschreibung, 50) : o.beschreibung;
+      const desc = kurzGekappt(o.beschreibung, 50);
       return `- "${o.name}"${desc ? `: ${desc}` : ''}`;
     })
     .join('\n') || '(noch keiner angelegt)';
@@ -358,9 +320,6 @@ function themenKontext(konto) {
     : '';
 
   const neuErlaubt = e.anlegen !== 'aus';
-  // Zwei Felder statt eines: "ordner" ist jetzt an die Liste oben gebunden
-  // (siehe antwortSchema) und kann deshalb keinen neuen Namen mehr tragen.
-  // Ein eigener Vorschlag gehört ins Feld "neuer_ordner".
   const neuRegel = neuErlaubt
     ? '- Passt wirklich keiner davon: Lass "ordner" leer (""), und schreib deinen Vorschlag ins Feld '
       + '"neuer_ordner" — auf Deutsch, hoechstens 20 Zeichen.\n'
@@ -379,18 +338,14 @@ function themenKontext(konto) {
     + verbotenBlock
     + '- "konfidenz" ist deine Sicherheit beim Ordner, 0.0 bis 1.0.';
 
-  // Die Kategorie-Ordner fliegen aus dem Enum: Sie sind als Thema textlich
-  // schon verboten (verbotenBlock), aber ein Enum ist ein Zwang, kein Rat —
-  // stünden sie drin, könnte das Modell sie trotz der Anweisung waehlen.
   const namen = eintraege.map((o) => o.name).filter((n) => !verbotenKlein.has(String(n).toLowerCase()));
 
   return { text, namen, neuErlaubt };
 }
 
 function mailBlock(mail, nr, lang) {
-  const istOllama = (settings.hole('ki_anbieter') || 'gemini') === 'ollama';
-  const grenze = istOllama ? Math.min(500, lang ? textLang() : textKurz()) : (lang ? textLang() : textKurz());
-  const links = (Array.isArray(mail.links) ? mail.links : []).slice(0, istOllama ? 3 : LINKS_MAX);
+  const grenze = Math.min(500, lang ? textLang() : textKurz());
+  const links = (Array.isArray(mail.links) ? mail.links : []).slice(0, 3);
   return `[${nr}]\n`
     + `Von: ${String(mail.von || '').slice(0, 200)}\n`
     + `Betreff: ${String(mail.betreff || '').slice(0, 300)}\n`
@@ -402,14 +357,11 @@ function mailBlock(mail, nr, lang) {
 // (Prompt und Schema muessen dieselben Namen sehen), aber Aufrufer, die nur
 // den Prompt brauchen — etwa Tests —, duerfen ihn weglassen.
 function promptBauen(gruppen, konto, bekannt, themenKtx = themenKontext(konto)) {
-  const istOllama = (settings.hole('ki_anbieter') || 'gemini') === 'ollama';
   const mails = gruppen
     .map((g, i) => mailBlock(g.vertreter, i + 1, verdaechtig(g.vertreter, bekannt)))
     .join('\n');
 
-  const kurzfassungsRegel = istOllama
-    ? '- kurzfassung: maximal 5 bis 10 Woerter auf Deutsch, kurz und praegnant.\n'
-    : '';
+  const kurzfassungsRegel = '- kurzfassung: maximal 5 bis 10 Woerter auf Deutsch, kurz und praegnant.\n';
 
   // Das Beispiel zeigt "neuer_ordner" nur, wenn das Feld ueberhaupt existiert —
   // sonst laedt es dazu ein, es trotzdem zu befuellen.
@@ -628,7 +580,6 @@ const ANFRAGE_MIN_MS = 20000;
 // Warten auf etwas, das nicht kommt.
 function mindestRestMs(mails) {
   try {
-    if ((settings.hole('ki_anbieter') || 'gemini') !== 'ollama') return ANFRAGE_MIN_MS;
     const messung = require('./ollamaMessung');
     const erwartet = messung.erwarteteDauerMs(mails);
     if (!erwartet) return ANFRAGE_MIN_MS;
@@ -719,28 +670,13 @@ function antwortSchema(anzahl = 20, themenNamen = null, neuErlaubt = false) {
 }
 
 function fragen(teil, konto, bekannt, zeitlimit = 180000) {
-  const istOllama = (settings.hole('ki_anbieter') || 'gemini') === 'ollama';
-  // Wie lang die Antwort werden darf. Ein Eintrag — nr, Kategorie, Spam-Wert,
-  // eine Kurzfassung aus fünf bis zehn Wörtern, Ordner, Konfidenz — sind rund
-  // 60 Token; 140 je Mail ist also reichlich.
-  //
-  // Bei Ollama standen hier 300 je Mail bei mindestens 800. Das war nach beiden
-  // Seiten teuer: Der Betrag geht in kiText.promptPlatz() direkt vom Platz für
-  // die Mails ab (bei 4096 Token Kontext rund 2.000 Zeichen), und er gab dem
-  // Modell zugleich den Raum, ins Leere weiterzuschreiben.
-  const maxAntwort = istOllama
-    ? Math.max(200, teil.length * 140)
-    : Math.min(600, Math.max(250, teil.length * 150));
-  // Einmal berechnet, zweimal gebraucht: Prompt-Text und Schema muessen
-  // dieselben Ordnernamen sehen — sonst zwingt das Schema eine Auswahl, von
-  // der im Fließtext nie die Rede war.
+  const maxAntwort = Math.max(200, teil.length * 140);
   const themenKtx = themenKontext(konto);
   return kiText.frageJson(promptBauen(teil, konto, bekannt, themenKtx), {
     quelle: 'backend:klassifizierer',
     zeitlimit,
     maxZeichen: 200000,
     schema: antwortSchema(teil.length, themenKtx.namen, themenKtx.neuErlaubt),
-    // Für die Messung: Wie groß war diese Anfrage? Siehe mindestRestMs().
     mails: teil.length,
     maxAntwort,
   });
@@ -963,36 +899,7 @@ async function klassifizieren(mails) {
         timeoutsInFolge = 0;
       }
 
-      // Ein Minutenlimit ist kein Tageslimit: Es vergeht von selbst. Also
-      // einmal so lange warten, wie Google sagt, und noch einmal fragen —
-      // statt deswegen bis Mitternacht stillzustehen.
-      if (antwort.kontingent && antwort.proMinute) {
-        const warten = Math.min(Math.max(Number(antwort.wartenMs) || 0, pause()), WARTEN_MAX_MS);
-        loggen('info', 'klassifizierer',
-          `Zu viele Anfragen pro Minute — ${Math.round(warten / 1000)} s warten und noch einmal fragen.`);
-        await schlafen(warten);
-        antwort = await fragen(teil, konto, bekannt);
-        anfragen += 1;
-      }
-
-      // Auch eine Anfrage mit unlesbarer Antwort ist bezahlt — Google hat sie
-      // ausgefuehrt. Eine wegen vollem Kontingent abgewiesene dagegen nicht:
-      // Die wurde gar nicht erst bearbeitet und knabbert nichts ab.
-      if (!antwort.kontingent) budget.ausgabeMerken(1);
-
       if (!antwort.ok) {
-        if (antwort.kontingent) {
-          // Fuer heute ist Schluss. Die restlichen Buendel wuerden nur Zeit
-          // kosten; was bis hier klassifiziert ist, wird trotzdem zurueckgegeben
-          // und eingeordnet.
-          abgebrochen = true;
-          hinweis = (antwort.proMinute
-            ? 'Google weist weiter ab, auch nach dem Warten — Pause zwischen den Bündeln erhöhen'
-            : 'Googles Tageskontingent ist aufgebraucht')
-            + ` — ${klassifiziert} von ${liste.length} Mails sind klassifiziert.`;
-          loggen('warn', 'klassifizierer', hinweis);
-          break;
-        }
         loggen('warn', 'klassifizierer', `Ein Buendel blieb unbeantwortet: ${antwort.fehler}`);
         continue; // Die Mails bleiben liegen und kommen im naechsten Lauf wieder.
       }

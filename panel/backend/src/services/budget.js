@@ -68,7 +68,7 @@ function regelPruefer() {
 // liess sie liegen — die lokale KI, die nichts kostet und nie abweist, kam nie
 // zum Zug.
 function ohneKontingent() {
-  try { return (settings.hole('ki_anbieter') || 'gemini') === 'ollama'; } catch { return false; }
+  return true;
 }
 
 function beobachteteGrenze() {

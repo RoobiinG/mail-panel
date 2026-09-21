@@ -13,7 +13,6 @@ const FELDER = {
   safebrowsing_api_key: { env: 'SAFEBROWSING_API_KEY', geheim: true },
   // KI und Benachrichtigung: Das Panel legt daraus die Credentials in n8n an
   // (siehe workflowPatcher.kiUndBenachrichtigungenSynchronisieren).
-  ki_anbieter:          { env: 'KI_ANBIETER', geheim: false, standard: 'gemini' },
   ollama_url:           { env: 'OLLAMA_URL', geheim: false, standard: 'http://ollama:11434' },
   ollama_modell:        { env: 'OLLAMA_MODELL', geheim: false, standard: 'llama3.1' },
   // Kontextfenster in Token. Ohne Angabe nimmt Ollama seinen eigenen Standard
@@ -40,10 +39,6 @@ const FELDER = {
   // N8N_RUNNERS_TASK_TIMEOUT in der docker-compose.yml. Ohne das schneidet n8n
   // den Code-Knoten weiter bei 300 s ab.
   ki_lauf_frist_ms:     { env: 'KI_LAUF_FRIST_MS', geheim: false },
-  gemini_api_key:       { env: 'GEMINI_API_KEY', geheim: true },
-  // Wie viele KI-Einordnungen pro Tag hoechstens? 0/leer = kein Deckel.
-  // Schuetzt das Gemini-Tageslimit, wenn ein grosser Altbestand sortiert wird.
-  gemini_tagesbudget:   { env: 'GEMINI_TAGESBUDGET', geheim: false, standard: '400' },
   // Wie viele Belege pro Tag hoechstens per KI auslesen? 0/leer = kein Deckel.
   // Eigener Topf, damit das Beleg-Lesen (services/belegLeser.js) nicht das
   // Einordnungs-Budget leersaugt. Ist er voll, wird nur noch per Heuristik abgelegt.
@@ -53,34 +48,9 @@ const FELDER = {
   // einen Scan selbst. Kostet auf einer CPU einige Sekunden je Beleg.
   beleg_ocr_aktiv:      { env: 'BELEG_OCR_AKTIV', geheim: false, standard: '1' },
   telegram_token:       { env: 'TELEGRAM_TOKEN', geheim: true },
-  // Pause zwischen zwei KI-Anfragen in Millisekunden. Der Gratis-Tarif von
-  // Google begrenzt nicht nur den Tag, sondern auch die Minute: Ohne Pause
-  // schiebt die Bestands-Triage hundert Mails auf einmal los und bekommt
-  // "The service is receiving too many requests from you". 6000 ms sind 10
-  // Anfragen je Minute, und daran zaehlen Workflow 01 und 04 gemeinsam.
-  // Wirkt erst nach Workflows -> Synchronisieren, weil der Wert in die
-  // n8n-Knoten geschrieben wird.
-  gemini_pause_ms:      { geheim: false, standard: '6000' },
-  // Welches Modell Workflows und Panel benutzen. Googles Kontingente gelten je
-  // Modell — ist das eine fuer heute leer, hat das andere noch sein eigenes.
-  // Gewechselt wird nur, wenn hier ein Ersatzmodell steht: Das ist meist das
-  // groessere, und mit aktivierter Abrechnung kostet es mehr. Solche
-  // Entscheidungen trifft das Panel nicht im Hintergrund.
-  gemini_modell:        { env: 'GEMINI_MODELL', geheim: false, standard: 'gemini-3.5-flash-lite' },
-  gemini_modell_ersatz: { env: 'GEMINI_MODELL_ERSATZ', geheim: false, standard: '' },
-  // Wie viele Mails in eine Anfrage passen. Googles Tageslimit zaehlt Anfragen,
-  // nicht Mails — das ist der Unterschied zwischen 500 und 10.000 Mails am Tag.
-  // Verdachtsfaelle belegen drei Plaetze und bekommen die lange Textform:
-  // Kategorie und Thema haengen an Absender und Betreff, Spam an Text und Links.
-  // Siehe services/klassifizierer.js.
-  gemini_buendel:       { env: 'GEMINI_BUENDEL', geheim: false, standard: '20' },
-  gemini_text_kurz:     { env: 'GEMINI_TEXT_KURZ', geheim: false, standard: '600' },
-  gemini_text_lang:     { env: 'GEMINI_TEXT_LANG', geheim: false, standard: '1500' },
-  // Wie viel darf das Modell nachdenken? Gemini 3.7/3.8 Flash denken von Haus
-  // aus und zahlen das aus demselben Budget, aus dem die Antwort kommt — bei
-  // einer Einstufung ist das verschenkt. "aus" schickt das Feld gar nicht mit
-  // (fuer Modelle, die es nicht kennen). Siehe services/kiText.js.
-  gemini_denkstufe:     { env: 'GEMINI_DENKSTUFE', geheim: false, standard: 'low' },
+  // Textgrenzen fuer den Prompt. Verdachtsfaelle belegen drei Plaetze und bekommen die lange Form.
+  ki_text_kurz:         { env: 'KI_TEXT_KURZ', geheim: false, standard: '600' },
+  ki_text_lang:         { env: 'KI_TEXT_LANG', geheim: false, standard: '1500' },
   // Bleibt neu eingegangene Post im Postfach ungelesen? Standard ja — sonst
   // sieht der Nutzer neue Mails in seinem Mailclient bereits als gelesen, weil
   // das Panel schneller war. Steckt im Workflow, wirkt also erst nach

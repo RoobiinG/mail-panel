@@ -117,24 +117,17 @@ async function laden({ mitPosteingang = true } = {}) {
       offeneEntscheidungen: zahl("SELECT COUNT(*) n FROM sort_inbox WHERE status='offen'"),
     },
 
-    // KI-Tagesbudget. Gezählt werden ANFRAGEN — Googles Limit zählt die, und
-    // eine Anfrage trägt seit der Bündelung bis zu zwanzig Mails.
+    // KI-Nutzung. Ollama hat kein Tageslimit, wir zeigen nur die Statistik.
     budget: {
-      grenze: budget,               // 0 = nicht gesetzt
-      heute: verbraucht,            // Anfragen
-      // Wie viele Mails dabei herausgekommen sind. Die eigentlich interessante
-      // Zahl für „was hat das Panel heute geschafft".
+      grenze: 0,
+      heute: verbraucht,
       mailsHeute: require('./budget').protokolliertHeute(),
       jeAnfrage: require('./budget').mailsJeAnfrage(),
-      rest: budget ? Math.max(0, budget - verbraucht) : null,
-      ausgeschoepft: budget ? verbraucht >= budget : false,
-      // Wo Google heute abgewiesen hat — das Nächste an einem echten Tageslimit,
-      // was sich überhaupt beschaffen lässt. Siehe services/kiKontingent.js.
-      beobachtet: kiKontingent.stand().beobachtet,
-      // Welches Modell gerade arbeitet. Nach einer Abweisung kann das Panel auf
-      // ein Ersatzmodell wechseln — dessen Kontingent ist ein eigenes.
-      modell: require('./kiModell').stand(),
-      kiAnbieter: settings.hole('ki_anbieter') || 'gemini',
+      rest: null,
+      ausgeschoepft: false,
+      beobachtet: null,
+      modell: settings.hole('ollama_modell') || 'llama3.1',
+      kiAnbieter: 'ollama',
     },
 
     // Qualität und Umfang

@@ -890,17 +890,7 @@ async function workflowSuchen(praefix) {
   return treffer;
 }
 
-// Wie viele Millisekunden zwischen zwei KI-Anfragen? Der Gratis-Tarif von Gemini
-// zaehlt nicht nur pro Tag, sondern auch pro Minute (Groessenordnung: 15). Und
-// daran zaehlen beide Workflows gemeinsam: Waehrend die Bestands-Triage den
-// Altbestand abarbeitet, schiebt die Inbox-Triage nebenher frische Post dazu.
-// 6000 ms sind 10 Anfragen je Minute — genug Luft fuer beide.
-const PAUSE_STANDARD = 6000;
-function geminiPause() {
-  const n = Number(settings.hole('gemini_pause_ms'));
-  if (!Number.isFinite(n) || n <= 0) return PAUSE_STANDARD;
-  return Math.min(Math.round(n), 60000);
-}
+// Keine KI-Pause für Ollama erforderlich
 
 // Repariert den Bug, bei dem n8n's JSON.stringify den promptText verwirft, weil
 // die Eigenschaft unter bestimmten Umständen als Proxy-Feld nicht iterierbar ist,
@@ -960,10 +950,9 @@ function panelZeitlimitSetzen(workflow) {
   return geaendert;
 }
 
-function geminiRequestReparieren(workflow) {
+function kiRequestReparieren(workflow) {
   let geaendert = false;
   
-  const kiAnbieter = settings.hole('ki_anbieter') || 'gemini';
   const ollamaUrl = (settings.hole('ollama_url') || 'http://ollama:11434').replace(/\/$/, '') + '/api/generate';
   const ollamaModell = settings.hole('ollama_modell') || 'llama3.1';
   
@@ -1010,130 +999,67 @@ function geminiRequestReparieren(workflow) {
       "String($json.promptText || $json.text || '')",
     );
 
-    if (kiAnbieter === 'ollama') {
-      if (knoten.parameters.url !== ollamaUrl) {
-        knoten.parameters.url = ollamaUrl;
-        geaendert = true;
-      }
-      
-      if (knoten.parameters.authentication !== 'none') {
-        knoten.parameters.authentication = 'none';
-        geaendert = true;
-      }
-      
-      // num_predict begrenzt die Antwort. Ohne die Angabe schreibt Ollama, bis
-      // der Kontext voll ist — bei einem leeren oder schwachen Prompt heisst das
-      //: bis zum Zeitlimit. Die erwartete Antwort ist ein JSON-Objekt mit fuenf
-      // Feldern; 600 Token sind dafuer reichlich, und auf einer CPU ist jedes
-      // Token, das nicht erzeugt wird, gesparte Minute.
-      //
-      // num_ctx ist das Gegenstueck und der wichtigere Wert. Ohne die Angabe
-      // nimmt Ollama sein eigenes Fenster (je nach Fassung 2048 oder 4096
-      // Token) fuer Frage UND Antwort zusammen — und was nicht hineinpasst,
-      // faellt vorne heraus. Ohne Fehler, ohne Hinweis, ohne Spur in der
-      // Antwort. Ein Prompt mit Mailtext und Themenliste ist schnell laenger
-      // als das; das Modell sah dann nur den Schwanz der Mailliste, nie die
-      // Anweisung davor, und antwortete entsprechend: „Kein Thema erkannt",
-      // Konfidenz 0, bei praktisch jeder Mail.
-      const bodyNeu = `={{ JSON.stringify({ model: '${ollamaModell}', prompt: ${promptAusdruck}, stream: false, format: 'json', options: { temperature: 0.1, num_ctx: ${kiText.kontextFenster()}, num_predict: 600 } }) }}`;
-      if (knoten.parameters.jsonBody !== bodyNeu) {
-        knoten.parameters.jsonBody = bodyNeu;
-        geaendert = true;
-      }
-      
-      // Der KI-Knoten braucht ein eigenes Zeitlimit.
-      //
-      // Ohne eines nimmt n8n seinen Standard von 300 Sekunden — und mit
-      // maxTries: 3 wird daraus im schlimmsten Fall eine Viertelstunde, in der
-      // ein Lauf einfach steht. Genau so gesehen: "01 - Inbox-Triage,
-      // 15 Min. 7 Sek., The connection was aborted, perhaps the server is
-      // offline". Eine lokale KI, die nach zwei Minuten nichts geliefert hat,
-      // liefert auch nach fuenfzehn nichts Brauchbares; dann soll der Lauf
-      // scheitern und die naechste Mail drankommen.
-      // Nur setzen, wenn keines dasteht. Wer in n8n bewusst ein anderes Limit
-      // eingetragen hat, behaelt es — dieselbe Spielregel wie bei den
-      // Code-Knoten mit ihrer Marke. Es geht hier um das FEHLENDE Limit, nicht
-      // darum, ein bestimmtes durchzusetzen.
-      knoten.parameters.options = knoten.parameters.options || {};
-      if (!knoten.parameters.options.timeout) {
-        knoten.parameters.options.timeout = KI_ZEITLIMIT_OLLAMA;
-        geaendert = true;
-      }
-
-      // Ollama braucht keine kuenstliche Pause
-      if (knoten.parameters.options?.batching) {
-        delete knoten.parameters.options.batching;
-        geaendert = true;
-      }
-      
-      // Weniger Anlaeufe als bei Google: Eine lokale KI, die einmal ins
-      // Zeitlimit gelaufen ist, ist beim zweiten Mal nicht schneller — sie
-      // rechnet oft noch am ersten Auftrag. Drei Versuche verdreifachen nur die
-      // Wartezeit, und am Ende steht dieselbe Fehlermeldung.
-      for (const [feld, wert] of [['retryOnFail', true], ['maxTries', 2], ['waitBetweenTries', 5000]]) {
-        if (knoten[feld] !== wert) { knoten[feld] = wert; geaendert = true; }
-      }
-      
-    } else {
-      // Gemini
-      const geminiBaseUrl = 'https://generativelanguage.googleapis.com/v1beta/models/';
-      const modell = require('./kiModell').aktiv();
-      const neuUrl = `${geminiBaseUrl}${modell}:generateContent`;
-      
-      if (knoten.parameters.url !== neuUrl) {
-        knoten.parameters.url = neuUrl;
-        geaendert = true;
-      }
-      
-      if (knoten.parameters.authentication !== 'genericCredentialType') {
-        knoten.parameters.authentication = 'genericCredentialType';
-        knoten.parameters.genericAuthType = 'httpHeaderAuth';
-        geaendert = true;
-      }
-
-      let alt = String(knoten.parameters.jsonBody || '');
-      
-      // Wenn vorher Ollama drin war oder JSON komplett neu aufgebaut werden muss:
-      if (alt.includes('prompt:') || alt.includes('model:')) {
-        alt = `={{ JSON.stringify({ contents: [{ parts: [{ text: ${promptAusdruck} }] }], generationConfig: { responseMimeType: 'application/json', temperature: 0.1 } }) }}`;
-      } else {
-        // Sonst bleibt der vorhandene Rumpf stehen — dann muss der Rückfall auf
-        // `text` hier hinein, sonst ginge auch bei Gemini ein leerer Prompt
-        // hinaus. Siehe die lange Begründung oben bei promptAusdruck.
-        alt = alt.replace(
-          /String\(\s*\$json\.promptText\s*\|\|\s*''\s*\)/,
-          "String($json.promptText || $json.text || '')",
-        );
-      }
+    if (knoten.parameters.url !== ollamaUrl) {
+      knoten.parameters.url = ollamaUrl;
+      geaendert = true;
+    }
     
-      const stufe = String(settings.hole('gemini_denkstufe') || 'low').toLowerCase();
-      const zusatz = 'maxOutputTokens: 8192'
-        + (['minimal', 'low', 'medium', 'high'].includes(stufe) ? `, thinking_level: '${stufe}'` : '');
-      const neu = alt
-        .replace(/, maxOutputTokens: \d+(?:, thinking_level: '[a-z]+')?/g, '')
-        .replace(/(generationConfig: \{[^}]*?temperature: [\d.]+)/, `$1, ${zusatz}`);
-        
-      if (neu !== knoten.parameters.jsonBody) { 
-        knoten.parameters.jsonBody = neu; 
-        geaendert = true; 
-      }
+    if (knoten.parameters.authentication !== 'none') {
+      knoten.parameters.authentication = 'none';
+      geaendert = true;
+    }
+    
+    // num_predict begrenzt die Antwort. Ohne die Angabe schreibt Ollama, bis
+    // der Kontext voll ist — bei einem leeren oder schwachen Prompt heisst das
+    //: bis zum Zeitlimit. Die erwartete Antwort ist ein JSON-Objekt mit fuenf
+    // Feldern; 600 Token sind dafuer reichlich, und auf einer CPU ist jedes
+    // Token, das nicht erzeugt wird, gesparte Minute.
+    //
+    // num_ctx ist das Gegenstueck und der wichtigere Wert. Ohne die Angabe
+    // nimmt Ollama sein eigenes Fenster (je nach Fassung 2048 oder 4096
+    // Token) fuer Frage UND Antwort zusammen — und was nicht hineinpasst,
+    // faellt vorne heraus. Ohne Fehler, ohne Hinweis, ohne Spur in der
+    // Antwort. Ein Prompt mit Mailtext und Themenliste ist schnell laenger
+    // als das; das Modell sah dann nur den Schwanz der Mailliste, nie die
+    // Anweisung davor, und antwortete entsprechend: „Kein Thema erkannt",
+    // Konfidenz 0, bei praktisch jeder Mail.
+    const bodyNeu = `={{ JSON.stringify({ model: '${ollamaModell}', prompt: ${promptAusdruck}, stream: false, format: 'json', options: { temperature: 0.1, num_ctx: ${kiText.kontextFenster()}, num_predict: 600 } }) }}`;
+    if (knoten.parameters.jsonBody !== bodyNeu) {
+      knoten.parameters.jsonBody = bodyNeu;
+      geaendert = true;
+    }
+    
+    // Der KI-Knoten braucht ein eigenes Zeitlimit.
+    //
+    // Ohne eines nimmt n8n seinen Standard von 300 Sekunden — und mit
+    // maxTries: 3 wird daraus im schlimmsten Fall eine Viertelstunde, in der
+    // ein Lauf einfach steht. Genau so gesehen: "01 - Inbox-Triage,
+    // 15 Min. 7 Sek., The connection was aborted, perhaps the server is
+    // offline". Eine lokale KI, die nach zwei Minuten nichts geliefert hat,
+    // liefert auch nach fuenfzehn nichts Brauchbares; dann soll der Lauf
+    // scheitern und die naechste Mail drankommen.
+    // Nur setzen, wenn keines dasteht. Wer in n8n bewusst ein anderes Limit
+    // eingetragen hat, behaelt es — dieselbe Spielregel wie bei den
+    // Code-Knoten mit ihrer Marke. Es geht hier um das FEHLENDE Limit, nicht
+    // darum, ein bestimmtes durchzusetzen.
+    knoten.parameters.options = knoten.parameters.options || {};
+    if (!knoten.parameters.options.timeout) {
+      knoten.parameters.options.timeout = KI_ZEITLIMIT_OLLAMA;
+      geaendert = true;
+    }
 
-      const takt = { batch: { batchSize: 1, batchInterval: geminiPause() } };
-      knoten.parameters.options = knoten.parameters.options || {};
-      // Auch hier: kein KI-Aufruf ohne Zeitlimit — aber ein von Hand gesetztes
-      // bleibt stehen. Siehe KI_ZEITLIMIT_GEMINI.
-      if (!knoten.parameters.options.timeout) {
-        knoten.parameters.options.timeout = KI_ZEITLIMIT_GEMINI;
-        geaendert = true;
-      }
-      if (JSON.stringify(knoten.parameters.options.batching) !== JSON.stringify(takt)) {
-        knoten.parameters.options.batching = takt;
-        geaendert = true;
-      }
-
-      for (const [feld, wert] of [['retryOnFail', true], ['maxTries', 5], ['waitBetweenTries', 5000]]) {
-        if (knoten[feld] !== wert) { knoten[feld] = wert; geaendert = true; }
-      }
+    // Ollama braucht keine kuenstliche Pause
+    if (knoten.parameters.options?.batching) {
+      delete knoten.parameters.options.batching;
+      geaendert = true;
+    }
+    
+    // Weniger Anlaeufe als bei Google: Eine lokale KI, die einmal ins
+    // Zeitlimit gelaufen ist, ist beim zweiten Mal nicht schneller — sie
+    // rechnet oft noch am ersten Auftrag. Drei Versuche verdreifachen nur die
+    // Wartezeit, und am Ende steht dieselbe Fehlermeldung.
+    for (const [feld, wert] of [['retryOnFail', true], ['maxTries', 2], ['waitBetweenTries', 5000]]) {
+      if (knoten[feld] !== wert) { knoten[feld] = wert; geaendert = true; }
     }
   }
   return geaendert;
@@ -1502,7 +1428,7 @@ function buendelCode() {
   ].join('\n');
 }
 
-function geminiBuendelEinbauen(workflow) {
+function kiBuendelEinbauen(workflow) {
   const i = workflow.nodes.findIndex((k) => istKiKnoten(k.name));
   if (i < 0) return false;
   const alt = workflow.nodes[i];
@@ -1535,14 +1461,14 @@ async function bestandSynchronisieren(konten, credentialId, aktionenWorkflowId) 
   altlastenEntfernen(workflow);
   if (credentialId) panelKnotenVerdrahten(workflow, credentialId);
   patchAntwortParsen(workflow);
-  geminiRequestReparieren(workflow);
+  kiRequestReparieren(workflow);
   kiAntwortLesenAngleichen(workflow);
   anhangKetteReparieren(workflow, NORMALISIERER['04']);
   absenderFallbackEinbauen(workflow, NORMALISIERER['04']);
   themenKetteEinbauen(workflow, NORMALISIERER['04'], credentialId);
   // Zuletzt: Danach ist der Gemini-Knoten kein HTTP-Knoten mehr, und alles, was
   // oben nach einem solchen sucht, hat ihn schon gesehen.
-  geminiBuendelEinbauen(workflow);
+  kiBuendelEinbauen(workflow);
 
   const sammler = workflow.nodes.find((k) => k.name === ANKER.bestand.ziel);
   const kopf    = workflow.nodes.find((k) => k.name === ANKER.bestand.kopf);
@@ -1723,7 +1649,7 @@ async function credentialErneuern(dbSchluessel, abdruck, anlegen) {
 // Credentials. Also lässt sich der Merkzettel leeren.
 function zugangsdatenVergessen() {
   const schluessel = [
-    'n8n_gemini_credential_id', 'n8n_telegram_credential_id',
+    'n8n_telegram_credential_id',
     'n8n_smtp_credential_id', 'n8n_panel_credential_id',
   ];
   for (const k of schluessel) {
@@ -1739,13 +1665,13 @@ function zugangsdatenVergessen() {
 // Kontingent gerade leer ist. Bewusst ein eigener, kleiner Durchlauf statt des
 // ganzen Syncs — der legt Knoten neu an, und das hat mitten am Tag nichts
 // verloren.
-async function geminiModellNachziehen() {
+async function kiModellNachziehen() {
   let angepasst = 0;
   const alle = await n8n.workflowsAuflisten();
   for (const wfInfo of alle) {
     try {
       const workflow = await n8n.workflowHolen(wfInfo.id);
-      if (!geminiRequestReparieren(workflow)) continue;
+      if (!kiRequestReparieren(workflow)) continue;
       await n8n.workflowSpeichern(wfInfo.id, workflow);
       angepasst += 1;
     } catch (err) {
@@ -1757,13 +1683,11 @@ async function geminiModellNachziehen() {
 
 // Synchronisiert die KI- und Telegram-Einstellungen in die Workflows
 async function kiUndBenachrichtigungenSynchronisieren() {
-  const geminiKey = settings.hole('gemini_api_key');
   const telegramToken = settings.hole('telegram_token');
   const telegramChatId = settings.hole('telegram_chat_id');
   const smtpHost = settings.hole('smtp_host');
   const smtpAbsender = settings.hole('smtp_absender');
 
-  let geminiCredId = null;
   let telegramCredId = null;
   let smtpCredId = null;
   // Abgelöste Credentials werden gesammelt und erst weggeräumt, wenn wirklich
@@ -1792,11 +1716,7 @@ async function kiUndBenachrichtigungenSynchronisieren() {
     }
   };
 
-  if (geminiKey) {
-    geminiCredId = await credentialVersuch('Gemini', 'n8n_gemini_credential_id',
-      fingerabdruck('gemini', geminiKey),
-      () => n8n.headerCredentialAnlegen('Gemini API', 'x-goog-api-key', geminiKey));
-  }
+  // Gemini entfernt
 
   if (telegramToken) {
     telegramCredId = await credentialVersuch('Telegram', 'n8n_telegram_credential_id',
@@ -1843,7 +1763,7 @@ async function kiUndBenachrichtigungenSynchronisieren() {
       if (panelKnotenVerdrahten(workflow, panelCredId)) geaendert = true;
       // Auch hier, nicht nur in 01 und 04: Sonst bleibt der Digest-Workflow auf
       // dem abgekündigten Gemini-Modell stehen, weil ihn sonst niemand anfasst.
-      if (geminiRequestReparieren(workflow)) geaendert = true;
+      if (kiRequestReparieren(workflow)) geaendert = true;
       if (kiAntwortLesenAngleichen(workflow)) geaendert = true;
       // Nach dem Reparieren, nicht davor: geminiRequestReparieren() findet den
       // Knoten ueber die Adresse ODER den Namen, danach heisst er ohnehin
@@ -1862,13 +1782,7 @@ async function kiUndBenachrichtigungenSynchronisieren() {
         // überschreiben.
         if (knoten.type === 'n8n-nodes-base.httpRequest' && !istDigestKnoten(knoten)
           && (istKiKnoten(knoten.name) || KI_ZUSAMMENFASSER.includes(knoten.name))) {
-          // Mit Ollama darf hier kein Google-Zugang mehr hängen: Der Knoten
-          // zeigt dann auf den lokalen Server, und ein Header mit einem
-          // Google-Schlüssel hätte dort nichts zu suchen.
-          if (geminiCredId && (settings.hole('ki_anbieter') || 'gemini') !== 'ollama') {
-            knoten.credentials = { httpHeaderAuth: { id: String(geminiCredId), name: 'Gemini API' } };
-            geaendert = true;
-          } else if (knoten.credentials?.httpHeaderAuth) {
+          if (knoten.credentials?.httpHeaderAuth) {
             // Kein Schlüssel mehr hinterlegt: Der Verweis zeigt sonst auf ein
             // gelöschtes Credential ("Credential with ID ... does not exist")
             // und der Workflow lässt sich weder ausführen noch einschalten.
@@ -2160,13 +2074,13 @@ module.exports = {
   verschiebeKnoten,
   themenKetteEinbauen, einsortierenKnoten, bestandZeitplanKnoten,
   bestandWebhookKnoten, BESTAND_WEBHOOK_PFAD,
-  geminiRequestReparieren, credentialErneuern, bestandAuswahlKnoten, AUSWAHL_KNOTEN,
+  kiRequestReparieren, credentialErneuern, bestandAuswahlKnoten, AUSWAHL_KNOTEN,
   fingerabdruck, zugangsdatenVergessen, absenderFallbackEinbauen, ABSENDER_MARKE,
-  geminiModellNachziehen,
-  geminiBuendelEinbauen, BUENDEL_MARKE, panelZeitlimitSetzen,
+  kiModellNachziehen,
+  kiBuendelEinbauen, BUENDEL_MARKE, panelZeitlimitSetzen,
   kiKnotenNeutralBenennen, KI_NAME, KI_ZUSAMMENFASSER_NAME,
   digestKnotenUmbauen, panelKnotenVerdrahten, DIGEST_URL,
-  KI_ZEITLIMIT_GEMINI, KI_ZEITLIMIT_OLLAMA,
+  KI_ZEITLIMIT_OLLAMA,
   kiAntwortLesenAngleichen, istKiKnoten,
   absenderpruefungFuellen, bedingungBrauchtChatId,
 };
