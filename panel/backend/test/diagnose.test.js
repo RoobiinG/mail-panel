@@ -112,8 +112,8 @@ describe('Was drinstehen muss', () => {
   });
 
   test('der Zustand der KI', () => {
-    assert.equal(bericht.ki.anbieter, 'gemini');
-    assert.equal(typeof bericht.ki.tagesbudget, 'number');
+    assert.equal(bericht.ki.anbieter, 'ollama');
+    assert.equal(typeof bericht.ki.heuteMails, 'number');
   });
 
   // Ein Abschnitt darf scheitern, ohne den Bericht mitzunehmen: n8n ist im Test

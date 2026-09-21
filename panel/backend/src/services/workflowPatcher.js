@@ -1454,6 +1454,8 @@ function kiBuendelEinbauen(workflow) {
   return true;
 }
 
+const geminiBuendelEinbauen = kiBuendelEinbauen;
+
 async function bestandSynchronisieren(konten, credentialId, aktionenWorkflowId) {
   const info = await workflowSuchen(ANKER.bestand.workflowPraefix);
   const workflow = await n8n.workflowHolen(info.id);
@@ -2077,10 +2079,10 @@ module.exports = {
   kiRequestReparieren, credentialErneuern, bestandAuswahlKnoten, AUSWAHL_KNOTEN,
   fingerabdruck, zugangsdatenVergessen, absenderFallbackEinbauen, ABSENDER_MARKE,
   kiModellNachziehen,
-  kiBuendelEinbauen, BUENDEL_MARKE, panelZeitlimitSetzen,
+  kiBuendelEinbauen, geminiBuendelEinbauen, BUENDEL_MARKE, panelZeitlimitSetzen,
   kiKnotenNeutralBenennen, KI_NAME, KI_ZUSAMMENFASSER_NAME,
   digestKnotenUmbauen, panelKnotenVerdrahten, DIGEST_URL,
-  KI_ZEITLIMIT_OLLAMA,
+  KI_ZEITLIMIT_GEMINI, KI_ZEITLIMIT_OLLAMA,
   kiAntwortLesenAngleichen, istKiKnoten,
   absenderpruefungFuellen, bedingungBrauchtChatId,
 };

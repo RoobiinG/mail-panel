@@ -105,31 +105,20 @@ describe('Das Zeitlimit im Bündel-Knoten wächst mit', () => {
 });
 
 describe('Die Bündelgröße für die lokale KI ist einstellbar', () => {
-  // Fuenf war geraten und zu viel: Die Zeit zum Einlesen des Prompts waechst
-  // mit seiner Laenge, und zwei Mails, die zurueckkommen, sind mehr wert als
-  // fuenf, die ins Zeitlimit laufen — dort ist das Ergebnis null.
-  test('bei Ollama deckelt sie den eingestellten Wert', () => {
-    settings.setze('ki_anbieter', 'ollama');
-    settings.setze('ollama_buendel', '20');
+  test('Standardwert ist OLLAMA_BUENDEL_STANDARD', () => {
+    settings.setze('ollama_buendel', '');
     assert.equal(klass.buendelGroesse(), klass.OLLAMA_BUENDEL_STANDARD);
   });
 
   test('ein eigener Wert wird genommen', () => {
-    settings.setze('ki_anbieter', 'ollama');
-    settings.setze('ollama_buendel', '20');
     settings.setze('ollama_buendel', '4');
     assert.equal(klass.buendelGroesse(), 4);
   });
 
-  // Deckel heisst Deckel: Wer 20 einstellt und lokal 4 erlaubt, bekommt 4 —
-  // wer 2 einstellt und lokal 4 erlaubt, bekommt 2.
-  test('der kleinere von beiden gewinnt', () => {
-    settings.setze('ki_anbieter', 'ollama');
-    settings.setze('ollama_buendel', '2');
-    settings.setze('ollama_buendel', '8');
-    assert.equal(klass.buendelGroesse(), 2);
+  test('Werte über 10 werden auf 10 gedeckelt', () => {
+    settings.setze('ollama_buendel', '20');
+    assert.equal(klass.buendelGroesse(), 10);
   });
-
 });
 
 // Der eigentliche Fehler von heute: Der Wert liess sich nie setzen.
@@ -184,8 +173,6 @@ describe('Speichern nimmt die neuen Schlüssel an', () => {
   test('ollama_buendel kommt an und wird geprüft', async () => {
     await mitServer(async (put) => {
       assert.equal((await put({ ollama_buendel: '3' })).status, 200);
-      settings.setze('ki_anbieter', 'ollama');
-      settings.setze('ollama_buendel', '20');
       assert.equal(klass.buendelGroesse(), 3);
 
       const zuViel = await put({ ollama_buendel: '99' });

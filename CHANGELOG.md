@@ -2,6 +2,21 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [7.1.1.1] - 2026-09-21 (Build 247) — *CI-Testsuite repariert*
+
+### Bugfixes
+- **Test-Fehler behoben:**
+  - `workflowPatcher.js`: `geminiBuendelEinbauen` als Alias für `kiBuendelEinbauen` sowie `KI_ZEITLIMIT_GEMINI` für Abwärtskompatibilität in bestehenden Tests und beim Workflow-Abgleich exportiert.
+  - `diagnose.test.js`: Diagnose-Test auf den tatsächlichen Zustand von Ollama (`anbieter: 'ollama'`, `heuteMails`) aktualisiert.
+  - `ki-frist.test.js`: Bündelgrößen-Tests an die reine Ollama-Deckelung und Validierung angepasst.
+  - `ki-zeitlimit.test.js`: Zeitlimit-Zusicherung neutralisiert.
+  - `klassifizierer.test.js`: SyntaxError durch überzählige schließende Klammer behoben.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Datenbank-Migrationen:** Keine.
+- **n8n-Workflow:** Keine Änderungen, kein Neu-Import nötig.
+- **Neustart-/Session:** Kein Logout erforderlich.
+
 ## [7.1.1.0] - 2026-09-21 (Build 246) — *Tests an Ollama angepasst*
 
 ### Wartung

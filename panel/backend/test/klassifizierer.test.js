@@ -299,9 +299,6 @@ describe('Minutenlimit ist kein Tageslimit', () => {
     assert.match(e.hinweis, /Pause zwischen den B/,
       'sonst stuende da "Tageskontingent", und der Nutzer setzt das Budget herunter');
   });
-
-
-  });
 });
 
 describe('List-Unsubscribe geht vor der KI', () => {

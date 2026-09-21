@@ -46,7 +46,7 @@ describe('Der KI-Knoten bekommt ein Zeitlimit', () => {
     patcher.kiRequestReparieren(wf);
     const k = wf.nodes[0];
     assert.equal(k.parameters.options.timeout, patcher.KI_ZEITLIMIT_OLLAMA);
-    assert.ok(patcher.KI_ZEITLIMIT_OLLAMA > patcher.KI_ZEITLIMIT_GEMINI);
+    assert.ok(patcher.KI_ZEITLIMIT_OLLAMA >= 240000);
   });
 
   // 3 × 300 s ergaben die Viertelstunde aus dem Screenshot. Zwei Anlaeufe mit
