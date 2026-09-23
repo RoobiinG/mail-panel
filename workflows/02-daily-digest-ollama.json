@@ -112,27 +112,20 @@
                       "parameters":  {
                                          "chatId":  "DEINE_CHAT_ID",
                                          "text":  "={{ $json.digest }}",
-                                         "additionalFields":  {
-                                                                  "replyMarkup":  "inlineKeyboard",
-                                                                  "inlineKeyboard":  {
-                                                                                         "rows":  [
-                                                                                                      {
-                                                                                                          "row":  {
-                                                                                                                      "buttons":  [
-                                                                                                                                      {
-                                                                                                                                          "text":  "📬 Panel öffnen",
-                                                                                                                                          "additionalFields":  "@{url=https://dein-panel-url/}"
-                                                                                                                                      },
-                                                                                                                                      {
-                                                                                                                                          "text":  "✅ Alle freigeben",
-                                                                                                                                          "additionalFields":  "@{callbackData=q_deliver_all}"
-                                                                                                                                      }
-                                                                                                                                  ]
-                                                                                                                  }
-                                                                                                      }
-                                                                                                  ]
-                                                                                     }
-                                                              }
+                                         "replyMarkup": "inlineKeyboard",
+                                         "inlineKeyboard": {
+                                             "rows": [
+                                                 {
+                                                     "row": {
+                                                         "buttons": [
+                                                             { "text": "📬 Panel öffnen", "additionalFields": { "url": "https://dein-panel-url/" } },
+                                                             { "text": "✅ Alle freigeben", "additionalFields": { "callback_data": "q_deliver_all" } }
+                                                         ]
+                                                     }
+                                                 }
+                                             ]
+                                         },
+                                         "additionalFields": {}
                                      },
                       "id":  "telegram-send",
                       "name":  "Telegram senden",

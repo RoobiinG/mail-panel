@@ -27,6 +27,21 @@ function fehler(err, was) {
   return new Error(`${was}: ${detail}`);
 }
 
+// Eine Kennung, wie sie in einen API-Pfad gehört.
+//
+// Die IDs kommen teils aus der Adresse einer Panel-Anfrage
+// (DELETE /api/workflows/stop/:id). Express dekodiert dort %2F zu „/" — ohne
+// Prüfung wurde aus `..%2Fcredentials%2F42` der Pfad
+// `/executions/../credentials/42`, den axios zu `/credentials/42` auflöst: Mit
+// dem API-Schlüssel des Panels ließ sich so jedes Objekt in n8n löschen. n8n
+// vergibt nur Ziffern (Läufe) und alphanumerische Kennungen (Workflows,
+// Zugangsdaten); alles andere ist keine Kennung.
+function idPfad(id) {
+  const text = String(id ?? '');
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(text)) throw new Error(`Ungültige Kennung: ${text.slice(0, 40)}`);
+  return encodeURIComponent(text);
+}
+
 async function testVerbindung() {
   try {
     const { data } = await client().get('/workflows', { params: { limit: 1 } });
@@ -47,7 +62,7 @@ async function workflowsAuflisten() {
 
 async function workflowHolen(id) {
   try {
-    const { data } = await client().get(`/workflows/${id}`);
+    const { data } = await client().get(`/workflows/${idPfad(id)}`);
     return data;
   } catch (err) {
     throw fehler(err, `Workflow ${id} konnte nicht geladen werden`);
@@ -90,7 +105,7 @@ async function workflowSpeichern(id, workflow) {
     settings: workflow.settings || { executionOrder: 'v1' },
   };
   try {
-    const { data } = await client(ZEITLIMIT_SCHREIBEN).put(`/workflows/${id}`, rumpf);
+    const { data } = await client(ZEITLIMIT_SCHREIBEN).put(`/workflows/${idPfad(id)}`, rumpf);
     return data;
   } catch (err) {
     const zeitlimit = err.code === 'ECONNABORTED' || /timeout/i.test(err.message || '');
@@ -123,7 +138,7 @@ async function workflowAktivieren(id, aktiv) {
 
     // Nativ fetch nutzen, um Axios-Probleme mit Content-Type und Body zu umgehen.
     // n8n (Fastify) lehnt {} inzwischen mit "Bad request - please check your parameters" ab.
-    const response = await fetch(`${basis}/api/v1/workflows/${id}/${pfad}`, {
+    const response = await fetch(`${basis}/api/v1/workflows/${idPfad(id)}/${pfad}`, {
       method: 'POST',
       headers: {
         'X-N8N-API-KEY': key,
@@ -184,7 +199,7 @@ async function headerCredentialAnlegen(name, headerName, headerWert) {
 async function credentialLoeschen(id) {
   if (!id) return;
   try {
-    await client().delete(`/credentials/${id}`);
+    await client().delete(`/credentials/${idPfad(id)}`);
   } catch (err) {
     // Nicht mehr vorhanden ist kein Fehler — Hauptsache, es ist weg
     if (err.response?.status !== 404) throw fehler(err, 'IMAP-Credential konnte nicht gelöscht werden');
@@ -254,7 +269,7 @@ const EXECUTION_MAX_BYTES = 32 * 1024 * 1024;
 async function executionFehler(id, zeitlimit = 15000) {
   try {
     const c = client(zeitlimit);
-    const { data } = await c.get(`/executions/${id}`, {
+    const { data } = await c.get(`/executions/${idPfad(id)}`, {
       params: { includeData: true },
       // Ein einzelner Lauf kann sehr groß sein. Lieber ohne Meldung dastehen als
       // dem Panel beim Fehlersuchen den Speicher nehmen.
@@ -274,9 +289,41 @@ async function executionFehler(id, zeitlimit = 15000) {
   }
 }
 
+// Wo hat ein Lauf seine Zeit verbracht? Nur Knotennamen und Millisekunden —
+// keine Items, keine Mailinhalte.
+//
+// Anlass: Ein Bestandslauf brauchte 1.144 s bei einer KI-Frist von 600 s. Die
+// KI war es also nicht allein — aber welcher Knoten dann? Die Liste der Läufe
+// sagt es nicht; die Antwort steckt in runData[knoten][i].executionTime.
+async function executionKnotenZeiten(id, zeitlimit = 15000) {
+  try {
+    const { data } = await client(zeitlimit).get(`/executions/${idPfad(id)}`, {
+      params: { includeData: true },
+      maxContentLength: EXECUTION_MAX_BYTES,
+      maxBodyLength: EXECUTION_MAX_BYTES,
+    });
+    let daten = data?.data;
+    if (typeof daten === 'string') { try { daten = JSON.parse(daten); } catch { daten = null; } }
+    const runData = daten?.resultData?.runData;
+    if (!runData || typeof runData !== 'object') return null;
+    return Object.entries(runData)
+      .map(([knoten, laeufe]) => ({
+        knoten,
+        ms: (Array.isArray(laeufe) ? laeufe : [])
+          .reduce((s, l) => s + (Number(l?.executionTime) || 0), 0),
+        items: (Array.isArray(laeufe) ? laeufe : [])
+          .reduce((s, l) => s + (l?.data?.main?.[0]?.length || 0), 0),
+      }))
+      .filter((k) => k.ms > 0)
+      .sort((a, b) => b.ms - a.ms);
+  } catch {
+    return null;
+  }
+}
+
 async function executionLoeschen(id) {
   try {
-    const { data } = await client().delete(`/executions/${id}`);
+    const { data } = await client().delete(`/executions/${idPfad(id)}`);
     return data;
   } catch (err) {
     throw fehler(err, `Execution ${id} konnte nicht gestoppt/gelöscht werden`);
@@ -288,5 +335,5 @@ module.exports = {
   client, testVerbindung, workflowsAuflisten, workflowHolen, workflowErstellen, workflowSpeichern,
   workflowAktivieren, credentialAnlegen, headerCredentialAnlegen, telegramCredentialAnlegen,
   smtpCredentialAnlegen, credentialLoeschen,
-  executionsAuflisten, executionLoeschen, executionFehler,
+  executionsAuflisten, executionLoeschen, executionFehler, executionKnotenZeiten, idPfad,
 };

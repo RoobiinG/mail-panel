@@ -740,6 +740,36 @@ function anhangKetteReparieren(workflow, quelle) {
   return geaendert;
 }
 
+// ─── Mail-Datum ──────────────────────────────────────────────────────────────
+//
+// In der Entscheidungs-Chronik stand bisher nur, wann das Panel eine Mail
+// einsortiert hat — nicht, wann sie geschickt wurde. Gesucht wird aber nach
+// dem zweiten („die Rechnung vom Montag"), und beim Bestandslauf liegen
+// zwischen beidem oft Jahre.
+//
+// Der Normalisierer baut ein frisches Item; was er nicht übernimmt, ist weg.
+// Deshalb kommt das Datum dort hinein — wie `hat_anhang` hinter die UID —
+// und wandert über die `...mail`-Kopien der Code-Knoten bis zu „Einsortieren".
+//
+// Quellen je Knoten: der IMAP-Trigger (Workflow 01, Format „resolved") liefert
+// `date`, der Abruf-Knoten (Workflow 04) `envelope.date`, und zur Not steht
+// es in den Kopfzeilen. Was sich nicht lesen lässt, wird null — ein erfundenes
+// Datum wäre schlimmer als keins.
+const DATUM_ANKER = 'uid: j.uid ?? j.attributes?.uid ?? null,';
+const DATUM_ZEILE = "datum: (() => { const __d = new Date(e.date || j.date || j.Date || h.date || ''); "
+  + 'return Number.isNaN(__d.getTime()) ? null : __d.toISOString(); })(),';
+
+function datumEinbauen(workflow, normalisierer) {
+  const knoten = workflow.nodes.find((k) => k.name === normalisierer && k.type === 'n8n-nodes-base.code');
+  const code = String(knoten?.parameters?.jsCode || '');
+  if (!code || code.includes('datum: (() =>') || !code.includes(DATUM_ANKER)) return false;
+  // Die Einrückung der Anker-Zeile übernehmen.
+  const treffer = code.match(new RegExp(`^([ \\t]*)${DATUM_ANKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'm'));
+  const ein = treffer ? treffer[1] : '    ';
+  knoten.parameters.jsCode = code.replace(DATUM_ANKER, `${DATUM_ANKER}\n${ein}${DATUM_ZEILE}`);
+  return true;
+}
+
 // Knoten umbenennen heißt in n8n auch: alle Verbindungen nachziehen, denn die
 // laufen über den Namen und nicht über die ID.
 function knotenUmbenennen(workflow, knoten, neuerName) {
@@ -795,6 +825,9 @@ function einsortierenKnoten(position, credentialId) {
     'virus_name: $json.virus_name', 'dnsbl_treffer: $json.dnsbl_treffer',
     'zielordner: $json.zielordner', 'ziel_fest: $json.ziel_fest',
     'thema: $json.thema', 'konfidenz: $json.konfidenz', 'ordner: $json.ordner',
+    // Das Datum aus der Mail (siehe datumEinbauen) — für „Mail vom …" in der
+    // Entscheidungs-Chronik.
+    'datum: $json.datum',
   ].join(', ');
 
   const knoten = {
@@ -1107,6 +1140,7 @@ async function triageSynchronisieren(konten, credentialId, aktionenWorkflowId) {
   kiRequestReparieren(workflow);
   kiAntwortLesenAngleichen(workflow);
   anhangKetteReparieren(workflow, NORMALISIERER['01']);
+  datumEinbauen(workflow, NORMALISIERER['01']);
   absenderFallbackEinbauen(workflow, NORMALISIERER['01']);
   themenKetteEinbauen(workflow, NORMALISIERER['01'], credentialId);
   // Auch Workflow 01 fragt die KI ueber das Panel, nicht selbst.
@@ -1335,6 +1369,137 @@ function digestKnotenUmbauen(workflow) {
   return true;
 }
 
+// ─── Telegram-Rückkanal: „Alle freigeben" ────────────────────────────────────
+//
+// Der Knopf unter dem täglichen Digest hat nie funktioniert. Drei Fehler
+// hintereinander, jeder für sich tödlich:
+//
+//   1. Workflow 02: Die Knopf-Felder waren seit Build 131 PowerShell-verstümmelt.
+//      Statt eines Objekts stand dort der Text "@{callbackData=q_deliver_all}"
+//      (so gibt PowerShell eine Hashtabelle aus, wenn ConvertTo-Json die Tiefe
+//      ausgeht) — und der Schlüssel heißt bei Telegram ohnehin `callback_data`.
+//      n8n las die Zeichen des Textes als Felder; Telegram lehnt solche Knöpfe ab.
+//   2. Workflow 05: Die Weiche war ein Switch v1 mit den Parametern eines IF-
+//      Knotens, und sie las `message.data` statt `callback_query.data`. Sie
+//      leitete nie etwas weiter.
+//   3. Der Endpunkt, den Workflow 05 ruft, existierte nicht (404).
+//
+// Die Vorlagen sind repariert; diese beiden Funktionen bringen bestehende
+// Workflows beim nächsten Abgleich auf denselben Stand.
+const RUECKKANAL_URL = 'http://panel:3002/api/internal/quarantaene/deliver-all';
+const TELEGRAM_KNOPF_SCHLUESSEL = { callbackData: 'callback_data', callbackdata: 'callback_data' };
+
+// "@{url=https://x/; callbackData=q}" → { url: 'https://x/', callback_data: 'q' }
+function knopfFelderLesen(roh) {
+  const text = String(roh || '').trim().replace(/^@\{/, '').replace(/\}$/, '');
+  const felder = {};
+  for (const teil of text.split(';')) {
+    const i = teil.indexOf('=');
+    if (i <= 0) continue;
+    const schluessel = teil.slice(0, i).trim();
+    felder[TELEGRAM_KNOPF_SCHLUESSEL[schluessel] || schluessel] = teil.slice(i + 1).trim();
+  }
+  return felder;
+}
+
+// Die öffentliche Adresse des Panels für den Knopf „Panel öffnen" — dieselbe,
+// die Passkeys brauchen. Ohne sie gibt es keinen sinnvollen Link, dann fällt
+// der Knopf weg, statt auf den Platzhalter aus der Vorlage zu zeigen.
+function panelAdresse() {
+  const roh = String(process.env.ALLOWED_ORIGIN || '').split(',')[0].trim();
+  return /^https?:\/\/[^\s/]+/i.test(roh) ? roh.replace(/\/?$/, '/') : null;
+}
+
+function telegramKnoepfeReparieren(workflow) {
+  let geaendert = false;
+  for (const knoten of workflow.nodes || []) {
+    if (knoten.type !== 'n8n-nodes-base.telegram') continue;
+    // In der Vorlage standen replyMarkup und inlineKeyboard INNERHALB von
+    // additionalFields. Dort liest n8n sie nicht — die Nachricht ging ohne
+    // Knöpfe hinaus. Sie gehören eine Ebene höher.
+    const zusatz = knoten.parameters?.additionalFields;
+    if (zusatz && typeof zusatz === 'object' && (zusatz.replyMarkup || zusatz.inlineKeyboard)) {
+      const { replyMarkup, inlineKeyboard, ...rest } = zusatz;
+      if (replyMarkup && !knoten.parameters.replyMarkup) knoten.parameters.replyMarkup = replyMarkup;
+      if (inlineKeyboard && !knoten.parameters.inlineKeyboard) knoten.parameters.inlineKeyboard = inlineKeyboard;
+      knoten.parameters.additionalFields = rest;
+      geaendert = true;
+    }
+    const zeilen = knoten.parameters?.inlineKeyboard?.rows;
+    if (!Array.isArray(zeilen)) continue;
+    for (const zeile of zeilen) {
+      const knoepfe = zeile?.row?.buttons;
+      if (!Array.isArray(knoepfe)) continue;
+      const neu = [];
+      for (const knopf of knoepfe) {
+        let felder = knopf.additionalFields;
+        if (typeof felder === 'string') { felder = knopfFelderLesen(felder); geaendert = true; }
+        felder = { ...(felder || {}) };
+        for (const [alt, richtig] of Object.entries(TELEGRAM_KNOPF_SCHLUESSEL)) {
+          if (felder[alt] !== undefined) { felder[richtig] = felder[alt]; delete felder[alt]; geaendert = true; }
+        }
+        if (felder.url && /dein-panel-url/i.test(String(felder.url))) {
+          const adresse = panelAdresse();
+          geaendert = true;
+          if (!adresse) continue;  // kein Ziel — dann lieber kein Knopf
+          felder.url = adresse;
+        }
+        neu.push({ ...knopf, additionalFields: felder });
+      }
+      zeile.row.buttons = neu;
+    }
+  }
+  return geaendert;
+}
+
+function rueckkanalReparieren(workflow) {
+  let geaendert = false;
+  const nodes = workflow.nodes || [];
+
+  // Die Weiche: aus dem verbauten Switch wird ein IF-Knoten mit derselben
+  // Position und demselben Namen — die Verbindungen laufen über den Namen und
+  // bleiben gültig. Ausgang 0 ist bei IF „wahr", genau wie vorher verbunden.
+  for (const k of nodes) {
+    const bedingungen = k.parameters?.conditions?.string;
+    if (!Array.isArray(bedingungen)) continue;
+    const istWeiche = bedingungen.some((b) => /q_deliver_all/.test(String(b?.value2 || '')));
+    if (!istWeiche) continue;
+    const vorher = JSON.stringify({ t: k.type, v: k.typeVersion, b: bedingungen });
+    for (const b of bedingungen) {
+      b.value1 = String(b.value1 || '')
+        .replace(/\$json\.message\.data\b/, '$json.callback_query.data')
+        .replace(/\$json\.message\.message\.chat\.id\b/, '$json.callback_query.message.chat.id');
+    }
+    k.type = 'n8n-nodes-base.if';
+    k.typeVersion = 1;
+    k.parameters = { conditions: { string: bedingungen }, combineOperation: 'all' };
+    if (JSON.stringify({ t: k.type, v: k.typeVersion, b: bedingungen }) !== vorher) geaendert = true;
+  }
+
+  // Der Aufruf: auf den Endpunkt, den es gibt, unter dem Dienstnamen der Compose.
+  for (const k of nodes) {
+    const url = String(k.parameters?.url || '');
+    if (k.type !== 'n8n-nodes-base.httpRequest' || !/\/api\/internal\/quarantaene\/deliver-all/.test(url)) continue;
+    if (url !== RUECKKANAL_URL) { k.parameters.url = RUECKKANAL_URL; geaendert = true; }
+    const quelle = nodes.find((n) => n.type === 'n8n-nodes-base.telegram'
+      && (workflow.connections?.[k.name]?.main?.[0] || []).some((z) => z.node === n.name));
+    if (quelle) {
+      // Die Bestätigung sagt, was passiert ist — der Text kommt vom Panel.
+      const text = "={{ $json.text || '✅ Erledigt.' }}";
+      if (quelle.parameters?.text !== text) { quelle.parameters = { ...(quelle.parameters || {}), text }; geaendert = true; }
+      // An wen? Nach dem HTTP-Knoten ist $json die Antwort des Panels — die
+      // Chat-ID steht nur noch im Auslöser. (Mit hinterlegter Chat-ID setzt
+      // der Abgleich ohnehin die feste ein.)
+      const ausloeser = nodes.find((n) => n.type === 'n8n-nodes-base.telegramTrigger');
+      if (ausloeser && /\$json\.message\.message\.chat\.id/.test(String(quelle.parameters.chatId || ''))) {
+        quelle.parameters.chatId = `={{ $(${JSON.stringify(ausloeser.name)}).item.json.callback_query.message.chat.id }}`;
+        geaendert = true;
+      }
+    }
+  }
+  return geaendert;
+}
+
 // Wie lange der Buendel-Knoten auf das Panel wartet: dessen Frist plus 40 s
 // Luft. Lazy geladen, weil der Klassifizierer seinerseits ueber kiText an
 // dieser Datei haengt — beim Patchen ist alles laengst da.
@@ -1357,6 +1522,14 @@ function buendelCode() {
     'const __alle = $input.all();',
     'if (__alle.length === 0) return [];',
     '',
+    '// Den Auswahl-Knoten gibt es nur in Workflow 04. In Workflow 01 warf',
+    '// $(...) "Referenced node doesn\'t exist" — mitten im Aufbau der Anfrage,',
+    '// also im try unten: Der Knoten gab still [] zurück, und neue Mails wurden',
+    '// seit Build 168 nie von der KI eingestuft.',
+    'let __auswahl = null;',
+    'try { __auswahl = $(' + JSON.stringify(AUSWAHL_KNOTEN) + ').first().json; } catch (__e) { __auswahl = null; }',
+    "const __ordner = (__j) => (__auswahl && __auswahl.konten && __auswahl.konten[__j.konto] && __auswahl.konten[__j.konto].ordner) || __j.ordner || 'INBOX';",
+    '',
     'let __antwort;',
     'try {',
     '  __antwort = await this.helpers.httpRequest({',
@@ -1365,7 +1538,7 @@ function buendelCode() {
     '    body: {',
     '      mails: __alle.map((__it) => ({',
     '        konto: __it.json.konto,',
-    '        ordner: $(' + JSON.stringify(AUSWAHL_KNOTEN) + ').first()?.json?.konten?.[__it.json.konto]?.ordner || \'INBOX\',',
+    '        ordner: __ordner(__it.json),',
     '        uid: __it.json.uid,',
     '        von: __it.json.von,',
     '        betreff: __it.json.betreff,',
@@ -1413,7 +1586,7 @@ function buendelCode() {
     '  if (!__k) continue;',
     '  __raus.push({',
     '    json: Object.assign({}, __alle[__i].json, {',
-    '      ordner: $(' + JSON.stringify(AUSWAHL_KNOTEN) + ').first()?.json?.konten?.[__alle[__i].json.konto]?.ordner || \'INBOX\',',
+    '      ordner: __ordner(__alle[__i].json),',
     '      candidates: [{ content: { parts: [{ text: JSON.stringify(__k) }] } }],',
     '    }),',
     '    // Die Herkunft des Eingangs-Items weiterreichen statt sie neu zu',
@@ -1466,6 +1639,7 @@ async function bestandSynchronisieren(konten, credentialId, aktionenWorkflowId) 
   kiRequestReparieren(workflow);
   kiAntwortLesenAngleichen(workflow);
   anhangKetteReparieren(workflow, NORMALISIERER['04']);
+  datumEinbauen(workflow, NORMALISIERER['04']);
   absenderFallbackEinbauen(workflow, NORMALISIERER['04']);
   themenKetteEinbauen(workflow, NORMALISIERER['04'], credentialId);
   // Zuletzt: Danach ist der Gemini-Knoten kein HTTP-Knoten mehr, und alles, was
@@ -1762,6 +1936,10 @@ async function kiUndBenachrichtigungenSynchronisieren() {
       // Vor dem Verdrahten: Der umgebaute Digest-Knoten ruft das Panel auf und
       // braucht dessen Credential.
       if (digestKnotenUmbauen(workflow)) geaendert = true;
+      // Der Telegram-Rückkanal („Alle freigeben") — ebenfalls vor dem
+      // Verdrahten, damit der Aufruf das Panel-Credential bekommt.
+      if (telegramKnoepfeReparieren(workflow)) geaendert = true;
+      if (rueckkanalReparieren(workflow)) geaendert = true;
       if (panelKnotenVerdrahten(workflow, panelCredId)) geaendert = true;
       // Auch hier, nicht nur in 01 und 04: Sonst bleibt der Digest-Workflow auf
       // dem abgekündigten Gemini-Modell stehen, weil ihn sonst niemand anfasst.
@@ -2019,7 +2197,9 @@ async function basisSetup() {
     // Prüfen, ob das Verzeichnis überhaupt da ist
     if (!fs.existsSync(workflowDir)) return;
     
-    const anbieter = settings.hole('ki_anbieter') || 'gemini';
+    // Standard ist Ollama — Gemini ist ausgebaut. Mit dem alten Standard "gemini"
+    // importierte eine frische Installation die Gemini-Vorlagen.
+    const anbieter = settings.hole('ki_anbieter') || 'ollama';
     const dateien = fs.readdirSync(workflowDir).filter((d) => {
       if (!d.endsWith('.json')) return false;
       if (d.includes('-gemini.json') && anbieter !== 'gemini') return false;
@@ -2085,4 +2265,5 @@ module.exports = {
   KI_ZEITLIMIT_GEMINI, KI_ZEITLIMIT_OLLAMA,
   kiAntwortLesenAngleichen, istKiKnoten,
   absenderpruefungFuellen, bedingungBrauchtChatId,
+  datumEinbauen, telegramKnoepfeReparieren, rueckkanalReparieren, knopfFelderLesen, RUECKKANAL_URL,
 };

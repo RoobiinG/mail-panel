@@ -242,10 +242,22 @@ function erwarteteDauerMs(mails) {
  * Antwort ist vorher da, oder der Proxy gibt auf. `null`, solange kein
  * Gateway-Abbruch bekannt ist.
  */
+// Ein Gateway-Abbruch zählt nur, wenn er nach einer echten Wartezeit kam und
+// nicht zu lange zurückliegt. Sonst hielt ein einziger Ausreißer die Kappung
+// fest, bis zwanzig neuere Anfragen ihn verdrängt hatten — über eine Nacht ohne
+// Post hinweg also bis in den nächsten Tag.
+const GATEWAY_MIN_SEKUNDEN = 30;
+const GATEWAY_GILT_MS = 6 * 60 * 60 * 1000;
+
+function gatewayAbbrueche() {
+  const jetzt = Date.now();
+  return eintraege.filter((e) => e.abgebrochen && e.art === 'gateway'
+    && typeof e.sekunden === 'number' && e.sekunden >= GATEWAY_MIN_SEKUNDEN
+    && (!e.zeitpunkt || jetzt - Date.parse(e.zeitpunkt) < GATEWAY_GILT_MS));
+}
+
 function gatewayGrenzeMs() {
-  const dauern = eintraege
-    .filter((e) => e.abgebrochen && e.art === 'gateway' && typeof e.sekunden === 'number' && e.sekunden > 0)
-    .map((e) => e.sekunden);
+  const dauern = gatewayAbbrueche().map((e) => e.sekunden);
   return dauern.length ? Math.round(Math.min(...dauern) * 1000) : null;
 }
 
@@ -258,8 +270,8 @@ function gatewayGrenzeMs() {
  * Kappung von selbst wieder weg. `null` heißt: keine Kappung bekannt.
  */
 function sichereBuendelGroesse() {
-  const zuGross = eintraege
-    .filter((e) => e.abgebrochen && e.art === 'gateway' && typeof e.mails === 'number' && e.mails > 1)
+  const zuGross = gatewayAbbrueche()
+    .filter((e) => typeof e.mails === 'number' && e.mails > 1)
     .map((e) => e.mails);
   if (zuGross.length === 0) return null;
   return Math.max(1, Math.floor(Math.min(...zuGross) / 2));

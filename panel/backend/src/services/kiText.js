@@ -128,10 +128,16 @@ async function frageJson(prompt, opt = {}) {
     if (!res.ok) {
       const text = (await res.text()).slice(0, 400);
       loggen('warn', quelle, `Ollama antwortete mit ${res.status}: ${text}`);
-      const istGateway = res.status === 504 || res.status === 502;
+      // Ein 504 ist die Zeitgrenze des Proxys. Ein 502 dagegen kommt meist nach
+      // Millisekunden — Ollama startet neu oder ist ohne Speicher gestorben — und
+      // sagt über die Größe des Bündels gar nichts. Als Gateway-Abbruch gezählt,
+      // halbierte er die Bündelgröße und drückte die gemessene „Proxy-Grenze"
+      // auf fast null. Nur ein 502, der selbst lange gedauert hat, ist einer.
+      const dauerSek = Math.round((Date.now() - angefangen) / 100) / 10;
+      const istGateway = res.status === 504 || (res.status === 502 && dauerSek >= 30);
       if (istGateway) {
         messung.merken(messung.abbruch(
-          ollamaModell, Math.round((Date.now() - angefangen) / 100) / 10,
+          ollamaModell, dauerSek,
           `Gateway-Zeitüberschreitung (${res.status}) — vermutlich ein Reverse-Proxy vor Ollama`,
           'gateway', opt.mails,
         ));

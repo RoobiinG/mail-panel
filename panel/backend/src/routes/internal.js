@@ -437,12 +437,39 @@ router.get('/config', (req, res) => {
   });
 });
 
+// Das Datum aus der Date-Kopfzeile, wie es der Normalisierer mitschickt.
+//
+// Es kommt aus der Mail — also aus der Hand des Absenders. Ein kaputtes oder
+// absichtlich verdrehtes Datum („Jahr 2099", damit die Werbung ganz oben steht)
+// soll die Chronik nicht durcheinanderbringen: Was sich nicht lesen lässt oder
+// mehr als einen Tag in der Zukunft liegt, wird verworfen.
+function mailDatum(roh) {
+  if (roh == null || roh === '') return null;
+  const d = new Date(roh);
+  const ms = d.getTime();
+  if (!Number.isFinite(ms)) return null;
+  if (ms < Date.UTC(1990, 0, 1) || ms > Date.now() + 24 * 60 * 60 * 1000) return null;
+  return d.toISOString();
+}
+
+// Der Ordner, aus dem die Mail kam. Workflow 01 schickt keinen mit — dort ist
+// es immer der Posteingang.
+const quellOrdner = (b) => String((b && b.ordner) || 'INBOX').slice(0, 200);
+const istPosteingang = (ordner) => String(ordner || 'INBOX').toUpperCase() === 'INBOX';
+
+// Zeigt das Ziel auf den Ordner, in dem die Mail schon liegt? „INBOX.Rechnungen"
+// und „Rechnungen" sind auf manchen Servern derselbe Ordner.
+function selberOrdner(a, b) {
+  const kurz = (x) => String(x || '').trim().toLowerCase().replace(/^inbox[./]/, '');
+  return kurz(a) !== '' && kurz(a) === kurz(b);
+}
+
 // Triage-Ergebnis festhalten — fuellt Dashboard, Quarantaene-Tab und Newsletter-Seite.
 // Aufgerufen von /log und von /einsortieren.
 function triageProtokollieren(b) {
   db.prepare(`
-    INSERT INTO quarantine_log (konto, von, betreff, kategorie, spam_score, zielordner, kurzfassung, list_unsubscribe, virus_name, dnsbl_treffer, thema, konfidenz, uid, ki, grund)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO quarantine_log (konto, von, betreff, kategorie, spam_score, zielordner, kurzfassung, list_unsubscribe, virus_name, dnsbl_treffer, thema, konfidenz, uid, ki, grund, quell_ordner, mail_datum)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     String(b.konto), String(b.von), b.betreff ?? null, b.kategorie ?? null,
     b.spam_score != null ? Number(b.spam_score) : null, b.zielordner ?? null,
@@ -455,6 +482,8 @@ function triageProtokollieren(b) {
     // zwar, WAS entschieden wurde, aber nie WESHALB — und danach fragt man bei
     // einer Fehleinordnung als Erstes.
     b.grund ? String(b.grund).slice(0, 500) : null,
+    b.ordner ? String(b.ordner).slice(0, 200) : null,
+    mailDatum(b.datum),
   );
 
   // Newsletter-Absender fuer die Abbestellen-Seite mitzaehlen
@@ -527,6 +556,10 @@ router.post('/einsortieren', async (req, res) => {
     let neuAngelegt = false;
     let grund = '';
     let ausThema = false;
+    // Unter welchem Namen ein KI-Vorschlag geführt wird — nicht zwingend das
+    // Wort, das die KI geschrieben hat (siehe themen.aufloesen).
+    let vorschlagName = null;
+    const quelle = quellOrdner(b);
 
     // "In Ruhe lassen": eine eigene Regel sagt, diese Mail soll unangetastet
     // bleiben. Sie sticht die KI-Einordnung — aber NICHT ziel_fest: Ein Virus
@@ -558,6 +591,7 @@ router.post('/einsortieren', async (req, res) => {
       });
       grund = t.grund;
       neuAngelegt = t.neu_angelegt;
+      vorschlagName = t.vorschlag_ordner || null;
       // Thema schlaegt Kategorie: Ein Games-Newsletter landet in Games.
       if (t.ordner) { ordner = t.ordner; ausThema = true; }
     } else {
@@ -600,6 +634,20 @@ router.post('/einsortieren', async (req, res) => {
       }
     }
 
+    // Liegt die Mail schon dort, wo sie hinsoll? Seit der Bestandslauf auch
+    // Ordner außerhalb des Posteingangs durchgeht, kommt das ständig vor: Eine
+    // Rechnung in „Rechnungen" wird als Rechnung erkannt. Bisher bekam der
+    // Verschiebe-Knoten dann „von Rechnungen nach Rechnungen", und weil eine
+    // Mail mit Zielordner nie als erledigt vermerkt wird, stand sie beim
+    // nächsten Lauf wieder im Fenster — jede Stunde aufs Neue.
+    let liegtRichtig = false;
+    if (ordner && selberOrdner(quelle, ordner)) {
+      grund = `Liegt schon in „${quelle}" — nichts zu verschieben`;
+      ordner = null;
+      liegtRichtig = true;
+      if (konto) bestand.erledigtMerken(konto.id, quelle, b.uid, 'richtig');
+    }
+
     // Eine Mail, die eine Regel trifft, laeuft im Workflow vor der KI-Abfrage
     // ab ("Gleich sortieren?"). Sie als KI-Aufruf zu zaehlen, haette das
     // Tagesbudget genau dann leergesaugt, wenn man sich Regeln angelegt hat.
@@ -614,7 +662,7 @@ router.post('/einsortieren', async (req, res) => {
     // stehen zu lassen, waere schlicht falsch und wuerde bei der Fehlersuche in
     // die verkehrte Richtung zeigen.
     let protokollGrund = grund;
-    if (!perKi && !ausThema && !b.ziel_fest && !inRuhe) {
+    if (!perKi && !ausThema && !b.ziel_fest && !inRuhe && !liegtRichtig) {
       protokollGrund = regel
         ? `Eigene Regel [${regel.typ}] ${regel.muster} → ${regel.zielordner}`
         : 'Vor der KI entschieden — eigene Regel oder Stichwort';
@@ -633,9 +681,11 @@ router.post('/einsortieren', async (req, res) => {
 
     // Erst nach dem Protokollieren zaehlen — sonst uebersieht die Zaehlung die
     // gerade laufende Mail.
-    if (ausThema && konto && themen.einstellungen().regelLernen) {
+    if (ausThema && ordner && konto && themen.einstellungen().regelLernen) {
       try {
-        const gelernt = themen.regelLernen(konto.id, b.von, ordner);
+        // Die KI hat entschieden, nicht der Nutzer — also erst ab der Schwelle
+        // für KI-Einordnungen (drei gleiche), siehe themen.LERNSCHWELLE_KI.
+        const gelernt = themen.regelLernen(konto.id, b.von, ordner, { schwelle: themen.LERNSCHWELLE_KI });
         // Eine frisch gelernte Regel gilt auch fuer das, was schon in der
         // Sortier-Inbox liegt. Bewusst ohne await: Der Workflow wartet auf diese
         // Antwort, und das Nachsortieren kann einen Moment dauern.
@@ -651,7 +701,15 @@ router.post('/einsortieren', async (req, res) => {
     // auf — mit dem Vorschlag, den die KI gemacht hat, und dem Grund dafuer.
     // Ausser bei "in Ruhe lassen": Das ist eine bewusste Entscheidung des
     // Nutzers, sie soll nicht jedes Mal erneut zur Zuordnung vorgelegt werden.
-    if (!ordner && konto && !inRuhe) {
+    // Eine Mail aus einem ANDEREN Ordner als dem Posteingang gehört nicht in die
+    // Sortier-Inbox. Die kennt nur den Posteingang: Jede Aktion dort verschiebt
+    // „UID n aus INBOX". Stammt n aus „Rechnungen", trägt im Posteingang eine
+    // ganz andere Mail dieselbe Nummer — und genau die wäre verschoben worden.
+    // Solche Mails liegen ja schon in einem Ordner; sie werden als „unklar"
+    // zurückgestellt und kommen in der nächsten Runde wieder dran.
+    if (!ordner && konto && !inRuhe && !liegtRichtig && !istPosteingang(quelle)) {
+      bestand.erledigtMerken(konto.id, quelle, b.uid, 'unklar');
+    } else if (!ordner && konto && !inRuhe && !liegtRichtig) {
       // Die UID immer als ganze Zahl ablegen. Frueher landete sie mal als "28",
       // mal als "28.0" in der Spalte — als Text sind das zwei verschiedene
       // Werte, und genau daran ist die Dubletten-Erkennung vorbeigelaufen: Die
@@ -673,21 +731,26 @@ router.post('/einsortieren', async (req, res) => {
       // war nicht zu sehen, woraus der Stapel eigentlich besteht. Bestehende
       // Einträge bekommen sie beim nächsten Bestandslauf über das UPDATE.
       const kategorie = b.kategorie ? String(b.kategorie).slice(0, 40) : null;
+      // Der Name, unter dem die Freigabe die Mail später sucht: der des
+      // Vorschlags, nicht das Wort der KI.
+      const kiOrdner = vorschlagName || (b.thema ?? null);
+      const datum = mailDatum(b.datum);
       if (schonDa) {
         db.prepare(
           'UPDATE sort_inbox SET betreff = ?, ki_ordner = ?, ki_konfidenz = ?, ki_grund = ?,'
-          + ' kategorie = COALESCE(?, kategorie) WHERE id = ?',
+          + ' kategorie = COALESCE(?, kategorie), mail_datum = COALESCE(?, mail_datum),'
+          + " quell_ordner = 'INBOX' WHERE id = ?",
         ).run(
-          b.betreff ?? null, b.thema ?? null,
-          b.konfidenz != null ? Number(b.konfidenz) : null, grund || null, kategorie, schonDa.id,
+          b.betreff ?? null, kiOrdner,
+          b.konfidenz != null ? Number(b.konfidenz) : null, grund || null, kategorie, datum, schonDa.id,
         );
       } else {
         db.prepare(`
-          INSERT INTO sort_inbox (konto, konto_id, von, betreff, uid, ki_ordner, ki_konfidenz, ki_grund, kategorie)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO sort_inbox (konto, konto_id, von, betreff, uid, ki_ordner, ki_konfidenz, ki_grund, kategorie, quell_ordner, mail_datum)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'INBOX', ?)
         `).run(
           String(b.konto), konto.id, String(b.von), b.betreff ?? null, uidText,
-          b.thema ?? null, b.konfidenz != null ? Number(b.konfidenz) : null, grund || null, kategorie,
+          kiOrdner, b.konfidenz != null ? Number(b.konfidenz) : null, grund || null, kategorie, datum,
         );
       }
     }
@@ -921,6 +984,62 @@ router.post('/digest-text', async (req, res) => {
   }
 });
 
+// „Alle freigeben" aus dem täglichen Digest.
+//
+// Der Knopf „✅ Alle freigeben" unter der Telegram-Nachricht von Workflow 02
+// landet in Workflow 05, und der ruft hier an. Den Endpunkt gab es bis Build
+// 251 schlicht nicht — der Knopf lief seit jeher in ein 404.
+//
+// Was er tut, ist bewusst genau das, was draufsteht: ALLE Einträge der
+// Mailcow-Quarantäne zustellen. Wer in Telegram drückt, hat die Liste im
+// Digest gesehen. Wer drücken darf, prüft Workflow 05 über die Chat-ID
+// (siehe workflowPatcher.absenderpruefungFuellen) — ohne hinterlegte Chat-ID
+// läuft der Zweig gar nicht erst an.
+//
+// Antwortet immer mit einem fertigen Satz (`text`) für die Bestätigung in
+// Telegram, auch im Fehlerfall: Ein roter n8n-Lauf erreicht niemanden, eine
+// Nachricht „hat nicht geklappt, weil …" schon.
+router.post('/quarantaene/deliver-all', async (req, res) => {
+  let client;
+  try {
+    client = require('../services/mailcow').client();
+  } catch (err) {
+    return res.json({
+      ok: false, zugestellt: 0,
+      text: `ℹ️ ${err.message} Ohne Mailcow gibt es keine Quarantäne, die sich freigeben ließe.`,
+    });
+  }
+  try {
+    const { data } = await client.get('/get/quarantine/all');
+    if (data && data.type === 'error') throw new Error(data.msg || 'Mailcow meldet einen Fehler');
+    const ids = (Array.isArray(data) ? data : [])
+      .map((q) => (q && q.id != null ? String(q.id) : null))
+      .filter(Boolean);
+    if (ids.length === 0) {
+      return res.json({ ok: true, zugestellt: 0, text: '✅ Die Quarantäne ist leer — es gab nichts freizugeben.' });
+    }
+    const { data: antwort } = await client.post('/edit/qitem', { action: 'deliver', items: ids });
+    // Mailcow antwortet je Eintrag mit einem Objekt { type: 'success'|'danger'|'error', msg }.
+    const meldungen = Array.isArray(antwort) ? antwort : [antwort];
+    const gescheitert = meldungen.filter((m) => m && (m.type === 'danger' || m.type === 'error')).length;
+    const zugestellt = Math.max(0, ids.length - gescheitert);
+    loggen(gescheitert ? 'warn' : 'info', 'quarantaene',
+      `„Alle freigeben" über Telegram: ${zugestellt} von ${ids.length} Mailcow-Quarantäne-Einträgen zugestellt`
+      + (gescheitert ? `, ${gescheitert} abgelehnt.` : '.'));
+    res.json({
+      ok: gescheitert === 0,
+      zugestellt,
+      gescheitert,
+      text: gescheitert
+        ? `⚠️ ${zugestellt} von ${ids.length} Quarantäne-Einträgen zugestellt, ${gescheitert} lehnte Mailcow ab.`
+        : `✅ ${zugestellt} Quarantäne-Einträge wurden zugestellt.`,
+    });
+  } catch (err) {
+    loggen('warn', 'quarantaene', `„Alle freigeben" über Telegram fehlgeschlagen: ${err.message}`);
+    res.json({ ok: false, zugestellt: 0, text: `⚠️ Freigeben fehlgeschlagen: ${err.message}` });
+  }
+});
+
 // Frischen Google-Zugriffs-Token fuer die Kalender-Aktion in Workflow 07.
 // Die Anmeldung selbst passiert im Panel — n8n bekommt hier nur einen kurzlebigen
 // Token und sieht die Zugangsdaten nie.
@@ -934,3 +1053,5 @@ router.get('/google-token', async (req, res) => {
 
 module.exports = router;
 module.exports.regelMerken = regelMerken;
+module.exports.mailDatum = mailDatum;
+module.exports.selberOrdner = selberOrdner;

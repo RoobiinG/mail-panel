@@ -208,7 +208,7 @@ async function nachAbweisungSehen() {
 
   for (const lauf of kandidaten) {
     try {
-      const { data } = await n8n.client().get(`/executions/${lauf.id}`, { params: { includeData: true } });
+      const { data } = await n8n.client().get(`/executions/${n8n.idPfad(lauf.id)}`, { params: { includeData: true } });
       let daten = data.data;
       if (typeof daten === 'string') { try { daten = JSON.parse(daten); } catch { daten = null; } }
       // Auch die Knotenfehler mitlesen: Die ausführliche Meldung mit "limit:"

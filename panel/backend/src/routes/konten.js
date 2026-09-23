@@ -52,6 +52,21 @@ function zugang(body = {}) {
   return { host, port, username, passwort, tlsUnsicher, ...ordnerFelder(body) };
 }
 
+// Ist einer der Zielordner in Wahrheit eine Ansicht des Postfachs?
+//
+// Gmail führt „[Gmail]/Markiert" und „[Gmail]/Alle Nachrichten" wie Ordner.
+// Als Archiv eingetragen, hätte Workflow 03 alte Newsletter mit einem Stern
+// versehen und ihnen das Newsletter-Label genommen — und nichts wäre archiviert.
+function ansichtAlsZiel(test, ordner) {
+  const ansichten = new Set((test?.ansichten || []).map((a) => String(a).toLowerCase()));
+  if (ansichten.size === 0) return null;
+  return Object.values(ordner)
+    .find((o) => o && ansichten.has(String(o).trim().toLowerCase())) || null;
+}
+
+const ansichtFehler = (pfad) => `„${pfad}" ist eine Ansicht des Postfachs (z. B. Markiert, Alle Nachrichten`
+  + ', Wichtig), kein Ordner — dort lässt sich nichts ablegen. Bitte einen echten Ordner wählen oder das Feld leeren.';
+
 // Eingaben prüfen — der Name landet als Knotenname in n8n, deshalb eng begrenzt
 function pruefe({ name, host, port, username, passwort }, passwortPflicht = true) {
   if (!name || !/^[\w äöüÄÖÜß.\-]{2,40}$/.test(name)) {
@@ -106,7 +121,9 @@ router.post('/', async (req, res) => {
   let credentialId = null;
   try {
     // Erst prüfen, ob die Zugangsdaten überhaupt stimmen
-    await imap.testVerbindung({ host, port, username, passwort, tlsUnsicher, ...ordner });
+    const test = await imap.testVerbindung({ host, port, username, passwort, tlsUnsicher, ...ordner });
+    const ansicht = ansichtAlsZiel(test, ordner);
+    if (ansicht) return res.status(400).json({ error: ansichtFehler(ansicht) });
     credentialId = await n8n.credentialAnlegen({
       name: `Mail-Panel: ${name}`, host, port, username, passwort, tlsUnsicher,
     });
@@ -142,7 +159,9 @@ router.put('/:id', async (req, res) => {
 
   const neuesPasswort = passwort || entschluesseln(konto.password_enc);
   try {
-    await imap.testVerbindung({ host, port, username, passwort: neuesPasswort, tlsUnsicher, ...ordner });
+    const test = await imap.testVerbindung({ host, port, username, passwort: neuesPasswort, tlsUnsicher, ...ordner });
+    const ansicht = ansichtAlsZiel(test, ordner);
+    if (ansicht) return res.status(400).json({ error: ansichtFehler(ansicht) });
 
     // n8n kennt kein Aktualisieren per Public API — altes Credential ersetzen
     const neueCredentialId = await n8n.credentialAnlegen({
@@ -199,3 +218,5 @@ router.post('/sync', async (req, res) => {
 });
 
 module.exports = router;
+// Für die Tests
+module.exports.ansichtAlsZiel = ansichtAlsZiel;

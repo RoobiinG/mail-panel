@@ -401,7 +401,10 @@ async function auslesen(eingang = {}) {
   //    Texterkennung nur bei lokaler KI: Gemini bekommt das PDF selbst und
   //    liest einen Scan von sich aus. Sie dort trotzdem laufen zu lassen waeren
   //    dreissig Sekunden CPU fuer nichts.
-  const lokal = (settings.hole('ki_anbieter') || 'gemini') === 'ollama';
+  // Seit dem Ausbau von Gemini ist Ollama der einzige Anbieter. Der alte Standard
+  // „gemini" liess `lokal` auf frischen Installationen immer falsch — die
+  // Texterkennung fuer gescannte Belege lief dort nie, obwohl eingeschaltet.
+  const lokal = (settings.hole('ki_anbieter') || 'ollama') === 'ollama';
   const auszug = await pdfText.textAus(eingang.pdf_base64, { ocr: lokal && ocrAktiv() });
   const text = auszug.ok ? auszug.text : '';
 

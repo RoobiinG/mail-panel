@@ -270,7 +270,15 @@ export default function Sortierung() {
   const [tage, setTage] = useState(0);                // 0 = gesamter Zeitraum
   const [seite, setSeite] = useState(1);
   const [alleKonten, setAlleKonten] = useState(false);
-  const [auswahlChronik, setAuswahlChronik] = useState([]);
+  // Die Sammel-Entscheidung: markierte Einträge (id → Eintrag), je Zeile ein
+  // eigener Plan (Ziel, Merk-Art, Stichwort), die Vorgabe „für alle", Fehler
+  // je Zeile und der Fortschritt während des Abarbeitens.
+  const [auswahlChronik, setAuswahlChronik] = useState({});
+  const [sammelPlan, setSammelPlan] = useState({});
+  const [sammelFehler, setSammelFehler] = useState({});
+  const [sammelVorgabe, setSammelVorgabe] = useState({ ziel: '', regel: 'domain', stichwort: '', ueberschreiben: false });
+  const [sammelLaeuft, setSammelLaeuft] = useState(null);
+  const [sammelOffen, setSammelOffen] = useState(true);
   const [chronikLaedt, setChronikLaedt] = useState(false);
   const [chronikTakt, setChronikTakt] = useState(0);  // hochzählen = neu laden
   // Eine aufgeklappte Zeile zeigt Grund, Kurzfassung und Prüfwerte — und, wo es
@@ -567,7 +575,10 @@ export default function Sortierung() {
   // Beim Postfach-Wechsel zurück auf Seite 1. Sonst blieb man auf Seite 5, der
   // Server deckelte auf das, was es dort überhaupt gibt, und es kostete eine
   // überflüssige Runde durch die Leitung.
-  useEffect(() => { setSeite(1); setOffeneZeile(null); setAuswahlChronik([]); }, [aktivesKonto]);
+  // Die Auswahl der Sammel-Entscheidung bleibt dabei stehen: Die Einträge tragen
+  // ihr Postfach selbst, und wer für die nächste Mail das Konto wechselt, soll
+  // die schon markierten nicht verlieren.
+  useEffect(() => { setSeite(1); setOffeneZeile(null); }, [aktivesKonto]);
 
   const chronikSpalten = alleKonten ? 9 : 8;
 
@@ -639,56 +650,206 @@ export default function Sortierung() {
     }
   };
 
-  // Sammelkorrektur: alle markierten Einträge der Chronik in einen neuen Ordner
-  // verschieben und optional eine Regel anlegen. Nutzt die gleiche API wie die
-  // Einzelkorrektur — ein Batch-Endpunkt existiert noch nicht.
-  const chronikSammelKorrigieren = async (alsNewsletter = false) => {
-    const eingetippt = korrekturOrdner.trim();
-    if (!alsNewsletter && !eingetippt) return melden('Bitte den richtigen Ordner angeben.', 'hinweis');
-    if (brauchtStichwort && korrekturStichwort.trim().length < 3) {
-      return melden('Für eine Regel auf den Inhalt fehlt das Stichwort (mindestens 3 Zeichen).', 'hinweis');
+  // ─── Sammel-Entscheidung ───────────────────────────────────────────────────
+  //
+  // Viele Einträge auf einmal — jeder mit EIGENEM Ziel und EIGENER Merk-Art.
+  // Vorher gab es nur ein Ziel für alle Markierten; wer die Rechnung von A, den
+  // Newsletter von B und die Werbung von C geradeziehen wollte, brauchte drei
+  // Durchgänge. Und die Auswahl hing an der aktuellen Seite: Wer blätterte oder
+  // suchte, dessen Markierungen zeigten ins Leere.
+  //
+  // Die Auswahl hält deshalb die Einträge selbst (id → Eintrag), nicht nur ihre
+  // Nummern — sie übersteht Blättern, Suchen und Filtern.
+  const anzahlMarkiert = Object.keys(auswahlChronik).length;
+  const markierteEintraege = useMemo(() => Object.values(auswahlChronik), [auswahlChronik]);
+
+  const leererPlan = () => ({ ziel: '', regel: 'domain', stichwort: '' });
+  const planVon = (id) => sammelPlan[id] || leererPlan();
+  const artBrauchtStichwort = (art) => art === 'absender_inhalt' || art === 'inhalt';
+
+  const markieren = (eintrag, an) => {
+    setAuswahlChronik((alt) => {
+      const neu = { ...alt };
+      if (an) neu[eintrag.id] = eintrag; else delete neu[eintrag.id];
+      return neu;
+    });
+    if (!an) {
+      setSammelFehler((alt) => { const { [eintrag.id]: _weg, ...rest } = alt; return rest; });
     }
-    if (auswahlChronik.length === 0) return;
-    setChronikLaedt(true);
-    let ok = 0;
-    let fehler = 0;
-    try {
-      for (const logId of auswahlChronik) {
-        try {
-          const mail = entscheidungen.eintraege.find(e => e.id === logId);
-          const ziel = alsNewsletter ? newsletterOrdnerFuer(mail?.konto) : eingetippt;
-          // Kein Newsletter-Ordner für dieses Postfach: lieber diesen einen
-          // Eintrag als Fehler zählen, als ihn irgendwo anders hinzuschieben.
-          if (!ziel) { fehler++; continue; }
-          await api.post('/sortierung/korrigieren', {
-            log_id: logId,
-            zielordner: ziel,
-            regelTyp: korrekturRegel,
-            stichwort: korrekturStichwort.trim(),
-            imap_uid: String(logId).startsWith('imap-') ? mail.uid : null,
-            imap_konto: mail?.konto,
-            imap_ordner: mail?.zielordner,
-            imap_von: mail?.von,
-            imap_betreff: mail?.betreff
-          });
-          ok++;
-        } catch {
-          fehler++;
+  };
+
+  const seiteMarkieren = (an) => {
+    setAuswahlChronik((alt) => {
+      const neu = { ...alt };
+      for (const e of entscheidungen.eintraege) {
+        if (an) neu[e.id] = e; else delete neu[e.id];
+      }
+      return neu;
+    });
+  };
+
+  const auswahlLeeren = () => {
+    setAuswahlChronik({});
+    setSammelPlan({});
+    setSammelFehler({});
+  };
+
+  // Eine Zeile der Bearbeitungsliste ändern. Wer ein Ziel setzt, meint damit
+  // fast immer auch die anderen markierten Mails DESSELBEN Absenders — die
+  // bekommen es vorgeschlagen, solange ihr Feld noch leer ist.
+  const planSetzen = (eintrag, felder) => {
+    setSammelPlan((alt) => {
+      const neu = { ...alt, [eintrag.id]: { ...(alt[eintrag.id] || leererPlan()), ...felder } };
+      if (artBrauchtStichwort(neu[eintrag.id].regel) && !neu[eintrag.id].stichwort.trim()) {
+        neu[eintrag.id].stichwort = stichwortVorschlag([eintrag.betreff]);
+      }
+      if (felder.ziel !== undefined && felder.ziel.trim()) {
+        const wer = adresse(eintrag.von);
+        for (const anderer of markierteEintraege) {
+          if (anderer.id === eintrag.id || adresse(anderer.von) !== wer) continue;
+          const plan = neu[anderer.id] || leererPlan();
+          if (!plan.ziel.trim()) neu[anderer.id] = { ...plan, ziel: felder.ziel };
         }
       }
-      const wohin = alsNewsletter ? 'in den Newsletter-Ordner' : `nach „${eingetippt}"`;
-      const teile = [`${ok} von ${auswahlChronik.length} Einträgen ${wohin} korrigiert.`];
-      if (fehler > 0) teile.push(`${fehler} fehlgeschlagen.`);
-      melden(teile.join(' '), fehler > 0 ? 'warnung' : 'erfolg');
-      setAuswahlChronik([]);
-      setKorrekturOrdner('');
-      setChronikTakt(t => t + 1);
+      return neu;
+    });
+  };
+
+  // „Für alle": füllt die leeren Zeilen — oder, ausdrücklich gewünscht, alle.
+  const vorgabeAnwenden = () => {
+    const ziel = sammelVorgabe.ziel.trim();
+    // Ohne Ziel ergibt „für alle" nur Sinn, wenn ausdrücklich alle Zeilen die
+    // Merk-Art bekommen sollen.
+    if (!ziel && !sammelVorgabe.ueberschreiben) return melden('Erst einen Zielordner eintragen.', 'hinweis');
+    setSammelPlan((alt) => {
+      const neu = { ...alt };
+      for (const e of markierteEintraege) {
+        const plan = neu[e.id] || leererPlan();
+        const zielSetzen = ziel && (sammelVorgabe.ueberschreiben || !plan.ziel.trim());
+        neu[e.id] = {
+          ...plan,
+          ...(zielSetzen ? { ziel } : {}),
+          ...(zielSetzen || sammelVorgabe.ueberschreiben ? { regel: sammelVorgabe.regel } : {}),
+        };
+        if (artBrauchtStichwort(neu[e.id].regel) && !neu[e.id].stichwort.trim()) {
+          neu[e.id].stichwort = sammelVorgabe.stichwort.trim() || stichwortVorschlag([e.betreff]);
+        }
+      }
+      return neu;
+    });
+  };
+
+  // Der häufigste Fall braucht kein Tippen: jeweils der Newsletter-Ordner des
+  // Postfachs, zu dem der Eintrag gehört.
+  const newsletterFuerAlle = () => {
+    let ohne = 0;
+    setSammelPlan((alt) => {
+      const neu = { ...alt };
+      for (const e of markierteEintraege) {
+        const ziel = newsletterOrdnerFuer(e.konto);
+        if (!ziel) { ohne += 1; continue; }
+        neu[e.id] = { ...(neu[e.id] || leererPlan()), ziel };
+      }
+      return neu;
+    });
+    if (ohne) melden(`${ohne} Eintrag/Einträge ohne Newsletter-Ordner im Postfach — dort bitte selbst eintragen.`, 'hinweis');
+  };
+
+  // Wo liegt die Mail gerade? Dieselbe Reihenfolge wie im Backend.
+  const liegtJetzt = (e) => e.korrigiert_zu || e.zielordner || e.quell_ordner || 'INBOX';
+
+  const sammelBereit = markierteEintraege.filter((e) => planVon(e.id).ziel.trim());
+
+  const SAMMEL_PORTION = 10;
+  const sammelBearbeiten = async () => {
+    const liste = sammelBereit;
+    if (liste.length === 0) return melden('Keine markierte Zeile hat einen Zielordner.', 'hinweis');
+    const ohneStichwort = liste.filter((e) => {
+      const p = planVon(e.id);
+      return artBrauchtStichwort(p.regel) && p.stichwort.trim().length < 3;
+    });
+    if (ohneStichwort.length) {
+      return melden(`${ohneStichwort.length} Zeile(n) wollen ein Stichwort (mindestens 3 Zeichen) — bitte ergänzen.`, 'hinweis');
+    }
+
+    // Vorher sagen, was passiert: wohin, wie viele, mit wie vielen Regeln.
+    const nachZiel = new Map();
+    for (const e of liste) {
+      const p = planVon(e.id);
+      const z = nachZiel.get(p.ziel.trim()) || { mails: 0, regeln: 0 };
+      z.mails += 1;
+      if (p.regel !== 'keine') z.regeln += 1;
+      nachZiel.set(p.ziel.trim(), z);
+    }
+    const uebersicht = [...nachZiel.entries()]
+      .map(([ziel, z]) => `• ${ziel}: ${z.mails} Mail(s)${z.regeln ? `, ${z.regeln} mit Regel` : ''}`)
+      .join('\n');
+    const liegenBleiben = anzahlMarkiert - liste.length;
+    if (!(await nachfragen({
+      titel: `${liste.length} Einträge bearbeiten?`,
+      text: `${uebersicht}${liegenBleiben ? `\n\n${liegenBleiben} markierte Zeile(n) ohne Ziel bleiben unverändert.` : ''}`
+        + '\n\nDie Mails werden verschoben, die Regeln angelegt oder umgebogen.',
+      bestaetigen: 'Bearbeiten',
+    }))) return;
+
+    setSammelLaeuft({ fertig: 0, gesamt: liste.length });
+    const erledigt = [];
+    const fehler = {};
+    let regelnZahl = 0;
+    let nachsortiert = 0;
+    const hinweise = [];
+    try {
+      // In Portionen: Ein Reverse-Proxy vor dem Panel bricht lange Anfragen
+      // gern nach 60 s ab, und jede Korrektur kostet mehrere IMAP-Rundreisen.
+      for (let i = 0; i < liste.length; i += SAMMEL_PORTION) {
+        const teil = liste.slice(i, i + SAMMEL_PORTION);
+        try {
+          const { data } = await api.post('/sortierung/korrigieren-sammel', {
+            eintraege: teil.map((e) => {
+              const p = planVon(e.id);
+              return {
+                log_id: e.id,
+                zielordner: p.ziel.trim(),
+                regelTyp: p.regel,
+                stichwort: p.stichwort.trim(),
+                imap_uid: String(e.id).startsWith('imap-') ? e.uid : null,
+                imap_konto: e.konto,
+                imap_ordner: e.zielordner,
+                imap_von: e.von,
+                imap_betreff: e.betreff,
+              };
+            }),
+          });
+          erledigt.push(...(data.erledigteIds || []));
+          regelnZahl += (data.regeln || []).length;
+          nachsortiert += data.nachsortiert || 0;
+          hinweise.push(...(data.hinweise || []).map((h) => h.hinweis));
+          for (const f of data.fehler || []) fehler[f.log_id] = f.error || 'fehlgeschlagen';
+        } catch (err) {
+          const grund = err.response?.data?.error || 'Anfrage fehlgeschlagen';
+          for (const e of teil) fehler[e.id] = grund;
+        }
+        setSammelLaeuft({ fertig: Math.min(liste.length, i + teil.length), gesamt: liste.length });
+      }
+
+      // Erledigtes fällt aus der Auswahl, Gescheitertes bleibt mit Grund stehen.
+      const weg = new Set(erledigt.map(String));
+      setAuswahlChronik((alt) => Object.fromEntries(Object.entries(alt).filter(([id]) => !weg.has(String(id)))));
+      setSammelPlan((alt) => Object.fromEntries(Object.entries(alt).filter(([id]) => !weg.has(String(id)))));
+      setSammelFehler(fehler);
+
+      const teile = [`${erledigt.length} von ${liste.length} Einträgen bearbeitet.`];
+      if (regelnZahl) teile.push(`${regelnZahl} Regel(n) angelegt oder umgebogen — die KI lernt daraus mit.`);
+      if (nachsortiert) teile.push(`${nachsortiert} wartende Mail(s) gleich mitsortiert.`);
+      const fehlerZahl = Object.keys(fehler).length;
+      if (fehlerZahl) teile.push(`${fehlerZahl} fehlgeschlagen — sie bleiben markiert, der Grund steht in der Zeile.`);
+      if (hinweise.length) teile.push(`Hinweise: ${[...new Set(hinweise)].slice(0, 3).join(' · ')}`);
+      melden(teile.join('\n'), fehlerZahl ? 'warnung' : 'erfolg');
+      setChronikTakt((t) => t + 1);
       regelnLaden(aktivesKonto);
       inboxLaden();
-    } catch (err) {
-      melden(err.response?.data?.error || 'Fehler bei der Sammelkorrektur', 'fehler');
     } finally {
-      setChronikLaedt(false);
+      setSammelLaeuft(null);
     }
   };
 
@@ -2427,72 +2588,193 @@ export default function Sortierung() {
           </div>
         </div>
 
-        <div className="overflow-auto max-h-[520px]">
-          {auswahlChronik.length > 0 && (
-            <div className="bg-panel-accent/10 border-t border-b border-panel-accent/20 px-4 py-2 flex flex-wrap gap-3 items-center text-sm">
-              <span className="font-medium text-panel-accent whitespace-nowrap">
-                {auswahlChronik.length} markiert
+        {/* ══ Bearbeitungsliste der Sammel-Entscheidung ══
+            Je markiertem Eintrag eine Zeile mit eigenem Ziel und eigener
+            Merk-Art — ein Klick arbeitet alles ab. Steht außerhalb der
+            Tabelle, damit sie beim Blättern und Suchen stehen bleibt. */}
+        {anzahlMarkiert > 0 && (
+          <div className="border-b border-panel-accent/30 bg-panel-accent/5">
+            <div className="px-4 py-2 flex flex-wrap gap-2 items-center text-sm">
+              <span className="font-medium text-panel-accent whitespace-nowrap">{anzahlMarkiert} markiert</span>
+              <span className="text-[11px] text-panel-muted hidden md:inline">
+                Je Zeile eigenes Ziel und eigene Regel — die Auswahl bleibt beim Blättern, Suchen und Kontowechsel erhalten.
               </span>
-              <OrdnerFeld
-                placeholder="Neuer Ordner..."
-                value={korrekturOrdner}
-                onChange={v => setKorrekturOrdner(v)}
-                optionen={alleOrdner}
-                className="flex-1 min-w-[150px] !py-1 !px-2 text-sm bg-panel-bg border border-panel-border rounded"
-              />
-              <select
-                value={korrekturRegel}
-                onChange={ev => regelArtWaehlen(
-                  ev.target.value,
-                  auswahlChronik.map(id => entscheidungen.eintraege.find(e => e.id === id)?.betreff),
-                )}
-                className="text-sm bg-panel-bg border-panel-border rounded !py-1 w-full sm:!w-auto shrink-0"
-              >
-                <option value="domain">Merken: Domain</option>
-                <option value="absender">Merken: Exakter Absender</option>
-                <option value="absender_inhalt">Merken: Absender + Stichwort</option>
-                <option value="inhalt">Merken: Stichwort im Inhalt</option>
-                <option value="keine">Nur diese verschieben</option>
-              </select>
-              {brauchtStichwort && (
-                <input
-                  value={korrekturStichwort}
-                  onChange={ev => setKorrekturStichwort(ev.target.value)}
-                  placeholder="Stichwort, z. B. Rechnung"
-                  title="Steht dieses Wort im Betreff oder im Text der Mail, greift die Regel."
-                  className="text-sm bg-panel-bg border border-panel-border rounded !py-1 !px-2 !w-[190px] shrink-0"
-                />
-              )}
-              <button onClick={() => chronikSammelKorrigieren()} disabled={chronikLaedt} className="btn !py-1 !px-3 text-sm flex items-center gap-1">
-                <CheckCircle2 size={14} /> Korrigieren
-              </button>
-              {/* Der häufigste Fall braucht kein Tippen: Das Ziel steht im
-                  Konto, und bei „alle Postfächer" je Eintrag ein anderes. */}
-              <button
-                onClick={() => chronikSammelKorrigieren(true)}
-                disabled={chronikLaedt}
-                title="Markierte Einträge in den Newsletter-Ordner ihres Postfachs — die Merken-Auswahl daneben gilt auch hier"
-                className="btn !py-1 !px-3 text-sm flex items-center gap-1
-                           !bg-panel-orange hover:!bg-amber-500 !text-panel-bg"
-              >
-                <AlertCircle size={14} /> Newsletter ({auswahlChronik.length})
-              </button>
-              <button onClick={() => setAuswahlChronik([])} className="btn-ghost !py-1 !px-2 text-sm ml-auto">
-                Auswahl aufheben
-              </button>
+              <div className="ml-auto flex gap-1">
+                <button onClick={() => setSammelOffen(o => !o)} className="btn-ghost !py-1 !px-2 text-xs flex items-center gap-1">
+                  <ChevronDown size={14} className={`transition-transform ${sammelOffen ? 'rotate-180' : ''}`} />
+                  {sammelOffen ? 'Liste einklappen' : 'Liste zeigen'}
+                </button>
+                <button onClick={auswahlLeeren} disabled={Boolean(sammelLaeuft)} className="btn-ghost !py-1 !px-2 text-xs">
+                  Auswahl aufheben
+                </button>
+              </div>
             </div>
-          )}
+
+            {sammelOffen && (
+              <>
+                {/* Für alle: füllt die leeren Zeilen, auf Wunsch alle. */}
+                <div className="px-4 pb-2 flex flex-wrap gap-2 items-center text-xs">
+                  <span className="text-panel-muted whitespace-nowrap">Für alle:</span>
+                  <OrdnerFeld
+                    placeholder="Zielordner"
+                    value={sammelVorgabe.ziel}
+                    onChange={v => setSammelVorgabe(p => ({ ...p, ziel: v }))}
+                    optionen={alleOrdner}
+                    className="min-w-[150px] flex-1 sm:flex-none sm:!w-[190px] !py-1 !px-2 text-xs bg-panel-bg border border-panel-border rounded"
+                  />
+                  <select
+                    value={sammelVorgabe.regel}
+                    onChange={ev => setSammelVorgabe(p => ({ ...p, regel: ev.target.value }))}
+                    className="text-xs bg-panel-bg border-panel-border rounded !py-1 !w-auto"
+                  >
+                    <option value="domain">Merken: Domain</option>
+                    <option value="absender">Merken: Absender</option>
+                    <option value="absender_inhalt">Merken: Absender + Stichwort</option>
+                    <option value="inhalt">Merken: Stichwort</option>
+                    <option value="keine">Nur verschieben</option>
+                  </select>
+                  {artBrauchtStichwort(sammelVorgabe.regel) && (
+                    <input
+                      value={sammelVorgabe.stichwort}
+                      onChange={ev => setSammelVorgabe(p => ({ ...p, stichwort: ev.target.value }))}
+                      placeholder="Stichwort (sonst aus dem Betreff)"
+                      className="text-xs bg-panel-bg border border-panel-border rounded !py-1 !px-2 !w-[190px]"
+                    />
+                  )}
+                  <label className="flex items-center gap-1 text-panel-muted cursor-pointer whitespace-nowrap">
+                    <input
+                      type="checkbox"
+                      checked={sammelVorgabe.ueberschreiben}
+                      onChange={ev => setSammelVorgabe(p => ({ ...p, ueberschreiben: ev.target.checked }))}
+                    />
+                    auch ausgefüllte
+                  </label>
+                  <button onClick={vorgabeAnwenden} className="btn-ghost !py-1 !px-2 text-xs">Übernehmen</button>
+                  <button
+                    onClick={newsletterFuerAlle}
+                    title="Jede Zeile in den Newsletter-Ordner ihres Postfachs"
+                    className="btn !py-1 !px-2 text-xs flex items-center gap-1 !bg-panel-orange hover:!bg-amber-500 !text-panel-bg"
+                  >
+                    <AlertCircle size={12} /> Newsletter je Postfach
+                  </button>
+                </div>
+
+                <div className="max-h-[320px] overflow-auto border-t border-panel-border/50">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-left text-panel-muted bg-panel-bg/40 border-b border-panel-border/50">
+                        <th className="py-1.5 px-3 whitespace-nowrap">Mail vom</th>
+                        <th className="py-1.5 px-3">Absender · Betreff</th>
+                        <th className="py-1.5 px-3 whitespace-nowrap">Liegt in</th>
+                        <th className="py-1.5 px-3">Neuer Ordner</th>
+                        <th className="py-1.5 px-3">Merken</th>
+                        <th className="py-1.5 px-2"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {markierteEintraege.map(e => {
+                        const plan = planVon(e.id);
+                        const fehler = sammelFehler[e.id];
+                        return (
+                          <tr key={e.id} className={`border-b border-panel-border/30 align-top ${fehler ? 'bg-red-500/5' : ''}`}>
+                            <td className="py-1.5 px-3 whitespace-nowrap text-panel-muted">
+                              {e.mail_datum ? zeitpunkt(e.mail_datum) : <span title="Datum der Einsortierung">{zeitpunkt(e.created_at)}</span>}
+                              {alleKonten || e.konto !== konten.find(k => k.id === Number(aktivesKonto))?.name
+                                ? <div className="text-[10px]">{e.konto}</div> : null}
+                            </td>
+                            <td className="py-1.5 px-3 max-w-[260px]">
+                              <div className="truncate" title={e.von}>{e.von}</div>
+                              <div className="truncate text-panel-muted" title={e.betreff}>{e.betreff || '(kein Betreff)'}</div>
+                              {fehler && <div className="text-red-400 mt-0.5">{fehler}</div>}
+                            </td>
+                            <td className="py-1.5 px-3 font-mono text-panel-accent whitespace-nowrap">
+                              {liegtJetzt(e) === 'INBOX' ? <span className="font-sans text-panel-muted">Posteingang</span> : liegtJetzt(e)}
+                            </td>
+                            <td className="py-1.5 px-3 min-w-[160px]">
+                              <OrdnerFeld
+                                placeholder="Zielordner"
+                                value={plan.ziel}
+                                onChange={v => planSetzen(e, { ziel: v })}
+                                optionen={alleOrdner}
+                                className="w-full !py-1 !px-2 text-xs bg-panel-bg border border-panel-border rounded"
+                              />
+                            </td>
+                            <td className="py-1.5 px-3 min-w-[170px]">
+                              <select
+                                value={plan.regel}
+                                onChange={ev => planSetzen(e, { regel: ev.target.value })}
+                                className="w-full text-xs bg-panel-bg border-panel-border rounded !py-1"
+                              >
+                                <option value="domain">Domain @{domainVon(e.von)}</option>
+                                <option value="absender">Nur {adresse(e.von)}</option>
+                                <option value="absender_inhalt">{adresse(e.von)} + Stichwort</option>
+                                <option value="inhalt">Stichwort, egal von wem</option>
+                                <option value="keine">Nur diese Mail</option>
+                              </select>
+                              {artBrauchtStichwort(plan.regel) && (
+                                <input
+                                  value={plan.stichwort}
+                                  onChange={ev => planSetzen(e, { stichwort: ev.target.value })}
+                                  placeholder="Stichwort, z. B. Rechnung"
+                                  title="Steht dieses Wort im Betreff oder im Text der Mail, greift die Regel."
+                                  className="mt-1 w-full text-xs bg-panel-bg border border-panel-border rounded !py-1 !px-2"
+                                />
+                              )}
+                            </td>
+                            <td className="py-1.5 px-2 text-right">
+                              <button
+                                onClick={() => markieren(e, false)}
+                                disabled={Boolean(sammelLaeuft)}
+                                title="Aus der Auswahl nehmen"
+                                className="text-panel-muted hover:text-panel-text"
+                              >
+                                <XCircle size={14} />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="px-4 py-2 flex flex-wrap items-center gap-3 border-t border-panel-border/50">
+                  <span className="text-[11px] text-panel-muted">
+                    {sammelBereit.length === anzahlMarkiert
+                      ? 'Alle Zeilen haben ein Ziel.'
+                      : `${anzahlMarkiert - sammelBereit.length} Zeile(n) ohne Ziel bleiben unverändert.`}
+                    {' '}Regeln wirken ab sofort; die KI sieht korrigierte Absender künftig beim richtigen Ordner.
+                  </span>
+                  <button
+                    onClick={sammelBearbeiten}
+                    disabled={Boolean(sammelLaeuft) || sammelBereit.length === 0}
+                    className="btn !py-1.5 !px-3 text-sm flex items-center gap-1 ml-auto disabled:opacity-50"
+                  >
+                    <CheckCircle2 size={14} />
+                    {sammelLaeuft
+                      ? `Bearbeite ${sammelLaeuft.fertig} / ${sammelLaeuft.gesamt} …`
+                      : `${sammelBereit.length} bearbeiten`}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        <div className="overflow-auto max-h-[520px]">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-panel-border text-left text-panel-muted text-xs bg-panel-bg/30">
                 <th className="py-2 px-3 w-8">
+                  {/* Markiert die ganze Seite — Markierungen anderer Seiten bleiben stehen. */}
                   <input
                     type="checkbox"
-                    checked={entscheidungen.eintraege.length > 0 && auswahlChronik.length === entscheidungen.eintraege.length}
-                    onChange={e => setAuswahlChronik(e.target.checked ? entscheidungen.eintraege.map(x => x.id) : [])}
+                    title="Alle auf dieser Seite markieren"
+                    checked={entscheidungen.eintraege.length > 0 && entscheidungen.eintraege.every(x => auswahlChronik[x.id])}
+                    onChange={e => seiteMarkieren(e.target.checked)}
                   />
                 </th>
-                <th className="py-2 px-4 whitespace-nowrap">Wann</th>
+                <th className="py-2 px-4 whitespace-nowrap" title="Wann die Mail geschickt wurde — darunter, wann sie einsortiert wurde">Mail vom</th>
                 {alleKonten && <th className="py-2 px-4">Postfach</th>}
                 <th className="py-2 px-4">Absender</th>
                 <th className="py-2 px-4">Betreff</th>
@@ -2526,16 +2808,26 @@ export default function Sortierung() {
                     <td className="py-2 px-3">
                       <input
                         type="checkbox"
-                        checked={auswahlChronik.includes(e.id)}
+                        checked={Boolean(auswahlChronik[e.id])}
                         onChange={(ev) => {
                           ev.stopPropagation();
-                          setAuswahlChronik(prev => 
-                            ev.target.checked ? [...prev, e.id] : prev.filter(id => id !== e.id)
-                          );
+                          markieren(e, ev.target.checked);
                         }}
                       />
                     </td>
-                    <td className="py-2 px-4 text-xs text-panel-muted whitespace-nowrap">{zeitpunkt(e.created_at)}</td>
+                    {/* Das Datum der Mail zählt — danach sucht man. Bei älteren
+                        Einträgen (vor Build 252) ist es nicht bekannt; dann steht
+                        nur da, wann das Panel sie einsortiert hat. */}
+                    <td className="py-2 px-4 text-xs text-panel-muted whitespace-nowrap">
+                      {e.mail_datum
+                        ? <span className="text-panel-text">{zeitpunkt(e.mail_datum)}</span>
+                        : null}
+                      {e.created_at && (
+                        <div className={e.mail_datum ? 'text-[10px] opacity-70' : ''}>
+                          {e.mail_datum ? `einsortiert ${zeitpunkt(e.created_at)}` : zeitpunkt(e.created_at)}
+                        </div>
+                      )}
+                    </td>
                     {alleKonten && <td className="py-2 px-4 text-xs whitespace-nowrap">{e.konto}</td>}
                     <td className="py-2 px-4 max-w-[200px]">
                       {/* Ein Klick auf den Absender sucht nach ihm — „alles von
@@ -2579,15 +2871,17 @@ export default function Sortierung() {
                     </td>
                     <td className="py-2 px-4 text-right whitespace-nowrap">
                       <div className="flex items-center justify-end gap-1">
-                        {!e.korrigiert_zu && e.zielordner && (
-                          <button
-                            onClick={ev => { ev.stopPropagation(); zeileUmschalten(e.id); }}
-                            className="btn-ghost !py-1 !px-2 text-xs flex items-center gap-1"
-                            title="Diese Mail gehört woanders hin"
-                          >
-                            <Undo2 size={14} /> War falsch
-                          </button>
-                        )}
+                        {/* Auch liegengebliebene und schon korrigierte Mails
+                            lassen sich (weiter) einsortieren — vorher fehlte der
+                            Knopf bei beiden. */}
+                        <button
+                          onClick={ev => { ev.stopPropagation(); zeileUmschalten(e.id); }}
+                          className="btn-ghost !py-1 !px-2 text-xs flex items-center gap-1"
+                          title="Diese Mail gehört woanders hin"
+                        >
+                          <Undo2 size={14} />
+                          {!e.zielordner && !e.korrigiert_zu ? 'Einsortieren' : e.korrigiert_zu ? 'Ändern' : 'War falsch'}
+                        </button>
                         <ChevronDown
                           size={14}
                           className={`text-panel-muted transition-transform ${offeneZeile === e.id ? 'rotate-180' : ''}`}
@@ -2622,7 +2916,11 @@ export default function Sortierung() {
                             </div>
                           )}
                           <div><span className="text-panel-muted">Kategorie: </span>{e.kategorie || '—'}</div>
-                          <div><span className="text-panel-muted">Datum: </span>{zeitpunkt(e.created_at)}</div>
+                          <div>
+                            <span className="text-panel-muted">Mail vom: </span>
+                            {e.mail_datum ? zeitpunkt(e.mail_datum) : <span className="text-panel-muted italic">nicht bekannt</span>}
+                          </div>
+                          <div><span className="text-panel-muted">Einsortiert: </span>{e.created_at ? zeitpunkt(e.created_at) : '—'}</div>
                           <div>
                             <span className="text-panel-muted">Sicherheit: </span>
                             {e.konfidenz != null ? `${Math.round(e.konfidenz * 100)} %` : '—'}
@@ -2640,11 +2938,13 @@ export default function Sortierung() {
                           <div><span className="text-panel-muted">Postfach: </span>{e.konto}</div>
                         </div>
 
-                        {!e.korrigiert_zu && e.zielordner && (
+                        {(
                           <div className="mt-3 pt-3 border-t border-panel-border flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
                             <OrdnerFeld
                               autoFocus
-                              placeholder={`Richtiger Ordner statt „${e.zielordner}“`}
+                              placeholder={liegtJetzt(e) === 'INBOX'
+                                ? 'Wohin gehört diese Mail?'
+                                : `Richtiger Ordner statt „${liegtJetzt(e)}“`}
                               value={korrekturOrdner}
                               onChange={v => setKorrekturOrdner(v)}
                               optionen={alleOrdner}

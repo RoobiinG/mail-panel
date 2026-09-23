@@ -162,6 +162,9 @@ services:
       # Hinter einem Reverse Proxy noetig, damit Passkeys sich registrieren lassen:
       # die oeffentliche Panel-Adresse, z.B. https://panel.beispiel.de
       - ALLOWED_ORIGIN=${ALLOWED_ORIGIN:-}
+      # Dieselbe Grenze wie oben bei n8n — der Diagnosebericht vergleicht
+      # ueberlappende Laeufe damit, statt eine feste 2 anzunehmen.
+      - N8N_PARALLEL=${N8N_PARALLEL:-2}
       # Aufsicht ueber die Workflows — Erklaerung in .env.example
       - AUFSICHT_AKTIV=${AUFSICHT_AKTIV:-}
       - AUFSICHT_REPARIEREN=${AUFSICHT_REPARIEREN:-}

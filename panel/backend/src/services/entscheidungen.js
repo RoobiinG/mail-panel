@@ -12,15 +12,22 @@
 const db = require('../db');
 const settings = require('./settings');
 const imap = require('./imap');
-const { entschluesseln } = require('./crypto');
+const sortierung = require('./sortierung');
 
 // Was die Liste zeigt. spam_score und virus_name gehören dazu, weil eine
 // Fehlentscheidung auch „fälschlich als Spam" heißen kann; ki sagt, ob die KI
 // oder eine eigene Regel entschieden hat — die zwei Fälle repariert man
 // verschieden; grund sagt, weshalb überhaupt so entschieden wurde.
+// mail_datum ist das Datum aus der Mail selbst (wann sie geschickt wurde),
+// created_at der Zeitpunkt der Einsortierung. quell_ordner sagt, wo eine
+// liegengebliebene Mail noch liegt — ohne ihn ließe sie sich nicht korrigieren.
 const SPALTEN = `id, konto, von, betreff, kategorie, thema, konfidenz, zielordner,
                  kurzfassung, spam_score, virus_name, dnsbl_treffer, uid, korrigiert_zu, grund,
-                 IFNULL(ki, 1) AS ki, created_at`;
+                 IFNULL(ki, 1) AS ki, created_at, mail_datum, quell_ordner`;
+
+// Absender + Betreff als Schlüssel — so findet die Live-Ansicht zu einer Mail
+// im Ordner ihre Zeile im Protokoll.
+const mailSchluessel = (von, betreff) => `${sortierung.adresse(von)}|${String(betreff || '').trim().toLowerCase()}`;
 
 // Die Felder, in denen gesucht wird. Der Grund gehört dazu: „existiert nicht"
 // findet damit auf einen Schlag alle Mails, die an einem fehlenden Zielordner
@@ -123,33 +130,47 @@ async function suchen({ konto, suche, nur, tage, seite, limit, ordner } = {}) {
   const kannLiveLaden = konto && typeof konto === 'object' && ordner && (!nur || nur === 'alle');
 
   if (kannLiveLaden) {
-    konto.passwort = entschluesseln(konto.password_enc);
+    // Die vollständigen Zugangsdaten — mit tlsUnsicher. Ohne scheiterte die
+    // Live-Ansicht bei selbstsignierten Zertifikaten.
+    const zugang = require('./themen').zugang(konto);
     const { eintraege: imapMails, gesamt, seiten } = await imap.ordnerInhaltLaden({
-      ...konto,
+      ...zugang,
       ordner,
       suche,
       limit: proSeite,
       seite: aktuell
     });
 
-    const logMap = {};
+    // Welche Protokollzeile gehört zu welcher Mail im Ordner?
+    //
+    // Nicht über die UID: Das Protokoll führt die UID aus dem POSTEINGANG, die
+    // Mail im Ordner hat eine andere (IMAP vergibt sie je Ordner). Der alte
+    // Abgleich `uid IN (…)` hängte deshalb fremde Zeilen an Mails — und eine
+    // Korrektur daraus arbeitete an der falschen Mail. Absender und Betreff
+    // zusammen sind eindeutig genug; bei Gleichstand gewinnt die jüngste Zeile.
+    const logMap = new Map();
     if (imapMails.length > 0) {
-      const uids = imapMails.map(m => m.uid);
-      const platzhalter = uids.map(() => '?').join(',');
       const dbEintraege = db.prepare(`
         SELECT ${SPALTEN} FROM quarantine_log
-        WHERE konto = ? AND zielordner = ? AND uid IN (${platzhalter})
-      `).all(konto.name, ordner, ...uids);
+        WHERE konto = ? AND (zielordner = ? OR korrigiert_zu = ?)
+        ORDER BY id DESC LIMIT 5000
+      `).all(konto.name, ordner, ordner);
 
       for (const e of dbEintraege) {
-        logMap[e.uid] = e;
+        const k = mailSchluessel(e.von, e.betreff);
+        if (!logMap.has(k)) logMap.set(k, e);
       }
     }
 
+    const vergeben = new Set();
     const gemischt = imapMails.map(m => {
-      const dbEintrag = logMap[m.uid];
-      if (dbEintrag) return dbEintrag;
-      
+      const k = mailSchluessel(m.von, m.betreff);
+      const dbEintrag = logMap.get(k);
+      if (dbEintrag && !vergeben.has(dbEintrag.id)) {
+        vergeben.add(dbEintrag.id);
+        return { ...dbEintrag, mail_datum: dbEintrag.mail_datum || m.datum || null };
+      }
+
       // Virtueller Eintrag für Mails, die nicht vom Panel sortiert wurden
       return {
         id: `imap-${m.uid}`,
@@ -160,7 +181,8 @@ async function suchen({ konto, suche, nur, tage, seite, limit, ordner } = {}) {
         uid: m.uid,
         ki: 0,
         grund: 'Bereits im Ordner',
-        created_at: m.datum
+        created_at: null,
+        mail_datum: m.datum || null,
       };
     });
 

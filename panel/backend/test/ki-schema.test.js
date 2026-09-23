@@ -52,9 +52,15 @@ describe('Ein sauberer 504/502 zählt als Gateway-Timeout, nicht als Stille', ()
     assert.equal(s.davonGatewayTimeout, 1);
   });
 
-  test('502 zählt genauso', async () => {
-    await alsGateway(502);
-    assert.equal(messung.stand().davonGatewayTimeout, 1);
+  // Ein 502 nach Millisekunden heißt: Ollama startet neu oder ist abgestürzt.
+  // Mit der Bündelgröße hat das nichts zu tun — als Gateway-Abbruch gezählt,
+  // halbierte er die Bündel und drückte die gemessene Proxy-Grenze auf null
+  // (Durchsicht nach dem Diagnosebericht vom 23.09.).
+  test('ein schneller 502 ist kein Gateway-Timeout', async () => {
+    const antwort = await alsGateway(502);
+    assert.equal(antwort.ok, false);
+    assert.equal(antwort.gatewayTimeout, false);
+    assert.equal(messung.stand().davonGatewayTimeout, 0);
   });
 
   test('ein anderer Fehlerstatus (z. B. 500) ist kein Gateway-Timeout und wird nicht mitgezählt', async () => {

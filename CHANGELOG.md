@@ -2,6 +2,171 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [7.2.0.0] - 2026-09-23 (Build 252) — *Sammel-Entscheidung, Mail-Datum und die Befunde des Diagnoseberichts*
+
+Anlass war der Diagnosebericht vom 23.09. und eine vollständige Durchsicht des Projekts danach.
+Mehrere Fehler lagen seit Wochen still in Pfaden, die „grün" liefen.
+
+### Neue Funktionen
+- **Sammel-Entscheidung in „Entscheidungen" (`Sortierung.jsx`, `POST /api/sortierung/korrigieren-sammel`):**
+  - Beliebig viele Einträge markieren — auch **über Seiten, Suche, Filter und Kontowechsel hinweg**. Die
+    Auswahl hält jetzt die Einträge selbst (id → Eintrag), nicht nur die Nummern der aktuellen Seite;
+    vorher zeigten Markierungen nach dem Blättern ins Leere.
+  - Über der Tabelle erscheint eine **Bearbeitungsliste**: je markiertem Eintrag eine Zeile mit Mail-Datum,
+    Absender, Betreff, aktuellem Ordner und **eigenem Zielordner + eigener Merk-Art** (Domain, Absender,
+    Absender + Stichwort, Stichwort, nur diese Mail). Ein Ziel wird weiteren markierten Mails **desselben
+    Absenders** vorgeschlagen; „Für alle" füllt leere Zeilen (auf Wunsch alle), „Newsletter je Postfach"
+    setzt den Newsletter-Ordner des jeweiligen Kontos.
+  - Ein Knopf **„N bearbeiten"** arbeitet alles ab — mit Rückfrage, die je Zielordner zählt, was passiert.
+    Gesendet wird in Portionen zu zehn, damit ein Reverse-Proxy (üblich 60 s) nicht mitten im Stapel
+    abbricht. Erledigte Zeilen fallen aus der Auswahl, gescheiterte bleiben mit Grund markiert.
+  - Backend: `POST /korrigieren` ist jetzt eine dünne Hülle um `korrekturAusfuehren()`; der neue
+    Sammel-Endpunkt nutzt dieselbe Funktion (höchstens 25 Einträge je Aufruf, nacheinander — zwei Zeilen
+    desselben Absenders ergeben eine Regel, keine Dublette; ein Fehler hält die übrigen nicht auf).
+  - Gelernt wird wie bei der Einzelkorrektur: Regel anlegen oder umbiegen, Gelerntes am alten Ordner
+    vergessen, bei Domain/Absender den Absender dem neuen Ordner zuschreiben (fließt als „bisher hier
+    gelandet" in den KI-Prompt), wartende Mails gleich mitsortieren.
+- **Liegengebliebene und bereits korrigierte Mails lassen sich jetzt korrigieren.** Bisher fehlte der
+  Knopf bei beiden (962 liegengebliebene Mails in sieben Tagen), und das Backend hätte einen Ordner namens
+  „null" geöffnet. Quelle ist jetzt `korrigiert_zu || zielordner || quell_ordner || INBOX`; im Posteingang
+  wird direkt über die UID verschoben (mit Absender-Gegenprobe), der passende Sortier-Inbox-Eintrag wird
+  geschlossen.
+- **Mail-Datum und Uhrzeit in der Chronik:** Spalte „Mail vom" (darunter klein „einsortiert …"), auch in
+  der Bearbeitungsliste und der aufgeklappten Zeile. Neue Spalte `mail_datum` in `quarantine_log` und
+  `sort_inbox`; der Workflow-Patcher setzt `datum` in den Normalisierer von Workflow 01/04 ein
+  (`datumEinbauen()`, Quelle `date`/`envelope.date`/Kopfzeile) und schickt es über „Einsortieren" mit.
+  Das Panel prüft den Wert (lesbar, nicht in der Zukunft), weil die Kopfzeile der Absender schreibt.
+  Einträge von vor diesem Build haben kein Mail-Datum.
+- **Diagnosebericht: die langsamsten Knoten** der drei längsten Läufe über zwei Minuten (nur Name,
+  Sekunden, Anzahl Items — keine Inhalte), über `n8n.executionKnotenZeiten()`. Anlass: ein Bestandslauf
+  mit 1.144 s bei einer KI-Frist von 600 s.
+- **Telegram „✅ Alle freigeben" funktioniert erstmals** (siehe Bugfixes): neuer Endpunkt
+  `POST /api/internal/quarantaene/deliver-all` stellt alle Einträge der Mailcow-Quarantäne zu und
+  antwortet mit einem fertigen Satz für die Telegram-Bestätigung. Ohne Mailcow kommt eine klare Antwort
+  statt eines Fehlers.
+
+### Bugfixes — aus dem Diagnosebericht
+- **Neue Mails wurden seit Build 168 nie von der KI eingestuft (Workflow 01).** Der Bündel-Knoten fragte
+  `$('Panel: Bestand-Auswahl')` — den Knoten gibt es nur in Workflow 04. n8n wirft dann „Referenced node
+  doesn't exist", mitten im Aufbau der Anfrage, also im `try`: Der Knoten gab still `[]` zurück, jeder
+  Inbox-Lauf war nach 0–1 s „erfolgreich", und alle neuen Mails warteten auf den Bestandslauf. Jetzt mit
+  Rückfall auf `ordner` bzw. `INBOX`.
+- **Freigegebene Ordner-Vorschläge ließen ihre Mails liegen („Gaming"/„Games").** `/einsortieren`
+  speicherte in `sort_inbox.ki_ordner` das Wort der KI („Games"), der Vorschlag wurde aber unter dem
+  ähnlichen, schon vorhandenen Namen geführt („Gaming"). Die Freigabe sucht über den Vorschlagsnamen und
+  fand nichts. `themen.aufloesen()` liefert jetzt `vorschlag_ordner`, `/einsortieren` speichert genau den;
+  `vorschlaegeAufraeumen()` hängt Altbestände um. Der Grund nannte außerdem zweimal denselben Namen
+  („… zusammengefasst mit "Gaming"") — jetzt „(KI nannte "Games")". Passt der Name zu einem
+  vorhandenen Ordner, behauptet der Grund keinen wartenden Vorschlag mehr.
+- **Riesen-Prompts → 504 am Proxy → Bündel schrumpften auf eins.** `mailBlock()` hängte Links ungekürzt an;
+  drei Tracking-URLs machten aus einer Mail 4.518 statt ~1.350 Token. Links jetzt als Schema + Host +
+  Pfad, höchstens 80 Zeichen, höchstens drei.
+- **Die Gateway-Messung zählte schnelle 502 mit** (Ollama startet neu) und behielt einen Ausreißer, bis
+  zwanzig neuere Anfragen ihn verdrängten. Jetzt zählen nur 504 und 502 nach ≥ 30 s, und Einträge
+  verfallen nach sechs Stunden.
+- **Einzelnachfragen, obwohl nur die Warteschlange belegt war:** Jede Mail stellte sich neu an und
+  verbrannte die Frist. Einzeln nachgefragt wird nur noch nach einer echten Zeitüberschreitung.
+- **„2 von 3 Mails klassifiziert" ohne Erklärung:** Fehlt eine Mail in der Antwort, steht das jetzt im Log,
+  und sie wird einzeln nachgefragt, solange die Frist reicht.
+- **Konfidenz:** Fehlt sie, heißt der Grund „die KI hat keine Konfidenz geliefert" statt „0.00 < 0.7";
+  der Prompt sagt, dass sie auch für einen neuen Ordner gilt. `spam_score` ist im Schema Pflicht — fehlte
+  er, galt eine Phishing-Mail als harmlos.
+- **Fehlalarm „3 Läufe überlappten sich … Compose greift nicht":** gezählt wurden Unter-Workflows (07) und
+  Editor-Läufe, für die die Grenze nicht gilt, und die Dauer war auf ganze Sekunden gerundet. Jetzt zählen
+  nur Auslöser-Läufe mit echten Millisekunden; ein abgestürzter Lauf ohne Endzeit überlappt nicht mehr
+  alles Spätere. Die Grenze kommt aus `N8N_PARALLEL` (neu auch im Panel-Container gesetzt).
+- **Nachsortierung „470 von 500 verschoben … Obergrenze erreicht":** KI-Vorschläge verbrauchten Plätze der
+  Obergrenze, wurden aber nie verschoben, und jeder Lauf schlug dieselben ersten Mails vor. Jetzt eigene
+  Zähler (verschoben / nicht verschiebbar / KI-Vorschläge zur Ansicht), Vorschläge zählen nicht gegen die
+  Obergrenze und wechseln zwischen den Läufen.
+- **Gmail-„Archiv" `[Gmail]/Markiert`:** Die Ordnerauswahl der Konten-Seite zeigte Ansichten
+  (Markiert, Alle Nachrichten, Wichtig) wie Ordner. Sie fehlen jetzt in der Auswahl, die Seite warnt, und
+  das Speichern lehnt eine Ansicht als Zielordner ab.
+- **Telegram-Rückkanal war an drei Stellen kaputt:** (1) Workflow 02: Die Knopf-Felder waren seit Build 131
+  PowerShell-verstümmelt (`"@{callbackData=q_deliver_all}"`) und standen in `additionalFields`, wo n8n sie
+  nicht liest — der Digest kam ohne Knöpfe. (2) Workflow 05: Die Weiche war ein Switch v1 mit
+  IF-Parametern und las `message.data` statt `callback_query.data`. (3) Der aufgerufene Endpunkt fehlte.
+  Vorlagen repariert; `telegramKnoepfeReparieren()` und `rueckkanalReparieren()` bringen bestehende
+  Workflows beim Abgleich auf denselben Stand. „Panel öffnen" erscheint nur mit `ALLOWED_ORIGIN`.
+
+### Bugfixes — Datenintegrität der Sortierung
+- **Eine falsche Mail konnte verschoben werden.** Seit Build 168 geht der Bestandslauf auch Ordner außerhalb
+  des Posteingangs durch. Blieb dort eine Mail ohne Ziel, landete sie mit ihrer UID in der Sortier-Inbox —
+  die nur den Posteingang kennt; unter derselben Nummer liegt dort womöglich eine andere Mail. Jetzt: nur
+  Posteingangs-Mails kommen in die Sortier-Inbox, andere werden als „unklar" zurückgestellt; neue Spalte
+  `quell_ordner`. Zusätzlich prüft `imap.mailsVerschieben({ absenderPruefen })` vor dem Verschieben aus
+  der Sortier-Inbox, ob unter der UID wirklich die Mail dieses Absenders liegt, und schließt fremde
+  Einträge.
+- **„Von Rechnungen nach Rechnungen":** Liegt eine Mail schon im Zielordner, wird nichts verschoben und sie
+  als erledigt vermerkt — vorher stand sie jede Stunde wieder im Fenster.
+- **Nachsortierung schob Rechnungen jede Nacht weg:** Regeln mit Inhalts-Stichwort können ohne Mailtext
+  nicht greifen, also gewann die nächste Regel. Jetzt bleibt eine Mail, über die nur das Stichwort
+  entscheiden könnte, liegen (`regelFuerBriefkopf()`).
+- **`/nachsortierung/verschieben` überschrieb fremde Protokollzeilen:** Es suchte über die UID des
+  Quellordners in einem Protokoll mit Posteingangs-UIDs und legte sonst eine Scheinzeile mit `ki=1` an,
+  wegen der die Budget-Prüfung die Posteingangs-Mail gleicher Nummer 26 h übersprang. Jetzt ein eigener
+  Beleg ohne UID, `ki=0`, mit Grund.
+- **Chronik-Live-Ansicht (Ordnerfilter):** Protokollzeilen wurden über Posteingangs-UIDs an Mails im Ordner
+  gehängt — korrigiert wurde dann die falsche Zeile. Jetzt über Absender + Betreff. Und
+  `imap.ordnerInhaltLaden()` suchte Sequenznummern, holte sie aber als UIDs (falsche Suchtreffer).
+- **Gelernt wurde auch aus gescheiterten Verschiebungen** (`/inbox/verschieben`, „Alle Vorschläge
+  übernehmen"). Jetzt nur aus dem, was wirklich umzog (`verschobeneIds`).
+- **Regelsuche bei Korrektur und Sammel-Zuordnung** ignorierte Betreff-Bedingung und Aktion: Eine
+  Betreff-Regel wurde umgebogen, eine „in Ruhe lassen"-Regel bekam ein Ziel, blieb aber „behalten";
+  `regelMerken()` biegt das Ziel jetzt auch um.
+- **`POST /regeln`** sortierte beim Anlegen einer Regel mit Inhalts-Stichwort alle wartenden Mails des
+  Absenders nach — jetzt mit Stichwort.
+- **Lernschwelle:** Seit Build 241 wurde jede einzelne KI-Einordnung zur Dauerregel. Jetzt
+  `LERNSCHWELLE_KI = 3` für `/einsortieren`, `LERNSCHWELLE_NUTZER = 1` für Nutzeraktionen; Korrekturen
+  zählen für das neue Ziel (`COALESCE(korrigiert_zu, zielordner)`), sonst galt ein korrigierter Absender
+  als „uneinheitlich" und wurde nie gelernt.
+- **`db.js` benannte bei jedem Start und jeder Installation das Konto „Web.de" um** (Überbleibsel einer
+  einmaligen Korrektur, mit einem festen Kontonamen im Code). Entfernt.
+- **Absender-Einsortieren und Kategorie-Anwenden:** Die IMAP-Suche FROM trifft Teilstrings („amazon.de" auch
+  „notamazon.de"); jetzt wird die tatsächliche Absenderadresse geprüft. Sortier-Inbox-Einträge werden nur
+  noch abgehakt, wenn ihre Mail wirklich umzog.
+
+### Sicherheit
+- **Pfad-Traversal in n8n-Kennungen:** `DELETE /api/workflows/stop/..%2Fcredentials%2F42` löschte über den
+  API-Schlüssel des Panels beliebige n8n-Objekte. `n8n.idPfad()` prüft jetzt jede Kennung, die Route
+  lehnt ungültige mit 400 ab.
+- **Diagnosebericht mit Mailinhalten** braucht zusätzlich das Recht „Sortierung".
+- **Upload-Vorschau:** Dateinamen mit „–" oder Umlauten ließen Node mit `ERR_INVALID_CHAR` abbrechen (500);
+  jetzt `filename*=UTF-8''…`.
+- **Paste:** läuft nicht mehr ein bis zwei Stunden zu früh ab (UTC ohne Zone), abgelaufene Berichte werden
+  beim Erstellen eines neuen weggeräumt.
+
+### Robustheit & Aufräumen
+- **Standard-KI-Anbieter „ollama" statt „gemini"** an drei Stellen: Frische Installationen importierten die
+  Gemini-Vorlagen, und die Texterkennung für gescannte Belege lief nie.
+- **Vollständige Zugangsdaten:** „Ordner-Idee rückgängig" scheiterte immer (kein Passwort übergeben);
+  Mail-Vorschau, Ordner-Ansicht und Chronik-Live nutzen jetzt `themen.zugang()` inklusive `tlsUnsicher`.
+- **Server mit `INBOX.`-Präfix:** Umleiten, Zusammenfassen, Absender, Kategorie und „Aufgehen in" nutzen den
+  Pfad des Servers statt des getippten Namens; `imap.ordnerErstellen()` erkennt `INBOX.X` als vorhanden.
+- **Auto-Abgleich:** Ein Anstoß während eines laufenden Abgleichs wird nachgeholt statt verworfen.
+- Streudateien `query.sh`, `test-script.js`, `test.js` (Debug-Reste aus Build 159/240) entfernt.
+
+### Tests
+- Neu: `korrektur-sammel`, `einsortieren-ordner`, `diagnose-ueberlappung`, `n8n-id`, `telegram-rueckkanal`,
+  `durchsicht-befunde`; angepasst: `regel-lernen` (Schwellen), `klassifizierer` (Nachfragen fehlender
+  Mails), `ki-schema` (schneller 502), `belegLeser` (Anbieter-Standard), `absender` (Server-Pfad).
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Datenbank-Migrationen:** Vier neue Spalten per `ALTER TABLE` (`quarantine_log.quell_ordner`,
+  `quarantine_log.mail_datum`, `sort_inbox.quell_ordner`, `sort_inbox.mail_datum`) — laufen beim Start von
+  selbst. Altbestand bleibt ohne Mail-Datum und ohne Herkunft (gilt als Posteingang).
+- **n8n-Workflows:** Kein Neu-Import nötig. Beim nächsten automatischen Abgleich (Containerstart) patcht das
+  Panel Workflow 01/04 (Datum im Normalisierer, `datum` im Einsortieren-Knoten, reparierter Bündel-Knoten
+  in 01) sowie 02/05 (Knöpfe, Weiche, Endpunkt). Wer den Auto-Abgleich abgeschaltet hat: einmal
+  „Workflows → Synchronisieren".
+- **docker-compose.yml:** Der Panel-Container bekommt `N8N_PARALLEL`. Ohne aktualisierte Compose gilt im
+  Bericht weiter der Standard 2 — funktional ändert sich nichts.
+- **Verhalten:** Workflow 01 fragt ab jetzt tatsächlich die KI — neue Mails werden also wieder sofort
+  eingestuft, was die lokale KI zusätzlich belastet. KI-Einordnungen werden erst nach drei gleichen Mails
+  zur Regel. Der tägliche Digest trägt jetzt den Knopf „✅ Alle freigeben" — ein Tipp stellt die gesamte
+  Mailcow-Quarantäne zu (nur aus dem hinterlegten Telegram-Chat).
+- **Neustart/Sitzung:** Kein Logout nötig.
+
 ## [7.1.2.0] - 2026-09-21 (Build 251) — *Konten-Sichtbarkeit & Sortierungs-Optimierung*
 
 ### Verbesserungen & Features

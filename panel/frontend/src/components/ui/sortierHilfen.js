@@ -207,7 +207,7 @@ export function grundKlasse(kiGrund) {
   if (/^Kein Thema erkannt/i.test(g)) return 'kein-thema';
   if (/wartet auf Freigabe|^Trockenlauf/i.test(g)) return 'neuer-ordner';
   if (/^Ordnername abgelehnt|wurde abgelehnt/i.test(g)) return 'abgelehnt';
-  if (/zu unsicher/i.test(g)) return 'unsicher';
+  if (/zu unsicher|keine Konfidenz/i.test(g)) return 'unsicher';
   return 'andere';
 }
 

@@ -53,8 +53,13 @@ router.get('/:id/datei', (req, res) => {
     // Namen rendern soll.
     const typ = VORSCHAU_TYPEN[endung];
     res.setHeader('Content-Type', typ || 'application/octet-stream');
+    // Ein Kopfzeilenwert darf nur Latin-1 enthalten. „Rechnung – März.pdf"
+    // (Gedankenstrich U+2013) ließ Node mit ERR_INVALID_CHAR abbrechen, und die
+    // Vorschau antwortete 500. RFC 6266: ASCII-Ersatzname plus filename* in UTF-8.
+    const name = path.basename(String(zeile.dateiname || 'datei'));
+    const ascii = name.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '') || 'datei';
     res.setHeader('Content-Disposition',
-      `${typ ? 'inline' : 'attachment'}; filename="${path.basename(zeile.dateiname).replace(/"/g, '')}"`);
+      `${typ ? 'inline' : 'attachment'}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     fs.createReadStream(datei).pipe(res);
   } catch (err) {

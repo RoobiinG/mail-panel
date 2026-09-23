@@ -179,12 +179,28 @@ describe('Zuordnung ueber die Nummer', () => {
   });
 
   test('eine fehlende Nummer laesst genau diese Mail liegen', async () => {
-    antwortenMit(() => ({ ok: true, daten: [{ nr: 1, kategorie: 'newsletter' }] }));
+    // Das Bündel liefert nur Nr. 1, jede Nachfrage danach scheitert.
+    antwortenMit((_prompt, n) => (n === 1
+      ? { ok: true, daten: [{ nr: 1, kategorie: 'newsletter' }] }
+      : { ok: false, fehler: 'Die Antwort der KI war nicht lesbar.' }));
     const e = await k.klassifizieren([mail(1), mail(2), mail(3)]);
     assert.equal(e.ergebnisse[0].kategorie, 'newsletter');
     assert.equal(e.ergebnisse[1], null, 'nicht raten — sie kommt im naechsten Lauf wieder');
     assert.equal(e.ergebnisse[2], null);
     assert.equal(e.klassifiziert, 1);
+  });
+
+  // „2 von 3 Mails klassifiziert" stand im Log, ohne ein Wort dazu, welche
+  // fehlte und warum (Diagnosebericht vom 23.09.). Fehlende werden jetzt
+  // einzeln nachgefragt, solange die Frist reicht.
+  test('fehlende Mails werden einzeln nachgefragt', async () => {
+    antwortenMit((prompt, n) => (n === 1
+      ? { ok: true, daten: [{ nr: 1, kategorie: 'newsletter', konfidenz: 0.5 }] }
+      : brav(prompt)));
+    const e = await k.klassifizieren([mail(1), mail(2), mail(3)]);
+    assert.equal(e.klassifiziert, 3);
+    assert.equal(gefragt.length, 3, 'ein Bündel, dann je eine Nachfrage für Nr. 2 und 3');
+    assert.ok(e.ergebnisse.every(Boolean));
   });
 
   test('erfundene Nummern werden verworfen', async () => {

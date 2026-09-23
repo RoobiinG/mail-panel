@@ -40,12 +40,19 @@ async function testVerbindung(konto) {
     const postfach = await client.mailboxOpen('INBOX', { readOnly: true });
     const liste = await client.list();
     const vorhanden = liste.map((o) => o.path);
+    // Ansichten sind keine Ordner. Gmail führt „[Gmail]/Markiert", „Alle
+    // Nachrichten" und „Wichtig" wie Ordner auf — wer „Markiert" als Archiv
+    // auswählte, hätte alte Newsletter mit einem Stern versehen und ihnen dabei
+    // das Newsletter-Label genommen. Erkennbar nur an den Kennzeichnungen,
+    // nicht am Namen (der hängt an der Sprache des Kontos).
+    const ansichten = liste.filter((o) => istAnsicht(o)).map((o) => o.path);
     return {
       ok: true,
       nachrichten: postfach.exists,
       // Die Oberfläche bietet diese Liste zur Auswahl an, damit man eigene
       // Ordner nehmen kann, statt neue anlegen zu müssen.
-      ordner: vorhanden,
+      ordner: vorhanden.filter((p) => !ansichten.includes(p)),
+      ansichten,
       fehlendeOrdner: zielordner(konto).filter((soll) => !vorhanden.includes(soll)),
     };
   } catch (err) {
@@ -100,7 +107,16 @@ async function ordnerErstellen(konto, ordnerName) {
   try {
     await client.connect();
     const vorhanden = (await client.list()).map((o) => o.path);
-    if (!vorhanden.includes(ordnerName)) {
+    // Auch „INBOX.Rechnungen" oder „rechnungen" zählen als vorhanden. Mit dem
+    // exakten Vergleich legte ein Server mit Präfix neben „INBOX.Rechnungen"
+    // einen zweiten, leeren Ordner „Rechnungen" auf oberster Ebene an — oder
+    // lehnte das CREATE ab, und die ganze Aktion scheiterte daran.
+    const klein = String(ordnerName).toLowerCase();
+    const schonDa = vorhanden.some((p) => {
+      const q = String(p).toLowerCase();
+      return q === klein || q === `inbox.${klein}` || q === `inbox/${klein}`;
+    });
+    if (!schonDa) {
       await client.mailboxCreate(ordnerName);
       await abonnieren(client, ordnerName); // sonst bleibt er im Mailprogramm unsichtbar
       return true; // Wurde neu angelegt
@@ -199,6 +215,15 @@ const SONDERROLLEN = new Set([
 
 // Flags kommen mit fuehrendem Backslash ("\Important") — den schneiden wir ab.
 const rolle = (wert) => String(wert || '').replace(/^\\/, '').toLowerCase();
+
+// Ordner, die als Ziel nichts taugen: Ansichten (Alle, Markiert, Wichtig) und
+// Zwischenknoten ohne eigene Nachrichten (\Noselect).
+const ANSICHTEN = new Set(['all', 'flagged', 'important', 'noselect', 'nonexistent']);
+function istAnsicht(o) {
+  const rollen = [...(o?.flags || [])].map(rolle);
+  if (o?.specialUse) rollen.push(rolle(o.specialUse));
+  return rollen.some((r) => ANSICHTEN.has(r));
+}
 
 async function ordnerDetails(konto) {
   const client = verbindung(konto);
@@ -382,7 +407,12 @@ async function mailVerschieben({ uid, von = 'INBOX', nach, ...konto }) {
 // die alte UID meldet dann klaglos Erfolg und tut nichts.
 //
 // @returns {Promise<number[]>} gefundene UIDs, neueste zuletzt
-async function mailsSuchen({ ordner, von, betreff, ...konto }) {
+// `adressePasst` (freiwillig): prüft die tatsächliche Absenderadresse jedes
+// Treffers. Die IMAP-Suche FROM ist eine Teilstring-Suche über die ganze
+// Kopfzeile — „amazon.de" trifft auch „notamazon.de" und jeden, der „amazon.de"
+// in seinen Anzeigenamen schreibt. Wer danach ganze Stapel verschiebt, will
+// genau die Domain, nicht alles, was ähnlich klingt.
+async function mailsSuchen({ ordner, von, betreff, adressePasst = null, ...konto }) {
   const client = verbindung(konto);
   try {
     await client.connect();
@@ -393,7 +423,17 @@ async function mailsSuchen({ ordner, von, betreff, ...konto }) {
       if (betreff) kriterien.subject = String(betreff);
       if (!kriterien.from && !kriterien.subject) return [];
       const treffer = await client.search(kriterien, { uid: true });
-      return Array.isArray(treffer) ? treffer : [];
+      const liste = Array.isArray(treffer) ? treffer : [];
+      if (typeof adressePasst !== 'function' || liste.length === 0) return liste;
+      const genau = [];
+      for (let i = 0; i < liste.length; i += VERSCHIEBE_BUENDEL) {
+        const teil = liste.slice(i, i + VERSCHIEBE_BUENDEL).join(',');
+        for await (const m of client.fetch(teil, { uid: true, envelope: true }, { uid: true })) {
+          const adresse = String(m.envelope?.from?.[0]?.address || '').toLowerCase().trim();
+          if (adressePasst(adresse)) genau.push(Number(m.uid));
+        }
+      }
+      return genau;
     } finally {
       schloss.release();
     }
@@ -421,7 +461,24 @@ async function mailsSuchen({ ordner, von, betreff, ...konto }) {
 // fallen, klein genug fuer die Zeilenlaenge, die ein IMAP-Server annimmt.
 const VERSCHIEBE_BUENDEL = 200;
 
-async function mailsVerschieben({ mails, von = 'INBOX', nach, ...konto }) {
+// Die reine Adresse aus einem "Von"-Feld — dieselbe Regel wie in
+// services/sortierung.js (letzte spitze Klammer). Hier nachgebaut, weil
+// sortierung.js seinerseits imap.js lädt.
+function reineAdresse(von) {
+  const roh = String(von || '').toLowerCase().trim();
+  const treffer = roh.match(/<([^<>]*)>\s*$/) || [...roh.matchAll(/<([^<>]+)>/g)].pop();
+  return (treffer ? treffer[1] : roh).trim();
+}
+
+// `absenderPruefen`: Vor dem Verschieben nachsehen, ob unter der UID wirklich
+// die Mail dieses Absenders liegt.
+//
+// Eine UID gilt je Ordner. Stammt die gespeicherte Nummer aus einem anderen
+// Ordner (der Bestandslauf geht seit Build 168 auch „Rechnungen" & Co. durch),
+// trägt im Posteingang womöglich eine ganz andere Mail dieselbe Nummer — und die
+// würde klaglos verschoben. Die Prüfung kostet keinen zweiten Verbindungsaufbau,
+// nur einen FETCH der Umschläge in derselben Sitzung.
+async function mailsVerschieben({ mails, von = 'INBOX', nach, absenderPruefen = false, ...konto }) {
   if (!nach) throw new Error('Kein Zielordner angegeben.');
   const verschoben = [];
   const fehler = [];
@@ -429,7 +486,7 @@ async function mailsVerschieben({ mails, von = 'INBOX', nach, ...konto }) {
 
   // Unbrauchbare UIDs vorab aussortieren — sie wuerden sonst ein ganzes Buendel
   // verderben.
-  const gueltig = [];
+  let gueltig = [];
   for (const mail of mails) {
     const nummer = Number(mail.uid);
     if (!Number.isInteger(nummer) || nummer <= 0) fehler.push({ uid: mail.uid, grund: 'ungültige UID' });
@@ -442,6 +499,29 @@ async function mailsVerschieben({ mails, von = 'INBOX', nach, ...konto }) {
     await client.connect();
     const schloss = await client.getMailboxLock(String(von));
     try {
+      if (absenderPruefen) {
+        const zuPruefen = gueltig.filter((t) => reineAdresse(t.mail.von).includes('@'));
+        if (zuPruefen.length > 0) {
+          const tatsaechlich = new Map();
+          for (let i = 0; i < zuPruefen.length; i += VERSCHIEBE_BUENDEL) {
+            const teil = zuPruefen.slice(i, i + VERSCHIEBE_BUENDEL).map((t) => t.uid).join(',');
+            for await (const m of client.fetch(teil, { uid: true, envelope: true }, { uid: true })) {
+              tatsaechlich.set(Number(m.uid), String(m.envelope?.from?.[0]?.address || '').toLowerCase().trim());
+            }
+          }
+          gueltig = gueltig.filter((t) => {
+            const soll = reineAdresse(t.mail.von);
+            if (!soll.includes('@')) return true;
+            const ist = tatsaechlich.get(t.uid);
+            if (ist === undefined) { fehler.push({ uid: t.uid, grund: `nicht in "${von}" gefunden` }); return false; }
+            if (ist && ist !== soll) {
+              fehler.push({ uid: t.uid, grund: `unter dieser UID liegt eine andere Mail (von ${ist})`, fremd: true });
+              return false;
+            }
+            return true;
+          });
+        }
+      }
       for (let i = 0; i < gueltig.length; i += VERSCHIEBE_BUENDEL) {
         const teil = gueltig.slice(i, i + VERSCHIEBE_BUENDEL);
         try {
@@ -611,13 +691,16 @@ async function ordnerInhaltLaden({ ordner, suche, limit = 100, seite = 1, mitUns
       let zielUids = null;
       if (suche && suche.trim()) {
         const term = suche.trim();
+        // { uid: true } ist Pflicht: Ohne liefert search() Sequenznummern, der
+        // FETCH unten behandelt die Liste aber als UIDs — die Suche zeigte dann
+        // beliebige andere Mails (oder keine) an.
         const searchResult = await client.search({
           or: [
             { from: term },
             { subject: term },
             { body: term }
           ]
-        });
+        }, { uid: true });
         if (!searchResult || searchResult.length === 0) {
           return { eintraege: [], gesamt: 0, seiten: 0 };
         }
@@ -654,7 +737,8 @@ async function ordnerInhaltLaden({ ordner, suche, limit = 100, seite = 1, mitUns
           uid: String(m.uid), // Explizit als String für einheitliche Handhabung
           von: m.envelope.from?.[0]?.address || m.envelope.from?.[0]?.name || '',
           betreff: m.envelope.subject || '(kein Betreff)',
-          datum: m.envelope.date || new Date().toISOString()
+          // Kein Datum heißt kein Datum — „jetzt" als Ersatz sähe aus wie eine neue Mail.
+          datum: m.envelope.date || null
         };
         if (mitUnsubscribe) {
           eintrag.hatUnsubscribe = Boolean(

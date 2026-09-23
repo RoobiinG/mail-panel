@@ -16,6 +16,14 @@ const router = express.Router();
 // Seite ihn anzeigen soll und der Text das ist, was am Ende jemand bekommt.
 router.get('/', async (req, res) => {
   const mitMails = String(req.query.mails || '') === '1';
+  // Absender und Betreffe echter Mails sind dieselben Daten, die sonst nur mit
+  // dem Recht „sortierung" zu sehen sind (Statistik, Sortier-Inbox). Das Recht
+  // „einstellungen" allein darf sie nicht durch die Hintertür liefern.
+  if (mitMails && !req.user?.rechte?.sortierung) {
+    return res.status(403).json({
+      error: 'Ein Bericht mit Mailinhalten braucht zusätzlich das Recht „Sortierung".',
+    });
+  }
   try {
     const bericht = await diagnose.erstellen({
       mitMails,

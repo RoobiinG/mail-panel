@@ -115,6 +115,7 @@ describe('Die Liste', () => {
 describe('Ein Handgriff: Regel und Verschieben', () => {
   beforeEach(() => {
     themen.ordnerExistiert = async () => true;
+    themen.ordnerPfad = async (_konto, pfad) => pfad;
     imap.mailsSuchen = async () => [11, 12, 13];
     imap.mailsVerschieben = async ({ mails }) => ({ verschoben: mails, fehler: [] });
   });
@@ -201,6 +202,7 @@ describe('Kategorien aus der Absenderliste', () => {
     stat('a@plesk.de', 'plesk.de', 40);
     stat('b@mc-host24.de', 'mc-host24.de', 30);
     themen.ordnerExistiert = async () => true;
+    themen.ordnerPfad = async (_konto, pfad) => pfad;
     imap.mailsSuchen = async () => [1, 2];
     imap.mailsVerschieben = async ({ mails }) => ({ verschoben: mails, fehler: [] });
 

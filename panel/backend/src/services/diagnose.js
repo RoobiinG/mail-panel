@@ -328,6 +328,10 @@ async function laeufe(anzahl = 15) {
     const zeile = {
       start: e.startedAt,
       status: e.status || (e.finished ? 'success' : 'unbekannt'),
+      // Wie der Lauf ausgelöst wurde. „integrated" ist ein Unter-Workflow
+      // (07 aus 01/04), „manual" ein Klick im Editor — beide zählen nicht gegen
+      // N8N_CONCURRENCY_PRODUCTION_LIMIT.
+      ...(e.mode ? { modus: e.mode } : {}),
       // Beide Zeiten müssen stimmen. Ein abgebrochener Lauf kommt ohne
       // startedAt zurück, und `new Date(null)` ist nicht ungültig, sondern der
       // 1. Januar 1970 — im Bericht stand dann eine Dauer von 1788920178
@@ -345,7 +349,12 @@ async function laeufe(anzahl = 15) {
     // Für den Nachschlag unten: Ohne die id lässt sich der Lauf nicht noch
     // einmal fragen. Sie fliegt gleich wieder raus, sie gehört nicht in den
     // Bericht.
-    if (!zeile.fehler && e.id != null) zeile.__id = e.id;
+    if (e.id != null) zeile.__id = e.id;
+    // Die genauen Zeiten für die Überlappung. dauerSekunden ist gerundet: Aus
+    // einem Lauf von 0,6 s wurde 1 s, und der überlappte dann einen zweiten, der
+    // 0,65 s später begann — obwohl beide nacheinander liefen.
+    zeile.__vonMs = Date.parse(e.startedAt || '');
+    zeile.__bisMs = Date.parse(e.stoppedAt || '');
     return zeile;
   });
 
@@ -358,7 +367,7 @@ async function laeufe(anzahl = 15) {
   // haben, und höchstens drei davon.
   const FEHLER_MAX = 3;
   const nachzufragen = liste
-    .filter((z) => z.__id != null && z.status !== 'success' && z.status !== 'running')
+    .filter((z) => z.__id != null && !z.fehler && z.status !== 'success' && z.status !== 'running')
     .slice(0, FEHLER_MAX);
   for (const zeile of nachzufragen) {
     const detail = await n8n.executionFehler(zeile.__id);
@@ -367,31 +376,72 @@ async function laeufe(anzahl = 15) {
     if (detail.knoten) zeile.fehlerKnoten = detail.knoten;
     if (detail.letzterKnoten && !zeile.letzterKnoten) zeile.letzterKnoten = detail.letzterKnoten;
   }
-  for (const zeile of liste) delete zeile.__id;
-  const hoechste = gleichzeitigkeit(liste);
+
+  // Wo lange Läufe ihre Zeit lassen — nur Knotenname und Sekunden.
+  //
+  // Diagnosebericht vom 23.09.: ein Bestandslauf mit 1.144 s bei einer KI-Frist
+  // von 600 s. Die KI allein erklärt das nicht, aber welcher Knoten dann? Das
+  // steht nur in den Laufdaten, die die Liste nicht mitliefert. Also für die
+  // drei längsten Läufe über zwei Minuten einzeln nachfragen.
+  const LANG_SEKUNDEN = 120;
+  const LANG_MAX = 3;
+  const lange = liste
+    .filter((z) => z.__id != null && Number(z.dauerSekunden) >= LANG_SEKUNDEN)
+    .sort((a, b) => b.dauerSekunden - a.dauerSekunden)
+    .slice(0, LANG_MAX);
+  for (const zeile of lange) {
+    const zeiten = typeof n8n.executionKnotenZeiten === 'function'
+      ? await n8n.executionKnotenZeiten(zeile.__id)
+      : null;
+    if (!zeiten || zeiten.length === 0) continue;
+    zeile.langsamsteKnoten = zeiten.slice(0, 5).map((k) => ({
+      knoten: k.knoten,
+      sekunden: Math.round(k.ms / 100) / 10,
+      ...(k.items ? { items: k.items } : {}),
+    }));
+  }
+
+  // Gezählt wird nur, was N8N_CONCURRENCY_PRODUCTION_LIMIT überhaupt begrenzt:
+  // Läufe, die ein Auslöser (Zeitplan, IMAP, Webhook) gestartet hat.
+  // Unter-Workflows (07, von 01/04 ohne Warten aufgerufen) und Klicks im Editor
+  // laufen daneben. Genau das stand im Bericht vom 23.09. als „3 Läufe
+  // überlappten sich … Compose greift nicht": zwei Inbox-Läufe plus ein
+  // Workflow 07 — und die zwei überlappten auch nur wegen der Rundung.
+  // Ein abgestürzter Lauf ohne Endzeit ist kein laufender: Er überlappte sonst
+  // alles, was nach ihm kam, bis ans Ende der Liste.
+  const laeuftNoch = (z) => ['running', 'new', 'waiting', 'unbekannt'].includes(String(z.status || 'unbekannt'));
+  const zaehlt = (z) => !['integrated', 'manual', 'retry', 'internal', 'cli', 'error'].includes(String(z.modus || ''))
+    && (Number.isFinite(z.__bisMs) || laeuftNoch(z));
+  const begrenzte = liste.filter(zaehlt);
+  const unterlaeufe = liste.length - begrenzte.length;
+  const hoechste = gleichzeitigkeit(begrenzte);
+  for (const zeile of liste) { delete zeile.__id; delete zeile.__vonMs; delete zeile.__bisMs; }
+
+  // Welche Grenze gilt? Die Compose reicht N8N_PARALLEL auch ans Panel weiter;
+  // fehlt es, gilt der Standard der Compose (2).
+  const grenze = Math.max(1, Math.floor(Number(process.env.N8N_PARALLEL)) || 2);
+  const eingestellt = Boolean(process.env.N8N_PARALLEL) && grenze !== 2;
   // Bei lokaler KI rechnen gleichzeitige Läufe auf derselben CPU gegeneinander.
-  // Steht hier etwas über 1, ist N8N_CONCURRENCY_PRODUCTION_LIMIT nicht
-  // wirksam — und das heißt fast immer: Die docker-compose.yml wurde beim
-  // Update nicht mitgezogen. Der Hinweis gehört in den Bericht, weil genau das
-  // beim letzten Mal untergegangen ist.
-  const lokal = true;
-  // Die Compose deckelt ab Werk auf 2. Zwei überlappende Läufe sind also der
-  // eingestellte Zustand und kein Fund — den Verdacht „Compose nicht gezogen"
-  // gibt es erst darüber. Ein früherer Entwurf meldete schon bei 2 Alarm und
-  // hätte damit auf eine richtig eingestellte Anlage gezeigt.
+  // Bis zur Grenze ist das der eingestellte Zustand und kein Fund — den
+  // Verdacht „Compose nicht gezogen" gibt es erst darüber. Ein früherer
+  // Entwurf meldete schon bei 2 Alarm und hätte damit auf eine richtig
+  // eingestellte Anlage gezeigt.
   const hinweis = (() => {
-    if (!lokal || hoechste <= 1) return null;
-    if (hoechste === 2) {
-      return '2 Läufe überlappten sich — das ist der Standardwert der Compose. Bei lokaler KI '
-        + 'rechnen sie auf derselben CPU gegeneinander; N8N_PARALLEL=1 in der .env stellt das ab.';
+    if (hoechste <= 1) return null;
+    if (hoechste <= grenze) {
+      return `${hoechste} Läufe überlappten sich — `
+        + (eingestellt ? `erlaubt sind ${grenze} (N8N_PARALLEL). ` : 'das ist der Standardwert der Compose. ')
+        + 'Bei lokaler KI rechnen sie auf derselben CPU gegeneinander; N8N_PARALLEL=1 in der .env stellt das ab.';
     }
-    return `${hoechste} Läufe überlappten sich, mehr als die Compose ab Werk zulässt. `
+    return `${hoechste} Läufe überlappten sich, mehr als ${eingestellt ? `N8N_PARALLEL=${grenze}` : 'die Compose ab Werk'} zulässt. `
       + 'N8N_CONCURRENCY_PRODUCTION_LIMIT greift offenbar nicht — wurde die docker-compose.yml '
       + 'beim Update mitgezogen (git pull)?';
   })();
 
   return {
     hoechsteGleichzeitig: hoechste,
+    grenze,
+    ...(unterlaeufe ? { nichtGezaehlt: `${unterlaeufe} Unter-Workflow- oder Editor-Läufe (zählen nicht gegen die Grenze)` } : {}),
     ...(hinweis ? { hinweis } : {}),
     liste,
   };
@@ -408,14 +458,18 @@ async function laeufe(anzahl = 15) {
 function gleichzeitigkeit(liste) {
   const punkte = [];
   for (const l of liste) {
-    const von = Date.parse(l.start);
+    const von = Number.isFinite(l.__vonMs) ? l.__vonMs : Date.parse(l.start);
     if (!Number.isFinite(von)) continue;
     // Keine Dauer heißt: läuft noch. Ein solcher Lauf überlappt alles, was nach
     // ihm beginnt — und genau darum geht es hier.
     // (Number(null) wäre 0 und damit „endet sofort" — daher die eigene Prüfung.)
+    // Mit genauer Endzeit (aus stoppedAt) wird die genommen statt der
+    // gerundeten Sekunden.
     const dauer = (l.dauerSekunden === null || l.dauerSekunden === undefined)
       ? NaN : Number(l.dauerSekunden);
-    const bis = Number.isFinite(dauer) ? von + dauer * 1000 : Number.MAX_SAFE_INTEGER;
+    const bis = Number.isFinite(l.__bisMs)
+      ? l.__bisMs
+      : (Number.isFinite(dauer) ? von + dauer * 1000 : Number.MAX_SAFE_INTEGER);
     punkte.push({ t: von, d: 1 });
     punkte.push({ t: bis, d: -1 });
   }

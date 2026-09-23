@@ -13,7 +13,7 @@ const entscheidungen = require('../services/entscheidungen');
 const belegLeser = require('../services/belegLeser');
 const settings = require('../services/settings');
 const uebersicht = require('../services/uebersicht');
-const { entschluesseln } = require('../services/crypto');
+// Zugangsdaten kommen über themen.zugang() (Passwort UND tlsUnsicher) — siehe dort.
 
 const router = express.Router();
 
@@ -189,7 +189,7 @@ router.put('/regeln/:id', async (req, res) => {
       try {
         const konto = db.prepare('SELECT * FROM accounts WHERE id = ?').get(alt.konto_id);
         if (konto) {
-          konto.passwort = entschluesseln(konto.password_enc);
+          Object.assign(konto, themen.zugang(konto)); // passwort + tlsUnsicher
           ordnerAngelegt = Boolean(await imap.ordnerErstellen(konto, ziel));
           if (ordnerAngelegt) {
             loggen('info', 'sortierung', `Neuer Ordner "${ziel}" beim Ändern einer Regel angelegt.`);
@@ -287,7 +287,7 @@ router.post('/regeln', async (req, res) => {
 
     // Versuche den Zielordner direkt anzulegen (Best Effort)
     try {
-      konto.passwort = entschluesseln(konto.password_enc);
+      Object.assign(konto, themen.zugang(konto)); // passwort + tlsUnsicher
       const angelegt = await imap.ordnerErstellen(konto, zielordner.trim());
       if (angelegt) loggen('info', 'sortierung', `Neuer Ordner "${zielordner.trim()}" für Konto ${konto.name} via IMAP angelegt.`);
     } catch (err) {
@@ -304,6 +304,10 @@ router.post('/regeln', async (req, res) => {
           // Ohne die Bedingung holte das Nachsortieren ALLES von diesem Absender
           // in den Ordner — also genau das, was die Regel verhindern soll.
           betreff_muster: betreffMuster,
+          // Dasselbe gilt für das Inhalts-Stichwort. Die Sortier-Inbox kennt
+          // nur Absender und Betreff; steht das Wort nicht im Betreff, bleibt
+          // die Mail liegen, statt auf Verdacht mitzuwandern.
+          inhalt_muster: inhaltMuster,
         });
       } catch (err) {
         loggen('warn', 'sortierung', `Bestand konnte nicht nachsortiert werden: ${err.message}`);
@@ -391,7 +395,7 @@ router.get('/ordner-inhalt', async (req, res) => {
   if (!konto) return res.status(400).json({ error: 'Konto nicht gefunden' });
   
   try {
-    konto.passwort = entschluesseln(konto.password_enc);
+    Object.assign(konto, themen.zugang(konto)); // passwort + tlsUnsicher
     const inhalt = await imap.ordnerInhaltLaden({ ...konto, ordner, limit: 100, mitUnsubscribe: true });
     res.json(inhalt.eintraege || []);
   } catch (err) {
@@ -408,13 +412,14 @@ router.get('/ordner-mail', async (req, res) => {
     const konto = db.prepare('SELECT * FROM accounts WHERE id = ?').get(konto_id);
     if (!konto) return res.status(404).json({ error: 'Konto nicht gefunden.' });
 
-    konto.passwort = entschluesseln(konto.password_enc);
+    Object.assign(konto, themen.zugang(konto)); // passwort + tlsUnsicher
 
     const { text, unsubscribe } = await imap.mailLaden({
       host: konto.host,
       port: konto.port,
       username: konto.username,
       passwort: konto.passwort,
+      tlsUnsicher: konto.tlsUnsicher,
       uid: Number(uid),
       ordner,
     });
@@ -468,7 +473,7 @@ router.post('/zuordnen', async (req, res) => {
       try {
         const konto = db.prepare('SELECT * FROM accounts WHERE id = ?').get(konto_id);
         if (konto) {
-          konto.passwort = entschluesseln(konto.password_enc);
+          Object.assign(konto, themen.zugang(konto)); // passwort + tlsUnsicher
           const angelegt = await imap.ordnerErstellen(konto, zielordner.trim());
           if (angelegt) loggen('info', 'sortierung', `Neuer Ordner "${zielordner.trim()}" für Konto ${konto.name} via IMAP angelegt.`);
         }
@@ -493,7 +498,7 @@ router.post('/mails-verschieben', async (req, res) => {
   try {
     const konto = db.prepare('SELECT * FROM accounts WHERE id = ?').get(konto_id);
     if (!konto) return res.status(400).json({ error: 'Konto nicht gefunden' });
-    konto.passwort = entschluesseln(konto.password_enc);
+    Object.assign(konto, themen.zugang(konto)); // passwort + tlsUnsicher
     
     // Zielordner anlegen falls nötig
     await imap.ordnerErstellen(konto, nach.trim());
@@ -591,25 +596,10 @@ router.post('/inbox/verschieben', async (req, res) => {
     // protokollieren wir das im quarantine_log (als haetten sie direkt diesen Zielordner gehabt)
     // und loesen die Lern-Pruefung aus. Wenn es fuer den Absender das dritte Mal in Folge ist,
     // entsteht automatisch eine harte Regel.
-    if (ergebnis.verschoben > 0) {
-      const updateLog = db.prepare(`
-        UPDATE quarantine_log SET zielordner = ?, korrigiert_zu = ? 
-        WHERE konto = ? AND uid = ? AND (zielordner IS NULL OR zielordner = '')
-      `);
-      for (const z of zeilen) {
-        updateLog.run(zielordner, zielordner, konto.name, z.uid);
-        
-        // KI-Auto-Regeln (Lern-Automatik) - Wenn keine explizite Regel uebergeben wurde
-        if (!regel && themen.einstellungen().regelLernen) {
-           try {
-             const gelernt = themen.regelLernen(konto.id, z.von, zielordner);
-             if (gelernt) {
-               sortierung.bestandAnwenden(konto, gelernt).catch(() => {});
-             }
-           } catch { /* nicht blockieren */ }
-        }
-      }
-    }
+    // Nur die Mails, die wirklich umgezogen sind. Vorher lief die Schleife über
+    // den ganzen Stapel, sobald irgendeine verschoben war: Gescheiterte standen
+    // danach als verschoben im Protokoll und dienten als Beleg fürs Lernen.
+    lernenAusVerschiebung(konto, zeilen, ergebnis.verschobeneIds, zielordner, { regelSchonDa: Boolean(regel) });
 
     themen.cacheVerwerfen(konto.id);
     uebersicht.cacheVerwerfen();
@@ -621,6 +611,33 @@ router.post('/inbox/verschieben', async (req, res) => {
     res.status(400).json({ error: err.message });
   }
 });
+
+// Aus einer Verschiebung durch den Nutzer lernen: das Protokoll nachtragen und,
+// wenn die Lern-Automatik an ist, eine Absender-Regel festhalten.
+//
+// Nutzer-Schwelle (themen.LERNSCHWELLE_NUTZER): Wer eine Mail von Hand
+// einsortiert oder einen Vorschlag abnickt, gibt eine Ansage, kein Indiz.
+//
+// `ids` sind die sort_inbox-Zeilen, die tatsächlich umgezogen sind.
+function lernenAusVerschiebung(konto, zeilen, ids, zielordner, { regelSchonDa = false } = {}) {
+  const erledigt = new Set((ids || []).map(Number));
+  if (erledigt.size === 0) return;
+  const protokoll = db.prepare(`
+    UPDATE quarantine_log SET zielordner = ?, korrigiert_zu = ?
+    WHERE konto = ? AND uid = ? AND (zielordner IS NULL OR zielordner = '')
+      AND IFNULL(quell_ordner, 'INBOX') = 'INBOX'
+  `);
+  const lernen = !regelSchonDa && themen.einstellungen().regelLernen;
+  for (const z of zeilen) {
+    if (!erledigt.has(Number(z.id))) continue;
+    try { protokoll.run(zielordner, zielordner, konto.name, z.uid); } catch { /* nicht blockieren */ }
+    if (!lernen) continue;
+    try {
+      const gelernt = themen.regelLernen(konto.id, z.von, zielordner, { schwelle: themen.LERNSCHWELLE_NUTZER });
+      if (gelernt) sortierung.bestandAnwenden(konto, gelernt).catch(() => {});
+    } catch { /* nicht blockieren */ }
+  }
+}
 
 // ─── ALLE VORSCHLÄGE AUF EINMAL ──────────────────────────────────────────────
 //
@@ -731,29 +748,13 @@ router.post('/inbox/vorschlaege-uebernehmen', async (req, res) => {
         }
       }
       const r = await sortierung.stapelVerschieben(konto, gruppe.mails, ziel, 'Alle KI-Vorschläge übernommen');
-      
-      // (Stufe 6) Lern-Automatik: Beim massenhaften "KI-Abnicken" protokollieren wir das 
-      // und prüfen, ob ein Absender schon zum dritten Mal in diesem Ordner landet.
-      if (r.verschoben > 0) {
-        const updateLog = db.prepare(`
-          UPDATE quarantine_log SET zielordner = ?, korrigiert_zu = ? 
-          WHERE konto = ? AND uid = ? AND (zielordner IS NULL OR zielordner = '')
-        `);
-        for (const z of gruppe.mails) {
-          updateLog.run(ziel, ziel, konto.name, z.uid);
-          
-          if (themen.einstellungen().regelLernen) {
-             try {
-               const gelernt = themen.regelLernen(konto.id, z.von, ziel);
-               if (gelernt) {
-                 sortierung.bestandAnwenden(konto, gelernt).catch(() => {});
-               }
-             } catch {}
-          }
-        }
-      }
-      
-      ergebnisse.push({ ordner: name, ...r });
+
+      // Der Nutzer hat die Vorschläge abgenickt — das ist eine Bestätigung, also
+      // gilt die Nutzer-Schwelle. Gelernt wird nur aus dem, was wirklich umzog.
+      lernenAusVerschiebung(konto, gruppe.mails, r.verschobeneIds, ziel);
+
+      const { verschobeneIds: _ids, ...ohneIds } = r;
+      ergebnisse.push({ ordner: name, ...ohneIds });
     }
     themen.cacheVerwerfen(konto.id);
     uebersicht.cacheVerwerfen();
@@ -809,14 +810,49 @@ router.get('/entscheidungen', async (req, res) => {
   }
 });
 
-// POST /api/sortierung/korrigieren
-// { log_id, zielordner, regelTyp: 'domain'|'absender'|'keine' }
-router.post('/korrigieren', async (req, res) => {
+// Die fünf Arten, aus einer Korrektur zu lernen — siehe korrekturAusfuehren().
+const REGEL_ARTEN = ['keine', 'domain', 'absender', 'absender_inhalt', 'inhalt'];
+
+// Meinen zwei Ordnernamen dasselbe Fach? „INBOX.Rechnungen" = „Rechnungen".
+function gleicherOrdner(a, b) {
+  const kurz = (x) => String(x || '').trim().toLowerCase().replace(/^inbox[./]/, '');
+  return kurz(a) !== '' && kurz(a) === kurz(b);
+}
+
+// Der Zielordner in der Schreibweise des Servers — angelegt, falls er fehlt.
+//
+// Mit dem getippten Namen scheiterte das Verschieben auf Servern, die alles
+// unter den Posteingang legen („INBOX.Reisen"): Der Ordner „existierte", der
+// Umzug nach „Reisen" ging trotzdem ins Leere.
+async function zielPfad(konto, name) {
+  const echt = await themen.ordnerPfad(konto, name);
+  if (echt) return echt;
+  const neu = await imap.ordnerErstellen({ ...konto, ...themen.zugang(konto) }, name);
+  if (neu) loggen('info', 'sortierung', `Ordner "${name}" für ${konto.name} angelegt.`);
+  themen.cacheVerwerfen(konto.id);
+  return (await themen.ordnerPfad(konto, name)) || name;
+}
+
+/**
+ * Eine Zeile der Entscheidungs-Chronik korrigieren: die Mail umziehen und aus
+ * der Korrektur lernen.
+ *
+ * Herausgelöst aus POST /korrigieren, weil die Sammel-Entscheidung
+ * (POST /korrigieren-sammel) genau dasselbe für viele Zeilen tut — jede mit
+ * eigenem Ziel und eigener Merk-Art. Zwei Fassungen liefen zwangsläufig
+ * auseinander.
+ *
+ * @param {object} body  { log_id, zielordner, regelTyp, stichwort, imap_* }
+ * @returns {Promise<{status: number, json: object}>}
+ */
+async function korrekturAusfuehren(body, userId) {
   const {
-    log_id, zielordner, regelTyp = 'domain', stichwort: stichwortRoh,
+    log_id, zielordner, regelTyp: regelTypRoh = 'domain', stichwort: stichwortRoh,
     imap_uid, imap_konto, imap_ordner, imap_von, imap_betreff,
-  } = req.body || {};
-  if (!log_id || !zielordner) return res.status(400).json({ error: 'log_id und zielordner sind Pflicht.' });
+  } = body || {};
+  const absage = (status, error) => ({ status, json: { error } });
+  if (!log_id || !zielordner) return absage(400, 'log_id und zielordner sind Pflicht.');
+  const regelTyp = REGEL_ARTEN.includes(regelTypRoh) ? regelTypRoh : 'domain';
 
   // Zwei der Merk-Arten brauchen ein Stichwort, und zwar BEVOR irgendetwas
   // passiert: Die Mail wird weiter unten verschoben, und eine Absage danach
@@ -824,82 +860,94 @@ router.post('/korrigieren', async (req, res) => {
   const stichwort = String(stichwortRoh || '').trim();
   const brauchtStichwort = regelTyp === 'absender_inhalt' || regelTyp === 'inhalt';
   if (brauchtStichwort && stichwort.length < 3) {
-    return res.status(400).json({
-      error: 'Für eine Regel auf den Inhalt braucht es ein Stichwort mit mindestens 3 Zeichen.',
-    });
+    return absage(400, 'Für eine Regel auf den Inhalt braucht es ein Stichwort mit mindestens 3 Zeichen.');
   }
 
   const isVirtual = String(log_id).startsWith('imap-');
-  let eintrag, konto;
+  let eintrag;
+  let konto;
 
   if (isVirtual) {
     konto = db.prepare('SELECT * FROM accounts WHERE name = ?').get(imap_konto);
-    if (!konto) return res.status(400).json({ error: `Konto existiert nicht.` });
-
+    if (!konto) return absage(400, 'Konto existiert nicht.');
     eintrag = {
       id: log_id,
       konto: imap_konto,
       von: imap_von,
       betreff: imap_betreff,
       zielordner: imap_ordner,
-      uid: imap_uid
+      uid: imap_uid,
     };
   } else {
     eintrag = db.prepare('SELECT * FROM quarantine_log WHERE id = ?').get(Number(log_id));
-    if (!eintrag) return res.status(404).json({ error: 'Eintrag nicht gefunden.' });
+    if (!eintrag) return absage(404, 'Eintrag nicht gefunden.');
     konto = db.prepare('SELECT * FROM accounts WHERE name = ?').get(eintrag.konto);
-    if (!konto) return res.status(400).json({ error: `Konto "${eintrag.konto}" existiert nicht mehr.` });
+    if (!konto) return absage(400, `Konto "${eintrag.konto}" existiert nicht mehr.`);
   }
 
+  // Wo liegt die Mail JETZT?
+  //
+  //   korrigiert_zu  schon einmal korrigiert — dann dort, nicht mehr im alten Ziel
+  //   zielordner     einsortiert
+  //   quell_ordner   liegengeblieben — dort, wo sie herkam (fast immer der Posteingang)
+  //
+  // Bis Build 251 zählte nur `zielordner`. Eine zweite Korrektur suchte die
+  // Mail im ursprünglichen Ordner und fand sie nicht; eine liegengebliebene
+  // Mail (kein Zielordner) ließ sich gar nicht korrigieren — der Knopf fehlte,
+  // und das Backend hätte einen Ordner namens „null" geöffnet. In den sieben
+  // Tagen vor dem 23.09. waren das 962 Mails.
+  const liegtIn = String(eintrag.korrigiert_zu || eintrag.zielordner || eintrag.quell_ordner || 'INBOX');
+  // Liegt sie noch dort, wo sie das Panel gesehen hat, stimmt ihre UID dort
+  // noch. Nach einem Umzug vergibt der Server eine neue.
+  const uidGiltHier = isVirtual || (!eintrag.korrigiert_zu && !eintrag.zielordner);
+
   const ziel = String(zielordner).trim();
-  if (ziel === eintrag.zielordner) {
-    return res.status(400).json({ error: 'Das ist der Ordner, in dem die Mail schon liegt.' });
+  if (gleicherOrdner(ziel, liegtIn)) {
+    return absage(400, 'Das ist der Ordner, in dem die Mail schon liegt.');
   }
 
   try {
-    // 1. Zielordner sicherstellen
+    const zugang = themen.zugang(konto);
+
+    // 1. Zielordner sicherstellen — in der Schreibweise des Servers.
+    let pfad;
     try {
-      const neu = await imap.ordnerErstellen({ ...konto, ...themen.zugang(konto) }, ziel);
-      if (neu) loggen('info', 'sortierung', `Ordner "${ziel}" für ${konto.name} angelegt (Korrektur).`);
+      pfad = await zielPfad(konto, ziel);
     } catch (err) {
-      return res.status(400).json({ error: `Zielordner nicht nutzbar: ${err.message}` });
+      return absage(400, `Zielordner nicht nutzbar: ${err.message}`);
     }
 
     // 2. Die Mail selbst umziehen.
     //
-    // Nicht ueber die gespeicherte UID: Die stammt aus dem Posteingang, und IMAP
-    // vergibt UIDs je Ordner. Im Zielordner zeigt sie ins Leere — oder auf eine
-    // ganz andere Nachricht, die dann faelschlich verschoben wuerde. Deshalb
-    // wird die Mail dort ueber Absender und Betreff gesucht.
+    // Über die gespeicherte UID nur, solange die Mail noch dort liegt, wo das
+    // Panel sie gesehen hat — und mit Gegenprobe auf den Absender. Sonst über
+    // Absender und Betreff suchen: IMAP vergibt UIDs je Ordner, im Zielordner
+    // zeigt die alte ins Leere oder auf eine ganz andere Nachricht.
     let verschoben = false;
     let hinweis = null;
     try {
-      const zugang = themen.zugang(konto);
-      if (isVirtual && eintrag.uid) {
-        // UID ist bekannt, direkter Move ohne Suche
-        const ergebnis = await imap.mailsVerschieben({ 
-          ...konto, ...zugang, 
-          mails: [{ uid: eintrag.uid }], 
-          von: eintrag.zielordner, 
-          nach: ziel 
+      if (uidGiltHier && eintrag.uid) {
+        const r = await imap.mailsVerschieben({
+          ...zugang, mails: [{ uid: eintrag.uid, von: eintrag.von }], von: liegtIn, nach: pfad, absenderPruefen: true,
         });
-        verschoben = ergebnis.verschoben.length > 0;
-      } else {
+        verschoben = r.verschoben.length > 0;
+      }
+      if (!verschoben) {
         const treffer = await imap.mailsSuchen({
           ...zugang,
-          ordner: eintrag.zielordner,
+          ordner: liegtIn,
           von: sortierung.adresse(eintrag.von),
           betreff: eintrag.betreff || undefined,
         });
-
         if (treffer.length === 0) {
-          hinweis = `In "${eintrag.zielordner}" war diese Mail nicht mehr zu finden — `
-            + 'vermutlich schon von Hand verschoben oder gelöscht. Die Regel gilt trotzdem.';
+          hinweis = `In "${liegtIn}" war diese Mail nicht mehr zu finden — `
+            + 'vermutlich schon von Hand verschoben oder gelöscht.'
+            + (regelTyp !== 'keine' ? ' Die Regel gilt trotzdem.' : '');
         } else {
           // Bei mehreren Treffern die juengste nehmen: Wiederkehrende Newsletter
           // haben denselben Betreff, gemeint ist die zuletzt einsortierte.
           const uid = Math.max(...treffer);
-          await imap.mailVerschieben({ ...zugang, uid, von: eintrag.zielordner, nach: ziel });
+          await imap.mailVerschieben({ ...zugang, uid, von: liegtIn, nach: pfad });
           verschoben = true;
           if (treffer.length > 1) {
             hinweis = `${treffer.length} Mails passten zu Absender und Betreff — verschoben wurde die neueste.`;
@@ -907,7 +955,8 @@ router.post('/korrigieren', async (req, res) => {
         }
       }
     } catch (err) {
-      hinweis = `Die Mail selbst ließ sich nicht verschieben (${err.message}). Die Regel wurde angelegt.`;
+      hinweis = `Die Mail selbst ließ sich nicht verschieben (${err.message}).`
+        + (regelTyp !== 'keine' ? ' Die Regel wurde angelegt.' : '');
       loggen('warn', 'sortierung', `Korrektur: ${hinweis}`);
     }
 
@@ -933,24 +982,28 @@ router.post('/korrigieren', async (req, res) => {
         : typ === 'domain' ? sortierung.domain(eintrag.von) : sortierung.adresse(eintrag.von);
       const inhaltMuster = regelTyp === 'absender_inhalt' ? stichwort.toLowerCase() : null;
       if (muster) {
-        // Die Zusatzbedingung gehört zum Vergleich: Derselbe Absender DARF
-        // mehrfach geregelt sein, solange sich die Stichwörter unterscheiden —
-        // genau darum geht es ja.
+        // Verglichen wird die VOLLE Bedingung: Eine Regel mit Betreff-Bedingung
+        // ist eine andere Regel und darf hier nicht umgebogen werden — sonst
+        // zeigte „Absender + Betreff ‚Bestellung' → Bestellungen" plötzlich
+        // nach Rechnungen, nur weil eine Rechnung korrigiert wurde.
         const vorhanden = db.prepare(
-          'SELECT id, zielordner FROM sort_rules WHERE konto_id = ? AND typ = ? AND muster = ?'
-          + " AND IFNULL(inhalt_muster, '') = ?",
+          'SELECT id, zielordner, aktion FROM sort_rules WHERE konto_id = ? AND typ = ? AND muster = ?'
+          + " AND IFNULL(inhalt_muster, '') = ? AND IFNULL(betreff_muster, '') = ''",
         ).get(konto.id, typ, muster, inhaltMuster || '');
         if (vorhanden) {
-          // Eine bestehende Regel zeigte auf den falschen Ordner — die wird umgebogen,
-          // sonst korrigiert man dieselbe Mail immer wieder.
-          db.prepare('UPDATE sort_rules SET zielordner = ? WHERE id = ?').run(ziel, vorhanden.id);
-          regel = { typ, muster, zielordner: ziel, inhalt_muster: inhaltMuster, aktualisiert: true };
+          // Eine bestehende Regel zeigte auf den falschen Ordner — die wird
+          // umgebogen, sonst korrigiert man dieselbe Mail immer wieder. War es
+          // eine „in Ruhe lassen"-Regel, verschiebt sie ab jetzt: Genau das hat
+          // der Nutzer gerade verlangt.
+          db.prepare("UPDATE sort_rules SET zielordner = ?, aktion = 'verschieben' WHERE id = ?").run(pfad, vorhanden.id);
+          if ((vorhanden.aktion || 'verschieben') === 'behalten') bestand.ruheVergessen(konto.id);
+          regel = { typ, muster, zielordner: pfad, inhalt_muster: inhaltMuster, aktualisiert: true };
         } else {
           db.prepare(`
             INSERT INTO sort_rules (konto_id, typ, muster, zielordner, inhalt_muster, erstellt_von)
             VALUES (?, ?, ?, ?, ?, ?)
-          `).run(konto.id, typ, muster, ziel, inhaltMuster, req.user.id);
-          regel = { typ, muster, zielordner: ziel, inhalt_muster: inhaltMuster, aktualisiert: false };
+          `).run(konto.id, typ, muster, pfad, inhaltMuster, userId);
+          regel = { typ, muster, zielordner: pfad, inhalt_muster: inhaltMuster, aktualisiert: false };
         }
       }
     }
@@ -959,7 +1012,8 @@ router.post('/korrigieren', async (req, res) => {
     let nachsortiert = { treffer: 0, verschoben: 0, fehler: [] };
     if (regel) {
       try {
-        nachsortiert = await sortierung.bestandAnwenden(konto, regel);
+        const { verschobeneIds: _ids, ...r } = await sortierung.bestandAnwenden(konto, regel);
+        nachsortiert = r;
       } catch (err) {
         loggen('warn', 'sortierung', `Nachsortieren nach Korrektur fehlgeschlagen: ${err.message}`);
       }
@@ -969,38 +1023,103 @@ router.post('/korrigieren', async (req, res) => {
     //    falschen Ordner zugeordnet, steht er dort als Stichwort — und würde die
     //    nächste Mail wieder dorthin schieben, diesmal ohne KI. Eine Korrektur
     //    muss beides können: verschieben und die Ursache beseitigen.
-    themen.gelerntVergessen(konto.id, eintrag.zielordner, eintrag.von);
+    themen.gelerntVergessen(konto.id, liegtIn, eintrag.von);
     // Den Absender dem neuen Ordner zuschreiben — aber nur, wenn die Korrektur
-    // überhaupt am Absender festgemacht war.
-    //
-    // Dieser Vermerk wirkt wie eine Regel ohne Bedingung: Die nächste Mail
-    // dieser Adresse geht in diesen Ordner, ohne KI. Wer gerade gesagt hat „nur
-    // diese eine" oder „nur wenn das Wort drinsteht", bekäme damit durch die
-    // Hintertür genau die Absender-Regel, die er nicht wollte — und bei einem
-    // Absender, der Rechnungen UND Werbung schickt, ist das der Fehler, um den
-    // es hier geht.
+    // überhaupt am Absender festgemacht war. Dieser Vermerk geht als „bisher
+    // hier gelandet" in den KI-Prompt und wirkt wie eine Regel ohne Bedingung.
+    // Wer gerade gesagt hat „nur diese eine" oder „nur wenn das Wort
+    // drinsteht", bekäme damit durch die Hintertür genau die Absender-Regel,
+    // die er nicht wollte.
     if (regelTyp === 'domain' || regelTyp === 'absender') {
-      const zielEintrag = db.prepare('SELECT id FROM konto_ordner WHERE konto_id = ? AND ordner = ?')
-        .get(konto.id, ziel);
+      const zielEintrag = db.prepare('SELECT id FROM konto_ordner WHERE konto_id = ? AND ordner IN (?, ?)')
+        .get(konto.id, pfad, ziel);
       if (zielEintrag) themen.gelerntMerken(zielEintrag.id, eintrag.von);
     }
 
     if (!isVirtual) {
-      db.prepare('UPDATE quarantine_log SET korrigiert_zu = ? WHERE id = ?').run(ziel, eintrag.id);
+      db.prepare('UPDATE quarantine_log SET korrigiert_zu = ? WHERE id = ?').run(pfad, eintrag.id);
+    }
+    // Eine liegengebliebene Mail steht zugleich in der Sortier-Inbox. Ist sie
+    // umgezogen, gehört der Eintrag dort geschlossen — sonst bietet die Inbox
+    // eine Mail an, die es im Posteingang nicht mehr gibt.
+    if (verschoben && uidGiltHier && !isVirtual && String(liegtIn).toUpperCase() === 'INBOX' && eintrag.uid) {
+      db.prepare(
+        "UPDATE sort_inbox SET status = 'zugeordnet', vorschlag = ? WHERE konto_id = ? AND status = 'offen'"
+        + ' AND CAST(uid AS INTEGER) = CAST(? AS INTEGER)',
+      ).run(pfad, konto.id, eintrag.uid);
     }
     themen.cacheVerwerfen(konto.id);
     uebersicht.cacheVerwerfen();
     loggen('info', 'sortierung',
-      `Korrektur: ${eintrag.von} von "${eintrag.zielordner}" nach "${ziel}"`
+      `Korrektur: ${eintrag.von} von "${liegtIn}" nach "${pfad}"`
       + (regel
         ? ` — Regel [${regel.typ}] ${regel.muster}`
           + (regel.inhalt_muster ? ` + Inhalt „${regel.inhalt_muster}"` : '')
         : ' — ohne Regel'));
 
-    res.json({ ok: true, verschoben, hinweis, regel, nachsortiert });
+    return { status: 200, json: { ok: true, verschoben, hinweis, regel, nachsortiert, zielordner: pfad } };
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    return absage(400, err.message);
   }
+}
+
+// POST /api/sortierung/korrigieren
+// { log_id, zielordner, regelTyp: 'domain'|'absender'|'absender_inhalt'|'inhalt'|'keine', stichwort }
+router.post('/korrigieren', async (req, res) => {
+  const { status, json } = await korrekturAusfuehren(req.body, req.user.id);
+  res.status(status).json(json);
+});
+
+// POST /api/sortierung/korrigieren-sammel
+// { eintraege: [{ log_id, zielordner, regelTyp, stichwort, imap_* }, …] }
+//
+// Die Sammel-Entscheidung: viele Zeilen der Chronik auf einmal, jede mit
+// EIGENEM Ziel und EIGENER Merk-Art — die Rechnung von A nach „Rechnungen"
+// mit Absender-Regel, der Newsletter von B nach „Newsletter" mit Domain-Regel,
+// die Einzelmail von C nur verschieben. Ein Klick statt eines je Zeile.
+//
+// Nacheinander, nicht gleichzeitig: Zeigen zwei Zeilen auf denselben
+// Absender, biegt die zweite die Regel der ersten nur um, statt eine Dublette
+// anzulegen — und der Mailserver bekommt nicht zehn Verbindungen auf einmal.
+// Ein Fehler in einer Zeile hält die übrigen nicht auf.
+//
+// Höchstens SAMMEL_MAX Zeilen je Aufruf. Die Oberfläche schickt größere
+// Stapel in Portionen, damit ein Reverse-Proxy (üblich: 60 s) nicht mitten im
+// Stapel abbricht.
+const SAMMEL_MAX = 25;
+router.post('/korrigieren-sammel', async (req, res) => {
+  const eintraege = req.body?.eintraege;
+  if (!Array.isArray(eintraege) || eintraege.length === 0) {
+    return res.status(400).json({ error: 'eintraege muss eine nicht leere Liste sein.' });
+  }
+  if (eintraege.length > SAMMEL_MAX) {
+    return res.status(400).json({ error: `Höchstens ${SAMMEL_MAX} Einträge je Aufruf.` });
+  }
+
+  const ergebnisse = [];
+  for (const e of eintraege) {
+    try {
+      const { status, json } = await korrekturAusfuehren(e, req.user.id);
+      ergebnisse.push({ log_id: e?.log_id ?? null, status, ...json });
+    } catch (err) {
+      ergebnisse.push({ log_id: e?.log_id ?? null, status: 500, error: err.message });
+    }
+  }
+
+  const erledigt = ergebnisse.filter((r) => r.status === 200);
+  loggen('info', 'sortierung',
+    `Sammel-Entscheidung: ${erledigt.length} von ${eintraege.length} Einträgen korrigiert.`);
+  res.json({
+    ok: true,
+    gesamt: eintraege.length,
+    erledigt: erledigt.length,
+    erledigteIds: erledigt.map((r) => r.log_id),
+    verschoben: erledigt.filter((r) => r.verschoben).length,
+    regeln: erledigt.filter((r) => r.regel).map((r) => r.regel),
+    nachsortiert: erledigt.reduce((s, r) => s + (r.nachsortiert?.verschoben || 0), 0),
+    hinweise: erledigt.filter((r) => r.hinweis).map((r) => ({ log_id: r.log_id, hinweis: r.hinweis })),
+    fehler: ergebnisse.filter((r) => r.status !== 200).map((r) => ({ log_id: r.log_id, error: r.error })),
+  });
 });
 
 // ─── REGELN ZUSAMMENFASSEN ───────────────────────────────────────────────────
@@ -1130,7 +1249,7 @@ router.post('/regeln/zusammenfassen', async (req, res) => {
   // wie beim Anlegen einer einzelnen Regel (POST /regeln).
   if (!regeln.some((r) => r.zielordner === gruppe.zielordner)) {
     try {
-      konto.passwort = entschluesseln(konto.password_enc);
+      Object.assign(konto, themen.zugang(konto)); // passwort + tlsUnsicher
       const angelegt = await imap.ordnerErstellen(konto, gruppe.zielordner);
       if (angelegt) loggen('info', 'sortierung', `Neuer Ordner "${gruppe.zielordner}" für Konto ${konto.name} via IMAP angelegt.`);
     } catch (err) {
@@ -1210,12 +1329,25 @@ function regelAusRumpf({ typ, muster, zielordner, inhalt_muster: roh }) {
 // Regel speichern, falls es sie nicht schon gibt; gibt die ID zurück. Die
 // Zusatzbedingung gehört zum Vergleich: Dieselbe Adresse mit UND ohne
 // Stichwort sind zwei verschiedene Regeln, keine Dublette.
+//
+// Gibt es sie schon, wird sie auf das neue Ziel umgebogen. Vorher kam nur die
+// alte ID zurück: Wer alle Mails eines Absenders nach „Rechnungen" schob,
+// dessen Regel zeigte weiter nach „Newsletter" — und die nächste Mail landete
+// wieder dort. War es eine „in Ruhe lassen"-Regel, wird daraus eine, die
+// verschiebt: Genau das hat der Nutzer gerade getan.
 function regelMerken(kontoId, regel, userId) {
   const schonDa = db.prepare(
-    'SELECT id FROM sort_rules WHERE konto_id = ? AND typ = ? AND muster = ?'
-    + " AND IFNULL(inhalt_muster, '') = ?",
+    'SELECT id, zielordner, aktion FROM sort_rules WHERE konto_id = ? AND typ = ? AND muster = ?'
+    + " AND IFNULL(inhalt_muster, '') = ? AND IFNULL(betreff_muster, '') = ''",
   ).get(kontoId, regel.typ, regel.muster, regel.inhalt_muster || '');
-  if (schonDa) return schonDa.id;
+  if (schonDa) {
+    if (schonDa.zielordner !== regel.zielordner || (schonDa.aktion || 'verschieben') !== 'verschieben') {
+      db.prepare("UPDATE sort_rules SET zielordner = ?, aktion = 'verschieben' WHERE id = ?")
+        .run(regel.zielordner, schonDa.id);
+      if ((schonDa.aktion || 'verschieben') === 'behalten') bestand.ruheVergessen(kontoId);
+    }
+    return schonDa.id;
+  }
   return db.prepare(`
     INSERT INTO sort_rules (konto_id, typ, muster, zielordner, inhalt_muster, erstellt_von)
     VALUES (?, ?, ?, ?, ?, ?)
@@ -1362,13 +1494,13 @@ router.post('/katalog/:id/probe-rueckgaengig', async (req, res) => {
     const imapService = require('../services/imap');
     
     // 1. Alle Mails in diesem Ordner finden
-    const uidsSet = await imapService.uidsAuflisten({ ...konto, ordner: eintrag.ordner });
+    const uidsSet = await imapService.uidsAuflisten({ ...themen.zugang(konto), ordner: eintrag.ordner });
     const mails = Array.from(uidsSet).map(u => ({ uid: u }));
     
     // 2. Zurückschieben in INBOX
     if (mails.length > 0) {
       await imapService.mailsVerschieben({
-        ...konto,
+        ...themen.zugang(konto),
         mails,
         von: eintrag.ordner,
         nach: 'INBOX'
@@ -1474,7 +1606,7 @@ router.post('/vorschlaege/:id/freigeben', async (req, res) => {
     // wartenden Mails sonst schnell am mail_max_userip_connections-Limit des
     // Mailservers vorbei (siehe imap.js: mailsVerschieben).
     const ergebnisVerschieben = await imap.mailsVerschieben({
-      ...zugang, mails: wartend.filter((m) => m.uid), von: 'INBOX', nach: pfad,
+      ...zugang, mails: wartend.filter((m) => m.uid), von: 'INBOX', nach: pfad, absenderPruefen: true,
     });
     for (const mail of ergebnisVerschieben.verschoben) {
       db.prepare("UPDATE sort_inbox SET status = 'zugeordnet', vorschlag = ? WHERE id = ?").run(pfad, mail.id);
@@ -1517,10 +1649,10 @@ router.post('/vorschlaege/zusammenfassen', async (req, res) => {
   try {
     // Gibt es den Ordner schon, wird er genommen — sonst angelegt. Beides ist
     // hier richtig: Oft ist die Kategorie längst da und nur zersplittert.
-    let pfad;
-    if (await themen.ordnerExistiert(konto, ziel)) {
-      pfad = ziel;
-    } else {
+    // In der Schreibweise des Servers („INBOX.Reisen"), nicht so, wie getippt —
+    // sonst geht das Verschieben auf Servern mit Präfix ins Leere.
+    let pfad = await themen.ordnerPfad(konto, ziel);
+    if (!pfad) {
       const name = themen.ordnerNormalisieren(ziel, konto);
       if (!name) return res.status(400).json({ error: 'Der Ordnername ist nicht zulässig.' });
       pfad = await themen.ordnerAnlegen(konto, name);
@@ -1542,7 +1674,7 @@ router.post('/vorschlaege/zusammenfassen', async (req, res) => {
       // Verbindungslimit des Mailservers sprengen).
       const mailsMitUid = mails.filter((mail) => mail.uid);
       const ergebnisVerschieben = await imap.mailsVerschieben({
-        ...zugang, mails: mailsMitUid, von: 'INBOX', nach: pfad,
+        ...zugang, mails: mailsMitUid, von: 'INBOX', nach: pfad, absenderPruefen: true,
       });
       for (const mail of ergebnisVerschieben.verschoben) {
         db.prepare("UPDATE sort_inbox SET status = 'zugeordnet', vorschlag = ? WHERE id = ?")
@@ -1614,6 +1746,9 @@ router.post('/vorschlaege/:id/umleiten', async (req, res) => {
     if (!(await themen.ordnerExistiert(konto, ziel))) {
       return res.status(400).json({ error: `Den Ordner "${ziel}" gibt es im Postfach nicht.` });
     }
+    // Der Pfad, unter dem der Server den Ordner führt — der kurze Name trifft
+    // auf Servern mit Präfix („INBOX.Reisen") ins Leere.
+    const pfad = (await themen.ordnerPfad(konto, ziel)) || ziel;
 
     let wartend = db.prepare(
       "SELECT * FROM sort_inbox WHERE konto_id = ? AND status = 'offen' AND ki_ordner = ?",
@@ -1630,11 +1765,11 @@ router.post('/vorschlaege/:id/umleiten', async (req, res) => {
     // imap.js: mailsVerschieben — verhindert, dass viele wartende Mails das
     // Verbindungslimit des Mailservers sprengen).
     const ergebnisVerschieben = await imap.mailsVerschieben({
-      ...zugang, mails: wartend.filter((m) => m.uid), von: 'INBOX', nach: ziel,
+      ...zugang, mails: wartend.filter((m) => m.uid), von: 'INBOX', nach: pfad, absenderPruefen: true,
     });
     for (const mail of ergebnisVerschieben.verschoben) {
       db.prepare("UPDATE sort_inbox SET status = 'zugeordnet', vorschlag = ? WHERE id = ?")
-        .run(ziel, mail.id);
+        .run(pfad, mail.id);
     }
     for (const f of ergebnisVerschieben.fehler) {
       loggen('warn', 'sortierung', `Mail ${f.uid} konnte nicht nach "${ziel}" verschoben werden: ${f.grund}`);
@@ -1645,7 +1780,7 @@ router.post('/vorschlaege/:id/umleiten', async (req, res) => {
     // war. Wer drei von zwanzig Mails woandershin schiebt, trifft keine
     // Aussage über den Ordnernamen.
     if (!nurEinzelne) {
-      themen.aliasMerken(konto.id, vorschlag.ordner, ziel);
+      themen.aliasMerken(konto.id, vorschlag.ordner, pfad);
       db.prepare("UPDATE ordner_vorschlaege SET status = 'abgelehnt', begruendung = ? WHERE id = ?")
         .run(`Umgeleitet nach "${ziel}"`, vorschlag.id);
     }
@@ -1882,6 +2017,38 @@ router.get('/absender/adressen', (req, res) => {
   }
 });
 
+// Den Zielordner finden oder anlegen — und ihn so zurückgeben, wie der Server
+// ihn führt. `ordnerExistiert()` beantwortete nur ja/nein: Auf einem Server mit
+// „INBOX.Reisen" hieß das „ja", verschoben wurde dann aber nach „Reisen" — ins
+// Leere. Und der Pfad, den `ordnerAnlegen()` zurückgibt (mit Elternordner),
+// ging bisher verloren.
+async function pfadOderAnlegen(konto, ziel) {
+  const vorhanden = await themen.ordnerPfad(konto, ziel);
+  if (vorhanden) return { pfad: vorhanden };
+  const name = themen.ordnerNormalisieren(ziel, konto);
+  if (!name) return { fehler: 'Der Ordnername ist nicht zulässig.' };
+  return { pfad: await themen.ordnerAnlegen(konto, name) };
+}
+
+// Nur die tatsächliche Absenderadresse zählt (siehe imap.mailsSuchen).
+function adressFilter(typ, muster) {
+  const m = String(muster || '').toLowerCase().replace(/^@/, '');
+  if (typ === 'absender') return (a) => a === m;
+  return (a) => a.endsWith(`@${m}`) || a.endsWith(`.${m}`);
+}
+
+// Offene Sortier-Inbox-Zeilen zu Mails abhaken, die eben aus dem Posteingang
+// umgezogen sind — über die UID, nicht über ein LIKE auf den Absender.
+function inboxAbhaken(konto, uids, ziel) {
+  if (!uids || uids.size === 0) return;
+  const offen = db.prepare("SELECT id, uid FROM sort_inbox WHERE konto_id = ? AND status = 'offen'").all(konto.id);
+  const abhaken = db.prepare("UPDATE sort_inbox SET status = 'zugeordnet', vorschlag = ? WHERE id = ?");
+  for (const z of offen) {
+    const n = sortierung.uidZahl(z.uid);
+    if (n !== null && uids.has(n)) abhaken.run(ziel, z.id);
+  }
+}
+
 // POST /api/sortierung/absender/einsortieren — { konto_id, domain, adresse?, typ?, zielordner }
 //
 // Der eine Handgriff, der wirklich etwas bewegt: Regel anlegen UND die Mails
@@ -1901,45 +2068,38 @@ router.post('/absender/einsortieren', async (req, res) => {
 
   try {
     const zugang = themen.zugang(konto);
-    if (!(await themen.ordnerExistiert(konto, ziel))) {
-      const name = themen.ordnerNormalisieren(ziel, konto);
-      if (!name) return res.status(400).json({ error: 'Der Ordnername ist nicht zulässig.' });
-      await themen.ordnerAnlegen(konto, name);
-    }
+    const ort = await pfadOderAnlegen(konto, ziel);
+    if (ort.fehler) return res.status(400).json({ error: ort.fehler });
+    const pfad = ort.pfad;
 
     const muster = typ === 'absender' ? adresse : domain;
 
     // Regel merken, damit künftige Mails gar nicht erst zur KI gehen.
-    const vorhanden = db.prepare(
-      'SELECT id FROM sort_rules WHERE konto_id = ? AND typ = ? AND muster = ?',
-    ).get(konto.id, typ, muster);
-    if (vorhanden) {
-      db.prepare('UPDATE sort_rules SET zielordner = ? WHERE id = ?').run(ziel, vorhanden.id);
-    } else {
-      db.prepare(`
-        INSERT INTO sort_rules (konto_id, typ, muster, zielordner, erstellt_von) VALUES (?, ?, ?, ?, ?)
-      `).run(konto.id, typ, muster, ziel, req.user.id);
-    }
+    regelMerken(konto.id, { typ, muster, zielordner: pfad, inhalt_muster: null }, req.user.id);
 
-    // Und jetzt der Berg: alles von diesem Absender bzw. dieser Domain aus dem Posteingang.
+    // Und jetzt der Berg: alles von diesem Absender bzw. dieser Domain aus dem
+    // Posteingang — und zwar genau diese Adresse bzw. Domain, nicht alles, was
+    // sie im Namen trägt.
     const sucheVon = typ === 'absender' ? adresse : domain;
-    const uids = await imap.mailsSuchen({ ...zugang, ordner: 'INBOX', von: sucheVon });
+    const uids = await imap.mailsSuchen({
+      ...zugang, ordner: 'INBOX', von: sucheVon, adressePasst: adressFilter(typ, muster),
+    });
     let verschoben = 0;
     const fehler = [];
+    const umgezogen = new Set();
     if (uids.length) {
       const ergebnis = await imap.mailsVerschieben({
-        ...zugang, mails: uids.map((uid) => ({ uid })), von: 'INBOX', nach: ziel,
+        ...zugang, mails: uids.map((uid) => ({ uid })), von: 'INBOX', nach: pfad,
       });
       verschoben = ergebnis.verschoben.length;
+      for (const m of ergebnis.verschoben) umgezogen.add(Number(m.uid));
       for (const p of ergebnis.fehler.slice(0, 5)) fehler.push(`UID ${p.uid}: ${p.grund}`);
     }
 
-    // Was das Panel selbst noch offen hatte, gleich mit abhaken.
-    const inboxLike = typ === 'absender' ? `%${adresse}%` : `%@${domain}`;
-    db.prepare(
-      "UPDATE sort_inbox SET status = 'zugeordnet', vorschlag = ?"
-      + " WHERE konto_id = ? AND status = 'offen' AND LOWER(von) LIKE ?",
-    ).run(ziel, konto.id, inboxLike);
+    // Was das Panel selbst noch offen hatte, gleich mit abhaken — aber nur, was
+    // wirklich umgezogen ist. Vorher galt jede passende Zeile als erledigt,
+    // auch wenn ihr Verschieben gescheitert war.
+    inboxAbhaken(konto, umgezogen, pfad);
 
     if (typ === 'absender') {
       db.prepare('DELETE FROM absender_stat WHERE konto_id = ? AND LOWER(adresse) = ?').run(konto.id, adresse);
@@ -1952,9 +2112,9 @@ router.post('/absender/einsortieren', async (req, res) => {
 
     const bez = typ === 'absender' ? adresse : `@${domain}`;
     loggen('info', 'sortierung',
-      `Absender-Regel [${typ}] ${bez} → "${ziel}": ${verschoben} von ${uids.length} Mail(s) aus dem `
+      `Absender-Regel [${typ}] ${bez} → "${pfad}": ${verschoben} von ${uids.length} Mail(s) aus dem `
       + 'Posteingang verschoben (ohne KI).');
-    res.json({ ok: true, typ, muster, ziel, gefunden: uids.length, verschoben, fehler });
+    res.json({ ok: true, typ, muster, ziel: pfad, gefunden: uids.length, verschoben, fehler });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -2036,51 +2196,42 @@ router.post('/absender/kategorie-anwenden', async (req, res) => {
 
   try {
     const zugang = themen.zugang(konto);
-    if (!(await themen.ordnerExistiert(konto, ziel))) {
-      const name = themen.ordnerNormalisieren(ziel, konto);
-      if (!name) return res.status(400).json({ error: 'Der Ordnername ist nicht zulässig.' });
-      await themen.ordnerAnlegen(konto, name);
-    }
-    const eintrag = themen.inKatalog(konto.id, ziel, 'manuell');
+    const ort = await pfadOderAnlegen(konto, ziel);
+    if (ort.fehler) return res.status(400).json({ error: ort.fehler });
+    const pfad = ort.pfad;
+    const eintrag = themen.inKatalog(konto.id, pfad, 'manuell');
 
     let verschoben = 0;
     let gefunden = 0;
     for (const domain of domains) {
-      const vorhanden = db.prepare(
-        "SELECT id FROM sort_rules WHERE konto_id = ? AND typ = 'domain' AND muster = ?",
-      ).get(konto.id, domain);
-      if (vorhanden) db.prepare('UPDATE sort_rules SET zielordner = ? WHERE id = ?').run(ziel, vorhanden.id);
-      else {
-        db.prepare(`
-          INSERT INTO sort_rules (konto_id, typ, muster, zielordner, erstellt_von) VALUES (?, 'domain', ?, ?, ?)
-        `).run(konto.id, domain, ziel, req.user.id);
-      }
+      regelMerken(konto.id, { typ: 'domain', muster: domain, zielordner: pfad, inhalt_muster: null }, req.user.id);
       if (eintrag) themen.gelerntMerken(eintrag.id, domain);
 
       try {
-        const uids = await imap.mailsSuchen({ ...zugang, ordner: 'INBOX', von: domain });
+        const uids = await imap.mailsSuchen({
+          ...zugang, ordner: 'INBOX', von: domain, adressePasst: adressFilter('domain', domain),
+        });
         gefunden += uids.length;
+        const umgezogen = new Set();
         if (uids.length) {
           const ergebnis = await imap.mailsVerschieben({
-            ...zugang, mails: uids.map((uid) => ({ uid })), von: 'INBOX', nach: ziel,
+            ...zugang, mails: uids.map((uid) => ({ uid })), von: 'INBOX', nach: pfad,
           });
           verschoben += ergebnis.verschoben.length;
+          for (const m of ergebnis.verschoben) umgezogen.add(Number(m.uid));
         }
-        db.prepare(
-          "UPDATE sort_inbox SET status = 'zugeordnet', vorschlag = ?"
-          + " WHERE konto_id = ? AND status = 'offen' AND LOWER(von) LIKE ?",
-        ).run(ziel, konto.id, `%@${domain}`);
+        inboxAbhaken(konto, umgezogen, pfad);
         db.prepare('DELETE FROM absender_stat WHERE konto_id = ? AND domain = ?').run(konto.id, domain);
       } catch (err) {
-        loggen('warn', 'sortierung', `${domain} → "${ziel}" fehlgeschlagen: ${err.message}`);
+        loggen('warn', 'sortierung', `${domain} → "${pfad}" fehlgeschlagen: ${err.message}`);
       }
     }
 
     themen.cacheVerwerfen(konto.id);
     uebersicht.cacheVerwerfen();
     loggen('info', 'sortierung',
-      `Kategorie "${ziel}": ${domains.length} Absender-Regeln, ${verschoben} von ${gefunden} Mail(s) verschoben.`);
-    res.json({ ok: true, ordner: ziel, regeln: domains.length, gefunden, verschoben });
+      `Kategorie "${pfad}": ${domains.length} Absender-Regeln, ${verschoben} von ${gefunden} Mail(s) verschoben.`);
+    res.json({ ok: true, ordner: pfad, regeln: domains.length, gefunden, verschoben });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -2127,27 +2278,30 @@ router.post('/katalog/:id/aufgehen-in', async (req, res) => {
     if (!(await themen.ordnerExistiert(konto, ziel))) {
       return res.status(400).json({ error: `Den Ordner "${ziel}" gibt es im Postfach nicht.` });
     }
+    // In der Schreibweise des Servers, sonst geht der Umzug auf Servern mit
+    // Präfix („INBOX.Reisen") ins Leere.
+    const pfad = (await themen.ordnerPfad(konto, ziel)) || ziel;
 
     let verschoben = 0;
     const fehler = [];
     if (uids.length) {
       const ergebnis = await imap.mailsVerschieben({
-        ...zugang, mails: uids.map((uid) => ({ uid })), von: quelle.ordner, nach: ziel,
+        ...zugang, mails: uids.map((uid) => ({ uid })), von: quelle.ordner, nach: pfad,
       });
       verschoben = ergebnis.verschoben.length;
       for (const p of ergebnis.fehler) fehler.push(`UID ${p.uid}: ${p.grund}`);
     }
 
     // Das Gelernte zieht mit um, der alte Name wird zur Umleitung.
-    const zielEintrag = db.prepare('SELECT * FROM konto_ordner WHERE konto_id = ? AND ordner = ?')
-      .get(konto.id, ziel);
+    const zielEintrag = db.prepare('SELECT * FROM konto_ordner WHERE konto_id = ? AND ordner IN (?, ?)')
+      .get(konto.id, pfad, ziel);
     if (zielEintrag) {
       for (const domain of themen.gelernteListe(quelle)) themen.gelerntMerken(zielEintrag.id, domain);
     }
-    themen.aliasMerken(konto.id, quelle.ordner, ziel);
+    themen.aliasMerken(konto.id, quelle.ordner, pfad);
     db.prepare('DELETE FROM konto_ordner WHERE id = ?').run(quelle.id);
     db.prepare('UPDATE sort_rules SET zielordner = ? WHERE konto_id = ? AND zielordner = ?')
-      .run(ziel, konto.id, quelle.ordner);
+      .run(pfad, konto.id, quelle.ordner);
     themen.cacheVerwerfen(konto.id);
     uebersicht.cacheVerwerfen();
 
@@ -2249,13 +2403,14 @@ router.get('/mail/:id', async (req, res) => {
     const konto = db.prepare('SELECT * FROM accounts WHERE id = ?').get(eintrag.konto_id);
     if (!konto) return res.status(404).json({ error: 'Zugehöriges Konto nicht gefunden.' });
     
-    konto.passwort = entschluesseln(konto.password_enc);
+    Object.assign(konto, themen.zugang(konto)); // passwort + tlsUnsicher
     
     const { text, unsubscribe } = await imap.mailLaden({
       host: konto.host,
       port: konto.port,
       username: konto.username,
       passwort: konto.passwort,
+      tlsUnsicher: konto.tlsUnsicher,
       uid: eintrag.uid,
       ordner: 'INBOX'
     });
@@ -2347,13 +2502,29 @@ router.post('/nachsortierung/verschieben', async (req, res) => {
 
     // (KI-Nachsortierung) Lerneffekt: Wenn ein KI-Vorschlag übernommen wird,
     // behandeln wir das als "bestätigt" und lassen die Automatik daraus lernen.
+    //
+    // Bis Build 251 geschah das über `UPDATE quarantine_log … WHERE uid = ?` —
+    // mit der UID aus dem QUELLORDNER. Das Protokoll führt aber Posteingangs-
+    // UIDs: Getroffen wurde eine beliebige andere Zeile, deren Ziel dann
+    // überschrieben war. Fand sich keine, entstand eine Scheinzeile mit ki=1
+    // und dieser UID, und die Budget-Prüfung übersprang daraufhin 26 Stunden
+    // lang die Posteingangs-Mail mit derselben Nummer.
+    //
+    // Jetzt: ein eigener Beleg ohne UID (keine Verwechslung möglich), ki=0
+    // (entschieden hat der Nutzer), mit Grund — und gelernt wird mit der
+    // Nutzer-Schwelle.
     if (req.body?.isKI && req.body?.absender) {
-      try { 
-        const info = db.prepare('UPDATE quarantine_log SET zielordner = ?, korrigiert_zu = ? WHERE konto = ? AND uid = ?').run(pfad, pfad, konto.name, nummer);
-        if (info.changes === 0) {
-           db.prepare('INSERT INTO quarantine_log (konto, von, uid, zielordner, korrigiert_zu, ki) VALUES (?, ?, ?, ?, ?, 1)').run(konto.name, req.body.absender, nummer, pfad, pfad);
+      try {
+        db.prepare(
+          'INSERT INTO quarantine_log (konto, von, betreff, zielordner, ki, grund, quell_ordner)'
+          + ' VALUES (?, ?, ?, ?, 0, ?, ?)',
+        ).run(
+          konto.name, String(req.body.absender), req.body.betreff ? String(req.body.betreff).slice(0, 300) : null,
+          pfad, `Nachsortierung: KI-Vorschlag von Hand übernommen (aus „${quelle}")`, quelle,
+        );
+        if (themen.einstellungen().regelLernen) {
+          themen.regelLernen(konto.id, req.body.absender, pfad, { schwelle: themen.LERNSCHWELLE_NUTZER });
         }
-        themen.regelLernen(konto.id, req.body.absender, pfad); 
       } catch { /* best effort */ }
     }
 

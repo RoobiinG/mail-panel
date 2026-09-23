@@ -173,7 +173,7 @@ router.get('/', (req, res) => {
           grenze: b.tagesbudget(),
           heuteAnfragen: b.heuteVerbraucht(),
           heuteMails: b.protokolliertHeute(),
-          anbieter: settings.hole('ki_anbieter') || 'gemini',
+          anbieter: settings.hole('ki_anbieter') || 'ollama',
         };
       } catch {
         return null;

@@ -429,13 +429,23 @@ const migrations = [
   // ersten Mal nichts mehr.
   "UPDATE konto_ordner SET beschreibung = TRIM(REPLACE(beschreibung, 'Zuletzt vorgeschlagen für:', ''))"
   + " WHERE beschreibung LIKE 'Zuletzt vorgeschlagen für:%'",
-  // Einmalige Korrektur: Ein manuelles Update von "Web.de" auf "g.robin.2002" 
-  // wurde nicht kaskadiert, bevor der Bug in Build 163 behoben wurde. 
-  // Wir korrigieren die historischen Daten jetzt sauber auf Datenbankebene.
-  "UPDATE quarantine_log SET konto = 'g.robin.2002' WHERE konto = 'Web.de'",
-  "UPDATE sort_inbox SET konto = 'g.robin.2002' WHERE konto = 'Web.de'",
+  // Hier stand bis Build 251 eine „einmalige" Umbenennung eines Kontos von
+  // „Web.de" auf einen festen Kontonamen. Sie lief in Wahrheit bei JEDEM Start
+  // und bei JEDER Installation — wer sein Konto „Web.de" nannte, dessen
+  // Protokoll wurde bei jedem Neustart einem fremden Konto zugeschlagen. Die
+  // Korrektur auf der Installation, für die sie gedacht war, ist längst gelaufen.
   // Stufe 6: Probe-Lauf für neue KI-Ordner
   'ALTER TABLE konto_ordner ADD COLUMN auf_probe INTEGER NOT NULL DEFAULT 0',
+  // Aus welchem Ordner die Mail kam. Seit der Bestandslauf auch andere Ordner
+  // als den Posteingang durchgeht, ist „die UID" ohne Ordner mehrdeutig: IMAP
+  // vergibt UIDs je Ordner, UID 812 in „Rechnungen" ist eine andere Mail als
+  // UID 812 im Posteingang. NULL heißt: Altbestand, vermutlich Posteingang.
+  'ALTER TABLE quarantine_log ADD COLUMN quell_ordner TEXT',
+  'ALTER TABLE sort_inbox ADD COLUMN quell_ordner TEXT',
+  // Wann die Mail geschickt wurde (Date-Kopfzeile) — nicht, wann das Panel sie
+  // einsortiert hat. Danach sucht man in der Chronik („die Mail von Montag").
+  'ALTER TABLE quarantine_log ADD COLUMN mail_datum TEXT',
+  'ALTER TABLE sort_inbox ADD COLUMN mail_datum TEXT',
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch { /* Spalte existiert schon */ }

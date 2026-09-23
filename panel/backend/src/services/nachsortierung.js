@@ -118,12 +118,53 @@ function selberOrdner(a, b) {
 }
 
 /**
+ * Welche Regel gilt für diesen Briefkopf — wenn sich das ohne Mailtext
+ * überhaupt sagen lässt?
+ *
+ * Die Nachsortierung liest nur Absender und Betreff. Eine Regel mit
+ * Inhalts-Stichwort („info@versand.example + ‚Rechnung' → Rechnungen") kann
+ * dann nie greifen — und bisher gewann an ihrer Stelle die nächste Regel
+ * („info@versand.example → Newsletter"). Jede Nacht wanderten so die
+ * Rechnungen aus „Rechnungen" in den Newsletter-Ordner: genau das, wofür die
+ * Inhalts-Regel angelegt worden war.
+ *
+ * Deshalb: Passt eine Inhalts-Regel auf Absender und Betreff, und nur das
+ * Stichwort ist unbekannt, ist die Mail nicht entscheidbar und bleibt liegen.
+ * Steht das Stichwort schon im Betreff, gilt die Regel.
+ *
+ * @returns {object|null} die Regel, `{ unentscheidbar: true }` oder null
+ */
+function regelFuerBriefkopf(regeln, von, betreff) {
+  for (const r of regeln) {
+    const inhalt = String(r.inhalt_muster || '').trim();
+    if (inhalt) {
+      if (sortierung.passt(r, von, betreff)) return r;
+      if (sortierung.passt({ ...r, inhalt_muster: '' }, von, betreff)) return { unentscheidbar: true };
+      continue;
+    }
+    if (sortierung.passt(r, von, betreff)) return r;
+  }
+  return null;
+}
+
+// Welche Mails schon einmal als KI-Vorschlag gezeigt wurden.
+//
+// Ohne das nahm jeder Lauf dieselben ersten Mails eines Ordners — bei gleichem
+// Ergebnis. Im Arbeitsspeicher, weil es nur um die Abwechslung zwischen
+// Läufen geht; nach einem Neustart darf es von vorn beginnen.
+const kiGezeigt = new Set();
+const KI_GEZEIGT_MAX = 20000;
+
+/**
  * Ein Konto durchsehen.
  * @returns {Promise<{geprueft:number, treffer:number, verschoben:number,
+ *                    fehlgeschlagen:number, vorschlaege:number,
  *                    fehler:string[], beispiele:object[]}>}
  */
 async function kontoDurchgehen(konto, { trockenlauf, rest }) {
-  const ergebnis = { geprueft: 0, treffer: 0, verschoben: 0, fehler: [], beispiele: [] };
+  const ergebnis = {
+    geprueft: 0, treffer: 0, verschoben: 0, fehlgeschlagen: 0, vorschlaege: 0, fehler: [], beispiele: [],
+  };
   const regeln = sortierung.regelnGeordnet(konto.id);
   if (regeln.length === 0) return ergebnis;
 
@@ -147,8 +188,8 @@ async function kontoDurchgehen(konto, { trockenlauf, rest }) {
     const nachZiel = new Map();
     for (const m of mails) {
       if (rest.uebrig <= 0) break;
-      const regel = regeln.find((r) => sortierung.passt(r, m.von, m.betreff));
-      if (!regel) continue;
+      const regel = regelFuerBriefkopf(regeln, m.von, m.betreff);
+      if (!regel || regel.unentscheidbar) continue;
       // „In Ruhe lassen" heißt ausdrücklich: nicht anfassen. Diese Regel ist
       // die einzige, die ein Nichthandeln anordnet — sie hier zu übergehen
       // wäre das Gegenteil dessen, was der Nutzer gesagt hat.
@@ -180,20 +221,28 @@ async function kontoDurchgehen(konto, { trockenlauf, rest }) {
 
     const fuerKI = [];
     const e = einstellungen();
-    if (rest.uebrig > 0 && e.kiAktiv) {
+    if (e.kiAktiv) {
       for (const m of mails) {
-        const regel = regeln.find((r) => sortierung.passt(r, m.von, m.betreff));
+        const regel = regelFuerBriefkopf(regeln, m.von, m.betreff);
         if (!regel && !themen.istGelernt(konto.id, quelle, m.von, m.betreff)) {
           fuerKI.push(m);
         }
       }
     }
 
-    // KI-Vorschläge berechnen
-    if (e.kiAktiv && rest.uebrig > 0 && fuerKI.length > 0) {
-      // Nur einen kleinen Bündel an KI übergeben
+    // KI-Vorschläge berechnen. Sie werden nur ANGEZEIGT, nie verschoben — und
+    // zählen deshalb auch nicht gegen die Obergrenze. Bisher verbrauchten sie
+    // deren Plätze: „470 von 500 verschoben … Obergrenze erreicht", obwohl 30
+    // der 500 gar keine Verschiebungen waren.
+    if (e.kiAktiv && fuerKI.length > 0) {
+      // Nur einen kleinen Bündel an KI übergeben — bevorzugt Mails, die noch
+      // nicht vorgeschlagen wurden.
       const kiBuendelGroesse = zahl('ollama_buendel', 2, 1, 10);
-      const batchKI = fuerKI.slice(0, kiBuendelGroesse);
+      const schluessel = (m) => `${konto.id}|${quelle}|${m.uid}`;
+      const neu = fuerKI.filter((m) => !kiGezeigt.has(schluessel(m)));
+      const batchKI = (neu.length ? neu : fuerKI).slice(0, kiBuendelGroesse);
+      if (kiGezeigt.size > KI_GEZEIGT_MAX) kiGezeigt.clear();
+      for (const m of batchKI) kiGezeigt.add(schluessel(m));
       try {
         const geladen = [];
         for (const m of batchKI) {
@@ -215,8 +264,7 @@ async function kontoDurchgehen(konto, { trockenlauf, rest }) {
             const ziel = String(res.ordner).trim();
             if (selberOrdner(quelle, ziel)) continue;
 
-            ergebnis.treffer += 1;
-            rest.uebrig -= 1;
+            ergebnis.vorschlaege += 1;
             if (ergebnis.beispiele.length < BEISPIELE_MAX) {
               ergebnis.beispiele.push({
                 konto: konto.name,
@@ -227,7 +275,12 @@ async function kontoDurchgehen(konto, { trockenlauf, rest }) {
                 betreff: String(m.betreff || '').slice(0, 120),
                 vonOrdner: quelle,
                 nachOrdner: ziel,
-                regel: `KI-Vorschlag (${Math.round((res.konfidenz || 0) * 100)}%)`,
+                // Eine eigene Regel oder ein Stichwort, das erst mit dem Mailtext
+                // greift, ist kein KI-Vorschlag — der Klassifizierer entscheidet
+                // solche Mails vorab ohne KI.
+                regel: res.regel
+                  ? `Regel/Stichwort mit Mailtext: ${String(res.kurzfassung || '').slice(0, 80)}`
+                  : `KI-Vorschlag (${Math.round((res.konfidenz || 0) * 100)}%)`,
                 isKI: true,
                 konfidenz: res.konfidenz || 0,
                 grund: res.kurzfassung || 'KI-Vorschlag'
@@ -250,13 +303,14 @@ async function kontoDurchgehen(konto, { trockenlauf, rest }) {
           ...zugang, mails: liste, von: quelle, nach: pfad,
         });
         ergebnis.verschoben += r.verschoben.length;
+        ergebnis.fehlgeschlagen += r.fehler.length;
         for (const f of r.fehler.slice(0, 5)) {
           ergebnis.fehler.push(`${konto.name}/${quelle} UID ${f.uid}: ${f.grund}`);
         }
-        for (const m of liste) {
-          if (!m.isKI) {
-             try { themen.gelerntVergessen(konto.id, quelle, m.von); } catch { /* nicht so wichtig */ }
-          }
+        // Nur was wirklich umgezogen ist: Eine Mail, die sich nicht verschieben
+        // ließ, liegt weiter hier — das Gelernte über diesen Ordner stimmt dann.
+        for (const m of r.verschoben) {
+          try { themen.gelerntVergessen(konto.id, quelle, m.von); } catch { /* nicht so wichtig */ }
         }
       } catch (err) {
         ergebnis.fehler.push(`${konto.name}/${quelle} → ${ziel}: ${err.message}`);
@@ -288,6 +342,8 @@ async function lauf(opt = {}) {
     geprueft: 0,
     treffer: 0,
     verschoben: 0,
+    fehlgeschlagen: 0,
+    vorschlaege: 0,
     fehler: [],
     beispiele: [],
     sekunden: 0,
@@ -304,6 +360,8 @@ async function lauf(opt = {}) {
         gesamt.geprueft += r.geprueft;
         gesamt.treffer += r.treffer;
         gesamt.verschoben += r.verschoben;
+        gesamt.fehlgeschlagen += r.fehlgeschlagen || 0;
+        gesamt.vorschlaege += r.vorschlaege || 0;
         gesamt.fehler.push(...r.fehler);
         for (const b of r.beispiele) {
           if (gesamt.beispiele.length < BEISPIELE_MAX) gesamt.beispiele.push(b);
@@ -319,13 +377,17 @@ async function lauf(opt = {}) {
     gesamt.fehler = gesamt.fehler.slice(0, 20);
     settings.setze('nachsortierung_letzter_lauf', JSON.stringify(gesamt));
 
+    // Jede Zahl steht für sich: verschoben, gescheitert, nur vorgeschlagen.
+    // „470 von 500" ließ offen, was mit den 30 anderen war.
     const wort = trockenlauf
       ? `${gesamt.treffer} Mail(s) würden verschoben (Trockenlauf, nichts bewegt)`
-      : `${gesamt.verschoben} von ${gesamt.treffer} Mail(s) verschoben`;
+      : `${gesamt.verschoben} Mail(s) verschoben`
+        + (gesamt.fehlgeschlagen ? `, ${gesamt.fehlgeschlagen} ließen sich nicht verschieben` : '');
     loggen(gesamt.fehler.length ? 'warn' : 'info', 'nachsortierung',
-      `Nachsortierung: ${gesamt.geprueft} Mail(s) geprüft, ${wort}, ${gesamt.sekunden} s.`
-      + (gesamt.treffer >= e.max ? ` Obergrenze von ${e.max} erreicht — der Rest kommt beim nächsten Lauf.` : '')
-      + (gesamt.fehler.length ? ` ${gesamt.fehler.length} Fehler.` : ''));
+      `Nachsortierung: ${gesamt.geprueft} Mail(s) geprüft, ${wort}`
+      + (gesamt.vorschlaege ? `, ${gesamt.vorschlaege} KI-Vorschlag/Vorschläge zur Ansicht` : '')
+      + `, ${gesamt.sekunden} s.`
+      + (gesamt.treffer >= e.max ? ` Obergrenze von ${e.max} erreicht — der Rest kommt beim nächsten Lauf.` : ''));
     return gesamt;
   } finally {
     laufendSeit = null;
@@ -357,5 +419,6 @@ module.exports = {
   ordnerAuswahl,
   selberOrdner,
   zeitplanStarten,
+  regelFuerBriefkopf,
   GESPERRTE_ROLLEN,
 };

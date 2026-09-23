@@ -24,6 +24,10 @@ const AN = () => settings.hole('auto_sync') !== '0';
 let laeuftGerade = false;
 let geplanteUhr = null;
 let letzterLauf = null;   // { zeitpunkt, ok, hinweis }
+// Ein Anstoß, der während eines laufenden Abgleichs kam. Bisher fiel er einfach
+// weg („läuft schon"): Wer beim Containerstart eine Einstellung speicherte,
+// sah sie erst beim nächsten Anlass in n8n — ohne Hinweis darauf.
+let nachholen = null;
 
 function konten() {
   try {
@@ -79,6 +83,11 @@ async function jetzt(grund) {
     return { ok: false, fehler: err.message };
   } finally {
     laeuftGerade = false;
+    if (nachholen) {
+      const grund = nachholen;
+      nachholen = null;
+      anstossen(`${grund} (nachgeholt)`, 1000);
+    }
   }
 }
 
@@ -91,6 +100,8 @@ function anstossen(grund, verzoegerungMs = 4000) {
   if (geplanteUhr) clearTimeout(geplanteUhr);
   geplanteUhr = setTimeout(() => {
     geplanteUhr = null;
+    // Läuft gerade einer, wird dieser Anstoß danach nachgeholt statt verworfen.
+    if (laeuftGerade) { nachholen = grund; return; }
     jetzt(grund).catch(() => { /* jetzt() meldet selbst */ });
   }, verzoegerungMs);
   if (geplanteUhr.unref) geplanteUhr.unref();

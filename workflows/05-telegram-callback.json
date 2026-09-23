@@ -21,19 +21,20 @@
         "conditions": {
           "string": [
             {
-              "value1": "={{ $json.message.data }}",
+              "value1": "={{ $json.callback_query.data }}",
               "value2": "q_deliver_all"
             },
             {
-              "value1": "={{ $json.message.message.chat.id }}",
+              "value1": "={{ $json.callback_query.message.chat.id }}",
               "value2": "DEINE_CHAT_ID"
             }
           ]
-        }
+        },
+        "combineOperation": "all"
       },
       "id": "switch-action",
       "name": "Aktion und Absender prüfen",
-      "type": "n8n-nodes-base.switch",
+      "type": "n8n-nodes-base.if",
       "typeVersion": 1,
       "position": [
         420,
@@ -43,13 +44,15 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://mail-panel:3002/api/internal/quarantaene/deliver-all",
+        "url": "http://panel:3002/api/internal/quarantaene/deliver-all",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "{}",
-        "options": {}
+        "options": {
+          "timeout": 60000
+        }
       },
       "id": "beispiel-panel-aufruf",
       "name": "Panel benachrichtigen (Beispiel)",
@@ -62,8 +65,8 @@
     },
     {
       "parameters": {
-        "chatId": "={{ $json.message.message.chat.id }}",
-        "text": "✅ Alle Quarantäne-Einträge wurden zur Zustellung markiert.",
+        "chatId": "={{ $('Telegram Trigger').item.json.callback_query.message.chat.id }}",
+        "text": "={{ $json.text || '✅ Erledigt.' }}",
         "additionalFields": {}
       },
       "id": "telegram-send",

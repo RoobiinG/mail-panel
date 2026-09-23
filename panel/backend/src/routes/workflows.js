@@ -75,6 +75,9 @@ router.post('/bestand-starten', async (req, res) => {
 router.delete('/stop/:id', async (req, res) => {
   const id = String(req.params.id || '');
   if (!id) return res.status(400).json({ error: 'Keine Ausführung angegeben.' });
+  // Nur echte Kennungen — sonst wurde aus „..%2Fcredentials%2F42" ein Löschauftrag
+  // an ganz anderer Stelle in n8n (siehe n8n.idPfad).
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) return res.status(400).json({ error: 'Ungültige Kennung.' });
 
   if (id === 'aktiv') {
     settings.setze('bestand_letzter_start', '');
@@ -252,7 +255,7 @@ router.get('/:id/laeufe', async (req, res) => {
 // GET /api/workflows/lauf/:id — eine Ausführung im Detail (welcher Knoten scheiterte)
 router.get('/lauf/:id', async (req, res) => {
   try {
-    const { data } = await n8n.client().get(`/executions/${req.params.id}`, {
+    const { data } = await n8n.client().get(`/executions/${n8n.idPfad(req.params.id)}`, {
       params: { includeData: true },
     });
     let daten = data.data;

@@ -62,10 +62,50 @@ describe('Gelernt wird nur aus dem, was der Absender selbst belegt', () => {
   });
 
   test('die Schreibweise des Absenders ist egal', () => {
-    log('"Shop" <A@Shop.de>', 'Bestellungen');
+    for (let i = 0; i < 3; i++) log('"Shop" <A@Shop.de>', 'Bestellungen');
     const gelernt = themen.regelLernen(kontoId(), 'a@shop.de', 'Bestellungen');
     assert.ok(gelernt, 'dieselbe Adresse, nur anders geschrieben');
     assert.equal(gelernt.muster, 'a@shop.de');
+  });
+});
+
+// Build 241 hatte die Schwelle auf eins gesenkt: Jede einzelne KI-Einordnung
+// wurde zur Dauerregel. Mit einem kleinen Modell, das Werbung als Bestellung
+// einstuft, zementierte das genau die Fehler, die man loswerden will
+// (Diagnosebericht vom 23.09.). Seit Build 252 zwei Schwellen.
+describe('KI braucht drei Belege, der Nutzer einen', () => {
+  test('eine einzige KI-Einordnung ist noch keine Regel', () => {
+    log('gaming@spiele.example', 'Bestellungen');
+    assert.equal(themen.regelLernen(kontoId(), 'gaming@spiele.example', 'Bestellungen'), false);
+    assert.equal(
+      themen.regelLernen(kontoId(), 'gaming@spiele.example', 'Bestellungen', { schwelle: themen.LERNSCHWELLE_KI }),
+      false,
+    );
+    assert.equal(regeln().length, 0);
+  });
+
+  test('zwei reichen auch nicht', () => {
+    for (let i = 0; i < 2; i++) log('gaming@spiele.example', 'Bestellungen');
+    assert.equal(themen.regelLernen(kontoId(), 'gaming@spiele.example', 'Bestellungen'), false);
+  });
+
+  test('eine Entscheidung des Nutzers gilt sofort', () => {
+    log('rechnung@anbieter.example', 'Rechnungen');
+    const gelernt = themen.regelLernen(kontoId(), 'rechnung@anbieter.example', 'Rechnungen',
+      { schwelle: themen.LERNSCHWELLE_NUTZER });
+    assert.ok(gelernt, 'eine Korrektur ist eine Ansage, kein Indiz');
+    assert.equal(gelernt.zielordner, 'Rechnungen');
+  });
+
+  // Die Korrektur zählt für den Ordner, in den korrigiert wurde. Vorher stand
+  // die falsche Einordnung weiter als Beleg da, und der Absender galt nach der
+  // ersten Korrektur als „uneinheitlich" — gelernt wurde nie.
+  test('korrigierte Einträge zählen für das neue Ziel', () => {
+    db.prepare(
+      "INSERT INTO quarantine_log (konto, von, zielordner, korrigiert_zu) VALUES ('K', 'a@shop.de', 'Newsletter', 'Rechnungen')",
+    ).run();
+    const gelernt = themen.regelLernen(kontoId(), 'a@shop.de', 'Rechnungen', { schwelle: themen.LERNSCHWELLE_NUTZER });
+    assert.ok(gelernt, 'der alte Irrtum „Newsletter" ist kein Widerspruch mehr');
   });
 });
 

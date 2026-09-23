@@ -99,12 +99,31 @@ describe('auslesen: Dedupe und Deckel', () => {
     assert.equal(zeilen(), vorher + 1);
   });
 
+  // Der Gemini-Zweig — den gibt es nur noch für Installationen, bei denen
+  // ki_anbieter ausdrücklich auf „gemini" steht. Seit Build 252 ist Ollama der
+  // Standard; ohne diese Zeile nahm der Test stillschweigend den alten an.
   test('ohne KI-Schlüssel ⇒ Heuristik, aber NICHT gemerkt (Wiederholung möglich)', async () => {
     settings.setze('beleg_lese_tagesbudget', '0'); // kein Deckel
+    settings.setze('ki_anbieter', 'gemini');
+    try {
+      const vorher = zeilen();
+      const r = await leser.auslesen({ konto: 'K2', von: 'shop@example.com', betreff: 'Bestellbestätigung', dateiname: 'order.pdf', pdf_base64: 'x' });
+      assert.equal(r.quelle, 'heuristik');
+      assert.equal(zeilen(), vorher, 'ein vorübergehender Fehler darf die Entscheidung nicht 26h festnageln');
+    } finally {
+      settings.setze('ki_anbieter', '');
+    }
+  });
+
+  // Ohne ausdrückliche Einstellung gilt die lokale KI — und damit auch die
+  // Texterkennung, die vorher auf frischen Installationen nie lief.
+  test('ohne Einstellung gilt Ollama: ein PDF ohne Text wird gemerkt, nicht immer neu gelesen', async () => {
+    settings.setze('beleg_lese_tagesbudget', '0');
+    settings.setze('ki_anbieter', '');
     const vorher = zeilen();
-    const r = await leser.auslesen({ konto: 'K2', von: 'shop@example.com', betreff: 'Bestellbestätigung', dateiname: 'order.pdf', pdf_base64: 'x' });
+    const r = await leser.auslesen({ konto: 'K3', von: 'shop@example.com', betreff: 'Bestellbestätigung', dateiname: 'scan.pdf', pdf_base64: 'x' });
     assert.equal(r.quelle, 'heuristik');
-    assert.equal(zeilen(), vorher, 'ein vorübergehender Fehler darf die Entscheidung nicht 26h festnageln');
+    assert.equal(zeilen(), vorher + 1);
   });
 });
 

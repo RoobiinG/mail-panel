@@ -280,8 +280,13 @@ export default function Konten() {
                   <div className="mt-3 pt-3 border-t border-panel-border/50 space-y-3">
                     {/* Nach dem Verbindungstest stehen hier die Ordner des Postfachs
                         zur Auswahl — eintippen geht weiterhin. */}
+                    {/* Ansichten wie „[Gmail]/Markiert" oder „Alle Nachrichten"
+                        sind keine Ordner — dort lässt sich nichts ablegen. Sie
+                        erscheinen deshalb nicht in der Auswahl. */}
                     <datalist id="vorhandene-ordner">
-                      {(test?.ordner || []).map((o) => <option key={o} value={o} />)}
+                      {(test?.ordner || [])
+                        .filter((o) => !(test?.ansichten || []).includes(o))
+                        .map((o) => <option key={o} value={o} />)}
                     </datalist>
 
                     <div className="grid grid-cols-2 gap-3">
@@ -295,6 +300,11 @@ export default function Konten() {
                             placeholder={standard}
                             className="text-xs py-1.5"
                           />
+                          {(test?.ansichten || []).some((a) => a.toLowerCase() === String(formular[feld] || '').trim().toLowerCase()) && (
+                            <span className="block text-[11px] text-panel-orange">
+                              Das ist eine Ansicht des Postfachs, kein Ordner — dort lässt sich nichts ablegen.
+                            </span>
+                          )}
                         </label>
                       ))}
                     </div>

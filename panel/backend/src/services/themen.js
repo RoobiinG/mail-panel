@@ -407,9 +407,11 @@ function gelerntBelegt(konto, ordner, von) {
   const domain = sortierung.domain(von);
   if (!konto?.name || !ordner || !domain) return false;
   try {
+    // Korrigierte Einträge zählen für den Ordner, in den sie korrigiert wurden.
     const zeilen = db.prepare(`
-      SELECT von, zielordner FROM quarantine_log
-      WHERE konto = ? AND zielordner IS NOT NULL AND zielordner != ''
+      SELECT von, COALESCE(NULLIF(korrigiert_zu, ''), zielordner) AS zielordner FROM quarantine_log
+      WHERE konto = ? AND COALESCE(NULLIF(korrigiert_zu, ''), zielordner) IS NOT NULL
+        AND COALESCE(NULLIF(korrigiert_zu, ''), zielordner) != ''
         AND von LIKE ? AND created_at >= datetime('now', '-90 day')
     `).all(konto.name, `%${domain}%`);
     // LIKE ist nur der Vorfilter — ein Anzeigename kann die Domain ebenfalls
@@ -756,9 +758,19 @@ async function systemordnerSperren(konto) {
 // ─── Regeln lernen ───────────────────────────────────────────────────────────
 
 // Ab wie vielen gleichen Treffern eine feste Regel entsteht. Danach laeuft der
-// Absender ohne KI durch — das schont das Gemini-Kontingent und macht die
-// Sortierung mit der Zeit vorhersagbar.
-const LERNSCHWELLE = 1;
+// Absender ohne KI durch — das macht die Sortierung mit der Zeit vorhersagbar.
+//
+// Zwei Schwellen, weil zwei verschiedene Dinge gelernt werden:
+//
+//   * Die KI hat einsortiert (LERNSCHWELLE_KI). Build 241 hatte die Schwelle auf
+//     eins gesenkt — damit wurde jede einzelne KI-Einordnung zur Dauerregel.
+//     Mit einem kleinen lokalen Modell, das „Letzte Chance: Hol dir …" als
+//     Bestellung einstuft, zementiert das genau die Fehler, die man loswerden
+//     will. Erst drei gleiche Einordnungen desselben Absenders sind ein Muster.
+//   * Der Nutzer hat entschieden (LERNSCHWELLE_NUTZER): Eine Korrektur oder ein
+//     bestätigter Vorschlag ist kein Indiz, sondern eine Ansage — das gilt sofort.
+const LERNSCHWELLE_KI = 3;
+const LERNSCHWELLE_NUTZER = 1;
 // Ab wie vielen VERSCHIEDENEN Absendern derselben Domain eine Domain-Regel
 // entsteht statt weiterer Einzelregeln.
 const DOMAIN_SCHWELLE = 2;
@@ -796,10 +808,11 @@ function schonGemeldet(schluessel) {
   return false;
 }
 
-function regelLernen(kontoId, von, ordner) {
+function regelLernen(kontoId, von, ordner, opt = {}) {
   const adresse = sortierung.adresse(von);
   const domain = sortierung.domain(von);
-  if (!adresse.includes('@') || !domain) return false;
+  if (!adresse.includes('@') || !domain || !ordner) return false;
+  const schwelle = Math.max(1, Math.floor(Number(opt.schwelle)) || LERNSCHWELLE_KI);
 
   const konto = db.prepare('SELECT name FROM accounts WHERE id = ?').get(kontoId);
   if (!konto) return false;
@@ -825,9 +838,14 @@ function regelLernen(kontoId, von, ordner) {
   // Beide „3 Mails" waren dieselbe Domain-Zaehlung, nicht drei Mails je
   // Absender. Eine Regel, die aus Fremdbelegen entsteht, faellt niemandem auf
   // und bleibt neunzig Tage bestehen.
+  // Eine Korrektur zählt als das, was sie ist: der richtige Ordner. Ohne
+  // COALESCE stand die ursprüngliche (falsche) Einordnung weiter als Beleg da —
+  // und nach der ersten Korrektur galt der Absender als „uneinheitlich", sodass
+  // gerade die Korrektur nie zu einer Regel wurde.
   const zeilen = db.prepare(`
-    SELECT von, zielordner FROM quarantine_log
-    WHERE konto = ? AND zielordner IS NOT NULL AND zielordner != ''
+    SELECT von, COALESCE(NULLIF(korrigiert_zu, ''), zielordner) AS zielordner FROM quarantine_log
+    WHERE konto = ? AND COALESCE(NULLIF(korrigiert_zu, ''), zielordner) IS NOT NULL
+      AND COALESCE(NULLIF(korrigiert_zu, ''), zielordner) != ''
       AND created_at >= datetime('now', '-90 day')
   `).all(konto.name);
 
@@ -840,7 +858,7 @@ function regelLernen(kontoId, von, ordner) {
   // wie Amazon, die Bestellungen und Newsletter ueber dieselbe Domain schicken).
   // Es wird nur noch auf exakten Absender gelernt — und auch nur aus dem, was
   // dieser Absender selbst belegt.
-  if (hierher.length < LERNSCHWELLE) return false;
+  if (hierher.length < schwelle) return false;
   const typ = 'absender';
 
   // Eine Dauerregel aus widerspruechlichen Belegen ist schlimmer als keine.
@@ -1076,6 +1094,30 @@ function vorschlaegeAufraeumen(kontoId = null) {
     sieger.anzahl += v.anzahl;
     zusammengefuehrt += 1;
   }
+
+  // Wartende Mails, deren KI-Name auf gar keinen Vorschlag zeigt.
+  //
+  // Bis Build 251 speicherte /einsortieren das Wort der KI („Games"), während
+  // der Vorschlag unter dem ähnlichen, schon vorhandenen Namen („Gaming") gezählt
+  // wurde. Die Freigabe sucht die Mails über den Vorschlagsnamen — und fand sie
+  // nicht. Hier werden sie dem Vorschlag zugeschlagen, zu dem sie gehören.
+  try {
+    const namen = db.prepare(
+      "SELECT DISTINCT konto_id, ki_ordner FROM sort_inbox WHERE status = 'offen'"
+      + " AND TRIM(IFNULL(ki_ordner, '')) <> ''" + (kontoId ? ' AND konto_id = ?' : ''),
+    ).all(...(kontoId ? [kontoId] : []));
+    const umhaengen = db.prepare(
+      "UPDATE sort_inbox SET ki_ordner = ? WHERE konto_id = ? AND status = 'offen' AND ki_ordner = ?",
+    );
+    for (const z of namen) {
+      if (behalten.some((b) => b.konto_id === z.konto_id && b.ordner === z.ki_ordner)) continue;
+      const wort = String(z.ki_ordner).replace(/^\s*neu\s*:\s*/i, '').trim();
+      if (!wort || imKatalog(z.konto_id, wort)) continue;
+      const passend = behalten.find((b) => b.konto_id === z.konto_id && b.status === 'offen'
+        && (b.ordner === wort || aehnlich(b.ordner, wort)));
+      if (passend) umhaengen.run(passend.ordner, z.konto_id, z.ki_ordner);
+    }
+  } catch { /* Aufräumen darf die Vorschlagsliste nicht verhindern */ }
   return zusammengefuehrt;
 }
 
@@ -1091,7 +1133,11 @@ async function aufloesen({ konto, vorschlag, konfidenz, von, betreff }) {
   const e = einstellungen();
   if (!e.aktiv) return { ordner: null, neu_angelegt: false, grund: 'Themen-Sortierung ist aus' };
 
-  const sicherheit = Number(konfidenz) || 0;
+  // Fehlt die Konfidenz ganz, ist das etwas anderes als „0 %". Beides landete
+  // bisher als 0.00 im Grund — und wer „zu unsicher (0.00 < 0.7)" liest, sucht
+  // den Fehler beim Modell, nicht bei der fehlenden Angabe.
+  const ohneKonfidenz = konfidenz == null || konfidenz === '' || !Number.isFinite(Number(konfidenz));
+  const sicherheit = ohneKonfidenz ? 0 : Number(konfidenz);
   const benutzen = (eintrag, grund) => {
     db.prepare(
       'UPDATE konto_ordner SET treffer = treffer + 1, zuletzt_genutzt = CURRENT_TIMESTAMP WHERE id = ?',
@@ -1172,7 +1218,9 @@ async function aufloesen({ konto, vorschlag, konfidenz, von, betreff }) {
     return {
       ordner: null,
       neu_angelegt: false,
-      grund: `Für einen neuen Ordner zu unsicher (${sicherheit.toFixed(2)} < ${e.konfidenz})`,
+      grund: ohneKonfidenz
+        ? `Neuer Ordner „${String(vorschlag).slice(0, 40)}" — die KI hat keine Konfidenz geliefert`
+        : `Für einen neuen Ordner zu unsicher (${sicherheit.toFixed(2)} < ${e.konfidenz})`,
     };
   }
 
@@ -1199,20 +1247,39 @@ async function aufloesen({ konto, vorschlag, konfidenz, von, betreff }) {
   // Im Trockenlauf wird nichts angelegt — nur festgehalten, was passiert waere.
   if (e.trockenlauf || e.anlegen === 'freigabe') {
     const gemerkt = vorschlagMerken(konto.id, name, `Zuletzt vorgeschlagen für: ${String(von || '').slice(0, 120)}`);
-    const zusammen = gemerkt.ordner === name ? '' : ` (zusammengefasst mit "${gemerkt.ordner}")`;
+    // Genannt wird, was die KI gesagt hat — vorher stand hier zweimal derselbe
+    // Name („Gaming … zusammengefasst mit Gaming"), und niemand sah, dass die KI
+    // eigentlich „Games" geschrieben hatte.
+    const zusammen = gemerkt.ordner === name ? '' : ` (KI nannte "${name}")`;
     if (gemerkt.status === 'abgelehnt') {
       return {
         ordner: null,
         neu_angelegt: false,
         grund: `Ordner "${gemerkt.ordner}" wurde abgelehnt — die Mail bleibt liegen`,
+        vorschlag_ordner: gemerkt.ordner,
       };
     }
+    // Der Name passt zu einem Ordner, den es schon gibt — dann wartet kein
+    // Vorschlag auf Freigabe, und das darf der Grund auch nicht behaupten.
+    if (gemerkt.status === 'vorhanden') {
+      return {
+        ordner: null,
+        neu_angelegt: false,
+        grund: `KI meint den vorhandenen Ordner "${gemerkt.ordner}", war sich aber zu unsicher`,
+        vorschlag_ordner: gemerkt.ordner,
+      };
+    }
+    // vorschlag_ordner ist der Name, unter dem der Vorschlag geführt wird. Die
+    // Sortier-Inbox muss genau DEN speichern — die Freigabe sucht die wartenden
+    // Mails darüber. Mit dem Wort der KI („Games") fand sie unter „Gaming"
+    // nichts, und die Mails blieben nach dem Freigeben im Posteingang liegen.
     return {
       ordner: null,
       neu_angelegt: false,
       grund: e.trockenlauf
         ? `Trockenlauf — Ordner "${gemerkt.ordner}" wäre angelegt worden`
         : `Neuer Ordner "${gemerkt.ordner}" wartet auf Freigabe${zusammen}`,
+      vorschlag_ordner: gemerkt.ordner,
     };
   }
 
@@ -1264,4 +1331,6 @@ module.exports = {
   stamm,
   zugang,
   ANLEGEN_MODI,
+  LERNSCHWELLE_KI,
+  LERNSCHWELLE_NUTZER,
 };

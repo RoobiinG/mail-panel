@@ -275,8 +275,12 @@ async function stapelVerschieben(konto, mails, zielordner, etikett) {
 
   // Alles ueber eine einzige Verbindung — sonst laeuft ein groesserer Stapel in
   // das Verbindungslimit des Mailservers.
+  // absenderPruefen: Unter der gespeicherten UID muss auch die Mail dieses
+  // Absenders liegen. Einträge aus der Zeit, als der Bestandslauf Mails aus
+  // anderen Ordnern in die Sortier-Inbox schrieb, tragen deren UID — im
+  // Posteingang gehört dieselbe Nummer womöglich einer ganz anderen Mail.
   const { verschoben: erledigt, fehler: probleme } = await imap.mailsVerschieben({
-    ...zugang, mails: passende, von: 'INBOX', nach: zielordner,
+    ...zugang, mails: passende, von: 'INBOX', nach: zielordner, absenderPruefen: true,
   });
 
   const abhaken = db.prepare("UPDATE sort_inbox SET status = 'zugeordnet', vorschlag = ? WHERE id = ?");
@@ -287,9 +291,12 @@ async function stapelVerschieben(konto, mails, zielordner, etikett) {
   // so eine Zeile 'offen' stehen und scheiterte bei jedem Versuch aufs Neue.
   const fehler = [];
   for (const p of probleme) {
-    const zeile = passende.find((m) => String(m.uid) === String(p.uid));
+    const zeile = passende.find((m) => String(uidZahl(m.uid)) === String(uidZahl(p.uid)));
     if (/nicht in/.test(p.grund) && zeile) {
       schliessen.run('(nicht mehr im Posteingang)', zeile.id);
+      veraltet++;
+    } else if (p.fremd && zeile) {
+      schliessen.run('(UID gehört zu einer anderen Mail)', zeile.id);
       veraltet++;
     } else {
       fehler.push(`${zeile ? zeile.von : `UID ${p.uid}`}: ${p.grund}`);
@@ -303,7 +310,9 @@ async function stapelVerschieben(konto, mails, zielordner, etikett) {
       + (veraltet ? `, ${veraltet} veraltete Eintraege geschlossen` : '')
       + (fehler.length ? `, ${fehler.length} Fehler` : ''));
   }
-  return { treffer: passende.length, verschoben, fehler, veraltet };
+  // Welche Zeilen wirklich umgezogen sind — die Aufrufer protokollieren und
+  // lernen nur daraus, nicht aus dem ganzen Stapel.
+  return { treffer: passende.length, verschoben, fehler, veraltet, verschobeneIds: erledigt.map((m) => m.id) };
 }
 
 async function bestandAnwenden(konto, regel, opt = {}) {

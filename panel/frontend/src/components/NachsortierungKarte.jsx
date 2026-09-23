@@ -145,7 +145,7 @@ export default function NachsortierungKarte({ ordner = [] }) {
     setZeileBusy(i);
     try {
       const { data } = await api.post('/sortierung/nachsortierung/verschieben', {
-        konto_id: b.kontoId, uid: b.uid, von: b.vonOrdner, nach: ziel.trim(), absender: b.von, isKI: b.isKI
+        konto_id: b.kontoId, uid: b.uid, von: b.vonOrdner, nach: ziel.trim(), absender: b.von, betreff: b.betreff, isKI: b.isKI
       });
       melden(`Verschoben nach „${data.ordner}". Die Regel bleibt unverändert.`);
       setVersteckt((p) => ({ ...p, [i]: true }));
@@ -265,7 +265,15 @@ export default function NachsortierungKarte({ ordner = [] }) {
                 {letzter.geprueft} Mail(s) geprüft ·{' '}
                 {letzter.trockenlauf
                   ? <span className="text-panel-accent">{letzter.treffer} würden verschoben</span>
-                  : <span className="text-emerald-500">{letzter.verschoben} von {letzter.treffer} verschoben</span>}
+                  : <span className="text-emerald-500">{letzter.verschoben} verschoben</span>}
+                {/* Jede Zahl für sich — „470 von 500" ließ offen, was mit den 30
+                    anderen war (gescheitert? nur KI-Vorschläge?). */}
+                {!letzter.trockenlauf && letzter.fehlgeschlagen > 0 && (
+                  <span className="text-panel-orange"> · {letzter.fehlgeschlagen} nicht verschiebbar</span>
+                )}
+                {letzter.vorschlaege > 0 && (
+                  <span> · {letzter.vorschlaege} KI-Vorschlag/Vorschläge zur Ansicht</span>
+                )}
                 {letzter.sekunden ? ` · ${letzter.sekunden} s` : ''}
               </div>
 

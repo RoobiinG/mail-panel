@@ -336,16 +336,36 @@ function themenKontext(konto) {
     + '- Lass das Feld leer ("") nur, wenn die Mail kein erkennbares Sachthema hat: reine Werbung ohne Bezug, Systemmeldungen, kurze persoenliche Nachrichten.\n'
     + '- Das Sachthema zaehlt, nicht die Form. Ein Newsletter ueber Spiele gehoert nach "Games", nicht in einen Ordner namens "Newsletter".\n'
     + verbotenBlock
-    + '- "konfidenz" ist deine Sicherheit beim Ordner, 0.0 bis 1.0.';
+    + '- "konfidenz" ist deine Sicherheit beim Ordner, 0.0 bis 1.0 — schlaegst du einen neuen Ordner vor, deine Sicherheit bei diesem Vorschlag.';
 
   const namen = eintraege.map((o) => o.name).filter((n) => !verbotenKlein.has(String(n).toLowerCase()));
 
   return { text, namen, neuErlaubt };
 }
 
+// Ein Link, wie ihn das Modell braucht: wohin er zeigt, nicht wer ihn geklickt hat.
+//
+// Tracking- und „SafeLinks"-Adressen sind oft 1.000 bis 3.000 Zeichen lang, fast
+// alles Query-String — und der zerfällt in besonders viele Token. Drei davon
+// machten am 23.09. aus einer einzelnen Mail einen Prompt mit 4.518 statt ~1.350
+// Token; das Bündel lief am Reverse-Proxy in den 504, und der Lauf schrumpfte
+// danach auf Bündel zu eins. Für die Einschätzung zählen Schema, Host und Pfad
+// (boese.tld/login), nicht die Kampagnen-Kennung dahinter.
+const LINK_MAX_ZEICHEN = 80;
+function linkKurz(roh) {
+  const text = String(roh || '').trim();
+  let kurz = text;
+  try {
+    const u = new URL(text);
+    kurz = `${u.protocol}//${u.host}${u.pathname}`;
+  } catch { /* kein gültiger URL — dann eben der Anfang des Textes */ }
+  return kurz.length > LINK_MAX_ZEICHEN ? `${kurz.slice(0, LINK_MAX_ZEICHEN)}…` : kurz;
+}
+
 function mailBlock(mail, nr, lang) {
   const grenze = Math.min(500, lang ? textLang() : textKurz());
-  const links = (Array.isArray(mail.links) ? mail.links : []).slice(0, 3);
+  const links = (Array.isArray(mail.links) ? mail.links : [])
+    .slice(0, Math.min(3, LINKS_MAX)).map(linkKurz).filter(Boolean);
   return `[${nr}]\n`
     + `Von: ${String(mail.von || '').slice(0, 200)}\n`
     + `Betreff: ${String(mail.betreff || '').slice(0, 300)}\n`
@@ -661,7 +681,9 @@ function antwortSchema(anzahl = 20, themenNamen = null, neuErlaubt = false) {
         items: {
           type: 'object',
           properties: eigenschaften,
-          required: ['nr', 'kategorie', 'konfidenz'],
+          // spam_score gehört dazu: Fehlte er, wurde daraus 0 — eine Phishing-
+          // Mail, zu der das Modell schlicht nichts sagte, galt als harmlos.
+          required: ['nr', 'kategorie', 'spam_score', 'konfidenz'],
         },
       },
     },
@@ -690,6 +712,14 @@ function fragen(teil, konto, bekannt, zeitlimit = 180000) {
 // hinten an und verbrennt den Rest der Frist.
 const istZeitueberschreitung = (antwort) =>
   !antwort.ok && (/timeout|aborted|abgebrochen|ETIMEDOUT|beschäftigt/i.test(String(antwort.fehler || '')) || Boolean(antwort.gatewayTimeout));
+
+// Die Warteschlange hat abgewiesen, das Modell selbst wurde nie gefragt.
+//
+// Dann hilft es nichts, die Mails des Bündels einzeln nachzufragen: Jede stellt
+// sich wieder hinten an, wartet bis zu 80 % der Restzeit und verbrennt die Frist
+// — genau das, wovor der Kommentar oben warnt. Einzeln nachfragen lohnt nur nach
+// einer echten Zeitüberschreitung, also wenn das Bündel zu groß war.
+const warteschlangeBelegt = (antwort) => !antwort.ok && /beschäftigt/i.test(String(antwort.fehler || ''));
 
 /**
  * @param {Array<object>} mails Mails eines Laufs, in der Reihenfolge des Workflows.
@@ -843,7 +873,7 @@ async function klassifizieren(mails) {
 
       // Antwortet die KI gar nicht oder lief ein Mehrfach-Bündel ins Zeitlimit (z. B. 504 Gateway Timeout):
       // Falls das Bündel mehr als 1 Gruppe hatte, versuchen wir die Mails einzeln, bevor wir abbrechen.
-      if (istZeitueberschreitung(antwort) && teil.length > 1) {
+      if (istZeitueberschreitung(antwort) && !warteschlangeBelegt(antwort) && teil.length > 1) {
         loggen('info', 'klassifizierer',
           `Bündel mit ${teil.length} Mails lief ins Zeitlimit (${antwort.gatewayTimeout ? '504 vom Reverse-Proxy' : 'Timeout'}) — versuche die Mails einzeln.`);
         let gerettet = false;
@@ -914,14 +944,38 @@ async function klassifizieren(mails) {
           + `Erwartet wird eine Liste mit "nr" von 1 bis ${teil.length}. `
           + 'Kommt das immer wieder, ist das Modell für diese Aufgabe zu klein.');
       }
+      const ohneAntwort = [];
       teil.forEach((gruppe, idx) => {
         const ki = treffer.get(idx + 1);
-        if (!ki) return;
+        if (!ki) { ohneAntwort.push(gruppe); return; }
         for (const mitglied of gruppe.mitglieder) {
           ergebnisse[mitglied.__i] = ki;
           klassifiziert += 1;
         }
       });
+
+      // Einzelne Mails fehlen in der Antwort — das Modell hat früher aufgehört
+      // oder eine Nummer doppelt vergeben. Bisher fielen sie ohne jede Zeile im
+      // Log aus dem Lauf („2 von 3 Mails klassifiziert", und keiner wusste,
+      // warum). Solange die Frist reicht, werden sie einzeln nachgefragt.
+      if (treffer.size > 0 && ohneAntwort.length > 0) {
+        loggen('info', 'klassifizierer',
+          `Die Antwort enthielt ${treffer.size} von ${teil.length} Mails — `
+          + `${ohneAntwort.length} fehlende werden einzeln nachgefragt (${antwortForm(antwort.daten)}).`);
+        for (const einzelGruppe of ohneAntwort) {
+          const restFrist = frist() - (Date.now() - begonnen);
+          if (restFrist < mindestRestMs(1)) break;
+          const einzelAntwort = await fragen([einzelGruppe], konto, bekannt, anfrageZeitlimit(restFrist));
+          anfragen += 1;
+          if (!einzelAntwort.ok) continue;
+          const ki = antwortZuordnen(einzelAntwort.daten, [einzelGruppe]).get(1);
+          if (!ki) continue;
+          for (const mitglied of einzelGruppe.mitglieder) {
+            ergebnisse[mitglied.__i] = ki;
+            klassifiziert += 1;
+          }
+        }
+      }
     }
   }
 
