@@ -29,6 +29,7 @@ const imap = require('./imap');
 const themen = require('./themen');
 const sortierung = require('./sortierung');
 const klassifizierer = require('./klassifizierer');
+const kiVorschlag = require('./kiVorschlag');
 const { loggen } = require('./panelLog');
 
 // Ordnerrollen, die nie angefasst werden.
@@ -109,6 +110,84 @@ function ordnerAuswahl(konto, details) {
     .filter(Boolean);
 }
 
+/**
+ * Die Namen der Ordner, die ein KI-Vorschlag nie treffen darf.
+ *
+ * Gesperrt ist, was `ordnerAuswahl` nicht durchsieht — nur als Zielordner
+ * gedacht: Papierkorb, Entwürfe, Gesendet, Gmails „Alle Nachrichten", der
+ * Spam-Ordner des Kontos, dazu der Posteingang, Ansichten („Markiert", „Wichtig")
+ * und Zwischenknoten ohne eigene Nachrichten. Es zählt, wie der SERVER sie nennt:
+ * Ein Papierkorb heißt dort oft „Gelöschte Elemente" — und diesen Namen kennt
+ * keine feste Liste.
+ *
+ * @returns {string[]} Pfade und Endstücke der gesperrten Ordner
+ */
+function gesperrteOrdner(konto, details) {
+  const namen = new Set();
+  const spam = String(konto?.folder_spam || imap.STANDARD.folder_spam || '').trim();
+  if (spam) namen.add(spam);
+  for (const o of details || []) {
+    const rolle = String(o.spezial || '');
+    const gesperrt = GESPERRTE_ROLLEN.has(rolle)
+      || ['inbox', 'flagged', 'important'].includes(rolle)
+      || o.auswaehlbar === false;
+    if (!gesperrt || !o.pfad) continue;
+    namen.add(o.pfad);
+    namen.add(kiVorschlag.letzterTeil(o.pfad));
+  }
+  return [...namen];
+}
+
+/**
+ * Prüft den Zielordner einer von Hand bestätigten Verschiebung.
+ *
+ * Der Name kommt aus dem Browser, und dort steht, was der Admin im Zielfeld
+ * stehen hat — vorbelegt mit dem Vorschlag der KI. Darauf verlässt sich der
+ * Server nicht:
+ *
+ *   * Ein Ordner, den es auf dem Server gibt, gilt mit SEINEM Pfad aus der
+ *     Ordnerliste (auch mit Trennzeichen — „Archiv/2024" ist ein echter Ordner),
+ *     es sei denn, er ist gesperrt (siehe gesperrteOrdner).
+ *   * Alles andere wäre ein NEUER Ordner. Dafür gilt dieselbe strenge Namens-
+ *     prüfung wie für Modellvorschläge: ohne Pfadtrenner, ohne Sonderzeichen,
+ *     nicht wie ein System- oder Kategorieordner. Ein Tippfehler im Zielfeld legt
+ *     so keinen Unterordner an fremder Stelle an.
+ *
+ * @param {object} konto
+ * @param {Array} details Ergebnis von imap.ordnerDetails()
+ * @param {*} wunsch      was im Zielfeld steht
+ * @returns {{ok: true, pfad: string, neu: boolean} | {ok: false, code: string, fehler: string}}
+ */
+function zielPruefen(konto, details, wunsch) {
+  const text = typeof wunsch === 'string' ? wunsch.trim() : '';
+  if (!text) return { ok: false, code: 'leer', fehler: 'Kein Zielordner angegeben.' };
+
+  const gesperrt = gesperrteOrdner(konto, details);
+  const sperre = new Set(gesperrt.map(kiVorschlag.schluessel));
+  const istGesperrt = (pfad) => sperre.has(kiVorschlag.schluessel(pfad))
+    || sperre.has(kiVorschlag.schluessel(kiVorschlag.letzterTeil(pfad)));
+
+  // 1. Gibt es den Ordner? Erst der genaue Pfad, dann das Endstück
+  //    („Rechnungen" trifft „INBOX.Rechnungen").
+  const klein = text.toLowerCase();
+  const frei = (details || []).filter((o) => o.pfad && o.auswaehlbar !== false);
+  const treffer = frei.find((o) => o.pfad.toLowerCase() === klein)
+    || frei.find((o) => kiVorschlag.letzterTeil(o.pfad).toLowerCase() === klein);
+  if (treffer) {
+    if (istGesperrt(treffer.pfad) || GESPERRTE_ROLLEN.has(String(treffer.spezial || ''))) {
+      return { ok: false, code: 'gesperrt', fehler: `„${treffer.pfad}" ist ein gesperrter System- oder Kategorieordner.` };
+    }
+    return { ok: true, pfad: treffer.pfad, neu: false };
+  }
+
+  // 2. Ein neuer Ordner — streng.
+  const name = kiVorschlag.ordnerNamePruefen(text, { konto, gesperrt });
+  if (!name.ok) {
+    return { ok: false, code: name.code, fehler: `Ordnername nicht zulässig: ${name.detail}` };
+  }
+  return { ok: true, pfad: name.name, neu: true };
+}
+
 /** Zwei Ordnerpfade, die dasselbe Fach meinen? "INBOX.Rechnungen" = "Rechnungen". */
 function selberOrdner(a, b) {
   const x = String(a || '').toLowerCase();
@@ -163,7 +242,11 @@ const KI_GEZEIGT_MAX = 20000;
  */
 async function kontoDurchgehen(konto, { trockenlauf, rest }) {
   const ergebnis = {
-    geprueft: 0, treffer: 0, verschoben: 0, fehlgeschlagen: 0, vorschlaege: 0, fehler: [], beispiele: [],
+    geprueft: 0, treffer: 0, verschoben: 0, fehlgeschlagen: 0, vorschlaege: 0,
+    // KI-Vorschläge, die die Prüfung (Name, Konfidenz) nicht bestanden haben —
+    // sie gelten als „Kein Thema erkannt" und erreichen nie die Oberfläche.
+    verworfen: 0, verworfenGruende: {},
+    fehler: [], beispiele: [],
   };
   const regeln = sortierung.regelnGeordnet(konto.id);
   if (regeln.length === 0) return ergebnis;
@@ -256,13 +339,50 @@ async function kontoDurchgehen(konto, { trockenlauf, rest }) {
 
         if (geladen.length > 0) {
           const kiErgebnis = await klassifizierer.klassifizieren(geladen);
+
+          // Was die Prüfung der Modellvorschläge braucht — einmal je Ordner
+          // ausgerechnet, nicht je Mail.
+          const themenEinst = themen.einstellungen();
+          const pruefOptionen = {
+            konto,
+            // Die eingestellte Mindest-Sicherheit (Einstellungen → Themen-Sortierung),
+            // nicht eine eigene: Wer sie anhebt, will sie überall.
+            schwelle: themenEinst.konfidenz,
+            neueErlaubt: themenEinst.anlegen !== 'aus',
+            gesperrt: gesperrteOrdner(konto, details),
+            // Nur Ordner, die es gibt UND die ein Ziel sein dürfen. Ihr Pfad stammt
+            // vom Server oder aus dem Katalog — nie aus dem Text des Modells.
+            bekannt: [...new Set([...ordner, ...themen.katalog(konto.id).map((o) => o.ordner)])],
+          };
+
           for (let i = 0; i < geladen.length; i++) {
             const res = kiErgebnis.ergebnisse[i];
-            if (!res || !res.ordner || res.ordner === quelle) continue;
-            
+            if (!res || !res.ordner) continue;
+
             const m = geladen[i];
-            const ziel = String(res.ordner).trim();
-            if (selberOrdner(quelle, ziel)) continue;
+            let ziel;
+            let neuerOrdner = false;
+            let konfidenz = Number(res.konfidenz) || 0;
+
+            if (res.regel) {
+              // Eine eigene Regel oder ein Stichwort, das erst mit dem Mailtext
+              // greift: Der Ordner stammt aus den Einstellungen des Nutzers, nicht
+              // aus dem Modell — hier gibt es nichts zu prüfen.
+              ziel = String(res.ordner).trim();
+            } else {
+              const urteil = kiVorschlag.vorschlagPruefen(
+                { ordner: res.ordner, konfidenz: res.konfidenz }, pruefOptionen,
+              );
+              if (!urteil.ok) {
+                ergebnis.verworfen += 1;
+                ergebnis.verworfenGruende[urteil.code] = (ergebnis.verworfenGruende[urteil.code] || 0) + 1;
+                continue;
+              }
+              ziel = urteil.ordner;
+              neuerOrdner = urteil.neu;
+              konfidenz = urteil.konfidenz;
+            }
+            if (!ziel || selberOrdner(quelle, ziel)) continue;
 
             ergebnis.vorschlaege += 1;
             if (ergebnis.beispiele.length < BEISPIELE_MAX) {
@@ -275,15 +395,15 @@ async function kontoDurchgehen(konto, { trockenlauf, rest }) {
                 betreff: String(m.betreff || '').slice(0, 120),
                 vonOrdner: quelle,
                 nachOrdner: ziel,
-                // Eine eigene Regel oder ein Stichwort, das erst mit dem Mailtext
-                // greift, ist kein KI-Vorschlag — der Klassifizierer entscheidet
-                // solche Mails vorab ohne KI.
                 regel: res.regel
                   ? `Regel/Stichwort mit Mailtext: ${String(res.kurzfassung || '').slice(0, 80)}`
-                  : `KI-Vorschlag (${Math.round((res.konfidenz || 0) * 100)}%)`,
+                  : `KI-Vorschlag (${Math.round(konfidenz * 100)}%)`,
                 isKI: true,
-                konfidenz: res.konfidenz || 0,
-                grund: res.kurzfassung || 'KI-Vorschlag'
+                // Ein Ordner, den es noch nicht gibt: Er entsteht erst, wenn ein
+                // Admin den Vorschlag bestätigt.
+                neuerOrdner,
+                konfidenz,
+                grund: String(res.kurzfassung || 'KI-Vorschlag').slice(0, 200),
               });
             }
           }
@@ -344,6 +464,8 @@ async function lauf(opt = {}) {
     verschoben: 0,
     fehlgeschlagen: 0,
     vorschlaege: 0,
+    verworfen: 0,
+    verworfenGruende: {},
     fehler: [],
     beispiele: [],
     sekunden: 0,
@@ -362,6 +484,10 @@ async function lauf(opt = {}) {
         gesamt.verschoben += r.verschoben;
         gesamt.fehlgeschlagen += r.fehlgeschlagen || 0;
         gesamt.vorschlaege += r.vorschlaege || 0;
+        gesamt.verworfen += r.verworfen || 0;
+        for (const [code, anzahl] of Object.entries(r.verworfenGruende || {})) {
+          gesamt.verworfenGruende[code] = (gesamt.verworfenGruende[code] || 0) + anzahl;
+        }
         gesamt.fehler.push(...r.fehler);
         for (const b of r.beispiele) {
           if (gesamt.beispiele.length < BEISPIELE_MAX) gesamt.beispiele.push(b);
@@ -386,6 +512,12 @@ async function lauf(opt = {}) {
     loggen(gesamt.fehler.length ? 'warn' : 'info', 'nachsortierung',
       `Nachsortierung: ${gesamt.geprueft} Mail(s) geprüft, ${wort}`
       + (gesamt.vorschlaege ? `, ${gesamt.vorschlaege} KI-Vorschlag/Vorschläge zur Ansicht` : '')
+      // Was die Prüfung aussortiert hat, soll auffallen: Ein Modell, das plötzlich
+      // lauter unzulässige Namen liefert, ist ein Hinweis, dass etwas nicht stimmt.
+      + (gesamt.verworfen
+        ? `, ${gesamt.verworfen} KI-Vorschlag/Vorschläge verworfen (Kein Thema erkannt: `
+          + `${Object.entries(gesamt.verworfenGruende).map(([c, n]) => `${c} ${n}`).join(', ')})`
+        : '')
       + `, ${gesamt.sekunden} s.`
       + (gesamt.treffer >= e.max ? ` Obergrenze von ${e.max} erreicht — der Rest kommt beim nächsten Lauf.` : ''));
     return gesamt;
@@ -417,6 +549,8 @@ module.exports = {
   einstellungen,
   letzterLauf,
   ordnerAuswahl,
+  gesperrteOrdner,
+  zielPruefen,
   selberOrdner,
   zeitplanStarten,
   regelFuerBriefkopf,

@@ -290,7 +290,11 @@ describe('Eine einzelne Mail aus der Vorschlagsliste umlenken', () => {
   const request = async (pfad, rumpf) => {
     const app = express();
     app.use(express.json());
-    app.use((req, _res, next) => { req.user = { id: 1 }; next(); });
+    // Die Route verlangt eine Admin-Sitzung — so, wie auth() sie bereitstellt.
+    app.use((req, _res, next) => {
+      req.user = { id: 1, username: 'test-admin', rolle_id: 1, admin: true, claims: { admin: true, rolle_id: 1 } };
+      next();
+    });
     app.use('/api/sortierung', require('../src/routes/sortierung'));
     const server = await new Promise((f) => { const s = app.listen(0, () => f(s)); });
     try {
@@ -309,6 +313,7 @@ describe('Eine einzelne Mail aus der Vorschlagsliste umlenken', () => {
   test('verschiebt genau diese Mail — und lässt die Regel in Ruhe', async () => {
     const id = regel('absender', 'shop@versand.example', 'Bestellungen').lastInsertRowid;
     imap.ordnerErstellen = async () => false;
+    ordnerListe.push({ pfad: 'Rechnungen', spezial: null, auswaehlbar: true });
 
     const r = await request('/api/sortierung/nachsortierung/verschieben', {
       konto_id: kontoId(), uid: 7, von: 'Einkauf', nach: 'Rechnungen',
@@ -349,6 +354,7 @@ describe('Eine einzelne Mail aus der Vorschlagsliste umlenken', () => {
 
   test('bewegt sich nichts, meldet die Route das auch', async () => {
     imap.ordnerErstellen = async () => false;
+    ordnerListe.push({ pfad: 'Rechnungen', spezial: null, auswaehlbar: true });
     imap.mailsVerschieben = async () => ({ verschoben: [], fehler: [{ uid: 7, grund: 'nicht in "Einkauf" gefunden' }] });
 
     const r = await request('/api/sortierung/nachsortierung/verschieben', {

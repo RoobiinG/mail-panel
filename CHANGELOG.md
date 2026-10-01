@@ -2,6 +2,77 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [7.3.1.0] - 2026-10-01 (Build 254) — *Gehärtete KI-Nachsortierung*
+
+Die KI-Nachsortierung übernahm den Ordnernamen aus der Modellantwort ohne jede Prüfung und ohne Blick
+auf die Sicherheit, die das Modell selbst angab; wer „Sortierung" als Recht hatte, durfte die Vorschläge
+bestätigen. Beides ist jetzt serverseitig abgesichert.
+
+### Sicherheit
+- **Ordnernamen aus KI-Antworten werden geprüft, nicht übernommen** (`services/kiVorschlag.js`, neu).
+  Der Name muss 2–40 Zeichen lang sein und **ausschließlich** Buchstaben, Ziffern, Leerzeichen, `-` und `_`
+  enthalten. Ein Verstoß **verwirft** den Vorschlag — es wird nichts „repariert" (aus
+  `Ordner\r\nA001 DELETE INBOX` entstünde sonst ein harmlos aussehender Name). Abgelehnt werden außerdem:
+  Pfadtrenner einschließlich Unicode-Doppelgänger (`∕ ⁄ ⧸ ∖ ／ ＼`, Vollbreite-Punkt), Steuer-, Bidi- und
+  unsichtbare Zeichen, Sonderformen (Ligaturen, Vollbreite — NFKC), gemischte Schriften
+  (Latein + Kyrillisch/Griechisch: Doppelgänger-Namen wie „Rеchnungen") und Nicht-Text.
+- **Gesperrte System- und Kategorieordner:** Papierkorb, Entwürfe, Gesendet, Spam, Posteingang, Ansichten
+  und Zwischenknoten werden **unter dem Namen gesperrt, den der Server ihnen gibt** (`ordnerDetails`:
+  Rolle/Flags — ein Papierkorb „Gelöschte Elemente" steht auf keiner festen Liste), dazu die festen
+  Systemnamen und die Kategorieordner des Kontos. Verglichen wird ohne Groß/Klein, Leerzeichen, `-` und `_`
+  („Papier_korb" entkommt der Sperre für „Papierkorb" nicht mehr).
+- **Mindest-Sicherheit serverseitig:** Liegt die Konfidenz unter dem eingestellten Schwellenwert
+  (`themen_konfidenz`, ab Werk 0,7), fehlt sie oder ist sie keine Zahl von 0 bis 1 (auch „85" gilt nicht),
+  gilt der Vorschlag als **„Kein Thema erkannt"** und erreicht die Oberfläche nie. Eine fehlende oder kaputte
+  Schwelle macht streng, nicht offen (`Number(null)` ist 0 — das hätte alles durchgelassen).
+- **Der Text des Modells wird nie zum Pfad:** Passt der Name zu einem vorhandenen Ordner, gilt dessen Pfad
+  aus der Serverliste bzw. dem Katalog; ein neuer Name bleibt ein Name ohne Trenner. Ist „Neue Ordner" auf
+  *Nicht anlegen*, erscheinen keine Vorschläge für neue Ordner.
+- **`POST /nachsortierung/verschieben` glaubt dem Browser nichts mehr:** Quell- und Zielordner werden gegen
+  die Ordnerliste des Postfachs geprüft. Die Quelle muss ein Ordner sein, den die Nachsortierung überhaupt
+  durchsieht (kein Papierkorb: nichts lässt sich „zurückholen"); das Ziel ein vorhandener, nicht gesperrter
+  Ordner **oder** ein neuer mit bestandener Namensprüfung — ein Tippfehler wie `Archiv/2025` legt keinen
+  Unterordner an. Ist das Postfach nicht erreichbar, wird nichts auf Verdacht getan (502). Absender und
+  Betreff aus dem Browser werden vor dem Protokollieren begrenzt.
+- **Bestätigen, Korrigieren und Ablehnen nur mit gültiger Admin-Sitzung** (`adminErforderlich`,
+  `middleware/auth.js`) an: `POST /sortierung/nachsortierung/verschieben`, `…/vorschlaege/:id/freigeben`,
+  `…/umleiten`, `…/ablehnen`, `…/vorschlaege/zusammenfassen` und `…/inbox/vorschlaege-uebernehmen`. Das
+  Recht „sortierung" genügt nicht mehr (es lässt sich jeder selbst angelegten Rolle geben). Geprüft wird
+  über `auth` (Signatur, Aussteller, Zielgruppe, Ablauf, Benutzer frisch aus der Datenbank) hinaus die feste
+  Admin-Rolle **und** der Abgleich der Rollen-Claims: Die Datenbank sagt „kein Admin" → 403 (Rolle entzogen,
+  Token noch gültig); das Token sagt etwas anderes als die Datenbank → 401 `rolle_geaendert` (die
+  Oberfläche meldet ab und fordert zum neuen Anmelden auf).
+
+### Verbesserungen
+- Das Ergebnis eines Nachsortierungs-Laufs trägt `verworfen` und `verworfenGruende`; das Protokoll nennt
+  sie („3 KI-Vorschläge verworfen (Kein Thema erkannt: konfidenz 1, pfadtrenner 1, gesperrt 1)") — ein
+  Modell, das plötzlich nur Unbrauchbares liefert, fällt so auf. Vorschläge tragen `neuerOrdner`.
+
+### Tests
+- Neu (rund 220 Fälle): `ki-vorschlag` (Angriffskorpus, Grenzen 2/40, gesperrte Namen, Schwelle),
+  `nachsortierung-ki` (der KI-Zweig mit gefälschten Modellantworten, `zielPruefen`, die Route),
+  `admin-session` (alle sechs Routen mit Admin, Nicht-Admin, „Fast-Admin"-Rolle, entzogener/neuer Rolle,
+  Claim-Abweichung, fremd signiertem Token, `alg: none`; dazu eine Quelltext-Prüfung, dass die Middleware an
+  jeder Route steht). Per Mutation geprüft: Fehlt die Prüfung an einer Route, im Claim-Abgleich oder die
+  Schwelle, schlagen Tests an.
+- Angepasst: `nachsortierung` und `vorschlaege-uebernehmen` (Admin-Sitzung im Testhelfer; ein neuer Ordner
+  „Rechnungen" muss existieren, ein neuer mit diesem Namen wäre ein Kategorieordner).
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Datenbank:** keine Migration.
+- **n8n-Workflows:** unberührt, kein Neu-Import.
+- **Rechte:** Benutzer mit einer eigenen Rolle, die bisher Vorschläge bestätigen, korrigieren oder ablehnen
+  durften, können das nicht mehr — sie sehen „Dafür ist die Admin-Rolle nötig." Wer das braucht, wird Admin
+  (feste Rolle). *Nicht* betroffen: Regeln pflegen, Nachsortierung starten oder einstellen, Sortier-Inbox
+  („Verschieben"/„Ignorieren"), die übrigen Sortierfunktionen.
+- **Verhalten:** KI-Vorschläge der Nachsortierung unter der Mindest-Sicherheit erscheinen nicht mehr in der
+  Liste (vorher: alle). Ein neuer Ordner lässt sich über „Nur diese Mail" nur noch mit einem Namen ohne
+  Trenner und ohne `& + ( ) .` anlegen; vorhandene verschachtelte Ordner (`Archiv/2024`) bleiben erreichbar.
+  Die Regeln für Themen-Ordner im Einsortieren (`ordnerNormalisieren`, erlaubt zusätzlich `& + ( )`) sind
+  unverändert.
+- **Neustart/Sitzung:** Container neu starten. Wer die Admin-Rolle erst nach seiner letzten Anmeldung
+  bekommen hat, wird beim ersten dieser Aktionen einmal abgemeldet (Token mit alter Rolle).
+
 ## [7.3.0.0] - 2026-10-01 (Build 253) — *Zwei-Faktor-Anmeldung und gehärtete Anhänge*
 
 Zwei Themen aus einer Sicherheitsdurchsicht: Die Anmeldung bekommt einen freiwilligen zweiten Faktor, und

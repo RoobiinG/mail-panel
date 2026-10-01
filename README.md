@@ -644,6 +644,27 @@ aus Buchstaben, Zahlen, Leerzeichen, `-` und `_`; Pfadtrenner, System- und Kateg
 gesperrt. Und im **Trockenlauf** wird nie ein Ordner angelegt — dort siehst du nur, was passiert
 wäre.
 
+**Dasselbe gilt für die KI-Nachsortierung** (Sortierung → Nachsortierung), noch bevor ein
+Vorschlag in der Liste erscheint:
+- Der Name wird **verworfen, nicht repariert**, wenn er nicht 2–40 Zeichen aus Buchstaben, Ziffern,
+  Leerzeichen, `-` und `_` hat, einen Pfadtrenner enthält (auch Unicode-Doppelgänger wie `∕`),
+  verschiedene Schriften mischt (kyrillisches „с" in „Rechnungen") oder einen gesperrten Ordner meint
+  — Papierkorb, Entwürfe, Gesendet, Spam, Posteingang, Ansichten und die Kategorieordner des Kontos.
+  Gesperrt ist, wie der **Server** den Ordner nennt, nicht nur eine feste Namensliste.
+- Liegt die **Konfidenz unter der eingestellten Mindest-Sicherheit** (oder fehlt sie, oder ist sie
+  keine Zahl zwischen 0 und 1), gilt der Vorschlag als „Kein Thema erkannt". Das Protokoll zählt,
+  was und warum verworfen wurde.
+- Passt der Name zu einem vorhandenen Ordner, gilt dessen **Pfad vom Server**, nie der Text des
+  Modells. Ein neuer Ordner entsteht erst, wenn du den Vorschlag bestätigst — und auch dort prüft der
+  Server das Zielfeld, nicht der Browser.
+
+**Bestätigen, korrigieren und ablehnen darf nur ein Admin.** Das gilt für Ordner-Vorschläge der KI
+(freigeben, umleiten, zusammenfassen, ablehnen), für „Alle KI-Vorschläge übernehmen" und für „Nur
+diese Mail" in der Nachsortierung. Das Recht *Sortierung* genügt dafür nicht: Das Panel prüft die
+Sitzung (JWT) und gleicht ihre Rollen-Angaben mit der Datenbank ab. Wurde dir die Admin-Rolle seit
+der Anmeldung entzogen, ist die Antwort „403"; wurde sie dir erst gegeben, meldet dich das Panel
+einmal ab, damit die neue Sitzung die Rolle trägt.
+
 **Mit der Zeit wird es günstiger:** Landen drei Mails desselben Absenders im selben Ordner, macht
 das Panel daraus eine feste Regel. Dieser Absender läuft danach ohne KI-Abfrage durch.
 

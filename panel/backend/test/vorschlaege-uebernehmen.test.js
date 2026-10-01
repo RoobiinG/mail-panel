@@ -31,7 +31,12 @@ sortierung.abgleichen = async () => {};
 const request = async (methode, pfad, rumpf) => {
   const app = express();
   app.use(express.json());
-  app.use((req, _res, next) => { req.user = { id: 1 }; next(); });
+  // Alle KI-Vorschläge zu übernehmen ist eine Bestätigung — nur mit Admin-Sitzung,
+  // so wie auth() sie bereitstellt.
+  app.use((req, _res, next) => {
+    req.user = { id: 1, username: 'test-admin', rolle_id: 1, admin: true, claims: { admin: true, rolle_id: 1 } };
+    next();
+  });
   app.use('/api/sortierung', routen);
   const server = await new Promise((fertig) => {
     const s = app.listen(0, () => fertig(s));

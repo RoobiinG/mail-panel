@@ -13,6 +13,7 @@ const entscheidungen = require('../services/entscheidungen');
 const belegLeser = require('../services/belegLeser');
 const settings = require('../services/settings');
 const uebersicht = require('../services/uebersicht');
+const { adminErforderlich } = require('../middleware/auth');
 // Zugangsdaten kommen über themen.zugang() (Passwort UND tlsUnsicher) — siehe dort.
 
 const router = express.Router();
@@ -714,7 +715,7 @@ router.get('/inbox/vorschlaege-vorschau', async (req, res) => {
 // Vorschau und Klick kann ein Workflow-Lauf Mails einsortiert oder neue
 // Vorschläge gebracht haben — verschoben wird, was JETZT zu den gewählten
 // Ordnern vorgeschlagen ist.
-router.post('/inbox/vorschlaege-uebernehmen', async (req, res) => {
+router.post('/inbox/vorschlaege-uebernehmen', adminErforderlich, async (req, res) => {
   const konto = kontoLaden(req.body?.konto_id);
   if (!konto) return res.status(400).json({ error: 'Das Konto existiert nicht.' });
   const gewaehlt = Array.isArray(req.body?.ordner)
@@ -1571,7 +1572,7 @@ router.get('/vorschlaege', (req, res) => {
 // POST /api/sortierung/vorschlaege/:id/freigeben
 // Legt den Ordner an, nimmt ihn in den Katalog und sortiert die Mails nach, die
 // währenddessen im Posteingang liegen geblieben sind.
-router.post('/vorschlaege/:id/freigeben', async (req, res) => {
+router.post('/vorschlaege/:id/freigeben', adminErforderlich, async (req, res) => {
   const vorschlag = db.prepare('SELECT * FROM ordner_vorschlaege WHERE id = ?').get(Number(req.params.id));
   if (!vorschlag) return res.status(404).json({ error: 'Vorschlag nicht gefunden.' });
   const konto = kontoHolen(vorschlag.konto_id);
@@ -1628,7 +1629,7 @@ router.post('/vorschlaege/:id/freigeben', async (req, res) => {
 // „Fritzbox" sind drei Vorschläge für dieselbe Sache. Hier werden sie zu einem
 // Ordner — und weil jeder der Namen als Umleitung hinterlegt wird, schlagen sie
 // nie wieder auf, sondern landen künftig ohne Nachfrage im Sammelordner.
-router.post('/vorschlaege/zusammenfassen', async (req, res) => {
+router.post('/vorschlaege/zusammenfassen', adminErforderlich, async (req, res) => {
   const ziel = String(req.body?.ordner || '').trim();
   const ids = Array.isArray(req.body?.vorschlag_ids) ? req.body.vorschlag_ids.map(Number) : [];
   if (!ziel) return res.status(400).json({ error: 'Kein Ordnername angegeben.' });
@@ -1733,7 +1734,7 @@ router.get('/vorschlaege/:id/mails', (req, res) => {
 // einen Ordner, den es schon gibt, und merkt sich den Namen: Schlägt die KI ihn
 // wieder vor, landet die Mail künftig direkt dort. Vorher blieb nur Ablehnen,
 // und die nächste Mail derselben Art stand wieder unsortiert im Posteingang.
-router.post('/vorschlaege/:id/umleiten', async (req, res) => {
+router.post('/vorschlaege/:id/umleiten', adminErforderlich, async (req, res) => {
   const ziel = String(req.body?.ordner || '').trim();
   if (!ziel) return res.status(400).json({ error: 'Kein Zielordner angegeben.' });
 
@@ -2336,7 +2337,7 @@ router.delete('/alias/:id', (req, res) => {
 });
 
 // POST /api/sortierung/vorschlaege/:id/ablehnen — kommt nicht wieder
-router.post('/vorschlaege/:id/ablehnen', (req, res) => {
+router.post('/vorschlaege/:id/ablehnen', adminErforderlich, (req, res) => {
   try {
     const info = db.prepare("UPDATE ordner_vorschlaege SET status = 'abgelehnt' WHERE id = ?")
       .run(Number(req.params.id));
@@ -2473,32 +2474,75 @@ router.post('/nachsortierung', (req, res) => {
 // anzufassen. Der Vorbehalt gehoert dazu und steht auch in der Oberflaeche: Die
 // Regel bleibt, wie sie ist, und schlaegt beim naechsten Lauf wieder zu. Wer die
 // Ursache beseitigen will, aendert die Regel — dafuer gibt es den Knopf daneben.
-router.post('/nachsortierung/verschieben', async (req, res) => {
+//
+// Das ist die BESTAETIGUNG (oder, wenn der Admin das Zielfeld geaendert hat, die
+// KORREKTUR) eines Vorschlags — bei einem KI-Vorschlag legt sie womoeglich einen
+// Ordner an und lernt eine Regel. Deshalb nur mit gueltiger Admin-Sitzung.
+//
+// Dem Browser wird dabei nichts geglaubt: Quell- und Zielordner prueft der Server
+// gegen die Ordnerliste des Postfachs. Ein Ordner, den es gibt, gilt mit seinem
+// Pfad von dort; ein neuer muss die strenge Namenspruefung bestehen (siehe
+// nachsortierung.zielPruefen) — kein Pfadtrenner, kein System- oder Kategorieordner.
+router.post('/nachsortierung/verschieben', adminErforderlich, async (req, res) => {
   const { konto_id, uid, von, nach } = req.body || {};
   const konto = db.prepare('SELECT * FROM accounts WHERE id = ?').get(Number(konto_id));
   if (!konto) return res.status(400).json({ error: 'Das Konto existiert nicht.' });
   const nummer = Number(uid);
   if (!Number.isInteger(nummer) || nummer <= 0) return res.status(400).json({ error: 'Ungültige UID.' });
-  const quelle = String(von || '').trim();
-  const ziel = String(nach || '').trim();
-  if (!quelle || !ziel) return res.status(400).json({ error: 'Quell- und Zielordner sind Pflicht.' });
+  const quelle = typeof von === 'string' ? von.trim() : '';
+  if (!quelle || typeof nach !== 'string' || !nach.trim()) {
+    return res.status(400).json({ error: 'Quell- und Zielordner sind Pflicht.' });
+  }
 
   try {
     const zugang = themen.zugang(konto);
-    // Zielordner sicherstellen und die Schreibweise des Servers holen — sonst
-    // scheitert der Umzug an "INBOX.Rechnungen" vs. "Rechnungen".
-    try { await imap.ordnerErstellen({ ...konto, ...zugang }, ziel); } catch { /* Best Effort */ }
-    const pfad = (await themen.ordnerPfad(konto, ziel)) || ziel;
+    // Ohne die Ordnerliste laesst sich nichts pruefen — und ohne Postfach auch
+    // nichts verschieben. Also kein Weitermachen auf Verdacht.
+    let details;
+    try {
+      details = await imap.ordnerDetails({ ...konto, ...zugang });
+    } catch (err) {
+      return res.status(502).json({ error: `Das Postfach ist nicht erreichbar: ${err.message}` });
+    }
+
+    // Die Nachsortierung sieht nur bestimmte Ordner durch (nicht Papierkorb,
+    // Entwuerfe, Gesendet, Spam) — und nur aus denen laesst sie sich umlenken.
+    // Sonst waere diese Route ein Weg, Geloeschtes zurueckzuholen.
+    const quellPfad = nachsortierung.ordnerAuswahl(konto, details)
+      .find((p) => p.toLowerCase() === quelle.toLowerCase());
+    if (!quellPfad) {
+      return res.status(400).json({ error: `Aus „${quelle}" lässt sich nichts verschieben — den Ordner gibt es nicht oder er ist gesperrt.` });
+    }
+
+    const ziel = nachsortierung.zielPruefen(konto, details, nach);
+    if (!ziel.ok) {
+      loggen('warn', 'nachsortierung', `Zielordner "${String(nach).slice(0, 60)}" abgewiesen (${ziel.code}) — ${req.user?.username || 'unbekannt'}.`);
+      return res.status(400).json({ error: ziel.fehler });
+    }
+
+    // Ein neuer Ordner wird angelegt und danach nach seinem Pfad gefragt, wie der
+    // Server ihn schreibt — sonst scheitert der Umzug an "INBOX.Rechnungen" vs.
+    // "Rechnungen".
+    let pfad = ziel.pfad;
+    if (ziel.neu) {
+      try {
+        await imap.ordnerErstellen({ ...konto, ...zugang }, ziel.pfad);
+      } catch (err) {
+        return res.status(400).json({ error: `Der Ordner „${ziel.pfad}" ließ sich nicht anlegen: ${err.message}` });
+      }
+      themen.cacheVerwerfen(konto.id);
+      pfad = (await themen.ordnerPfad(konto, ziel.pfad)) || ziel.pfad;
+    }
 
     const r = await imap.mailsVerschieben({
-      ...zugang, mails: [{ uid: nummer }], von: quelle, nach: pfad,
+      ...zugang, mails: [{ uid: nummer }], von: quellPfad, nach: pfad,
     });
     if (r.verschoben.length === 0) {
       return res.status(400).json({ error: r.fehler[0]?.grund || 'Die Mail ließ sich nicht verschieben.' });
     }
     // Was die KI einmal in den Quellordner gelernt hat, zoege die naechste Mail
     // sonst wieder dorthin — ohne KI und ohne dass es auffiele.
-    try { themen.gelerntVergessen(konto.id, quelle, req.body?.absender || ''); } catch { /* egal */ }
+    try { themen.gelerntVergessen(konto.id, quellPfad, req.body?.absender || ''); } catch { /* egal */ }
 
     // (KI-Nachsortierung) Lerneffekt: Wenn ein KI-Vorschlag übernommen wird,
     // behandeln wir das als "bestätigt" und lassen die Automatik daraus lernen.
@@ -2515,21 +2559,24 @@ router.post('/nachsortierung/verschieben', async (req, res) => {
     // Nutzer-Schwelle.
     if (req.body?.isKI && req.body?.absender) {
       try {
+        // Absender und Betreff stammen aus dem Browser — begrenzt, nicht blind
+        // in die Datenbank.
+        const absender = String(req.body.absender).slice(0, 320);
         db.prepare(
           'INSERT INTO quarantine_log (konto, von, betreff, zielordner, ki, grund, quell_ordner)'
           + ' VALUES (?, ?, ?, ?, 0, ?, ?)',
         ).run(
-          konto.name, String(req.body.absender), req.body.betreff ? String(req.body.betreff).slice(0, 300) : null,
-          pfad, `Nachsortierung: KI-Vorschlag von Hand übernommen (aus „${quelle}")`, quelle,
+          konto.name, absender, req.body.betreff ? String(req.body.betreff).slice(0, 300) : null,
+          pfad, `Nachsortierung: KI-Vorschlag von Hand übernommen (aus „${quellPfad}")`, quellPfad,
         );
         if (themen.einstellungen().regelLernen) {
-          themen.regelLernen(konto.id, req.body.absender, pfad, { schwelle: themen.LERNSCHWELLE_NUTZER });
+          themen.regelLernen(konto.id, absender, pfad, { schwelle: themen.LERNSCHWELLE_NUTZER });
         }
       } catch { /* best effort */ }
     }
 
-    loggen('info', 'nachsortierung', `Einzelne Mail von "${quelle}" nach "${pfad}" verschoben (${konto.name}).`);
-    res.json({ ok: true, ordner: pfad });
+    loggen('info', 'nachsortierung', `Einzelne Mail von "${quellPfad}" nach "${pfad}" verschoben (${konto.name}, ${req.user?.username || 'unbekannt'}).`);
+    res.json({ ok: true, ordner: pfad, neu: ziel.neu });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

@@ -43,6 +43,10 @@ function sitzungPruefen(token) {
         // als jede selbst angelegte Rolle, in die sich beliebige Rechte schreiben lassen.
         admin: user.rolle_fest === 1,
         amr: Array.isArray(decoded.amr) ? decoded.amr : [],
+        // Was das TOKEN über Rolle und Admin-Recht behauptet. Maßgeblich bleibt die
+        // Datenbank (die Felder darüber); der Abgleich beider steht in
+        // adminErforderlich().
+        claims: { rolle_id: decoded.rolle_id, admin: decoded.admin === true },
       },
     };
   } catch (err) {
@@ -99,7 +103,42 @@ function rechtErforderlich(bereich) {
   };
 }
 
+/**
+ * Verlangt eine gültige ADMIN-Sitzung — für Entscheidungen, die auf KI-Vorschlägen
+ * beruhen (bestätigen, korrigieren, ablehnen).
+ *
+ * Ein Recht wie „sortierung" genügt dafür nicht: Das lässt sich jeder selbst
+ * angelegten Rolle geben, und wer es hat, darf auch Regeln pflegen. Ein Vorschlag
+ * des Modells aber legt Ordner an und bewegt Mails; das soll nur die feste
+ * Admin-Rolle auslösen können, die sich nicht frei bearbeiten lässt.
+ *
+ * Läuft NACH `auth`: Dort sind Signatur, Aussteller, Zielgruppe und Ablauf des
+ * JWT geprüft und der Benutzer samt Rolle frisch aus der Datenbank geladen. Hier
+ * kommt der Abgleich der Rollen-Claims dazu:
+ *   - Die Datenbank sagt „kein Admin" → 403, auch wenn das Token es behauptet
+ *     (Rolle inzwischen entzogen).
+ *   - Das Token sagt etwas anderes als die Datenbank (Rolle seit der Anmeldung
+ *     geändert, auch aufwärts) → 401: Für Entscheidungen dieser Art soll die
+ *     Sitzung die heutige Rolle widerspiegeln, also neu anmelden.
+ */
+function adminErforderlich(req, res, next) {
+  const user = req.user;
+  if (!user) return res.status(401).json({ error: 'Nicht angemeldet.', code: 'kein_token' });
+  if (!user.admin) {
+    return res.status(403).json({ error: 'Dafür ist die Admin-Rolle nötig.', code: 'admin_noetig' });
+  }
+  const claims = user.claims || {};
+  if (claims.admin !== true || claims.rolle_id !== user.rolle_id) {
+    return res.status(401).json({
+      error: 'Deine Rolle hat sich seit der Anmeldung geändert — bitte melde dich neu an.',
+      code: 'rolle_geaendert',
+    });
+  }
+  next();
+}
+
 module.exports = auth;
 module.exports.rechtErforderlich = rechtErforderlich;
+module.exports.adminErforderlich = adminErforderlich;
 module.exports.sitzungPruefen = sitzungPruefen;
 module.exports.tokenAusKopf = tokenAusKopf;
