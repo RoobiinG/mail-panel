@@ -24,7 +24,8 @@ const crypto = require('crypto');
 const db = require('../db');
 const settings = require('./settings');
 const nextcloud = require('./nextcloud');
-const { pfadSaeubern } = require('./aktionenPatcher');
+const { pfadSaeubern, dateiSaeubern } = require('./pfadSicherheit');
+const { base64ZuGross } = require('./anhangGrenzen');
 const { loggen } = require('./panelLog');
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '../../data');
@@ -59,15 +60,12 @@ function ablagePfad(name) {
   return voll;
 }
 
-/** Dateinamen entschärfen — dieselbe Regel wie im Beleg-Knoten in n8n. */
-function sauberDatei(name) {
-  return String(name == null ? '' : name)
-    .replace(/[\\/:*?"<>|]/g, ' ')
-    .replace(/[\x00-\x1f]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 120) || 'beleg';
-}
+/**
+ * Dateinamen entschärfen — dieselbe Regel wie im Beleg-Knoten in n8n (der bettet
+ * den Quelltext aus pfadSicherheit.js ein). Bis Build 252 blieb ".." dabei als
+ * ".." stehen und hätte den Upload an "<Ordner>/.." geschickt.
+ */
+const sauberDatei = dateiSaeubern;
 
 function belegtByte() {
   try {
@@ -92,6 +90,9 @@ const offeneAnzahl = () =>
 async function einliefern(eingang = {}) {
   const base64 = String(eingang.base64 || '');
   if (!base64) return { ok: false, grund: 'keine_datei' };
+  // Vor dem Dekodieren: Eine Datei über 30 MB wird nicht erst in den Speicher
+  // geholt, um dann abgelehnt zu werden.
+  if (base64ZuGross(base64)) return { ok: false, grund: 'datei_zu_gross' };
 
   const dateiname = sauberDatei(path.basename(String(eingang.dateiname || 'beleg.pdf')));
   const zielpfad = pfadSaeubern(String(eingang.zielpfad || ''));
@@ -204,7 +205,11 @@ async function freigeben(id, { zielpfad, dateiname } = {}) {
 
   // Auch der von Hand eingetippte Pfad läuft durch dieselbe Säuberung wie der
   // Vorschlag — ein ".." im Eingabefeld ist kein Sonderfall.
-  const pfad = pfadSaeubern(String(zielpfad || '').trim()) || zeile.zielpfad;
+  // Auch der gespeicherte Vorschlag läuft noch einmal durch: Zeilen aus der Zeit
+  // vor der strengen Säuberung (bis Build 252) können Zeichen tragen, die heute
+  // nicht mehr durchgehen.
+  const pfad = pfadSaeubern(String(zielpfad || '').trim()) || pfadSaeubern(zeile.zielpfad);
+  if (!pfad) return { ok: false, fehler: 'Kein gültiger Zielpfad — bitte einen eintragen.' };
   const name = sauberDatei(String(dateiname || '').trim() || zeile.dateiname);
 
   inArbeit.add(nr);

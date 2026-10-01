@@ -2,6 +2,122 @@
 
 Versionsschema: `Major.Minor.Änderung.Fix` (siehe AGENTS.md, Abschnitt 2).
 
+## [7.3.0.0] - 2026-10-01 (Build 253) — *Zwei-Faktor-Anmeldung und gehärtete Anhänge*
+
+Zwei Themen aus einer Sicherheitsdurchsicht: Die Anmeldung bekommt einen freiwilligen zweiten Faktor, und
+die Kette von der Mail über Virenscan und Beleg-Leser bis in die Nextcloud verliert ihre stillen Lücken.
+
+### Neue Funktionen
+- **Zwei-Faktor-Anmeldung (freiwillig je Benutzer)** mit drei Methoden, beliebig kombinierbar und beim Login
+  wählbar: **Authenticator-App** (TOTP nach RFC 6238, ohne Zusatzbibliothek), **E-Mail** (über den
+  bestehenden Postausgang, `services/smtp.js` kann jetzt `mailSenden()`) und **Discord** (Direktnachricht
+  eines Bots; globaler Bot in den Einstellungen oder ein eigener je Benutzer).
+  - **Zweistufiger Login:** Nach dem Passwort gibt es **kein Sitzungs-Token**, sondern ein `auth_ticket`
+    (5 Minuten, eigener Schlüssel und eigene Zielgruppe `mail-panel:2fa`). Es öffnet nur
+    `POST /api/auth/verify-2fa` und das Anfordern eines Codes (`POST /api/auth/2fa/senden`); als
+    Sitzungs-Token vorgezeigt wird es abgewiesen. Erst ein richtiger Code löst es ein — einmalig, atomar —
+    und liefert das Sitzungs-JWT mit **Rolle und Rechten** (`rolle_name`, `rechte`, `admin`, `amr`).
+  - **Codes** (sechs Ziffern, `crypto.randomInt`) liegen nie im Klartext in der Datenbank, nur als HMAC-SHA-256
+    mit einem aus `JWT_SECRET` abgeleiteten Schlüssel und Benutzer, Ticket und Methode im Kontext. Ein Code
+    gilt einmal, höchstens 10 Minuten (beim Login begrenzt das Ticket auf 5), gehört zu genau einem Ticket;
+    „erneut senden" macht den vorigen ungültig (höchstens 3 Sendungen je Ticket). Ein TOTP-Zeitschritt gilt
+    nur einmal (`letzter_schritt`) — ein mitgelesener Code lässt sich nicht wiederverwenden.
+  - **Brute-Force-Schutz in drei Stufen:** je Ticket 5 Fehlversuche (dann verbrannt, auch für den richtigen
+    Code), je Adresse 10 Anfragen in 15 Minuten, je **Benutzer** 10 falsche Codes in 15 Minuten über alle
+    Tickets und Adressen (gezählt im Auth-Log, nur 2FA-Fehlversuche — falsche Passwörter sperren nicht).
+  - **Einrichten unter „Sicherheit"** (neue Seite, für jeden Angemeldeten): Eine Methode wird erst **aktiv,
+    wenn ein echter Code bestätigt wurde** (kein Aussperren durch Tippfehler). Einrichten und Abschalten
+    verlangen das Passwort noch einmal (eigene Bremse: 8 je Benutzer und 15 Minuten); Einrichtungs-Codes sind
+    auf 5 je 15 Minuten begrenzt (keine Mail-Bombe an fremde Adressen). TOTP mit QR-Code (im Browser erzeugt,
+    `qrcode`, kein Fremddienst).
+  - **Admin-Notausgang:** `PUT /api/benutzer/:id { zweifaktor_zuruecksetzen: true }` (Knopf in „Benutzer &
+    Rollen", dort auch die neue Spalte „2FA"); macht offene Tickets und Codes unbrauchbar.
+  - Passkey-Login bleibt einstufig (Besitz und Entsperrung in einem). Wer keine 2FA einrichtet, meldet sich
+    wie bisher an.
+- **Discord-Bot-Token** in *Einstellungen → Dienste* (`discord_bot_token`, verschlüsselt, auch per
+  `DISCORD_BOT_TOKEN`).
+
+### Sicherheit
+- **Virenscan umging Anhang 21 ff.:** `imap.anhaengeHolen()` schnitt bei 20 Anhängen **still** ab, `gefunden`
+  meldete 20, und der Scan galt als sauber — wer die schädliche Datei an Stelle 21 setzte, kam durch. Jetzt
+  prüft das Panel Anzahl (höchstens 20) und Größe (höchstens 30 MB je Datei, entpackt) an der
+  BODYSTRUCTURE, **bevor etwas heruntergeladen wird**, und bricht bei einem Verstoß die ganze Mail ab:
+  `/scan-anhaenge` antwortet `clean: false` mit Grund (→ Quarantäne), `/anhaenge` liefert nichts. `gefunden`
+  nennt die echte Zahl. Eine Datei, die beim Lesen größer wird als gemeldet, kippt ebenfalls die ganze Mail.
+  Der Scan prüft jede Datei sofort und gibt sie wieder frei (statt bis zu 20 × 30 MB zu halten); `/anhaenge`
+  gibt höchstens 60 MB zusammen zurück.
+- **Path-Traversal im Nextcloud-Pfad (Workflow 07):** `{{betreff}}`, `{{absender}}`, `{{firma}}`,
+  `{{aktenzeichen}}` u. a. landeten **ungefiltert** im Ordnerpfad; `fetch` löste ein `..` beim Bilden der
+  Adresse stillschweigend nach oben auf. Neu `services/pfadSicherheit.js`: Jeder fremde Wert wird einzeln
+  gesäubert (NFKC, Steuer-/Bidi-Zeichen, `/ \` und Unicode-Doppelgänger wie `∕ ⁄ ／`, `%`, Zeichenliste statt
+  Sperrliste, Windows-Gerätenamen, höchstens 60 Zeichen, nie leer oder `..`). Der Beleg-Knoten bettet
+  denselben Quelltext ein und berechnet `zielordner`; Ordner-, Upload- und Freigabe-Knoten setzen selbst
+  nichts mehr aus Mail- oder PDF-Inhalten ein. `sauberDatei('..')` lieferte `'..'` — behoben.
+  `belegLeser` säubert Firma und Aktenzeichen zusätzlich; Datum nur noch als `yyyy-mm-dd`.
+- **Nextcloud-Client lehnt `..` ab** (`pfadUrl`) und prüft, dass die Adresse unter dem Bereich des Benutzers
+  bleibt — als zweite Verteidigung, laut statt still.
+- **Nur noch ein App-Passwort:** Vor jedem Upload, vor dem Anlegen der n8n-Zugangsdaten und im
+  Verbindungstest fragt das Panel `ocs/v2.php/core/getapppassword`. Ein App-Passwort bekommt 403, das
+  Hauptpasswort 200 — dann wird das dabei ausgestellte Token **sofort widerrufen** und abgelehnt. Im Zweifel
+  (404, 5xx, nicht erreichbar) wird nichts hochgeladen. Das Ergebnis wird als HMAC gemerkt und nur beim
+  Wechsel des Passworts neu geprüft.
+- **Interne Endpunkte:** `scan`, `scan-anhaenge`, `anhaenge`, `upload-freigabe` und `beleg-auslesen` stehen
+  in `routes/anhaenge.js` und nehmen **`X-Panel-Secret` oder die Anmeldung eines Admins** (feste Admin-Rolle)
+  an — ein falsches Secret weicht nicht auf eine Anmeldung aus. Der Wächter läuft vor dem Body-Parser: Wer
+  sich nicht ausweist, lässt keine 40 MB parsen.
+- **Sitzungs-JWT** mit festem Algorithmus (HS256), Aussteller und Zielgruppe; Tickets und Sitzungen sind
+  gegeneinander abgeschottet. `bcrypt.compare` statt `compareSync` (blockierte die Event-Loop 250 ms je
+  Versuch) und Dummy-Vergleich bei unbekanntem Benutzer.
+- **Aktionsnamen** (auch von der KI vorgeschlagen) verlieren `' " \` \ $ { }`: Sie stehen in
+  n8n-Ausdrücken und Code-Knoten (`$('Beleg lesen: …')`) und hätten Code einschleusen können.
+- **Telegram-Warnung bei Grenzverletzung:** „ANHÄNGE NICHT PRÜFBAR" mit Grund statt „VIRUS GEFUNDEN"; der
+  Dateiname im Text wird von Markdown-Zeichen befreit, weil die Warnung vor dem Quarantäne-Knoten läuft und
+  ein Telegram-Fehler dort die Quarantäne verhindert hätte.
+- **E-Mail-Adressen** für den Versand nur noch aus einer Zeichenliste (kein NUL, keine Zeilenumbrüche,
+  kein Nicht-ASCII); Betreff immer als RFC-2047-Codewort, Text als base64 (kein Einschleusen von Kopfzeilen
+  oder SMTP-Befehlen).
+
+### Verbesserungen
+- **Nextcloud-Ordner:** erst `PROPFIND`, dann rekursiv nur die fehlenden Ebenen per `MKCOL` (der Normalfall
+  kostet eine Anfrage statt eines `MKCOL` je Ebene). Der Upload geht mit `If-None-Match: *`: Taucht die
+  Datei zwischen Nachsehen und Hochladen auf, kommt der nächste Name dran; sind 50 Namen belegt, gibt es
+  einen Fehler statt zu überschreiben (früher wurde der letzte Name überschrieben).
+- **Fehlerhandler:** Fehler des Aufrufers behalten ihren Statuscode (zu großer Rumpf **413**, kaputtes
+  JSON **400**) statt immer 500; im Panel-Log als Warnung. Antwortet die Verbindung schon, stürzt der
+  Handler nicht mehr ab.
+- Der Beleg-Knoten meldet im n8n-Lauf, wenn eine Mail wegen der Grenzen übersprungen wurde.
+
+### Tests
+- Neu (rund 360 Fälle): `totp` (RFC-4226/6238-Testvektoren), `zweifaktor-login` (Ticket, Einlösung,
+  Brute-Force, Einmaligkeit, Rollen im Token, Einrichtung, Admin-Reset), `smtp-discord` (Fake-SMTP-Server,
+  Header-Injection), `pfad-sicherheit` (Angriffskorpus, Quelltext-Parität mit n8n), `aktionen-pfad`
+  (führt den **erzeugten** Beleg-Knoten mit feindlichen Eingaben aus), `anhang-grenzen`, `internal-auth`,
+  `grenzmeldung` (alle vier Workflow-Vorlagen), `fehlerhandler`.
+- Neu geschrieben: `nextcloud-webdav` (Fake-Nextcloud mit Ordnern und Dateien statt einzelner Antworten);
+  angepasst: `parser-grenzen` (beide Routendateien, Wächter vor Parser), `upload-freigabe`.
+
+### System-Auswirkungen & Nachwirken (Impact Analysis)
+- **Datenbank-Migrationen:** Neue Spalte `users.two_factor_preference` per `ALTER TABLE` und drei neue
+  Tabellen (`user_2fa`, `login_tickets`, `zweifaktor_codes`) per `CREATE TABLE IF NOT EXISTS` — laufen beim
+  Start von selbst. Ohne eingerichtete 2FA ändert sich für niemanden etwas.
+- **Alle Sitzungen enden einmalig:** Das Sitzungs-JWT hat jetzt Aussteller und Zielgruppe; Tokens im alten
+  Format gelten nicht mehr. Jeder meldet sich nach dem Update einmal neu an (die Oberfläche leitet selbst
+  zum Login).
+- **n8n-Workflows:** Kein Neu-Import nötig. Beim nächsten automatischen Abgleich (Containerstart) erzeugt das
+  Panel **Workflow 07** neu (neuer Beleg-Knoten mit `zielordner`, geänderte Ordner-/Upload-/Freigabe-Knoten)
+  und patcht in Workflow 01/04 die Telegram-Warnung und die Kurzfassung der Quarantäne. Wer den
+  Auto-Abgleich abgeschaltet hat: einmal „Workflows → Synchronisieren". Ohne Abgleich arbeitet Workflow 07
+  mit dem alten, **ungesäuberten** Pfad weiter.
+- **Nextcloud:** Wer bisher das **Hauptpasswort** eingetragen hat, dessen Uploads stoppen mit einer klaren
+  Meldung, bis ein App-Passwort eingetragen ist (*Einstellungen → Dienste → Nextcloud*). Das gilt auch für
+  die n8n-Zugangsdaten, die das Panel anlegt.
+- **Verhalten:** Mails mit mehr als 20 Anhängen oder einer Datei über 30 MB (auch Newsletter mit sehr vielen
+  eingebetteten Bildern) landen künftig in der **Quarantäne** und lassen sich dort freigeben. Auch die
+  Upload-Freigabe nimmt keine Datei über 30 MB mehr an.
+- **Frontend:** Neue Abhängigkeit `qrcode` (nur für den QR-Code der Einrichtung, wird bei Bedarf nachgeladen).
+  Die CSP bleibt unverändert (`img-src data:` war schon erlaubt).
+- **Neustart/Sitzung:** Container neu starten (neues Frontend und Backend); danach einmal neu anmelden.
+
 ## [7.2.0.0] - 2026-09-23 (Build 252) — *Sammel-Entscheidung, Mail-Datum und die Befunde des Diagnoseberichts*
 
 Anlass war der Diagnosebericht vom 23.09. und eine vollständige Durchsicht des Projekts danach.

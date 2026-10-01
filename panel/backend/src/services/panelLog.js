@@ -70,14 +70,36 @@ process.on('unhandledRejection', (reason) => {
 // ─── Express Error-Handler (als Middleware) ──────────────────────────────────
 // Wird in index.js als letztes app.use() registriert.
 
-function expressErrorHandler(err, req, res, _next) {
-  loggen('error', `backend:${req.method} ${req.path}`, err.message, {
-    stack: err.stack,
+// Antworten für Fehler, die der AUFRUFER verursacht hat — zu großer oder kaputter
+// Rumpf, wie der Body-Parser sie meldet. Sie bekommen ihren echten Statuscode:
+// Ein zu großer Anhang ist kein Serverfehler, und n8n soll am Code erkennen, dass
+// eine Wiederholung nichts ändert.
+const CLIENT_FEHLER = {
+  400: 'Die Anfrage ist ungültig.',
+  413: 'Die Anfrage ist zu groß.',
+  415: 'Dieser Inhaltstyp wird nicht angenommen.',
+};
+
+function expressErrorHandler(err, req, res, next) {
+  // Hat die Antwort schon begonnen, kann nur noch die Verbindung geschlossen werden.
+  if (res.headersSent) return next(err);
+
+  const status = Number(err.status ?? err.statusCode);
+  const clientFehler = Number.isInteger(status) && status >= 400 && status < 500;
+
+  // Client-Fehler als Warnung (sichtbar, aber kein Fehler des Panels); alles
+  // andere wie bisher als Fehler.
+  loggen(clientFehler ? 'warn' : 'error', `backend:${req.method} ${req.path}`, err.message, {
+    stack: clientFehler ? undefined : err.stack,
     requestUrl: req.originalUrl,
     requestMethod: req.method,
   });
   console.error(`[Express-Fehler] ${req.method} ${req.path}:`, err.message);
-  res.status(500).json({ error: 'Interner Serverfehler' });
+
+  if (clientFehler) {
+    return res.status(status).json({ error: CLIENT_FEHLER[status] || 'Anfrage abgelehnt.' });
+  }
+  return res.status(500).json({ error: 'Interner Serverfehler' });
 }
 
 // ─── Container-Health-Check ──────────────────────────────────────────────────

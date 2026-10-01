@@ -2,6 +2,8 @@
 const express = require('express');
 const bcrypt  = require('bcryptjs');
 const db      = require('../db');
+const zweifaktor = require('../services/zweifaktor');
+const { loggen } = require('../services/panelLog');
 
 const router = express.Router();
 
@@ -10,11 +12,12 @@ router.get('/', (req, res) => {
   try {
     const benutzer = db.prepare(`
       SELECT u.id, u.username, u.rolle_id, r.name AS rolle_name, u.created_at,
-        (SELECT MAX(created_at) FROM auth_log WHERE user_id = u.id AND erfolg = 1) AS letzter_login
+        (SELECT MAX(created_at) FROM auth_log WHERE user_id = u.id AND erfolg = 1) AS letzter_login,
+        (SELECT GROUP_CONCAT(methode) FROM user_2fa WHERE user_id = u.id AND aktiv = 1) AS zweifaktor
       FROM users u
       LEFT JOIN rollen r ON r.id = u.rolle_id
       ORDER BY u.id
-    `).all();
+    `).all().map((b) => ({ ...b, zweifaktor: b.zweifaktor ? b.zweifaktor.split(',') : [] }));
     res.json(benutzer);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -52,10 +55,19 @@ router.post('/', (req, res) => {
 // PUT /api/benutzer/:id — Benutzer bearbeiten (Rolle aendern, Passwort zuruecksetzen)
 router.put('/:id', (req, res) => {
   const id = Number(req.params.id);
-  const { rolle_id, password } = req.body || {};
+  const { rolle_id, password, zweifaktor_zuruecksetzen } = req.body || {};
 
-  const user = db.prepare('SELECT id FROM users WHERE id = ?').get(id);
+  const user = db.prepare('SELECT id, username FROM users WHERE id = ?').get(id);
   if (!user) return res.status(404).json({ error: 'Benutzer nicht gefunden.' });
+
+  // Notausgang: Wer sein Gerät verloren hat, käme sonst nie wieder hinein. Entfernt
+  // alle Methoden; danach meldet sich der Benutzer mit dem Passwort allein an und
+  // kann neu einrichten. Das gilt auch für den eigenen Zugang — dann aber nur, wer
+  // schon angemeldet ist, also ohnehin drin.
+  if (zweifaktor_zuruecksetzen === true) {
+    zweifaktor.zuruecksetzen(id);
+    loggen('warn', 'auth', `2FA von ${user.username} wurde von ${req.user.username} zurückgesetzt.`);
+  }
 
   // Rolle aendern
   if (rolle_id !== undefined) {

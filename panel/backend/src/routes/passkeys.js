@@ -209,8 +209,11 @@ const loginFinish = async (req, res) => {
     // Dasselbe Token wie beim Passwort-Login: mit Rolle und Rechten. Ohne die
     // bliebe die Navigation nach der Anmeldung leer, weil sie danach filtert.
     // Verzoegertes require, sonst greifen auth.js und passkeys.js im Kreis.
+    //
+    // Ein Passkey ersetzt Passwort UND zweiten Faktor: Er ist Besitz (das Gerät) und
+    // Wissen oder Biometrie (die Entsperrung) in einem. Deshalb kein Ticket hier.
     const { tokenErzeugen, authLogSchreiben } = require('./auth');
-    const token = tokenErzeugen(user);
+    const token = tokenErzeugen(user, ['passkey']);
     authLogSchreiben(req, user.id, user.username, true, 'passkey');
     res.json({ token, username: user.username });
   } catch (err) {

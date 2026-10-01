@@ -76,7 +76,15 @@ function pruefe(entwurf) {
   const fehler = [];
   const e = entwurf || {};
 
-  if (!e.name || String(e.name).trim().length < 2) fehler.push('Der Name fehlt.');
+  // Der Name wird Teil von Knotennamen, und die stehen in n8n-Ausdrücken
+  // ($('Beleg lesen: …')) und in Code-Knoten. Der Entwurf kommt womöglich von der
+  // KI: Ein Name wie  x') + (' würde dort Code einschleusen. Deshalb fliegen alle
+  // Zeichen raus, die aus einer Zeichenkette oder einem {{ }}-Block ausbrechen.
+  const name = String(e.name == null ? '' : e.name)
+    .replace(/[\u0000-\u001f\u007f'"`\\${}]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (name.length < 2) fehler.push('Der Name fehlt (Anführungszeichen, Klammern und $ sind darin nicht erlaubt).');
   if (!TYPEN[e.typ]) fehler.push(`Unbekannte Aktion: ${e.typ}`);
 
   // ── Bedingungen ──
@@ -130,7 +138,7 @@ function pruefe(entwurf) {
   return {
     ok: true,
     aktion: {
-      name: String(e.name).trim().slice(0, 60),
+      name: name.slice(0, 60).trim(),
       beschreibung: e.beschreibung ? String(e.beschreibung).slice(0, 300) : null,
       typ: e.typ,
       bedingung: { verknuepfung: e.bedingung?.verknuepfung === 'oder' ? 'oder' : 'und', regeln: geprüfteRegeln },

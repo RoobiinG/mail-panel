@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Users, Shield, Clock, Plus, Edit2, Trash2, CheckCircle2, XCircle } from 'lucide-react';
+import { Users, Shield, Clock, Plus, Edit2, Trash2, CheckCircle2, XCircle, ShieldOff, ShieldCheck } from 'lucide-react';
 import api from '../api';
 import { useMelden } from '../components/ui/Meldungen';
 
@@ -16,6 +16,8 @@ const BEREICHE = [
   { id: 'logs', label: 'Panel-Logs' },
   { id: 'benutzer', label: 'Benutzer & Rollen' },
 ];
+
+const NAMEN_2FA = { totp: 'Authenticator-App', email: 'E-Mail', discord: 'Discord' };
 
 export default function BenutzerVerwaltung() {
   const { melden, nachfragen } = useMelden();
@@ -77,6 +79,23 @@ export default function BenutzerVerwaltung() {
       laden();
     } catch (err) {
       melden(err.response?.data?.error || 'Fehler beim Speichern', 'fehler');
+    }
+  };
+
+  // Notausgang: Wer sein Gerät verloren hat, käme sonst nie wieder hinein.
+  const zweifaktorZuruecksetzen = async (u) => {
+    if (!(await nachfragen({
+      titel: `2FA von „${u.username}" zurücksetzen?`,
+      text: 'Alle Methoden (Authenticator-App, E-Mail, Discord) werden entfernt, offene Anmeldungen sind sofort ungültig. '
+        + 'Danach genügt das Passwort allein — der Benutzer kann die 2FA unter „Sicherheit" neu einrichten.',
+      bestaetigen: 'Zurücksetzen', gefaehrlich: true,
+    }))) return;
+    try {
+      await api.put(`/benutzer/${u.id}`, { zweifaktor_zuruecksetzen: true });
+      melden(`2FA von ${u.username} wurde zurückgesetzt.`);
+      laden();
+    } catch (err) {
+      melden(err.response?.data?.error || 'Fehler beim Zurücksetzen', 'fehler');
     }
   };
 
@@ -174,6 +193,7 @@ export default function BenutzerVerwaltung() {
               <tr className="border-b border-panel-border text-left text-panel-muted text-xs bg-panel-bg/30">
                 <th className="py-2 px-4">Benutzername</th>
                 <th className="py-2 px-4">Rolle</th>
+                <th className="py-2 px-4">2FA</th>
                 <th className="py-2 px-4">Letzter Login</th>
                 <th className="py-2 px-4 text-right">Aktionen</th>
               </tr>
@@ -185,10 +205,28 @@ export default function BenutzerVerwaltung() {
                   <td className="py-3 px-4">
                     <span className="bg-panel-bg px-2 py-1 rounded text-xs border border-panel-border">{u.rolle_name || 'Keine'}</span>
                   </td>
+                  <td className="py-3 px-4 text-xs">
+                    {u.zweifaktor?.length
+                      ? (
+                        <span className="flex items-center gap-1 text-panel-accent" title={u.zweifaktor.map((m) => NAMEN_2FA[m] || m).join(', ')}>
+                          <ShieldCheck size={13} /> {u.zweifaktor.map((m) => NAMEN_2FA[m] || m).join(', ')}
+                        </span>
+                      )
+                      : <span className="text-panel-muted">aus</span>}
+                  </td>
                   <td className="py-3 px-4 text-panel-muted text-xs">
                     {u.letzter_login ? new Date(u.letzter_login).toLocaleString('de-DE') : 'Nie'}
                   </td>
                   <td className="py-3 px-4 text-right">
+                    {u.zweifaktor?.length > 0 && (
+                      <button
+                        onClick={() => zweifaktorZuruecksetzen(u)}
+                        className="btn-ghost !px-2 text-panel-muted hover:text-white"
+                        title="2FA zurücksetzen"
+                      >
+                        <ShieldOff size={16} />
+                      </button>
+                    )}
                     <button
                       onClick={() => setUserModal({ offen: true, mode: 'edit', id: u.id, username: u.username, password: '', rolle_id: u.rolle_id || '' })}
                       className="btn-ghost !px-2 text-panel-muted hover:text-white"

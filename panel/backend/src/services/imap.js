@@ -1,6 +1,7 @@
 // Verbindungstest für IMAP-Konten, bevor sie in n8n angelegt werden,
 // und das Anlegen fehlender Zielordner.
 const { ImapFlow } = require('imapflow');
+const { MAX_DATEI, grenzverstoss, zuGrossFehler } = require('./anhangGrenzen');
 
 // Die vier Zielordner der Triage plus das Archiv des Newsletter-Aufräumens.
 // Leer gelassene Felder fallen auf diese Namen zurück.
@@ -130,9 +131,9 @@ async function ordnerErstellen(konto, ordnerName) {
 }
 
 // Grenzen für das Holen der Anhänge — ein Postfach ist keine vertrauenswürdige
-// Quelle, deshalb wird nicht unbegrenzt in den Speicher geladen.
-const MAX_ANHAENGE = 20;
-const MAX_GROESSE = 30 * 1024 * 1024; // 30 MB je Datei
+// Quelle, deshalb wird nicht unbegrenzt in den Speicher geladen. Die Zahlen und
+// die Regel, was bei einem Verstoß geschieht, stehen in anhangGrenzen.js.
+const MAX_GROESSE = MAX_DATEI; // je Datei, entpackt; auch für das Lesen von Mail-Text
 
 // Läuft rekursiv durch die Struktur einer Mail und sammelt die Anhang-Teile ein.
 // imapflow liefert sie als Baum; ein Teil gilt als Anhang, wenn er so ausgewiesen
@@ -143,25 +144,47 @@ function anhangTeile(knoten, gefunden = []) {
   const name = knoten.dispositionParameters?.filename || knoten.parameters?.name;
   const istAnhang = knoten.disposition === 'attachment' || (name && knoten.part);
   if (istAnhang && knoten.part) {
-    gefunden.push({ part: knoten.part, name: name || knoten.part, groesse: knoten.size || 0 });
+    gefunden.push({
+      part: knoten.part, name: name || knoten.part, groesse: knoten.size || 0, encoding: knoten.encoding || '',
+    });
   }
   return gefunden;
 }
 
-async function stromLesen(strom, grenze) {
+// Liest einen Strom bis zur Grenze. Liefert er mehr, wird er sofort abgebrochen
+// und der Fehler trägt den Verstoß (grenze: true) — die BODYSTRUCTURE kann sich
+// bei der Größe irren, der Strom nicht.
+async function stromLesen(strom, grenze, name) {
   const stuecke = [];
   let gesamt = 0;
   for await (const stueck of strom) {
     gesamt += stueck.length;
-    if (gesamt > grenze) throw new Error('Anhang ist größer als erlaubt');
+    if (gesamt > grenze) {
+      try { strom.destroy?.(); } catch { /* schon zu */ }
+      throw zuGrossFehler(name);
+    }
     stuecke.push(stueck);
   }
   return Buffer.concat(stuecke);
 }
 
-// Holt alle Anhänge einer Mail. `uid` ist die IMAP-UID, `ordner` das Postfach.
-// Gibt je Anhang Name und Inhalt zurück — gescannt wird eine Ebene höher.
-async function anhaengeHolen({ ordner = 'INBOX', uid, ...konto }) {
+/**
+ * Holt die Anhänge einer Mail. `uid` ist die IMAP-UID, `ordner` das Postfach.
+ *
+ * Die Grenzen (anhangGrenzen.js) werden an der BODYSTRUCTURE geprüft, BEVOR etwas
+ * heruntergeladen wird: Zu viele Anhänge oder eine zu große Datei brechen alles
+ * ab. Es wird nie stillschweigend gekürzt — das Ergebnis trägt `abgebrochen`, und
+ * `gefunden` nennt die echte Zahl.
+ *
+ * @param {object} p
+ * @param {boolean} [p.nurStruktur] nur zählen und prüfen, nichts herunterladen
+ * @param {(a: {name: string, inhalt?: Buffer, fehler?: string}) => Promise<void>} [p.beiAnhang]
+ *   Wird je Anhang aufgerufen, statt alle im Speicher zu sammeln: Der Virenscan
+ *   prüft jede Datei sofort und gibt sie wieder frei, statt bis zu 20 × 30 MB
+ *   gleichzeitig zu halten. `anhaenge` bleibt dann leer.
+ * @returns {Promise<{gefunden: number, anhaenge: Array, abgebrochen?: object}>}
+ */
+async function anhaengeHolen({ ordner = 'INBOX', uid, nurStruktur = false, beiAnhang, ...konto }) {
   const nummer = Number(uid);
   if (!Number.isInteger(nummer) || nummer <= 0) throw new Error('Ungültige UID.');
 
@@ -173,19 +196,24 @@ async function anhaengeHolen({ ordner = 'INBOX', uid, ...konto }) {
       const nachricht = await client.fetchOne(String(nummer), { bodyStructure: true }, { uid: true });
       if (!nachricht) return { gefunden: 0, anhaenge: [] };
 
-      const teile = anhangTeile(nachricht.bodyStructure).slice(0, MAX_ANHAENGE);
+      const teile = anhangTeile(nachricht.bodyStructure);
+      const verstoss = grenzverstoss(teile);
+      if (verstoss) return { gefunden: teile.length, anhaenge: [], abgebrochen: verstoss };
+      if (nurStruktur) return { gefunden: teile.length, anhaenge: [] };
+
       const anhaenge = [];
       for (const teil of teile) {
-        if (teil.groesse > MAX_GROESSE) {
-          anhaenge.push({ name: teil.name, fehler: 'zu groß für den Scan' });
-          continue;
-        }
+        let eintrag;
         try {
           const { content } = await client.download(String(nummer), teil.part, { uid: true });
-          anhaenge.push({ name: teil.name, inhalt: await stromLesen(content, MAX_GROESSE) });
+          eintrag = { name: teil.name, inhalt: await stromLesen(content, MAX_GROESSE, teil.name) };
         } catch (err) {
-          anhaenge.push({ name: teil.name, fehler: err.message });
+          // Größer als gemeldet: Auch das ist ein Verstoß, kein einzelner Fehler.
+          if (err.grenze) return { gefunden: teile.length, anhaenge: [], abgebrochen: err.verstoss };
+          eintrag = { name: teil.name, fehler: err.message };
         }
+        if (beiAnhang) await beiAnhang(eintrag);
+        else anhaenge.push(eintrag);
       }
       return { gefunden: teile.length, anhaenge };
     } finally {

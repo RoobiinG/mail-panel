@@ -4,19 +4,15 @@ const db      = require('../db');
 const listen  = require('../services/listen');
 const dnsbl   = require('../services/dnsbl');
 const safebrowsing = require('../services/safebrowsing');
-const clamav  = require('../services/clamav');
 const google  = require('../services/google');
 const sortierung = require('../services/sortierung');
 const budget  = require('../services/budget');
 const bestand = require('../services/bestand');
 const klassifizierer = require('../services/klassifizierer');
-const belegLeser = require('../services/belegLeser');
-const uploadFreigabe = require('../services/uploadFreigabe');
 const digest  = require('../services/digest');
 const settings = require('../services/settings');
 const themen  = require('../services/themen');
 const imap    = require('../services/imap');
-const { entschluesseln } = require('../services/crypto');
 const { loggen } = require('../services/panelLog');
 
 const router = express.Router();
@@ -345,21 +341,6 @@ router.post('/budget', express.json({ limit: '512kb' }), (req, res) => {
     // Tageslimit sprengen — der Sammel-Knoten wertet ein Fehlen als "keine".
     console.error('Budget-Fehler:', err.message);
     res.status(500).json({ error: err.message, erlaubt: [] });
-  }
-});
-
-// Beleg-Leser: Der Beleg-Knoten in Workflow 07 schickt ein PDF hierher. Das
-// Panel liest es per Gemini aus und entscheidet, OB es ein aufbewahrenswerter
-// Beleg ist (AGB/Werbung ⇒ nicht). Der Schluessel bleibt im Panel, wie beim
-// Google-Token. Grosses Limit, weil ein PDF als base64 mehrere MB haben kann.
-// Scheitert hier etwas, faellt der Leser auf eine Heuristik zurueck.
-router.post('/beleg-auslesen', express.json({ limit: '25mb' }), async (req, res) => {
-  try {
-    res.json(await belegLeser.auslesen(req.body || {}));
-  } catch (err) {
-    console.error('Beleg-Auslesen-Fehler:', err.message);
-    // Nichts ablegen ist besser als ein Fremd-PDF im Belege-Ordner.
-    res.status(500).json({ speichern: false, dokumenttyp: 'kein_beleg', fehler: err.message });
   }
 });
 
@@ -770,193 +751,8 @@ router.post('/einsortieren', async (req, res) => {
   }
 });
 
-// Anhang an ClamAV senden
-router.post('/scan', express.raw({ type: '*/*', limit: '50mb' }), async (req, res) => {
-  try {
-    if (!req.body || !Buffer.isBuffer(req.body) || req.body.length === 0) {
-      return res.status(400).json({ clean: true, fehler: 'Keine Datei gesendet' });
-    }
-    
-    const ergebnis = await clamav.scan(req.body);
-    res.json(ergebnis);
-  } catch (err) {
-    console.error('ClamAV Scan Fehler:', err.message);
-    // Bei Fehlern (wie Timeout) lassen wir die Mail durch, um keine Mails zu blockieren
-    res.json({ clean: true, fehler: err.message });
-  }
-});
-
-// Scannt alle Anhänge einer Mail. Der Workflow schickt nur Konto, UID und Ordner —
-// das Panel holt die Dateien selbst per IMAP und gibt sie an ClamAV weiter.
-//
-// Warum nicht wie bisher die Datei mitschicken? Zwei Gründe: Der Abruf-Knoten der
-// Bestands-Triage liefert überhaupt keine Dateiinhalte (nur Namen und Größen), und
-// über den Umweg mit den Binärdaten wurde immer nur der erste Anhang geprüft.
-// Zugangsdaten kommen ausschließlich aus der Datenbank, nie aus der Anfrage.
-// Die Anhänge einer Mail als base64 — für die eigenen Aktionen in Workflow 07.
-//
-// Warum das nötig ist: Die Abruf-Knoten holen `attachmentsInfo`, also nur Namen
-// und Größen, nicht die Dateien (siehe workflowPatcher.js). Das ist Absicht —
-// bei 120 Mails je Lauf wären die Dateien eine erhebliche Last, und gebraucht
-// werden sie nur in Ausnahmefällen. Der Virenscan holt sie deshalb seit jeher
-// über die UID hier ab, und Workflow 07 tut das ab jetzt genauso.
-//
-// Ohne diesen Weg lief die Upload-Kette ins Leere: Der Beleg-Knoten suchte die
-// Anhänge in `item.binary`, das in beiden Workflows leer ist. Der Lauf meldete
-// „erfolgreich" nach null Sekunden, und es wurde nie eine Datei hochgeladen.
-//
-// Grenzen, weil eine Mail kein vertrauenswürdiger Absender ist: höchstens zehn
-// Dateien und zusammen 15 MB. Was darüber liegt, kommt mit Namen und Größe,
-// aber ohne Inhalt zurück — dann steht wenigstens im Lauf, warum nichts kam.
-const ANHANG_MAX_ANZAHL = 10;
-const ANHANG_MAX_GESAMT = 15 * 1024 * 1024;
-
-router.post('/anhaenge', express.json({ limit: '16kb' }), async (req, res) => {
-  const { konto, uid, ordner } = req.body || {};
-  try {
-    if (!konto) return res.status(400).json({ anhaenge: [], fehler: 'Kein Konto angegeben.' });
-
-    const zeile = db.prepare('SELECT * FROM accounts WHERE name = ? AND aktiv = 1').get(String(konto));
-    if (!zeile) return res.status(404).json({ anhaenge: [], fehler: `Unbekanntes Konto: ${konto}` });
-
-    const { anhaenge } = await imap.anhaengeHolen({
-      host: zeile.host,
-      port: zeile.port,
-      username: zeile.username,
-      passwort: entschluesseln(zeile.password_enc),
-      tlsUnsicher: Boolean(zeile.tls_unsicher),
-      ordner: ordner || 'INBOX',
-      uid,
-    });
-
-    const raus = [];
-    let gesamt = 0;
-    for (const anhang of anhaenge) {
-      if (raus.length >= ANHANG_MAX_ANZAHL) break;
-      if (anhang.fehler || !anhang.inhalt) {
-        raus.push({ name: anhang.name, fehler: anhang.fehler || 'kein Inhalt' });
-        continue;
-      }
-      if (gesamt + anhang.inhalt.length > ANHANG_MAX_GESAMT) {
-        raus.push({ name: anhang.name, groesse: anhang.inhalt.length, fehler: 'zusammen zu groß' });
-        continue;
-      }
-      gesamt += anhang.inhalt.length;
-      raus.push({
-        name: anhang.name,
-        groesse: anhang.inhalt.length,
-        base64: anhang.inhalt.toString('base64'),
-      });
-    }
-    res.json({ anhaenge: raus });
-  } catch (err) {
-    // Die Mail kann inzwischen verschoben worden sein — Workflow 07 läuft
-    // parallel zum Einsortieren. Dann ist die UID im alten Ordner weg, und das
-    // ist kein Grund, den Lauf scheitern zu lassen.
-    loggen('warn', 'aktionen',
-      `Anhänge von ${konto}/${uid} konnten nicht geholt werden: ${err.message}`);
-    res.json({ anhaenge: [], fehler: err.message });
-  }
-});
-
-// Eine Datei in die Freigabe-Warteschlange legen, statt sie sofort hochzuladen.
-//
-// Ruft der Freigabe-Knoten in Workflow 07 auf, wenn bei der Aktion „Vor dem
-// Hochladen fragen" eingeschaltet ist. Das Panel lädt danach selbst hoch —
-// n8n kann nicht auf eine menschliche Entscheidung warten.
-//
-// 25 MB, weil eine Datei bis 15 MB als base64 rund 20 MB wiegt. Der Pfad MUSS
-// in EIGENER_PARSER (index.js) stehen, sonst greift der globale 1-MB-Parser
-// davor und die Einlieferung stirbt mit 413, während der Lauf Erfolg meldet.
-router.post('/upload-freigabe', express.json({ limit: '25mb' }), async (req, res) => {
-  try {
-    const ergebnis = await uploadFreigabe.einliefern(req.body || {});
-    if (!ergebnis.ok) {
-      loggen('info', 'uploads',
-        `Datei nicht in die Warteschlange genommen (${ergebnis.grund}): `
-        + `${(req.body || {}).dateiname || 'ohne Namen'}`);
-    }
-    res.json(ergebnis);
-  } catch (err) {
-    // Niemals 5xx: Ein volles Volume darf den n8n-Lauf nicht rot färben.
-    loggen('warn', 'uploads', `Einlieferung fehlgeschlagen: ${err.message}`);
-    res.json({ ok: false, grund: 'fehler', fehler: err.message });
-  }
-});
-
-router.post('/scan-anhaenge', express.json({ limit: '16kb' }), async (req, res) => {
-  const { konto, uid, ordner } = req.body || {};
-  try {
-    if (!konto) return res.status(400).json({ clean: true, fehler: 'Kein Konto angegeben.' });
-
-    const zeile = db.prepare('SELECT * FROM accounts WHERE name = ? AND aktiv = 1').get(String(konto));
-    if (!zeile) return res.status(404).json({ clean: true, fehler: `Unbekanntes Konto: ${konto}` });
-
-    const { gefunden, anhaenge } = await imap.anhaengeHolen({
-      host: zeile.host,
-      port: zeile.port,
-      username: zeile.username,
-      passwort: entschluesseln(zeile.password_enc),
-      tlsUnsicher: Boolean(zeile.tls_unsicher),
-      ordner: ordner || 'INBOX',
-      uid,
-    });
-
-    // Ist der Virenscanner überhaupt eingeschaltet? Ohne diese Frage lädt das
-    // Panel jeden Anhang über IMAP herunter, um ihn dann an einen Dienst zu
-    // schicken, den es nicht gibt.
-    if (einstellung('clamav_aktiv', '1') !== '1') {
-      return res.json({
-        clean: true, virus: null, gefunden, geprueft: 0, ungeprueft: gefunden, dateien: [],
-        fehler: gefunden ? 'Virenscanner ist abgeschaltet — Anhänge wurden nicht geprüft.' : null,
-      });
-    }
-
-    const dateien = [];
-    let virus = null;
-    let ungeprueft = 0;
-    for (const anhang of anhaenge) {
-      if (anhang.fehler) {
-        dateien.push({ name: anhang.name, fehler: anhang.fehler });
-        ungeprueft += 1;
-        continue;
-      }
-      // Ein Scanner, der nicht antwortet, darf nicht wie ein sauberes Ergebnis
-      // aussehen. Genau das ist vorher passiert: Fiel ClamAV aus, kam für jede
-      // Mail „clean: true" zurück — die Virenprüfung lief ins Leere, ohne dass
-      // es irgendwo stand.
-      try {
-        const ergebnis = await clamav.scan(anhang.inhalt);
-        dateien.push({ name: anhang.name, clean: ergebnis.clean, virus: ergebnis.virus || null });
-        if (!ergebnis.clean && !virus) virus = ergebnis.virus;
-      } catch (err) {
-        ungeprueft += 1;
-        dateien.push({ name: anhang.name, fehler: `Scanner nicht erreichbar: ${err.message}` });
-        loggen('warn', 'virenscan',
-          `Anhang "${anhang.name}" von ${konto} konnte nicht geprüft werden: ${err.message}. `
-          + 'Die Mail läuft weiter — sie gilt aber NICHT als geprüft.');
-      }
-    }
-
-    res.json({
-      clean: virus === null,
-      virus,
-      // Wie viele Anhänge die Mail hat und wie viele wirklich geprüft wurden —
-      // im Workflow sieht man damit sofort, ob etwas übersprungen wurde.
-      gefunden,
-      geprueft: dateien.filter((d) => !d.fehler).length,
-      // Wie viele Anhänge NICHT geprüft werden konnten. „clean" heißt dann
-      // bloß „kein Fund", nicht „nichts gefunden, weil gesucht wurde".
-      ungeprueft,
-      dateien,
-    });
-  } catch (err) {
-    console.error('Anhang-Scan Fehler:', err.message);
-    // Wie beim Einzel-Scan: Ein Fehler darf die Mail nicht blockieren, muss aber
-    // im Ergebnis stehen, damit er im Panel sichtbar wird.
-    res.json({ clean: true, fehler: err.message, gefunden: 0, geprueft: 0, dateien: [] });
-  }
-});
+// Scan, Anhang-Abruf, Upload-Einlieferung und Beleg-Lesen stehen in routes/anhaenge.js —
+// sie brauchen einen strengeren Waechter (Panel-Secret ODER Admin-Anmeldung).
 
 // Liefert die Log-Daten der letzten 24 Stunden, gruppiert nach Kategorie.
 // Workflow 02 braucht sie seit Build 234 nicht mehr selbst (siehe

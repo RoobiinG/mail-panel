@@ -91,8 +91,11 @@ describe('Der Freigabe-Knoten', () => {
     assert.ok(!code.includes('nextCloud'), 'hochgeladen wird später vom Panel');
   });
 
-  test('der Zielpfad ist ausgerechnet, nicht wörtlich', () => {
-    assert.match(code, /\$\{j\.beleg_t1\}/);
+  // Der Pfad wird vom Beleg-Knoten ausgerechnet und gesäubert (zielordner); der
+  // Freigabe-Knoten setzt selbst nichts mehr aus Mail- oder PDF-Inhalten ein.
+  test('der Zielpfad kommt fertig vom Beleg-Knoten, nicht wörtlich', () => {
+    assert.match(code, /zielpfad: j\.zielordner/);
+    assert.ok(!code.includes('beleg_t1'), 'kein Platzhalter-Rest');
     assert.ok(!code.includes('(beleg_t1)'));
   });
 

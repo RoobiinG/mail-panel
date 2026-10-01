@@ -737,6 +737,43 @@ function anhangKetteReparieren(workflow, quelle) {
     if (code !== vorher) { quarantaene.parameters.jsCode = code; geaendert = true; }
   }
 
+  // 6. Prüfgrenze überschritten (mehr als 20 Anhänge oder eine Datei über 30 MB):
+  //    Der Scan meldet dann `clean: false` mit `abgebrochen` — die Mail geht in die
+  //    Quarantäne, aber „VIRUS GEFUNDEN" und „Malware-Anhang entfernt" wären
+  //    gelogen. Meldung und Kurzfassung sagen deshalb, was wirklich los war.
+  if (grenzmeldungEinbauen(workflow)) geaendert = true;
+
+  return geaendert;
+}
+
+function grenzmeldungEinbauen(workflow) {
+  let geaendert = false;
+
+  const warnung = workflow.nodes.find((k) => k.name === 'Virus Warnung (Telegram)');
+  const text = warnung?.parameters?.text;
+  if (typeof text === 'string' && !text.includes('abgebrochen')) {
+    const neu = text
+      .replace(
+        "'⚠️ *VIRUS GEFUNDEN* ⚠️\\n\\nVon: '",
+        "($json.abgebrochen ? '⚠️ *ANHÄNGE NICHT PRÜFBAR* ⚠️' : '⚠️ *VIRUS GEFUNDEN* ⚠️') + '\\n\\nVon: '",
+      )
+      .replace(
+        "'\\nVirus: ' + $json.virus",
+        "($json.abgebrochen ? '\\nGrund: ' : '\\nVirus: ') + $json.virus",
+      );
+    if (neu !== text) { warnung.parameters.text = neu; geaendert = true; }
+  }
+
+  const quarantaene = workflow.nodes.find((k) => k.name === 'Virus: Quarantäne');
+  const code = quarantaene?.parameters?.jsCode;
+  if (typeof code === 'string' && !code.includes('abgebrochen')) {
+    const neu = code.replace(
+      "kurzfassung: 'Malware-Anhang entfernt'",
+      "kurzfassung: $('Anhänge scannen').item.json.abgebrochen ? 'Anhänge nicht prüfbar (Prüfgrenze überschritten)' : 'Malware-Anhang entfernt'",
+    );
+    if (neu !== code) { quarantaene.parameters.jsCode = neu; geaendert = true; }
+  }
+
   return geaendert;
 }
 
@@ -2258,7 +2295,7 @@ module.exports = {
   bestandWebhookKnoten, BESTAND_WEBHOOK_PFAD,
   kiRequestReparieren, credentialErneuern, bestandAuswahlKnoten, AUSWAHL_KNOTEN,
   fingerabdruck, zugangsdatenVergessen, absenderFallbackEinbauen, ABSENDER_MARKE,
-  kiModellNachziehen,
+  kiModellNachziehen, grenzmeldungEinbauen,
   kiBuendelEinbauen, geminiBuendelEinbauen, BUENDEL_MARKE, panelZeitlimitSetzen,
   kiKnotenNeutralBenennen, KI_NAME, KI_ZUSAMMENFASSER_NAME,
   digestKnotenUmbauen, panelKnotenVerdrahten, DIGEST_URL,

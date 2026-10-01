@@ -134,6 +134,57 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_authlog_created ON auth_log(created_at);
   CREATE INDEX IF NOT EXISTS idx_authlog_user ON auth_log(user_id);
 
+  -- Zwei-Faktor-Anmeldung (freiwillig je Benutzer): welche Methoden jemand
+  -- eingerichtet hat. Eine Methode gilt erst als aktiv, wenn sie mit einem echten
+  -- Code bestätigt wurde — sonst sperrt ein Tippfehler den Benutzer aus.
+  --   ziel           E-Mail-Adresse bzw. Discord-User-ID
+  --   geheimnis_enc  TOTP-Geheimnis bzw. eigener Bot-Token (AES-GCM, services/crypto.js)
+  --   letzter_schritt  TOTP: zuletzt benutzter 30-s-Zeitschritt — derselbe Code gilt nie zweimal
+  CREATE TABLE IF NOT EXISTS user_2fa (
+    user_id INTEGER NOT NULL,
+    methode TEXT NOT NULL CHECK(methode IN ('totp','email','discord')),
+    aktiv INTEGER NOT NULL DEFAULT 0,
+    ziel TEXT,
+    geheimnis_enc TEXT,
+    letzter_schritt INTEGER,
+    bestaetigt_am DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, methode),
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  -- Das Ticket nach dem Passwort: gilt fünf Minuten und nur für die Code-Eingabe.
+  -- Fehlversuche und Sendungen werden je Ticket gezählt, damit sich ein einzelnes
+  -- Ticket nicht durchprobieren lässt. ablauf = Unix-Sekunden.
+  CREATE TABLE IF NOT EXISTS login_tickets (
+    jti TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    ablauf INTEGER NOT NULL,
+    fehlversuche INTEGER NOT NULL DEFAULT 0,
+    sendungen INTEGER NOT NULL DEFAULT 0,
+    verbraucht_am DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  -- Einmalcodes per E-Mail/Discord — nie im Klartext, nur als HMAC. Ein Login-Code
+  -- gehört zu genau einem Ticket; ein Einrichtungs-Code zu keinem.
+  CREATE TABLE IF NOT EXISTS zweifaktor_codes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    ticket_jti TEXT,
+    methode TEXT NOT NULL,
+    zweck TEXT NOT NULL CHECK(zweck IN ('login','einrichtung')),
+    code_hash TEXT NOT NULL,
+    ablauf INTEGER NOT NULL,
+    versuche INTEGER NOT NULL DEFAULT 0,
+    verbraucht_am DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_2fa_codes_ticket ON zweifaktor_codes(ticket_jti, methode);
+  CREATE INDEX IF NOT EXISTS idx_2fa_codes_user ON zweifaktor_codes(user_id, zweck, methode);
+
   -- Sortier-Regeln pro Konto
   --
   -- Vier Arten, von eng nach weit: ein exakter Absender, ein Stichwort im
@@ -358,6 +409,10 @@ const migrations = [
   'ALTER TABLE accounts ADD COLUMN tls_unsicher INTEGER NOT NULL DEFAULT 0',
   // Mehrbenutzer: Rollenzuweisung
   'ALTER TABLE users ADD COLUMN rolle_id INTEGER DEFAULT NULL',
+  // Zwei-Faktor-Anmeldung: Welche Methode beim Login vorgewählt ist ('totp',
+  // 'email' oder 'discord'; NULL = keine eingerichtet). Die Methoden selbst
+  // stehen in user_2fa.
+  'ALTER TABLE users ADD COLUMN two_factor_preference TEXT DEFAULT NULL',
   // Eigene IMAP-Ordnernamen pro Konto
   'ALTER TABLE accounts ADD COLUMN folder_spam TEXT',
   'ALTER TABLE accounts ADD COLUMN folder_invoices TEXT',

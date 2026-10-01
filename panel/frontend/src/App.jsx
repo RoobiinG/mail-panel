@@ -19,6 +19,7 @@ import Sortierung from './pages/Sortierung';
 
 import Statistik from './pages/Statistik';
 import Diagnose from './pages/Diagnose';
+import Sicherheit from './pages/Sicherheit';
 import Paste from './pages/Paste';
 
 // Schuetzt alle Panel-Seiten. Geprueft wird nicht nur, OB ein Token da ist,
@@ -60,6 +61,7 @@ export default function App() {
         <Route path="sortierung" element={<Sortierung />} />
         <Route path="logs" element={<Logs />} />
         <Route path="diagnose" element={<Diagnose />} />
+        <Route path="sicherheit" element={<Sicherheit />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

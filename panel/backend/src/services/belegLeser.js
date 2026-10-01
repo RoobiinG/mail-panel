@@ -24,6 +24,7 @@
 const db = require('../db');
 const settings = require('./settings');
 const { loggen } = require('./panelLog');
+const { segmentSaeubern } = require('./pfadSicherheit');
 
 // Welches Modell gilt, entscheidet services/kiModell.js — eine Stelle fuer
 // Workflows und Panel. Damit folgt auch das Beleg-Lesen einem Wechsel auf das
@@ -89,7 +90,10 @@ function sauberFirma(wert) {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 40);
-  return s || 'unbekannt';
+  // Das Ergebnis wird Teil eines Nextcloud-Pfads. Die Regeln oben lassen nur
+  // a-z, 0-9 und "-" durch — segmentSaeubern ist die gemeinsame, zentrale
+  // Absicherung und fängt auch jede spätere Lockerung dieser Regeln ab.
+  return segmentSaeubern(s || 'unbekannt');
 }
 
 // Firma aus der Absenderadresse ableiten, wenn die KI keine liefert.
@@ -114,7 +118,8 @@ function sauberAktenzeichen(wert) {
     .replace(/\s+/g, '-')
     .replace(/^[-.]+|[-.]+$/g, '')
     .slice(0, 60);
-  return s || null;
+  // Wie bei der Firma: Das Aktenzeichen steht später in einem Ordnerpfad.
+  return s ? segmentSaeubern(s) : null;
 }
 
 function heute() {

@@ -80,13 +80,14 @@ app.use(compression());
 // Buendel-Lauf ueber 1 MB starb still, im Log stand "0 von 23 Mails
 // klassifiziert". Ein Test in test/parser-grenzen.test.js wacht darueber.
 const EIGENER_PARSER = new Set([
-  '/api/internal/beleg-auslesen', // PDF als base64 (25 MB)
+  '/api/internal/beleg-auslesen', // PDF als base64 (42 MB: 30 MB Datei + base64 + Umschlag)
   '/api/internal/budget-filter',  // volle Mail-Liste des Bestands (25 MB)
   '/api/internal/klassifizieren', // der ganze Lauf auf einmal (25 MB)
   '/api/internal/budget',         // eigene, engere Grenze (512 kB)
   '/api/internal/scan-anhaenge',  // eigene, engere Grenze (16 kB)
   '/api/internal/anhaenge',       // eigene, engere Grenze (16 kB) — nur konto/uid/ordner
-  '/api/internal/upload-freigabe', // Anhang als base64 fuer die Warteschlange (25 MB)
+  '/api/internal/upload-freigabe', // Anhang als base64 fuer die Warteschlange (42 MB)
+  '/api/internal/scan',           // die Datei selbst, roh (30 MB) — routes/anhaenge.js
 ]);
 const globalJson = express.json({ limit: '1mb' });
 app.use((req, res, next) => {
@@ -113,6 +114,9 @@ app.use((req, _res, next) => {
 // genuegt das als Lebenszeichen.
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 app.use('/api/auth', require('./routes/auth'));
+// Die eigene 2FA verwalten: braucht nur eine Anmeldung, jeder ändert ausschließlich
+// seine eigene (die Routen kennen nur req.user).
+app.use('/api/zweifaktor', auth, require('./routes/zweifaktor'));
 app.use('/api/konten', auth, rechtErforderlich('konten'), require('./routes/konten'));
 app.use('/api/listen', auth, rechtErforderlich('listen'), require('./routes/listen'));
 app.use('/api/einstellungen', auth, rechtErforderlich('einstellungen'), require('./routes/einstellungen'));
@@ -156,7 +160,13 @@ const clientLogLimiter = rateLimit({
 });
 app.post('/api/logs/client', clientLogLimiter, express.json({ limit: '64kb' }), clientError);
 app.use('/api/logs', auth, rechtErforderlich('logs'), logsRoutes);
-// Interne Endpunkte fuer n8n — eigener Shared-Secret-Schutz statt JWT
+// Interne Endpunkte fuer n8n — eigener Shared-Secret-Schutz statt JWT.
+//
+// Zuerst die Anhang-Endpunkte (Virenscan, Abruf, Beleg-Lesen, Upload-Einlieferung):
+// Sie lassen NEBEN dem Panel-Secret auch eine Admin-Anmeldung zu, bringen ihren
+// Waechter je Route mit und stehen deshalb vor dem allgemeinen. Trifft keine ihrer
+// Routen zu, geht die Anfrage an die naechste Zeile weiter.
+app.use('/api/internal', require('./routes/anhaenge'));
 app.use('/api/internal', internalAuth, require('./routes/internal'));
 
 // Die Statistik zeigt Zahlen aus dem Quarantaene-Log und der Sortier-Inbox --

@@ -3,9 +3,14 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Mail, ShieldAlert, ListChecks, Newspaper, Filter,
   Workflow, FolderInput, Settings, Users, FileWarning,
-  ChevronLeft, ChevronRight, Inbox, HardDriveDownload, BarChart3, Stethoscope,
+  ChevronLeft, ChevronRight, Inbox, HardDriveDownload, BarChart3, Stethoscope, ShieldCheck,
 } from 'lucide-react';
 import { angemeldeterBenutzer } from '../../lib/auth';
+
+// Eintraege mit dieser id braucht kein Recht — sie gelten fuer jeden Angemeldeten
+// (die eigene Zwei-Faktor-Anmeldung kann jeder fuer sich einrichten).
+const FUER_ALLE = 'angemeldet';
+const darf = (eintrag, rechte) => eintrag.id === FUER_ALLE || Boolean(rechte[eintrag.id]);
 
 // Navigation in Abschnitten — `id` ist zugleich der Rechte-Schlüssel aus dem JWT.
 export const navItems = [
@@ -34,6 +39,9 @@ export const navItems = [
   { to: '/logs',          icon: FileWarning, label: 'Logs',              id: 'logs' },
   // Haengt am Einstellungs-Recht: Der Bericht zeigt Konfiguration und Konten.
   { to: '/diagnose',      icon: Stethoscope, label: 'Diagnose',          id: 'einstellungen' },
+
+  { section: 'Mein Konto' },
+  { to: '/sicherheit',    icon: ShieldCheck, label: 'Sicherheit',        id: FUER_ALLE },
 ];
 
 // Ein Abschnitt verschwindet mit, wenn der Benutzer auf keinen seiner Punkte
@@ -43,13 +51,13 @@ export function sichtbareNavigation(rechte) {
   for (let i = 0; i < navItems.length; i++) {
     const eintrag = navItems[i];
     if (!eintrag.section) {
-      if (rechte[eintrag.id]) raus.push(eintrag);
+      if (darf(eintrag, rechte)) raus.push(eintrag);
       continue;
     }
     // Nur mitnehmen, wenn bis zum nächsten Abschnitt etwas Sichtbares folgt
     let hatInhalt = false;
     for (let j = i + 1; j < navItems.length && !navItems[j].section; j++) {
-      if (rechte[navItems[j].id]) { hatInhalt = true; break; }
+      if (darf(navItems[j], rechte)) { hatInhalt = true; break; }
     }
     if (hatInhalt) raus.push(eintrag);
   }

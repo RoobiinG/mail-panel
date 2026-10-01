@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   CheckCircle2, XCircle, Loader2, PlugZap, ShieldCheck, Trash2,
   Eye, EyeOff, Save, KeyRound, Cpu, Mail, Cloud, Server,
-  Link, Wifi, TestTube2, User, Settings2, FolderTree, MailOpen, Download,
+  Link, Wifi, TestTube2, User, Settings2, FolderTree, MailOpen, Download, MessageCircle,
 } from 'lucide-react';
 import api from '../api';
 import { useMelden } from '../components/ui/Meldungen';
@@ -1062,9 +1062,24 @@ export default function Einstellungen() {
             <SpeichernBtn onSpeichern={() => speichern('smtp')} meldung={meldung.smtp} />
           </Karte>
 
+          <Karte title={<><MessageCircle size={13} /> Discord-Bot (Anmeldecodes)</>}>
+            <p className="text-xs text-panel-muted">
+              Für die Zwei-Faktor-Anmeldung per Discord: Der Bot schickt Einmalcodes als Direktnachricht.
+              Jeder Benutzer kann stattdessen einen eigenen Bot hinterlegen (Seite „Sicherheit"); dieser hier gilt für alle,
+              die das nicht getan haben. Den Bot legst du im Discord Developer Portal an (Applications → Bot → Token).
+            </p>
+            <PwFeld label="Bot-Token" value={settings.discord_bot_token} placeholder="MTIz…"
+              disabled={settings.discord_bot_token_per_env} onChange={v => set('discord_bot_token', v)} />
+            <p className="text-[10px] text-panel-muted/70">
+              Der Bot braucht keine besonderen Rechte. Wer Codes erhalten soll, muss mit ihm einen Server teilen
+              und Direktnachrichten von Servermitgliedern erlauben.
+            </p>
+            <SpeichernBtn onSpeichern={() => speichern('discord')} meldung={meldung.discord} />
+          </Karte>
+
           <Karte title={<><Cloud size={13} /> Nextcloud</>}>
             <p className="text-xs text-panel-muted">
-              Für eigene Aktionen — ein App-Passwort verwenden (Nextcloud → Einstellungen → Sicherheit).
+              Für eigene Aktionen. Hier gehört ein <strong>App-Passwort</strong> hinein (Nextcloud → Persönliche Einstellungen → Sicherheit → Geräte &amp; Sitzungen) — nie das Hauptpasswort. Das Panel prüft das und lädt mit einem Hauptpasswort nichts hoch.
             </p>
             <Feld label="Nextcloud-Adresse" value={settings.nextcloud_url} placeholder="https://cloud.example.org"
               disabled={settings.nextcloud_url_per_env} onChange={v => set('nextcloud_url', v)} />

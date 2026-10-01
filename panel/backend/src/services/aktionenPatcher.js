@@ -8,6 +8,9 @@ const n8n      = require('./n8n');
 const db       = require('./../db');
 const settings = require('./settings');
 const { loggen } = require('./panelLog');
+const {
+  segmentSaeubern, dateiSaeubern, pfadSaeubern, vorlageSaeubern, quelltextFuerKnoten,
+} = require('./pfadSicherheit');
 
 const PRAEFIX = 'panel-';
 const WORKFLOW_PRAEFIX = '07';
@@ -57,29 +60,71 @@ function ausdruck(text) {
   return `=${s}`;
 }
 
-// Pfadangaben säubern: keine Sprünge nach oben, keine doppelten Schrägstriche
-function pfadSaeubern(pfad) {
-  return String(pfad || '')
-    .replace(/\\/g, '/')
-    .split('/')
-    .filter((t) => t && t !== '.' && t !== '..')
-    .join('/');
+// Pfadangaben säubern: Die Regeln (keine Sprünge nach oben, strenge Zeichenliste,
+// Unicode-Trenner, Steuerzeichen) stehen in pfadSicherheit.js. Hier gilt:
+//   pfadSaeubern     für fertige Pfade (Freigabe-Warteschlange)
+//   vorlageSaeubern  für Vorlagen mit {{platzhaltern}} (Aktions-Konfiguration)
+
+// Platzhalter, deren Wert je Anhang aus fremden Daten kommt — aus der Mail
+// (Absender, Betreff) oder aus einem PDF, das ein Modell gelesen hat (Firma,
+// Aktenzeichen, Datum). Jeder dieser Werte wird zur Laufzeit einzeln gesäubert,
+// bevor er in einen Pfad eingesetzt wird. Ohne das genügt ein Betreff "../../",
+// um aus dem Belege-Ordner auszubrechen.
+//
+// Nicht dabei: {{jahr}}/{{monat}}/{{tag}} (kommen aus der Uhr) und
+// {{beleg_t1}} (der in den Einstellungen hinterlegte Basispfad, siehe
+// vorlageAufloesen).
+const FREMDE_PLATZHALTER = [
+  '{{firma}}', '{{aktenzeichen}}', '{{datum}}', '{{absender}}', '{{betreff}}',
+  '{{konto}}', '{{kategorie}}', '{{beleg_t2}}', '{{beleg_t3}}',
+];
+const hatFremdes = (vorlage) => FREMDE_PLATZHALTER.some((p) => String(vorlage || '').includes(p));
+
+// Die Pfad-Vorlage einer Aktion, gesäubert und mit dem festen Basispfad. Den
+// ersetzt schon die Erzeugung des Workflows durch den (ebenfalls gesäuberten)
+// Wert aus den Einstellungen: So steht die Zahl der Ebenen fest, und für jede
+// Ebene lässt sich ein Ordner-Knoten bauen — auch wenn der Basispfad mehrere hat.
+function vorlageAufloesen(vorlage) {
+  const basis = pfadSaeubern(settings.hole('nextcloud_beleg_pfad')) || 'Belege';
+  return vorlageSaeubern(vorlage).split('{{beleg_t1}}').join(basis);
+}
+
+// Der Pfad der ersten `ebene` Ordnerebenen, als n8n-Ausdruck für einen Ordner-Knoten.
+//
+// Bei Werten aus Mail oder PDF: die ersten n Ebenen des fertigen, gesäuberten
+// Zielordners — gelesen vom Beleg-Knoten, nicht von $json. Ein Ordner-Knoten
+// antwortet nur mit {success: true}; schon auf der zweiten Ebene stünde in $json
+// nichts mehr vom Beleg. Die Zuordnung über .item scheitert im Zweifel laut,
+// statt einen falschen Pfad zu bilden.
+function teilPfadAusdruck(vorlage, ebene, belegKnotenName) {
+  if (hatFremdes(vorlage)) {
+    return `{{ $(${JSON.stringify(belegKnotenName)}).item.json.zielordner.split('/').slice(0, ${ebene}).join('/') }}`;
+  }
+  const teile = String(vorlage || '').split('/').filter(Boolean);
+  return ausdruck(teile.slice(0, ebene).join('/')).replace(/^=/, '');
 }
 
 // Dieselben Platzhalter, aber als JavaScript-Ausdruck (für Knoten, die ihre
 // Werte in JSON zusammenbauen). `quelle` ist der Ausdruck, der die Mail liefert.
-function jsPlatzhalter(text, quelle) {
+//
+// `huelle` (optional) ist der Name einer Funktion im Knoten, durch die jeder
+// fremde Wert läuft — für Pfade: segmentSaeubern. Ohne sie (Dateiname) säubert der
+// Knoten erst das fertige Ergebnis.
+function jsPlatzhalter(text, quelle, huelle) {
+  const wert = (feld) => (huelle
+    ? `\${${huelle}(${quelle}.${feld})}`
+    : `\${${quelle}.${feld}}`);
   const ersatz = {
     '{{jahr}}':      "${$now.toFormat('yyyy')}",
     '{{monat}}':     "${$now.toFormat('MM')}",
     '{{tag}}':       "${$now.toFormat('dd')}",
-    '{{absender}}':  `\${${quelle}.von}`,
-    '{{betreff}}':   `\${${quelle}.betreff}`,
-    '{{konto}}':     `\${${quelle}.konto}`,
-    '{{kategorie}}': `\${${quelle}.kategorie}`,
-    '{{firma}}':        `\${${quelle}.firma}`,
-    '{{datum}}':        `\${${quelle}.datum}`,
-    '{{aktenzeichen}}': `\${${quelle}.aktenzeichen}`,
+    '{{absender}}':  wert('von'),
+    '{{betreff}}':   wert('betreff'),
+    '{{konto}}':     wert('konto'),
+    '{{kategorie}}': wert('kategorie'),
+    '{{firma}}':        wert('firma'),
+    '{{datum}}':        wert('datum'),
+    '{{aktenzeichen}}': wert('aktenzeichen'),
     // Die internen Bausteine des Beleg-Presets. In ausdruck() stehen sie seit
     // jeher (siehe PLATZHALTER oben), hier fehlten sie — und das fiel nicht auf,
     // weil bisher nur der DATEINAME über diese Funktion lief, der Ordner aber
@@ -88,8 +133,8 @@ function jsPlatzhalter(text, quelle) {
     // "(beleg_t1)/(beleg_t2)" gemacht: gültiger Code, korrekter Knoten, und
     // jede Datei unter einem Ordner namens "(beleg_t1)".
     '{{beleg_t1}}': `\${${quelle}.beleg_t1}`,
-    '{{beleg_t2}}': `\${${quelle}.beleg_t2}`,
-    '{{beleg_t3}}': `\${${quelle}.beleg_t3}`,
+    '{{beleg_t2}}': wert('beleg_t2'),
+    '{{beleg_t3}}': wert('beleg_t3'),
   };
   // Rückwärts-Anführungszeichen würden das Template beenden, ${…} beliebigen
   // Code einschleusen — beides wird entfernt, bevor die Platzhalter kommen.
@@ -156,7 +201,7 @@ function bedingungsKnoten(aktion, bedingung, position) {
 // Aktenzeichen, Absender …)? Dann darf der Ordner-Knoten NICHT nur einmal laufen —
 // sonst würde bei mehreren Absendern/Vorgängen in einem Lauf nur der erste Ordner
 // angelegt und der Rest liefe ins Leere. $now und $json.konto sind pro Lauf stabil.
-const PRO_ITEM = /\$json\.(firma|aktenzeichen|beleg_t2|beleg_t3|von|betreff|kategorie|dateiname)\b/;
+const PRO_ITEM = /\$json\.(firma|aktenzeichen|beleg_t2|beleg_t3|von|betreff|kategorie|dateiname|zielordner)\b/;
 
 // Nextcloud legt beim Hochladen keine fehlenden Ordner an — deshalb je Ebene
 // ein eigener Knoten. Existiert der Ordner schon, meldet der Knoten einen
@@ -208,6 +253,11 @@ function belegDatenKnoten(aktion, konfig, quellKnotenName, position) {
   const geheim = process.env.PANEL_SECRET || '';
   const nameRoh = String(k.dateiname || '').trim();
   const nameAusdruck = nameRoh ? jsPlatzhalter(nameRoh, 'j') : 'rohOhne';
+  // Der Zielordner wird HIER ausgerechnet, je Anhang, und jeder fremde Wert läuft
+  // einzeln durch __s (segmentSaeubern). Die Knoten danach (Ordner, Upload,
+  // Freigabe) lesen nur noch dieses Ergebnis — sie setzen nirgends mehr
+  // Mail- oder PDF-Inhalte selbst in einen Pfad ein.
+  const zielAusdruck = jsPlatzhalter(vorlageAufloesen(k.ordner), 'j', '__s');
 
   // Nur beim Auslesen: das PDF ans Panel schicken und Nicht-Belege verwerfen.
   const leseBlock = auslesen ? String.raw`
@@ -219,27 +269,31 @@ function belegDatenKnoten(aktion, konfig, quellKnotenName, position) {
         json: true,
       });
       if (!r || r.speichern !== true) continue;
-      if (r.firma) firma = String(r.firma);
-      if (r.datum) datum = String(r.datum);
-      if (r.aktenzeichen) aktenzeichen = String(r.aktenzeichen);
+      // Firma und Aktenzeichen hat ein Modell aus einem fremden PDF gelesen. Das
+      // Panel säubert sie schon — hier noch einmal, denn ab hier werden sie Teil
+      // eines Pfads. Das Datum gilt nur, wenn es wie ein Datum aussieht.
+      if (r.firma) firma = __s(r.firma);
+      if (r.datum && /^\d{4}-\d{2}-\d{2}$/.test(String(r.datum))) datum = String(r.datum);
+      if (r.aktenzeichen) aktenzeichen = __s(r.aktenzeichen);
     } catch (e) { continue; }` : '';
 
   // Nur beim Auslesen: eigener Ordner je Vorgang (Belege/Firma/Aktenzeichen),
   // sonst nach Jahr (Belege/Jahr/Firma). Die drei Teile füllen {{beleg_t1..3}}.
-  const belegPfad = settings.hole('nextcloud_beleg_pfad') || 'Belege';
-  const ordnerBlock = auslesen ? String.raw`
+  const belegPfad = pfadSaeubern(settings.hole('nextcloud_beleg_pfad')) || 'Belege';
+  const ordnerBlock = (auslesen ? String.raw`
     j.beleg_t1 = ${JSON.stringify(belegPfad)};
     if (aktenzeichen) { j.beleg_t2 = firma; j.beleg_t3 = aktenzeichen; }
-    else { j.beleg_t2 = (datum || '').slice(0, 4) || heute().slice(0, 4); j.beleg_t3 = firma; }` : '';
+    else { j.beleg_t2 = (datum || '').slice(0, 4) || heute().slice(0, 4); j.beleg_t3 = firma; }` : '')
+    + String.raw`
+    j.zielordner = ${zielAusdruck};`;
 
   const jsCode = String.raw`// Vom Mail-Panel gepflegt, bitte nicht von Hand ändern.
 // Prüft je Anhang, ob es ein Beleg ist, und reichert firma/datum/aktenzeichen an.
-function sauberDatei(name) {
-  return String(name == null ? '' : name)
-    .replace(/[\\/:*?"<>|]/g, ' ')
-    .replace(/[\x00-\x1f]/g, '')
-    .replace(/\s+/g, ' ').trim().slice(0, 120) || 'beleg';
-}
+//
+// __s und sauberDatei sind dieselben Funktionen wie im Panel (pfadSicherheit.js):
+// Mail- und PDF-Inhalte dürfen nur durch sie in einen Ordner- oder Dateinamen.
+${quelltextFuerKnoten(segmentSaeubern, '__s')}
+${quelltextFuerKnoten(dateiSaeubern, 'sauberDatei')}
 function firmaAus(von) {
   const a = String(von || '').toLowerCase().match(/[^<\s]+@[^>\s]+/);
   const dom = (a ? a[0].split('@')[1] : '').replace(/^(www|mail|email|smtp|mx|news|newsletter|mailer|send|bounce|reply|no-?reply)\./, '');
@@ -277,6 +331,9 @@ for (const mail of $('${quellKnotenName}').all()) {
       json: true,
     });
     __dateien = (__r && __r.anhaenge) || [];
+    // Zu viele oder zu große Anhänge: Das Panel holt dann gar nichts. Ohne diese
+    // Zeile stünde im Lauf nur „nichts passiert".
+    if (__r && __r.abgebrochen) console.log('Mail übersprungen (' + __r.abgebrochen + '): ' + (__r.fehler || ''));
   } catch (__e) {
     console.log('Anhänge nicht abrufbar: ' + (__e.message || __e));
     continue;
@@ -341,8 +398,16 @@ function belegBereitstellenKnoten(aktion, belegDatenName, position) {
 }
 
 function nextcloudDateiKnoten(aktion, konfig, position, credentialId) {
-  // Ordner kommt vom Nutzer (mit Platzhaltern), der Dateiname vom Beleg-Knoten
-  const ordner = ausdruck(pfadSaeubern(konfig.ordner)).replace(/^=/, '');
+  // Ordner kommt vom Nutzer (mit Platzhaltern), der Dateiname vom Beleg-Knoten.
+  //
+  // Enthält die Vorlage Werte aus Mail oder PDF, steht der fertige, gesäuberte Pfad
+  // schon am Item (zielordner, siehe belegDatenKnoten). Der Upload-Knoten hängt
+  // nach "Anhang bereitstellen", dessen Items genau die des Beleg-Knotens sind —
+  // $json trägt das Feld hier also.
+  const vorlage = vorlageAufloesen(konfig.ordner);
+  const ordner = hatFremdes(vorlage)
+    ? '{{ $json.zielordner }}'
+    : ausdruck(vorlage).replace(/^=/, '');
   return {
     parameters: {
       resource: 'file',
@@ -409,11 +474,12 @@ return [];`;
 // Ordner-Knoten, Bereitstellen und Upload entfallen, und die Aktion braucht
 // dann nicht einmal ein Nextcloud-Credential in n8n.
 //
-// Der Zielpfad wird hier schon ausgerechnet, damit in der Warteschlange ein
-// fertiger Vorschlag steht, den man ansehen und ändern kann.
+// Der Zielpfad steht schon fertig am Item (zielordner, vom Beleg-Knoten berechnet
+// und gesäubert), damit in der Warteschlange ein Vorschlag steht, den man ansehen
+// und ändern kann. Das Panel säubert ihn beim Einliefern ein weiteres Mal.
 function freigabeKnoten(aktion, konfig, belegDatenName, position) {
   const geheim = process.env.PANEL_SECRET || '';
-  const pfadAusdruck = jsPlatzhalter(pfadSaeubern((konfig || {}).ordner), 'j');
+  const pfadAusdruck = 'j.zielordner';
 
   const jsCode = String.raw`// Vom Mail-Panel gepflegt, bitte nicht von Hand ändern.
 // Legt jeden Anhang zur Freigabe ins Panel, statt ihn hochzuladen.
@@ -645,14 +711,16 @@ async function synchronisieren() {
         return;
       }
 
-      const teile = pfadSaeubern(a.konfig.ordner).split('/').filter(Boolean);
+      const vorlage = vorlageAufloesen(a.konfig.ordner);
+      const teile = vorlage.split('/').filter(Boolean);
       // Ist der Gesamtpfad dynamisch (Firma/Aktenzeichen …)? Dann darf kein
       // Ordner-Knoten der Kette den Item-Strom auf einen Anhang kürzen.
-      const dynamisch = PRO_ITEM.test(ausdruck(pfadSaeubern(a.konfig.ordner)));
+      const fremd = hatFremdes(vorlage);
+      const dynamisch = fremd || PRO_ITEM.test(ausdruck(vorlage));
       let vorheriger = beleg.name;
       let x = 700;
       teile.forEach((_, tiefe) => {
-        const bisher = ausdruck(teile.slice(0, tiefe + 1).join('/')).replace(/^=/, '');
+        const bisher = teilPfadAusdruck(vorlage, tiefe + 1, beleg.name);
         const knoten = ordnerKnoten(a, bisher, tiefe + 1, [x, y], nextcloudCred, dynamisch);
         workflow.nodes.push(knoten);
         workflow.connections[vorheriger] = { main: [[{ node: knoten.name, type: 'main', index: 0 }]] };
@@ -694,7 +762,7 @@ async function synchronisieren() {
 }
 
 module.exports = {
-  synchronisieren, veroeffentlichen, ausdruck, pfadSaeubern,
+  synchronisieren, veroeffentlichen, ausdruck, pfadSaeubern, vorlageAufloesen, hatFremdes, teilPfadAusdruck,
   belegDatenKnoten, belegBereitstellenKnoten, ordnerKnoten, bedingungsKnoten, freigabeKnoten,
   nextcloudDateiKnoten, nextcloudFehlerKnoten,
   jsPlatzhalter,

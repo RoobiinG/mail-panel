@@ -424,6 +424,33 @@ Panel-Adresse gesetzt sein (`https://panel.example.org`) — sonst weigert sich 
 Passkeys anzulegen. Das ist Absicht: Ohne festgelegte Herkunft ließen sich Passkeys
 untergeschoben registrieren.
 
+## Zwei-Faktor-Anmeldung (2FA)
+
+Freiwillig und je Benutzer: Unter **Sicherheit** (Menü „Mein Konto", für jeden Angemeldeten
+sichtbar) richtest du ein, dass nach dem Passwort ein Code abgefragt wird. Es gibt drei
+Methoden, du kannst alle einrichten und dir **bei jeder Anmeldung eine aussuchen**:
+
+| Methode | Wie der Code ankommt |
+|---|---|
+| **Authenticator-App** | Aegis, Google Authenticator, Bitwarden o. Ä. — QR-Code scannen, der Code wechselt alle 30 Sekunden. Braucht kein Netz und keine Einrichtung im Panel. |
+| **E-Mail** | Sechsstelliger Code per Mail über den **Postausgang des Panels** (*Einstellungen → Dienste → Postausgang*). |
+| **Discord** | Sechsstelliger Code als Direktnachricht eines Bots. Den Bot legst du im Discord Developer Portal an; sein Token trägst du unter *Einstellungen → Dienste → Discord-Bot* ein (oder per `DISCORD_BOT_TOKEN`). Jeder Benutzer kann stattdessen einen **eigenen Bot** hinterlegen. Der Bot muss mit dem Empfänger einen Server teilen, und dieser muss Direktnachrichten von Servermitgliedern erlauben. |
+
+So läuft die Anmeldung ab: Nach dem richtigen Passwort gibt es **noch keine Sitzung**, sondern nur
+ein Ticket, das fünf Minuten gilt und ausschließlich für die Code-Eingabe taugt. Erst ein
+richtiger Code liefert die Sitzung — samt Rolle und Rechten. Codes gelten nur einmal und höchstens
+zehn Minuten (beim Login begrenzt das Ticket auf fünf), liegen nur als Prüfsumme in der
+Datenbank, und Durchprobieren ist mehrfach gebremst
+(fünf Fehlversuche je Ticket, zehn je Benutzer in 15 Minuten, dazu eine Grenze je Adresse).
+
+- Eine Methode ist erst **aktiv, wenn du sie mit einem echten Code bestätigt hast** — so sperrt
+  ein Tippfehler in der Adresse niemanden aus. Einrichten und Abschalten verlangen dein Passwort.
+- Wer **keine** Methode einrichtet, meldet sich wie bisher mit dem Passwort allein an.
+- Eine Anmeldung per **Passkey** braucht keinen zusätzlichen Code: Er ist selbst schon Besitz
+  (das Gerät) und Entsperrung (PIN, Fingerabdruck) in einem.
+- **Gerät verloren?** Ein Admin setzt die 2FA unter *Benutzer & Rollen* mit dem Schild-Knopf zurück.
+  Danach genügt das Passwort, und du richtest sie neu ein.
+
 ## Mailcow anbinden
 
 Nur für die Rspamd-Quarantäne im Digest und das Rspamd-Tuning. Mails lesen und verschieben
@@ -517,10 +544,23 @@ In Textfeldern sind diese Platzhalter erlaubt: `{{jahr}}`, `{{monat}}`, `{{tag}}
 `{{absender}}`, `{{betreff}}`, `{{konto}}`, `{{kategorie}}`. Ist bei einer Datei-Aktion
 **„Inhalt lesen & prüfen"** aktiv, kommen `{{firma}}`, `{{datum}}` und `{{aktenzeichen}}`
 hinzu — sie werden aus dem PDF gelesen. Ein optionales Feld **Dateiname** benennt die abgelegte
-Datei um (leer = Originalname). Fehlende Ordner im Zielpfad legt das Panel beim Ablegen selbst an.
+Datei um (leer = Originalname). Fehlende Ordner im Zielpfad legt das Panel beim Ablegen selbst an:
+Es fragt zuerst per WebDAV (`PROPFIND`), ob der Ordner existiert, und legt nur die fehlenden Ebenen
+nacheinander an (`MKCOL`).
 
-Für Nextcloud unbedingt ein App-Passwort verwenden (Nextcloud → Einstellungen → Sicherheit),
-nicht das Konto-Passwort.
+**Ordnernamen aus fremden Daten sind abgesichert.** Betreff, Absender, Firma und Aktenzeichen
+stammen aus einer Mail oder aus einem PDF, das ein Modell gelesen hat — also von Fremden. Jeder
+dieser Werte wird einzeln gesäubert, bevor er in einen Pfad kommt: kein `..`, keine Schrägstriche
+(auch nicht ihre Unicode-Doppelgänger), keine Steuerzeichen, nur Buchstaben, Ziffern und wenige
+Satzzeichen. Aus `../../` im Betreff wird `unbekannt`, nie ein Sprung aus dem Belege-Ordner.
+Zusätzlich lehnt das Panel vor jedem Upload einen Pfad ab, der den Bereich des Benutzers verlassen
+würde.
+
+**Nextcloud verlangt ein App-Passwort — das Panel prüft es.** Anlegen unter Nextcloud →
+Persönliche Einstellungen → Sicherheit → Geräte & Sitzungen. Steht in den Einstellungen das
+Hauptpasswort, lädt das Panel **nichts hoch** und gibt es auch nicht an n8n weiter; die
+Einstellungen zeigen dann eine Meldung. (Erkannt wird das daran, dass Nextcloud mit einem
+App-Passwort keine weiteren App-Passwörter ausstellt.)
 
 **Google ohne n8n-Anmeldung:** Der Google-Kalender-Knoten von n8n kann nur OAuth2, und
 dessen Zustimmungsdialog läuft in der n8n-Oberfläche — genau das wollen wir vermeiden.
@@ -550,8 +590,17 @@ Warum der Umweg über das Panel? Weil so **alle** Anhänge geprüft werden, nich
 und weil es auch für die **Bestands-Triage** funktioniert: Deren Abruf-Knoten liefert nur die
 Namen der Anhänge, nicht die Dateien selbst.
 
-Grenzen: höchstens 20 Anhänge je Mail, höchstens 30 MB je Datei. Was darüber liegt, wird im
-Ergebnis als übersprungen ausgewiesen — sichtbar im Panel unter *Workflows → Läufe*.
+Grenzen: höchstens 20 Anhänge je Mail, höchstens 30 MB je Datei. **Wird eine überschritten,
+bricht die Verarbeitung der ganzen Mail ab — bevor etwas heruntergeladen wird** — und der
+Virenscan meldet sie als *nicht sauber*: Die Mail geht in die Quarantäne, die Telegram-Warnung
+heißt dann „Anhänge nicht prüfbar" mit dem Grund (statt „Virus gefunden"). Früher wurde ab dem
+21. Anhang stillschweigend nichts mehr geprüft; wer die schädliche Datei an Stelle 21 setzte,
+kam durch. Die Grenzen gelten auch fürs Beleg-Lesen und die Upload-Freigabe. Eine Mail mit sehr
+vielen eingebetteten Bildern kann deshalb in der Quarantäne landen — dort lässt sie sich
+freigeben.
+
+Die Endpunkte für Scan, Anhang-Abruf, Beleg-Lesen und Upload-Einlieferung nehmen entweder das
+**Panel-Secret** (n8n) oder die Anmeldung eines **Admins** an — sonst nichts.
 
 Ist ClamAV nicht erreichbar, bricht der Lauf ab und die Mail bleibt liegen. Das ist Absicht:
 Lieber unsortiert als ungeprüft durchgewunken.
@@ -653,7 +702,8 @@ Synchronisieren selbst in n8n an. Du musst dafür nichts eintragen.
 
 Unter **Benutzer & Rollen** legst du weitere Zugänge an und gibst ihnen einzelne Seiten frei
 oder verwehrst sie. Praktisch, wenn jemand nur die Quarantäne durchsehen, aber keine
-Einstellungen ändern soll.
+Einstellungen ändern soll. Die Spalte **2FA** zeigt, wer eine Zwei-Faktor-Methode eingerichtet hat;
+bei verlorenem Gerät setzt du sie dort zurück (siehe *Zwei-Faktor-Anmeldung*).
 
 ---
 
@@ -668,7 +718,8 @@ erreichbaren Server **echte Post** verwaltet, geh einmal diese Liste durch:
   die Ports, oder binde sie an `127.0.0.1` (`PANEL_PORT=127.0.0.1:3002`, dito n8n). Wie genau,
   steht oben unter *Optionale Erweiterungen → HTTPS → Mit einem Reverse Proxy davor*.
 - [ ] **Starke Passwörter** für das Panel-Admin-Konto und das n8n-Owner-Konto; für das Panel
-  zusätzlich gern einen **Passkey** (Fingerabdruck/Sicherheitsschlüssel).
+  zusätzlich gern einen **Passkey** (Fingerabdruck/Sicherheitsschlüssel) oder die
+  **Zwei-Faktor-Anmeldung** unter *Sicherheit* (Authenticator-App, E-Mail oder Discord).
 - [ ] **Erst Trockenlauf, dann scharf** (Schritt 9): einschalten, im Log prüfen, ob Spam,
   Newsletter und Rechnungen richtig erkannt werden, und erst dann ausschalten. So bewegt nichts
   deine echte Post, bevor du zufrieden bist.

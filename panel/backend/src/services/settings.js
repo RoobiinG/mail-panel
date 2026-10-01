@@ -76,6 +76,10 @@ const FELDER = {
   // Panel stand. Auf '0' bleibt es beim Knopf. Siehe services/autoSync.js.
   auto_sync:            { env: 'AUTO_SYNC', geheim: false, standard: '1' },
   telegram_chat_id:     { env: 'TELEGRAM_CHAT_ID', geheim: false },
+  // Discord-Bot für Einmalcodes der Zwei-Faktor-Anmeldung (services/discord.js).
+  // Jeder Benutzer kann stattdessen einen eigenen Bot hinterlegen; dieser hier gilt
+  // für alle, die das nicht getan haben.
+  discord_bot_token:    { env: 'DISCORD_BOT_TOKEN', geheim: true },
   // Postausgang für Workflow 06 (Newsletter abbestellen per Mail)
   smtp_host:            { env: 'SMTP_HOST', geheim: false },
   smtp_port:            { env: 'SMTP_PORT', geheim: false, standard: '587' },
